@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audit Logs · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+        .btn-outline:hover { background: #f5f1e8; }
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-provisional { background: #fff0cb; color: #8a6413; }
+        .badge-returned { background: #f8e1dc; color: #9b3c31; }
+
+        .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(4, 1fr); } }
+        .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.navy { background: #e7edf5; color: #24466f; }
+        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+        .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+        .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; }
+        .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.95rem; }
+        .metric-detail { margin-top: 0.15rem; font-size: 0.75rem; color: #6b778b; }
+
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .table-wrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+        .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+        .table-wrap th { padding: 1rem; }
+        .table-wrap td { padding: 1rem; border-top: 1px solid #eee8de; }
+        .table-wrap .avatar { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #e7edf5; font-size: 0.6rem; font-weight: 700; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .text-center { text-align: center; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+        .toast.info { background: #1e3a5f; }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #3f755d; }
+        .status-dot.gold { background: #d6ad4b; }
+        .status-dot.blue { background: #24466f; }
+
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1.25rem;
+            border-top: 1px solid #eee8de;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .pagination .info { font-size: 0.8rem; color: #6b778b; }
+        .pagination .pages { display: flex; gap: 0.25rem; }
+        .pagination .pages button {
+            padding: 0.3rem 0.7rem;
+            border: 1px solid #ded6c9;
+            border-radius: 0.3rem;
+            background: white;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #17233c;
+        }
+        .pagination .pages button:hover { border-color: #a77915; }
+        .pagination .pages button.active { background: #10233f; color: white; border-color: #10233f; }
+        .pagination .pages button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Read-only badge */
+        .readonly-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: #e8edf2; color: #536274; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST NOTIFICATION ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="management.html" class="nav-item"><i class="fas fa-clipboard-list"></i> Management</a>
+                <a href="Sessions.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="AuditLogs.html" class="nav-item active"><i class="fas fa-history"></i> Audit Logs · Read only</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RASD</span></div>
+                <div class="role-scope" id="roleScope">All hostels · Sessions · Reports</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="management.html" class="nav-item"><i class="fas fa-clipboard-list"></i> Management</a>
+                <a href="Sessions.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="AuditLogs.html" class="nav-item active"><i class="fas fa-history"></i> Audit Logs · Read only</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">RASD · All hostels · Sessions · Reports</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Loading...</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+                        <a href="Profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar"></span>
+                            <span class="profile-name" id="profileName"></span>
+                            <span class="profile-role" id="profileRoleLabel">RASD</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-history"></i>
+                    <span id="noticeText">Loading audit logs...</span>
+                </div>
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // CONFIGURATION
+            // =============================================
+            const API_BASE_URL = 'http://localhost:3000/api';
+            const ITEMS_PER_PAGE = 15;
+
+            // =============================================
+            // TOAST NOTIFICATION
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'RASD';
+            let auditLogs = [];
+            let filteredLogs = [];
+            let currentPage = 1;
+            let currentFilter = 'all';
+
+            // Sample audit logs data
+            const sampleLogs = [
+                { 
+                    id: 1,
+                    actor: 'Ibrahim Musa',
+                    action: 'Login',
+                    context: 'Logged in from IP 192.168.1.100',
+                    time: 'Oct 14, 2026 10:30 AM',
+                    created_at: '2026-10-14T10:30:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 2,
+                    actor: 'John Doe',
+                    action: 'Approve',
+                    context: 'Approved BedCheck submission for Champions Hostel',
+                    time: 'Oct 14, 2026 10:45 PM',
+                    created_at: '2026-10-14T22:45:00',
+                    tone: 'green'
+                },
+                { 
+                    id: 3,
+                    actor: 'Mary Johnson',
+                    action: 'Create',
+                    context: 'Created BedCheck session for Grace Hostel',
+                    time: 'Oct 14, 2026 09:30 PM',
+                    created_at: '2026-10-14T21:30:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 4,
+                    actor: 'Sacha Troger',
+                    action: 'Delete',
+                    context: 'Deleted student record: SCN/CSC/230586',
+                    time: 'Oct 14, 2026 04:15 PM',
+                    created_at: '2026-10-14T16:15:00',
+                    tone: 'red'
+                },
+                { 
+                    id: 5,
+                    actor: 'David Okonkwo',
+                    action: 'Update',
+                    context: 'Updated student status: Daniel Okafor → Present',
+                    time: 'Oct 14, 2026 10:20 PM',
+                    created_at: '2026-10-14T22:20:00',
+                    tone: 'gold'
+                },
+                { 
+                    id: 6,
+                    actor: 'Amina Abubakar',
+                    action: 'Login',
+                    context: 'Logged in from IP 192.168.1.105',
+                    time: 'Oct 14, 2026 08:45 AM',
+                    created_at: '2026-10-14T08:45:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 7,
+                    actor: 'John Doe',
+                    action: 'Approve',
+                    context: 'Approved official report for Week 41',
+                    time: 'Oct 14, 2026 11:00 PM',
+                    created_at: '2026-10-14T23:00:00',
+                    tone: 'green'
+                },
+                { 
+                    id: 8,
+                    actor: 'Ibrahim Musa',
+                    action: 'Logout',
+                    context: 'Logged out from IP 192.168.1.100',
+                    time: 'Oct 14, 2026 11:30 PM',
+                    created_at: '2026-10-14T23:30:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 9,
+                    actor: 'Mary Johnson',
+                    action: 'Update',
+                    context: 'Updated hostel configuration for Purpose Hostel',
+                    time: 'Oct 14, 2026 03:00 PM',
+                    created_at: '2026-10-14T15:00:00',
+                    tone: 'gold'
+                },
+                { 
+                    id: 10,
+                    actor: 'Sacha Troger',
+                    action: 'Create',
+                    context: 'Created new staff account for David Okonkwo',
+                    time: 'Oct 14, 2026 02:30 PM',
+                    created_at: '2026-10-14T14:30:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 11,
+                    actor: 'John Doe',
+                    action: 'Update',
+                    context: 'Updated attendance for Champions Hostel: 342/350 present',
+                    time: 'Oct 13, 2026 10:50 PM',
+                    created_at: '2026-10-13T22:50:00',
+                    tone: 'gold'
+                },
+                { 
+                    id: 12,
+                    actor: 'Amina Abubakar',
+                    action: 'View',
+                    context: 'Viewed report: Weekly attendance report',
+                    time: 'Oct 13, 2026 09:00 AM',
+                    created_at: '2026-10-13T09:00:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 13,
+                    actor: 'Ibrahim Musa',
+                    action: 'Delete',
+                    context: 'Deleted student record: SCN/CSC/230587',
+                    time: 'Oct 13, 2026 11:15 AM',
+                    created_at: '2026-10-13T11:15:00',
+                    tone: 'red'
+                },
+                { 
+                    id: 14,
+                    actor: 'Mary Johnson',
+                    action: 'Create',
+                    context: 'Created BedCheck session for Purpose Hostel',
+                    time: 'Oct 12, 2026 09:30 PM',
+                    created_at: '2026-10-12T21:30:00',
+                    tone: 'blue'
+                },
+                { 
+                    id: 15,
+                    actor: 'David Okonkwo',
+                    action: 'Login',
+                    context: 'Logged in from IP 192.168.1.110',
+                    time: 'Oct 12, 2026 08:00 PM',
+                    created_at: '2026-10-12T20:00:00',
+                    tone: 'blue'
+                }
+            ];
+
+            // =============================================
+            // API HELPER
+            // =============================================
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(options.headers || {})
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function getInitials(name) {
+                if (!name) return 'U';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function formatTime(date) {
+                if (!date) return 'Just now';
+                const d = new Date(date);
+                return d.toLocaleString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true
+                });
+            }
+
+            function getToneColor(tone) {
+                const map = {
+                    'red': '#b34a3b',
+                    'gold': '#d09b2e',
+                    'blue': '#365c8d',
+                    'green': '#2d6545'
+                };
+                return map[tone] || '#365c8d';
+            }
+
+            function getActionBadge(action) {
+                const map = {
+                    'Login': 'badge-draft',
+                    'Logout': 'badge-draft',
+                    'Create': 'badge-approved',
+                    'Update': 'badge-provisional',
+                    'Delete': 'badge-returned',
+                    'View': 'badge-draft',
+                    'Approve': 'badge-approved'
+                };
+                return map[action] || 'badge-draft';
+            }
+
+            // =============================================
+            // DATA LOADING
+            // =============================================
+            async function loadAuditLogs() {
+                try {
+                    const data = await apiCall('/audit');
+                    auditLogs = data.data || [];
+                    if (auditLogs.length === 0) {
+                        auditLogs = sampleLogs;
+                    }
+                    filteredLogs = [...auditLogs];
+                    return auditLogs;
+                } catch (error) {
+                    auditLogs = sampleLogs;
+                    filteredLogs = [...auditLogs];
+                    return auditLogs;
+                }
+            }
+
+            // =============================================
+            // UPDATE HEADER
+            // =============================================
+            function updateHeader() {
+                if (!currentUser) return;
+                
+                const avatar = document.getElementById('profileAvatar');
+                const name = document.getElementById('profileName');
+                const role = document.getElementById('profileRoleLabel');
+                const roleLabel = document.getElementById('roleLabel');
+                const roleScope = document.getElementById('roleScope');
+                const mobileRole = document.getElementById('mobileRoleFooter');
+
+                const initials = currentUser.initials || getInitials(currentUser.name);
+                const displayName = currentUser.name || 'User';
+
+                avatar.textContent = initials;
+                name.textContent = displayName;
+                role.textContent = 'RASD';
+                roleLabel.textContent = 'RASD';
+                roleScope.textContent = 'All hostels · Sessions · Reports';
+                mobileRole.textContent = `RASD · All hostels · Sessions · Reports`;
+            }
+
+            // =============================================
+            // RENDER AUDIT LOGS
+            // =============================================
+            function renderAuditLogs() {
+                const container = document.getElementById('screenContent');
+
+                const total = auditLogs.length;
+                const today = auditLogs.filter(l => {
+                    const d = new Date(l.created_at);
+                    const now = new Date();
+                    return d.toDateString() === now.toDateString();
+                }).length;
+                const thisWeek = auditLogs.filter(l => {
+                    const d = new Date(l.created_at);
+                    const now = new Date();
+                    const weekStart = new Date(now);
+                    weekStart.setDate(now.getDate() - now.getDay());
+                    return d >= weekStart;
+                }).length;
+
+                const start = (currentPage - 1) * ITEMS_PER_PAGE;
+                const end = start + ITEMS_PER_PAGE;
+                const pageLogs = filteredLogs.slice(start, end);
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-history"></i> Traceability</p>
+                            <h1>Audit Logs</h1>
+                            <p class="desc">Every action is recorded for compliance and security. <span class="readonly-badge"><i class="fas fa-eye"></i> Read Only</span></p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-outline" onclick="exportAudit()"><i class="fas fa-download"></i> Export CSV</button>
+                            <button class="btn-primary" onclick="refreshAudit()"><i class="fas fa-sync"></i> Refresh</button>
+                        </div>
+                    </div>
+
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-file-alt"></i></div>
+                            <div class="metric-value">${total}</div>
+                            <div class="metric-title">Total Events</div>
+                            <div class="metric-detail">All logged events</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-calendar-day"></i></div>
+                            <div class="metric-value">${today}</div>
+                            <div class="metric-title">Today</div>
+                            <div class="metric-detail">Events today</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gray"><i class="fas fa-calendar-week"></i></div>
+                            <div class="metric-value">${thisWeek}</div>
+                            <div class="metric-title">This Week</div>
+                            <div class="metric-detail">Events this week</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+                            <div class="metric-value">${auditLogs.filter(l => l.tone === 'red').length}</div>
+                            <div class="metric-title">Critical</div>
+                            <div class="metric-detail">Critical events</div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-6">
+                        <div class="flex-between">
+                            <div class="card-title">Event Log</div>
+                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                <select id="filterAction" onchange="applyFilters()" style="padding:0.4rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.8rem;background:white;outline:none;">
+                                    <option value="all">All Actions</option>
+                                    <option value="Login">Login</option>
+                                    <option value="Logout">Logout</option>
+                                    <option value="Create">Create</option>
+                                    <option value="Update">Update</option>
+                                    <option value="Delete">Delete</option>
+                                    <option value="View">View</option>
+                                    <option value="Approve">Approve</option>
+                                </select>
+                                <select id="filterTone" onchange="applyFilters()" style="padding:0.4rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.8rem;background:white;outline:none;">
+                                    <option value="all">All Severity</option>
+                                    <option value="blue">ℹ️ Info</option>
+                                    <option value="green">✅ Success</option>
+                                    <option value="gold">⚠️ Warning</option>
+                                    <option value="red">🔴 Critical</option>
+                                </select>
+                                <button class="btn-ghost" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
+                            </div>
+                        </div>
+
+                        <div class="table-wrap mt-4">
+                            <table>
+                                <thead><tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                    <th>Severity</th>
+                                </tr></thead>
+                                <tbody id="auditTableBody">
+                                    ${pageLogs.length === 0 ? `
+                                        <tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">No audit logs found</td></tr>
+                                    ` : pageLogs.map(log => {
+                                        const toneColor = getToneColor(log.tone);
+                                        const toneDisplay = {
+                                            'blue': 'ℹ️ Info',
+                                            'green': '✅ Success',
+                                            'gold': '⚠️ Warning',
+                                            'red': '🔴 Critical'
+                                        }[log.tone] || 'ℹ️ Info';
+                                        const actionBadge = getActionBadge(log.action);
+                                        return `
+                                            <tr>
+                                                <td style="white-space:nowrap;font-weight:600;color:#10233f;">${log.time || formatTime(log.created_at)}</td>
+                                                <td>
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                                                        <span class="avatar">${getInitials(log.actor)}</span>
+                                                        <span class="font-bold">${log.actor || 'System'}</span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <span class="badge ${actionBadge}">
+                                                        ${log.action || 'Action'}
+                                                    </span>
+                                                </td>
+                                                <td>${log.context || '—'}</td>
+                                                <td>
+                                                    <span style="display:inline-block;padding:0.15rem 0.6rem;border-radius:9999px;font-size:0.6rem;font-weight:700;background:${toneColor}22;color:${toneColor};">
+                                                        ${toneDisplay}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="pagination">
+                            <div class="info" id="paginationInfo">Showing ${pageLogs.length > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}-${Math.min(currentPage * ITEMS_PER_PAGE, filteredLogs.length)} of ${filteredLogs.length} events</div>
+                            <div class="pages" id="paginationControls"></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                        </p>
+                    </div>
+                `;
+
+                updatePagination();
+            }
+
+            // =============================================
+            // UPDATE PAGINATION
+            // =============================================
+            function updatePagination() {
+                const total = filteredLogs.length;
+                const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+                const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+                const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
+
+                document.getElementById('paginationInfo').textContent = 
+                    `Showing ${total > 0 ? start : 0}-${end} of ${total} events`;
+
+                const controls = document.getElementById('paginationControls');
+                let html = '';
+                html += `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+                
+                for (let i = 1; i <= Math.min(totalPages, 7); i++) {
+                    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+                    } else if (i === currentPage - 3 || i === currentPage + 3) {
+                        html += `<button disabled>...</button>`;
+                    }
+                }
+                
+                html += `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+                controls.innerHTML = html;
+            }
+
+            // =============================================
+            // FILTERS
+            // =============================================
+            function applyFilters() {
+                const action = document.getElementById('filterAction').value;
+                const tone = document.getElementById('filterTone').value;
+
+                filteredLogs = auditLogs.filter(log => {
+                    const actionMatch = action === 'all' || log.action === action;
+                    const toneMatch = tone === 'all' || log.tone === tone;
+                    return actionMatch && toneMatch;
+                });
+
+                currentPage = 1;
+                renderAuditLogs();
+            }
+
+            function resetFilters() {
+                document.getElementById('filterAction').value = 'all';
+                document.getElementById('filterTone').value = 'all';
+                filteredLogs = [...auditLogs];
+                currentPage = 1;
+                renderAuditLogs();
+            }
+
+            function changePage(page) {
+                const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
+                if (page < 1 || page > totalPages) return;
+                currentPage = page;
+                renderAuditLogs();
+            }
+
+            // =============================================
+            // EXPORT AUDIT
+            // =============================================
+            function exportAudit() {
+                const data = filteredLogs.map(log => 
+                    `${log.time || formatTime(log.created_at)},${log.actor},${log.action},${log.context},${log.tone}`
+                ).join('\n');
+                
+                const header = 'Time,User,Action,Details,Severity\n';
+                const blob = new Blob([header + data], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `audit_logs_${new Date().toISOString().slice(0,10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast(`${filteredLogs.length} audit logs exported`, 'success');
+            }
+
+            // =============================================
+            // REFRESH AUDIT
+            // =============================================
+            async function refreshAudit() {
+                try {
+                    showToast('Refreshing audit logs...', 'info');
+                    await loadAuditLogs();
+                    filteredLogs = [...auditLogs];
+                    renderAuditLogs();
+                    showToast('Audit logs refreshed', 'success');
+                } catch (error) {
+                    showToast('Error refreshing: ' + error.message, 'error');
+                }
+            }
+
+            // =============================================
+            // AUTHENTICATION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'RASD';
+                
+                updateHeader();
+                
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('login.html');
+            }
+
+            // =============================================
+            // SET DATE
+            // =============================================
+            function setDate() {
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+            }
+
+            // =============================================
+            // MOBILE DRAWER
+            // =============================================
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.showToast = showToast;
+            window.applyFilters = applyFilters;
+            window.resetFilters = resetFilters;
+            window.changePage = changePage;
+            window.exportAudit = exportAudit;
+            window.refreshAudit = refreshAudit;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                
+                setDate();
+                
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.logout-btn').forEach(btn => {
+                    btn.addEventListener('click', handleLogout);
+                });
+
+                try {
+                    document.getElementById('noticeText').textContent = 'Loading audit logs...';
+                    await loadAuditLogs();
+                    filteredLogs = [...auditLogs];
+                    renderAuditLogs();
+                    document.getElementById('noticeText').textContent = `Loaded ${auditLogs.length} audit events.`;
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

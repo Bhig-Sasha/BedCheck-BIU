@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audit Logs · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+        .btn-outline:hover { background: #f5f1e8; }
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+        .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+
+        .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(6, 1fr); } }
+        @media (max-width: 768px) { .metric-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 480px) { .metric-grid { grid-template-columns: 1fr 1fr; } }
+        .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; text-align: center; }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.navy { background: #e7edf5; color: #24466f; }
+        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+        .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+        .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+        .metric-icon.purple { background: #e8e0f5; color: #6b4c8a; }
+        .metric-value { margin-top: 0.5rem; font-size: 1.6rem; font-weight: 700; }
+        @media (min-width: 640px) { .metric-value { font-size: 1.8rem; } }
+        .metric-title { margin-top: 0.15rem; font-weight: 600; font-size: 0.85rem; }
+        .metric-detail { margin-top: 0.1rem; font-size: 0.65rem; color: #6b778b; }
+
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.1rem; font-weight: 700; }
+
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-success { background: #e1f0e5; color: #2d6545; }
+        .badge-failed { background: #f8e1dc; color: #9b3c31; }
+        .badge-warning { background: #fff0cb; color: #8a6413; }
+        .badge-info { background: #e7edf5; color: #24466f; }
+
+        .severity-low { background: #e1f0e5; color: #2d6545; }
+        .severity-medium { background: #fff0cb; color: #8a6413; }
+        .severity-high { background: #f9e2de; color: #9b3c31; }
+        .severity-critical { background: #f8d7da; color: #721c24; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } .grid-3 { grid-template-columns: 1fr; } }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-3 { margin-bottom: 0.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .text-center { text-align: center; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border { border: 1px solid #ded6c9; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
+        .bg-gold-light { background: #fff9e9; }
+        .bg-blue-light { background: #e7edf5; }
+        .bg-green-light { background: #e1f0e5; }
+        .bg-red-light { background: #f9e2de; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .field label { font-weight: 700; font-size: 0.85rem; }
+        .field input, .field select { padding: 0.6rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.85rem; outline: none; width: 100%; font-family: inherit; }
+        .field input:focus, .field select:focus { border-color: #a77915; }
+        .field input[type="date"] { min-height: 2.6rem; }
+
+        /* Table */
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .table-wrap table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+        .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+        .table-wrap th { padding: 0.75rem 1rem; }
+        .table-wrap td { padding: 0.75rem 1rem; border-top: 1px solid #eee8de; vertical-align: middle; }
+
+        /* Pagination */
+        .pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid #eee8de; }
+        .pagination .info { font-size: 0.85rem; color: #68768a; }
+        .pagination .buttons { display: flex; gap: 0.25rem; }
+        .pagination .buttons button { padding: 0.3rem 0.7rem; border: 1px solid #cbd2db; border-radius: 0.25rem; background: white; cursor: pointer; font-size: 0.8rem; }
+        .pagination .buttons button:hover { background: #f5f1e8; }
+        .pagination .buttons button.active { background: #10233f; color: white; border-color: #10233f; }
+        .pagination .buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Toast */
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+
+        /* ----- VIEW DRAWER (Right) ----- */
+        .drawer-right { position: fixed; top: 0; right: 0; bottom: 0; width: 100%; max-width: 480px; background: #fffcf6; z-index: 60; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: -10px 0 40px rgba(0,0,0,0.15); overflow-y: auto; }
+        .drawer-right.open { transform: translateX(0); }
+        @media (min-width: 640px) { .drawer-right { max-width: 480px; } }
+        .drawer-right .drawer-header { position: sticky; top: 0; background: #fffcf6; padding: 1.25rem 1.5rem; border-bottom: 1px solid #ded6c9; display: flex; justify-content: space-between; align-items: flex-start; z-index: 2; }
+        .drawer-right .drawer-header .close-btn { background: transparent; border: none; font-size: 1.2rem; color: #68768a; cursor: pointer; padding: 0.25rem; }
+        .drawer-right .drawer-header .close-btn:hover { color: #17233c; }
+        .drawer-right .drawer-body { padding: 1.5rem; }
+
+        .timeline-item { display: flex; gap: 1rem; padding: 0.5rem 0; border-left: 2px solid #d6ad4b; padding-left: 1rem; margin-left: 0.5rem; }
+        .timeline-item .time { font-size: 0.75rem; font-weight: 600; color: #68768a; min-width: 90px; }
+        .timeline-item .event { font-size: 0.9rem; }
+        .timeline-item .event .highlight { font-weight: 700; color: #a77915; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST NOTIFICATION ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== VIEW DRAWER (Right) ===== -->
+    <div class="drawer-right" id="viewDrawer">
+        <div class="drawer-header">
+            <div>
+                <p class="eyebrow"><i class="fas fa-search"></i> Audit Detail</p>
+                <h2 id="drawerTitle">Action Timeline</h2>
+                <p class="text-sm text-muted" id="drawerSubtitle">View full audit trail</p>
+            </div>
+            <button class="close-btn" onclick="closeViewDrawer()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="drawer-body" id="drawerBody">
+            <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+        </div>
+    </div>
+
+    <!-- ===== PORTAL ===== -->
+    <div id="portalApp" class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Audit.html" class="nav-item active"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Administrator</span></div>
+                <div class="role-scope" id="roleScope">System-wide access</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Audit.html" class="nav-item active"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Tuesday, 14 October 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+                        <a href="Profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar">IM</span>
+                            <span class="profile-name" id="profileName">Ibrahim Musa</span>
+                            <span class="profile-role" id="profileRoleLabel">Administrator</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-shield-alt"></i>
+                    <span id="noticeText">Immutable activity history for BedCheck operations.</span>
+                </div>
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // CONFIGURATION
+            // =============================================
+            const API_BASE_URL = 'http://localhost:3000/api';
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'Administrator';
+            let auditLogs = [];
+            let currentPage = 1;
+            const pageSize = 10;
+            let staffList = [];
+            let hostels = [];
+
+            // =============================================
+            // TOAST NOTIFICATION
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+
+            // =============================================
+            // API HELPER
+            // =============================================
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(options.headers || {})
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function getInitials(name) {
+                if (!name) return 'U';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function formatDate(dateStr) {
+                if (!dateStr) return '—';
+                const d = new Date(dateStr);
+                return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }) + 
+                       ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            }
+
+            function getTimeSince(dateStr) {
+                if (!dateStr) return '—';
+                const d = new Date(dateStr);
+                const now = new Date();
+                const diff = Math.floor((now - d) / 1000);
+                if (diff < 60) return `${diff} sec ago`;
+                if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+                if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+                return formatDate(dateStr);
+            }
+
+            function severityBadge(severity) {
+                const map = {
+                    'low': 'severity-low',
+                    'medium': 'severity-medium',
+                    'high': 'severity-high',
+                    'critical': 'severity-critical'
+                };
+                const cls = map[severity?.toLowerCase()] || 'severity-low';
+                return `<span class="badge ${cls}">${severity || 'Low'}</span>`;
+            }
+
+            function statusBadge(status) {
+                const map = {
+                    'success': 'badge-success',
+                    'failed': 'badge-failed',
+                    'blocked': 'badge-failed',
+                    'completed': 'badge-success',
+                    'pending': 'badge-warning',
+                    'investigating': 'badge-warning'
+                };
+                const cls = map[status?.toLowerCase()] || 'badge-info';
+                const label = status || 'Success';
+                return `<span class="badge ${cls}">${label}</span>`;
+            }
+
+            function getToneColor(tone) {
+                const map = {
+                    'blue': 'navy',
+                    'green': 'green',
+                    'red': 'red',
+                    'gold': 'gold',
+                    'purple': 'purple',
+                    'gray': 'gray'
+                };
+                return map[tone] || 'gray';
+            }
+
+            // =============================================
+            // LOAD DATA
+            // =============================================
+            async function loadAuditLogs() {
+                try {
+                    const data = await apiCall('/audit?limit=100');
+                    auditLogs = data.data || [];
+                    return auditLogs;
+                } catch (error) {
+                    console.error('Error loading audit logs:', error);
+                    auditLogs = [];
+                    return auditLogs;
+                }
+            }
+
+            async function loadStaff() {
+                try {
+                    const data = await apiCall('/staff');
+                    staffList = data.data || [];
+                    return staffList;
+                } catch (error) {
+                    staffList = [];
+                    return staffList;
+                }
+            }
+
+            async function loadHostels() {
+                try {
+                    const data = await apiCall('/hostels');
+                    hostels = data.data || [];
+                    return hostels;
+                } catch (error) {
+                    hostels = [];
+                    return hostels;
+                }
+            }
+
+            // =============================================
+            // RENDER AUDIT PAGE
+            // =============================================
+            function renderScreen() {
+                const container = document.getElementById('screenContent');
+                
+                const total = auditLogs.length;
+                const successCount = auditLogs.filter(l => l.result === 'success' || l.result === 'completed').length;
+                const failedCount = auditLogs.filter(l => l.result === 'failed' || l.result === 'blocked').length;
+                const criticalCount = auditLogs.filter(l => l.tone === 'red' || l.severity === 'critical').length;
+                const activeStaff = staffList.filter(s => s.status === 'Active').length || 0;
+                const lastActivity = auditLogs.length > 0 ? getTimeSince(auditLogs[0].created_at) : '—';
+                
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-history"></i> Security Control Center</p>
+                            <h1>Audit Trail</h1>
+                            <p class="desc">Immutable activity history for BedCheck operations. <span class="text-gold">Live</span></p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-outline" onclick="refreshAudit()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                            <button class="btn-outline" onclick="exportAudit()"><i class="fas fa-download"></i> Export</button>
+                        </div>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-list"></i></div>
+                            <div class="metric-value">${total}</div>
+                            <div class="metric-title">Total Audit Logs</div>
+                            <div class="metric-detail">All recorded activities</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                            <div class="metric-value">${successCount}</div>
+                            <div class="metric-title">Successful Actions</div>
+                            <div class="metric-detail">Completed without errors</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon red"><i class="fas fa-exclamation-circle"></i></div>
+                            <div class="metric-value">${failedCount}</div>
+                            <div class="metric-title">Failed Actions</div>
+                            <div class="metric-detail">Require investigation</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-shield"></i></div>
+                            <div class="metric-value">${criticalCount}</div>
+                            <div class="metric-title">Suspicious Events</div>
+                            <div class="metric-detail">Flagged automatically</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon purple"><i class="fas fa-users"></i></div>
+                            <div class="metric-value">${activeStaff}</div>
+                            <div class="metric-title">Active Staff</div>
+                            <div class="metric-detail">RA / HRA / RASD / Admin</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
+                            <div class="metric-value">${lastActivity}</div>
+                            <div class="metric-title">Last Activity</div>
+                            <div class="metric-detail">Most recent event</div>
+                        </div>
+                    </div>
+
+                    <!-- Filter Bar -->
+                    <div class="card mt-6">
+                        <div class="grid-3">
+                            <div class="field">
+                                <label>Action / Module</label>
+                                <select id="filterAction" onchange="applyFilters()">
+                                    <option value="">All actions</option>
+                                    <option value="auth">Auth</option>
+                                    <option value="bedcheck">BedCheck</option>
+                                    <option value="students">Students</option>
+                                    <option value="staff">Staff</option>
+                                    <option value="hostel">Hostel</option>
+                                    <option value="system">System</option>
+                                    <option value="verification">Verification</option>
+                                    <option value="notifications">Notifications</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Role</label>
+                                <select id="filterRole" onchange="applyFilters()">
+                                    <option value="">All roles</option>
+                                    <option value="RA">RA</option>
+                                    <option value="HRA">HRA</option>
+                                    <option value="Admin">Admin</option>
+                                    <option value="System">System</option>
+                                    <option value="RASD">RASD</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Result</label>
+                                <select id="filterResult" onchange="applyFilters()">
+                                    <option value="">All results</option>
+                                    <option value="success">Success</option>
+                                    <option value="failed">Failed</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="blocked">Blocked</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid-2 mt-3">
+                            <div class="field">
+                                <label>Start Date</label>
+                                <input type="date" id="filterStartDate" onchange="applyFilters()" />
+                            </div>
+                            <div class="field">
+                                <label>End Date</label>
+                                <input type="date" id="filterEndDate" onchange="applyFilters()" />
+                            </div>
+                        </div>
+                        <div class="flex-between mt-3">
+                            <div class="flex-center gap-2">
+                                <button class="btn-primary btn-sm" onclick="applyFilters()"><i class="fas fa-filter"></i> Apply</button>
+                                <button class="btn-outline btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
+                            </div>
+                            <span class="text-sm text-muted" id="filterCount">Showing all ${total} logs</span>
+                        </div>
+                    </div>
+
+                    <!-- Main Table -->
+                    <div class="mt-6">
+                        <div class="flex-between mb-3">
+                            <div>
+                                <h3 class="font-serif text-lg font-bold">Audit Trail</h3>
+                                <p class="text-sm text-muted">Immutable activity history for BedCheck operations. <span class="text-gold">Live</span></p>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Action</th>
+                                    <th>Module</th>
+                                    <th>Target</th>
+                                    <th>Severity</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr></thead>
+                                <tbody id="auditTableBody"></tbody>
+                            </table>
+                            <div class="pagination">
+                                <span class="info" id="paginationInfo">Loading...</span>
+                                <div class="buttons" id="paginationButtons"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Side Insights (under table on mobile) -->
+                    <div class="grid-2 mt-6">
+                        <!-- Most Active Users -->
+                        <div class="card">
+                            <h4 class="font-bold"><i class="fas fa-user-clock text-gold"></i> Most Active Users</h4>
+                            <div class="mt-3" id="activeUsersList">
+                                ${getMostActiveUsers().map(u => `
+                                    <div class="flex-between p-2 border rounded-lg mb-2" style="background:#fbf7ef;">
+                                        <span class="font-bold">${u.actor}</span>
+                                        <span class="text-sm text-muted">${u.count} actions</span>
+                                    </div>
+                                `).join('') || '<p class="text-muted text-sm">No users found</p>'}
+                            </div>
+                        </div>
+                        <!-- Security Alerts -->
+                        <div class="card">
+                            <h4 class="font-bold"><i class="fas fa-exclamation-triangle text-gold"></i> Security Alerts</h4>
+                            <div class="mt-3" id="securityAlertsList">
+                                ${getSecurityAlerts().map(alert => `
+                                    <div class="p-3 border rounded-lg mb-2 ${alert.tone === 'red' ? 'bg-red-light' : 'bg-gold-light'}">
+                                        <div class="flex-between">
+                                            <span class="font-bold">${alert.title}</span>
+                                            <span class="badge ${alert.tone === 'red' ? 'badge-failed' : 'badge-warning'}">${alert.tone === 'red' ? 'Critical' : 'Warning'}</span>
+                                        </div>
+                                        <p class="text-sm text-muted mt-1">${alert.description}</p>
+                                        <p class="text-xs text-gold mt-1">${alert.time}</p>
+                                    </div>
+                                `).join('') || '<p class="text-muted text-sm">No alerts detected</p>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                renderAuditTable();
+            }
+
+            // =============================================
+            // GET MOST ACTIVE USERS
+            // =============================================
+            function getMostActiveUsers() {
+                const userCounts = {};
+                auditLogs.forEach(log => {
+                    const key = log.actor || 'Unknown';
+                    if (!userCounts[key]) userCounts[key] = 0;
+                    userCounts[key]++;
+                });
+                return Object.entries(userCounts)
+                    .map(([actor, count]) => ({ actor, count }))
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 5);
+            }
+
+            // =============================================
+            // GET SECURITY ALERTS
+            // =============================================
+            function getSecurityAlerts() {
+                const alerts = [];
+                
+                // Check for failed logins
+                const failedLogins = auditLogs.filter(l => l.action === 'Login Failed' || l.result === 'failed');
+                if (failedLogins.length >= 3) {
+                    alerts.push({
+                        title: 'Multiple failed attempts',
+                        tone: 'red',
+                        description: `${failedLogins.length} failed login attempts detected.`,
+                        time: formatDate(failedLogins[0]?.created_at)
+                    });
+                }
+                
+                // Check for rejected sessions
+                const rejected = auditLogs.filter(l => l.action === 'Rejected BedCheck');
+                if (rejected.length >= 3) {
+                    alerts.push({
+                        title: 'Multiple BedCheck rejections',
+                        tone: 'gold',
+                        description: `${rejected.length} BedCheck submissions rejected.`,
+                        time: formatDate(rejected[0]?.created_at)
+                    });
+                }
+                
+                // Check for suspicious activity (critical tone)
+                const suspicious = auditLogs.filter(l => l.tone === 'red');
+                if (suspicious.length >= 2) {
+                    alerts.push({
+                        title: 'Suspicious activity detected',
+                        tone: 'red',
+                        description: `${suspicious.length} critical events logged.`,
+                        time: formatDate(suspicious[0]?.created_at)
+                    });
+                }
+                
+                // Add a system alert if no alerts generated and there are logs
+                if (alerts.length === 0 && auditLogs.length > 0) {
+                    alerts.push({
+                        title: 'All systems normal',
+                        tone: 'green',
+                        description: 'No suspicious activity detected in recent logs.',
+                        time: formatDate(auditLogs[0]?.created_at)
+                    });
+                }
+                
+                return alerts.slice(0, 3);
+            }
+
+            // =============================================
+            // RENDER AUDIT TABLE
+            // =============================================
+            function renderAuditTable() {
+                const tbody = document.getElementById('auditTableBody');
+                const info = document.getElementById('paginationInfo');
+                const buttons = document.getElementById('paginationButtons');
+                if (!tbody) return;
+                
+                // Apply filters
+                const filtered = getFilteredLogs();
+                const total = filtered.length;
+                const totalPages = Math.ceil(total / pageSize);
+                if (currentPage > totalPages) currentPage = totalPages || 1;
+                
+                const start = (currentPage - 1) * pageSize;
+                const end = Math.min(start + pageSize, total);
+                const pageItems = filtered.slice(start, end);
+                
+                const countEl = document.getElementById('filterCount');
+                if (countEl) {
+                    countEl.textContent = `Showing ${total} logs`;
+                }
+                
+                tbody.innerHTML = pageItems.map(log => `
+                    <tr>
+                        <td style="font-size:0.75rem;white-space:nowrap;">${formatDate(log.created_at)}</td>
+                        <td><span class="font-bold">${log.actor || '—'}</span></td>
+                        <td><span class="text-xs text-muted">${log.actor_role || '—'}</span></td>
+                        <td>${log.action || '—'}</td>
+                        <td><span class="text-xs text-muted">${log.module || '—'}</span></td>
+                        <td style="font-size:0.8rem;">${log.context || log.details || '—'}</td>
+                        <td>${severityBadge(log.tone || 'low')}</td>
+                        <td>${statusBadge(log.result)}</td>
+                        <td><button class="btn-ghost" onclick="openViewDrawer(${log.id})"><i class="fas fa-eye"></i> View</button></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="9" class="text-center text-muted">No audit logs found</td></tr>';
+
+                // Pagination
+                if (info) {
+                    info.textContent = `Showing ${start + 1}–${end} of ${total} logs`;
+                }
+                if (buttons) {
+                    let html = `<button onclick="goToPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+                    const maxButtons = 5;
+                    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+                    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+                    if (endPage - startPage < maxButtons - 1) {
+                        startPage = Math.max(1, endPage - maxButtons + 1);
+                    }
+                    for (let i = startPage; i <= endPage; i++) {
+                        html += `<button onclick="goToPage(${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
+                    }
+                    html += `<button onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+                    buttons.innerHTML = html;
+                }
+            }
+
+            // =============================================
+            // FILTER LOGS
+            // =============================================
+            function getFilteredLogs() {
+                const actionFilter = document.getElementById('filterAction')?.value || '';
+                const roleFilter = document.getElementById('filterRole')?.value || '';
+                const resultFilter = document.getElementById('filterResult')?.value || '';
+                const startDate = document.getElementById('filterStartDate')?.value || '';
+                const endDate = document.getElementById('filterEndDate')?.value || '';
+                
+                return auditLogs.filter(log => {
+                    if (actionFilter && log.module !== actionFilter) return false;
+                    if (roleFilter && log.actor_role !== roleFilter) return false;
+                    if (resultFilter && log.result !== resultFilter) return false;
+                    if (startDate && new Date(log.created_at) < new Date(startDate)) return false;
+                    if (endDate && new Date(log.created_at) > new Date(endDate)) return false;
+                    return true;
+                });
+            }
+
+            function applyFilters() {
+                currentPage = 1;
+                renderAuditTable();
+            }
+
+            function resetFilters() {
+                document.getElementById('filterAction').value = '';
+                document.getElementById('filterRole').value = '';
+                document.getElementById('filterResult').value = '';
+                document.getElementById('filterStartDate').value = '';
+                document.getElementById('filterEndDate').value = '';
+                currentPage = 1;
+                renderAuditTable();
+            }
+
+            function goToPage(page) {
+                const filtered = getFilteredLogs();
+                const totalPages = Math.ceil(filtered.length / pageSize);
+                if (page < 1 || page > totalPages) return;
+                currentPage = page;
+                renderAuditTable();
+                document.getElementById('auditTableBody')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            // =============================================
+            // VIEW DRAWER
+            // =============================================
+            async function openViewDrawer(logId) {
+                try {
+                    // Fetch full log details from API
+                    const data = await apiCall(`/audit/${logId}`);
+                    const log = data.data;
+                    if (!log) {
+                        showToast('Log not found', 'error');
+                        return;
+                    }
+                    
+                    const drawer = document.getElementById('viewDrawer');
+                    const title = document.getElementById('drawerTitle');
+                    const subtitle = document.getElementById('drawerSubtitle');
+                    const body = document.getElementById('drawerBody');
+                    
+                    title.textContent = log.action || 'Audit Detail';
+                    subtitle.textContent = `${log.actor || 'Unknown'} · ${log.actor_role || '—'} · ${formatDate(log.created_at)}`;
+                    
+                    // Build timeline from available data
+                    const timeline = [
+                        { time: log.created_at, event: `${log.action} initiated by ${log.actor || 'System'}` },
+                        { time: log.created_at, event: `Target: ${log.context || log.details || 'N/A'}` },
+                        { time: log.created_at, event: `Result: ${log.result || 'Unknown'}` }
+                    ];
+                    
+                    body.innerHTML = `
+                        <div class="info-box mb-4">
+                            <i class="fas fa-info-circle"></i>
+                            <div>
+                                <div><span class="font-bold">Action:</span> ${log.action}</div>
+                                <div><span class="font-bold">Module:</span> ${log.module || '—'}</div>
+                                <div><span class="font-bold">Category:</span> ${log.category || '—'}</div>
+                                <div><span class="font-bold">Severity:</span> ${severityBadge(log.tone || 'low')}</div>
+                                <div><span class="font-bold">Status:</span> ${statusBadge(log.result)}</div>
+                                ${log.hostel_id ? `<div><span class="font-bold">Hostel ID:</span> ${log.hostel_id}</div>` : ''}
+                                ${log.room_id ? `<div><span class="font-bold">Room ID:</span> ${log.room_id}</div>` : ''}
+                                ${log.student_id ? `<div><span class="font-bold">Student ID:</span> ${log.student_id}</div>` : ''}
+                                ${log.session_id ? `<div><span class="font-bold">Session ID:</span> ${log.session_id}</div>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="border-t pt-3">
+                            <h4 class="font-bold mb-3"><i class="fas fa-clock text-gold"></i> Action Timeline</h4>
+                            ${timeline.map((item, index) => `
+                                <div class="timeline-item">
+                                    <span class="time">${formatDate(item.time)}</span>
+                                    <span class="event">${index + 1}. ${item.event}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        ${log.details ? `
+                            <div class="mt-3 p-3 bg-gold-light rounded-lg">
+                                <p class="font-bold text-sm">Details</p>
+                                <p class="text-sm text-muted">${log.details}</p>
+                            </div>
+                        ` : ''}
+                        
+                        ${log.metadata ? `
+                            <div class="mt-3">
+                                <p class="font-bold text-sm">Metadata</p>
+                                <pre class="text-xs text-muted bg-blue-light p-2 rounded-lg overflow-auto" style="max-height:200px;">${JSON.stringify(log.metadata, null, 2)}</pre>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="drawer-actions mt-4 pt-4 border-t flex gap-2">
+                            <button class="btn-outline" onclick="closeViewDrawer()">Close</button>
+                            ${log.result === 'failed' || log.result === 'blocked' ? `
+                                <button class="btn-primary" onclick="showToast('Investigation started for this event', 'warning')"><i class="fas fa-search"></i> Investigate</button>
+                            ` : ''}
+                            <button class="btn-outline" onclick="showToast('Exporting audit record...', 'success')"><i class="fas fa-download"></i> Export</button>
+                        </div>
+                    `;
+                    
+                    drawer.classList.add('open');
+                } catch (error) {
+                    showToast('Error loading audit details: ' + error.message, 'error');
+                }
+            }
+
+            function closeViewDrawer() {
+                document.getElementById('viewDrawer').classList.remove('open');
+            }
+
+            // =============================================
+            // REFRESH & EXPORT
+            // =============================================
+            async function refreshAudit() {
+                showToast('Refreshing audit logs...', 'warning');
+                await Promise.all([loadAuditLogs(), loadStaff(), loadHostels()]);
+                renderScreen();
+                showToast(`Loaded ${auditLogs.length} audit logs!`, 'success');
+            }
+
+            function exportAudit() {
+                showToast('Exporting audit logs...', 'warning');
+                setTimeout(() => {
+                    showToast('Audit logs exported successfully!', 'success');
+                }, 1500);
+            }
+
+            // =============================================
+            // AUTHENTICATION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
+                
+                document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
+                document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
+                document.getElementById('profileRoleLabel').textContent = currentRole;
+                document.getElementById('roleLabel').textContent = currentRole;
+                document.getElementById('roleScope').textContent = 'System-wide access';
+                document.getElementById('mobileRoleFooter').textContent = `${currentRole} · System-wide access`;
+                
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            }
+
+            // =============================================
+            // SET DATE
+            // =============================================
+            function setDate() {
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+            }
+
+            // =============================================
+            // MOBILE DRAWER
+            // =============================================
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.showToast = showToast;
+            window.openViewDrawer = openViewDrawer;
+            window.closeViewDrawer = closeViewDrawer;
+            window.applyFilters = applyFilters;
+            window.resetFilters = resetFilters;
+            window.goToPage = goToPage;
+            window.refreshAudit = refreshAudit;
+            window.exportAudit = exportAudit;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                setDate();
+
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.logout-btn').forEach(btn => {
+                    btn.addEventListener('click', handleLogout);
+                });
+
+                try {
+                    document.getElementById('noticeText').textContent = 'Loading audit logs...';
+                    await Promise.all([loadAuditLogs(), loadStaff(), loadHostels()]);
+                    renderScreen();
+                    document.getElementById('noticeText').textContent = `Loaded ${auditLogs.length} audit logs. Immutable activity history for BedCheck operations.`;
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+
+                // Close drawer on escape
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        closeViewDrawer();
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

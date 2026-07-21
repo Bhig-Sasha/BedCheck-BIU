@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RA BedCheck · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: #f5f1e8;
+            color: #17233c;
+            min-height: 100vh;
+        }
+
+        /* ----- LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            position: fixed;
+            inset: 0 0 0 0;
+            width: 16rem;
+            background-color: #10233f;
+            color: white;
+            padding: 1.5rem 1rem;
+            display: none;
+            flex-direction: column;
+            z-index: 30;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge {
+            display: grid;
+            place-items: center;
+            width: 2.75rem;
+            height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif;
+            font-weight: 900;
+            font-size: 1.25rem;
+            color: #10233f;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.6rem 0.75rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: transparent;
+            color: #dce5f2;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card {
+            margin-top: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 18rem;
+            background-color: #10233f;
+            color: white;
+            padding: 1.5rem 1rem;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge {
+            display: grid;
+            place-items: center;
+            width: 2.75rem;
+            height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif;
+            font-weight: 900;
+            font-size: 1.25rem;
+            color: #10233f;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(16,35,63,0.5);
+            z-index: 40;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            border-bottom: 1px solid #dfd8cb;
+            background: rgba(245,241,232,0.95);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1rem;
+        }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle {
+            border: 1px solid #d8d0c2;
+            border-radius: 0.5rem;
+            background: transparent;
+            padding: 0.5rem;
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: #17233c;
+        }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn {
+            position: relative;
+            background: transparent;
+            border: none;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            color: #43516a;
+            cursor: pointer;
+            font-size: 1.1rem;
+            text-decoration: none;
+        }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge {
+            position: absolute;
+            top: 0.25rem;
+            right: 0.25rem;
+            width: 0.5rem;
+            height: 0.5rem;
+            background: #b34a3b;
+            border-radius: 50%;
+        }
+        .profile-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: 1px solid #d8d0c2;
+            border-radius: 0.5rem;
+            background: #fffcf6;
+            padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar {
+            display: grid;
+            place-items: center;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            background: #d6ad4b;
+            font-size: 0.6rem;
+            font-weight: 700;
+            color: #10233f;
+        }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem; } }
+        @media (max-width: 480px) { .content-container { padding: 0.75rem; } }
+
+        /* ----- BUTTONS ----- */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: #10233f;
+            color: white;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+            justify-content: center;
+        }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: 1px solid #bfc8d5;
+            border-radius: 0.5rem;
+            background: transparent;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-decoration: none;
+            color: #17233c;
+            justify-content: center;
+        }
+        .btn-outline:hover { background: #f5f1e8; border-color: #a77915; }
+
+        .btn-success {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: #2d6545;
+            color: white;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            justify-content: center;
+        }
+        .btn-success:hover { background: #1f4a32; }
+        .btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-gold {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: #d6ad4b;
+            color: #10233f;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+            justify-content: center;
+        }
+        .btn-gold:hover { background: #c49a2a; }
+
+        .btn-danger {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: #a84134;
+            color: white;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            justify-content: center;
+        }
+        .btn-danger:hover { background: #8a3328; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-present { background: #e1f0e5; color: #2d6545; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-late { background: #fff0cb; color: #8a6413; }
+        .badge-waiting { background: #e8edf2; color: #536274; }
+        .badge-active { background: #d6ad4b; color: #10233f; }
+        .badge-inactive { background: #e8edf2; color: #536274; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
+        .badge-auto-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-assigned { background: #d6ad4b; color: #10233f; }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            background: #10233f;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 400px;
+        }
+        @media (max-width: 480px) {
+            .toast {
+                bottom: 1rem;
+                right: 1rem;
+                left: 1rem;
+                max-width: none;
+                padding: 0.75rem 1rem;
+                font-size: 0.85rem;
+            }
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+        .toast.info { background: #1e3a5f; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #3f755d; }
+        .status-dot.gold { background: #d4af37; }
+        .status-dot.red { background: #a84134; }
+        .status-dot.gray { background: #b9c7db; }
+
+        /* ----- CARDS ----- */
+        .card {
+            background: #fffcf6;
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+        }
+        @media (max-width: 480px) {
+            .card { padding: 0.75rem; }
+        }
+        .card-title {
+            font-family: 'Merriweather',serif;
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .card-title .icon { color: #a77915; }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+        @media (max-width: 768px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ----- SESSION BANNER ----- */
+        .session-banner {
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem 1.5rem;
+        }
+        @media (max-width: 480px) {
+            .session-banner {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 1rem;
+                gap: 0.5rem;
+            }
+            .session-banner .right { text-align: left; }
+        }
+        .session-banner.inactive {
+            background: #f5f1e8;
+            border: 2px solid #ded6c9;
+        }
+        .session-banner.active {
+            background: #10233f;
+            color: white;
+            border: 2px solid #d6ad4b;
+        }
+        .session-banner .left { display: flex; flex-direction: column; gap: 0.2rem; }
+        .session-banner .title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        @media (max-width: 480px) {
+            .session-banner .title { font-size: 1rem; }
+        }
+        .session-banner .sub { font-size: 0.85rem; }
+        @media (max-width: 480px) {
+            .session-banner .sub { font-size: 0.75rem; }
+        }
+        .session-banner .sub .label { opacity: 0.6; }
+        .session-banner .right { text-align: right; }
+        .session-banner .time { font-size: 1.4rem; font-weight: 700; font-family: 'Merriweather',serif; }
+        @media (max-width: 480px) {
+            .session-banner .time { font-size: 1.1rem; }
+        }
+        .session-banner .status-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .session-banner .status-badge.active { background: #d6ad4b; color: #10233f; }
+        .session-banner .status-badge.inactive { background: #e8edf2; color: #536274; }
+        .session-banner .qr-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; background: #e1f0e5; color: #2d6545; }
+        .session-banner .assigned-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; background: #d6ad4b; color: #10233f; }
+
+        /* ----- QR SCANNER CONTROL ----- */
+        .scanner-control {
+            background: #10233f;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            color: white;
+            text-align: center;
+        }
+        @media (max-width: 480px) {
+            .scanner-control { padding: 0.75rem; }
+        }
+        .scanner-control .camera-preview {
+            background: #0a1a2f;
+            border-radius: 0.5rem;
+            padding: 2rem;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed rgba(255,255,255,0.1);
+        }
+        @media (max-width: 480px) {
+            .scanner-control .camera-preview {
+                padding: 1rem;
+                min-height: 100px;
+            }
+            .scanner-control .camera-preview .icon { font-size: 2rem; }
+        }
+        .scanner-control .camera-preview .icon { font-size: 3rem; color: rgba(255,255,255,0.2); }
+        .scanner-control .camera-preview .text { font-size: 0.85rem; color: #b9c7db; margin-top: 0.3rem; }
+        .scanner-control .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 0.75rem; }
+        .scanner-control .controls button { padding: 0.4rem 1rem; font-size: 0.75rem; }
+        @media (max-width: 480px) {
+            .scanner-control .controls button {
+                padding: 0.3rem 0.7rem;
+                font-size: 0.65rem;
+                flex: 1;
+                min-width: 80px;
+            }
+        }
+        .scanner-control .auth-status {
+            margin-top: 0.75rem;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+        }
+        @media (max-width: 480px) {
+            .scanner-control .auth-status { font-size: 0.7rem; }
+        }
+        .scanner-control .auth-status.authenticated { background: rgba(45,101,69,0.3); color: #a8d5b8; }
+        .scanner-control .auth-status.pending { background: rgba(214,173,75,0.2); color: #e8d49a; }
+        .scanner-control .auth-status .badge { margin-left: 0.5rem; }
+
+        /* ----- CURRENT ROOM ----- */
+        .room-panel .student-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f0ebe2;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .room-panel .student-row:last-child { border-bottom: none; }
+        .room-panel .student-row .bed { font-weight: 600; min-width: 3rem; }
+        .room-panel .student-row .name { flex: 1; }
+        @media (max-width: 480px) {
+            .room-panel .student-row .name { font-size: 0.85rem; }
+        }
+        .room-panel .student-row .status-tag { font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 9999px; font-weight: 700; }
+        .room-panel .student-row .status-tag.present { background: #e1f0e5; color: #2d6545; }
+        .room-panel .student-row .status-tag.absent { background: #f8e1dc; color: #9b3c31; }
+        .room-panel .student-row .status-tag.pending { background: #e8edf2; color: #536274; }
+        .room-panel .student-row .status-tag.late { background: #fff0cb; color: #8a6413; }
+        .room-panel .student-row .action-group {
+            display: flex;
+            gap: 0.2rem;
+            flex-wrap: wrap;
+        }
+        .room-panel .student-row .action-btn {
+            padding: 0.1rem 0.4rem;
+            border: 1px solid #bfc8d5;
+            border-radius: 0.2rem;
+            background: transparent;
+            font-size: 0.6rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+        .room-panel .student-row .action-btn.present { border-color: #2d6545; color: #2d6545; }
+        .room-panel .student-row .action-btn.present:hover { background: #e1f0e5; }
+        .room-panel .student-row .action-btn.late { border-color: #d6ad4b; color: #8b6513; }
+        .room-panel .student-row .action-btn.late:hover { background: #fff9e9; }
+        .room-panel .student-row .action-btn.absent { border-color: #a84134; color: #a84134; }
+        .room-panel .student-row .action-btn.absent:hover { background: #f9e2de; }
+        @media (max-width: 480px) {
+            .room-panel .student-row .action-btn {
+                padding: 0.1rem 0.3rem;
+                font-size: 0.55rem;
+            }
+        }
+
+        /* ----- PROGRESS CARDS ----- */
+        .progress-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 0.75rem;
+        }
+        .progress-cards .pcard {
+            background: #fffcf6;
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            text-align: center;
+        }
+        .progress-cards .pcard .num { font-size: 1.6rem; font-weight: 700; }
+        .progress-cards .pcard .label { font-size: 0.65rem; text-transform: uppercase; color: #6b778b; letter-spacing: 0.04em; }
+        @media (max-width: 640px) {
+            .progress-cards { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+            .progress-cards .pcard { padding: 0.5rem; }
+            .progress-cards .pcard .num { font-size: 1.2rem; }
+        }
+        @media (max-width: 480px) {
+            .progress-cards { grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+            .progress-cards .pcard { padding: 0.4rem 0.5rem; }
+            .progress-cards .pcard .num { font-size: 1rem; }
+            .progress-cards .pcard .label { font-size: 0.55rem; }
+        }
+
+        /* ----- AUTO-ABSENT QUEUE ----- */
+        .absent-table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
+        .absent-table th { text-align: left; font-size: 0.6rem; text-transform: uppercase; color: #6b778b; padding: 0.3rem 0.5rem; border-bottom: 1px solid #f0ebe2; }
+        .absent-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #f0ebe2; }
+        .absent-table td:last-child { text-align: right; }
+        @media (max-width: 640px) {
+            .absent-table { font-size: 0.75rem; }
+            .absent-table td { padding: 0.3rem 0.3rem; }
+            .absent-table th { padding: 0.2rem 0.3rem; }
+        }
+        @media (max-width: 480px) {
+            .absent-table { font-size: 0.65rem; }
+            .absent-table td { padding: 0.2rem 0.2rem; }
+            .absent-table .action-btn { font-size: 0.5rem; padding: 0.1rem 0.3rem; }
+        }
+        .absent-table .action-btn {
+            padding: 0.15rem 0.5rem;
+            border: 1px solid #bfc8d5;
+            border-radius: 0.3rem;
+            background: transparent;
+            font-size: 0.65rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+            margin-left: 0.2rem;
+        }
+        .absent-table .action-btn:hover { background: #f5f1e8; }
+        .absent-table .action-btn.rescan { border-color: #d6ad4b; color: #8b6513; }
+        .absent-table .action-btn.rescan:hover { background: #fff9e9; }
+        .absent-table .action-btn.absent { border-color: #a84134; color: #a84134; }
+        .absent-table .action-btn.absent:hover { background: #f9e2de; }
+
+        /* ----- TIMELINE ----- */
+        .timeline-item {
+            display: flex;
+            gap: 0.75rem;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f0ebe2;
+            font-size: 0.85rem;
+            align-items: flex-start;
+        }
+        .timeline-item:last-child { border-bottom: none; }
+        .timeline-item .time { color: #6b778b; min-width: 4rem; font-size: 0.7rem; font-weight: 600; }
+        .timeline-item .content { flex: 1; }
+        @media (max-width: 480px) {
+            .timeline-item { font-size: 0.75rem; gap: 0.4rem; }
+            .timeline-item .time { min-width: 3rem; font-size: 0.6rem; }
+        }
+        .timeline-item .content .highlight { font-weight: 600; }
+        .timeline-item .content .badge { font-size: 0.55rem; padding: 0.1rem 0.4rem; margin-left: 0.3rem; }
+
+        /* Room buttons row */
+        .room-buttons {
+            display: flex;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+        }
+        .room-buttons .room-btn {
+            padding: 0.2rem 0.6rem;
+            border: 1px solid #bfc8d5;
+            border-radius: 0.3rem;
+            background: #f5f1e8;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+            color: #17233c;
+        }
+        .room-buttons .room-btn:hover:not(:disabled) { background: #e7edf5; border-color: #a77915; }
+        .room-buttons .room-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .room-buttons .room-btn.active { background: #d6ad4b; border-color: #10233f; color: #10233f; }
+        .room-buttons .room-btn.completed { background: #e1f0e5; border-color: #2d6545; color: #2d6545; }
+        .room-buttons .room-btn .count-badge {
+            font-size: 0.5rem;
+            opacity: 0.6;
+            display: block;
+            text-align: center;
+        }
+        @media (max-width: 480px) {
+            .room-buttons .room-btn {
+                padding: 0.15rem 0.4rem;
+                font-size: 0.6rem;
+            }
+        }
+
+        /* Assigned area card */
+        .assigned-area {
+            background: #fffcf6;
+            border: 2px solid #d6ad4b;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.25rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+        .assigned-area .label { font-size: 0.7rem; text-transform: uppercase; color: #6b778b; letter-spacing: 0.04em; }
+        .assigned-area .value { font-weight: 700; font-size: 1.1rem; }
+        .assigned-area .badge { font-size: 0.6rem; padding: 0.15rem 0.6rem; }
+
+        /* ----- NO SESSION OVERLAY ----- */
+        .no-session-overlay {
+            background: #fffcf6;
+            border: 2px solid #d8c79e;
+            border-radius: 1rem;
+            padding: 3rem 1.5rem;
+            text-align: center;
+        }
+        @media (max-width: 480px) {
+            .no-session-overlay { padding: 1.5rem 0.75rem; }
+        }
+        .no-session-overlay .icon { font-size: 4rem; color: #8b6513; }
+        @media (max-width: 480px) {
+            .no-session-overlay .icon { font-size: 2.5rem; }
+        }
+        .no-session-overlay .title { font-family: 'Merriweather',serif; font-size: 1.5rem; font-weight: 700; margin-top: 0.5rem; }
+        @media (max-width: 480px) {
+            .no-session-overlay .title { font-size: 1.1rem; }
+        }
+        .no-session-overlay .sub { color: #6b778b; font-size: 0.95rem; margin-top: 0.25rem; }
+        @media (max-width: 480px) {
+            .no-session-overlay .sub { font-size: 0.8rem; }
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL ===== -->
+    <div class="app-wrapper">
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="BedCheck.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-search"></i> Search Student</a>
+                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RA</span></div>
+                <div class="role-scope" id="roleScope">Assigned floor/flat · Perform nightly BedCheck</div>
+            </div>
+        </aside>
+
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="BedCheck.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-search"></i> Search Student</a>
+                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned floor/flat · Perform nightly BedCheck</div>
+        </aside>
+
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Loading...</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+                        <a href="Profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar"></span>
+                            <span class="profile-name" id="profileName"></span>
+                            <span class="profile-role" id="profileRoleLabel">RA</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            const API_BASE_URL = 'http://localhost:3000/api';
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'RA';
+            let allStudents = [];
+            let hostels = [];
+            let assignedHostelId = null;
+            let assignedHostelData = null;
+            let assignedHostelName = '';
+            let assignedArea = null; // e.g., "Floor A", "Floor B", "Flat 1", etc.
+            let assignedAreaType = 'floor'; // 'floor' or 'flat'
+            let availableRooms = [];
+            let sessionData = null;
+            let isSessionActive = false;
+            let isHostelAuthenticated = false;
+            let currentRoom = null;
+            let currentRoomStudents = [];
+            let bedScanStatus = {};
+            let autoAbsentQueue = [];
+            let timeline = [];
+            let completedRooms = [];
+            let sessionStartTime = null;
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => { toast.classList.remove('show'); }, 4000);
+            }
+
+            function getInitials(name) {
+                if (!name) return 'U';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function formatTime(date) {
+                if (!date) return '—';
+                const d = new Date(date);
+                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            }
+
+            function formatDate(date) {
+                if (!date) return '—';
+                const d = new Date(date);
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+
+            function now() { return new Date().toISOString(); }
+
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...(options.headers || {})
+                    };
+                    if (currentUser?.id) headers['X-Staff-ID'] = currentUser.id;
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.message || 'API error');
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // Get rooms for the RA's assigned area only
+            function getAssignedRooms() {
+                if (!assignedArea || !assignedHostelId) return [];
+                
+                // Filter students by assigned area
+                const areaStudents = allStudents.filter(s => {
+                    if (s.hostel_id !== assignedHostelId) return false;
+                    if (assignedAreaType === 'floor') {
+                        return (s.floor_name === assignedArea || s.floor === assignedArea);
+                    } else {
+                        // Flat type - match flat name
+                        return (s.floor_name === assignedArea || s.floor === assignedArea || 
+                                s.flat_name === assignedArea || s.flat === assignedArea);
+                    }
+                });
+                
+                // Get unique rooms from these students
+                const rooms = [...new Set(areaStudents.map(s => s.room_code || s.room || 'All').filter(Boolean))];
+                return rooms.length > 0 ? rooms.sort() : [];
+            }
+
+            function getStudentsForRoom(room) {
+                if (!assignedArea || !assignedHostelId) return [];
+                
+                return allStudents.filter(s => {
+                    if (s.hostel_id !== assignedHostelId) return false;
+                    if (assignedAreaType === 'floor') {
+                        if (!(s.floor_name === assignedArea || s.floor === assignedArea)) return false;
+                    } else {
+                        if (!(s.floor_name === assignedArea || s.floor === assignedArea || 
+                              s.flat_name === assignedArea || s.flat === assignedArea)) return false;
+                    }
+                    return (s.room_code === room || s.room === room);
+                });
+            }
+
+            function getTotalStats() {
+                const areaStudents = allStudents.filter(s => {
+                    if (s.hostel_id !== assignedHostelId) return false;
+                    if (assignedAreaType === 'floor') {
+                        return (s.floor_name === assignedArea || s.floor === assignedArea);
+                    } else {
+                        return (s.floor_name === assignedArea || s.floor === assignedArea || 
+                                s.flat_name === assignedArea || s.flat === assignedArea);
+                    }
+                });
+                
+                const total = areaStudents.length;
+                const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
+                const present = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Present').length;
+                const absent = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent').length;
+                const late = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Late').length;
+
+                let totalRooms = 0;
+                let completedRoomsCount = 0;
+                const rooms = getAssignedRooms();
+                rooms.forEach(room => {
+                    const students = getStudentsForRoom(room);
+                    if (students.length > 0) {
+                        totalRooms++;
+                        if (students.every(s => bedScanStatus[s.id]?.verified)) {
+                            completedRoomsCount++;
+                        }
+                    }
+                });
+                return { total, verified, present, absent, late, totalRooms, completedRoomsCount };
+            }
+
+            function isHostelComplete() {
+                const stats = getTotalStats();
+                return stats.totalRooms > 0 && stats.completedRoomsCount === stats.totalRooms;
+            }
+
+            function addTimeline(event, details = '') {
+                timeline.unshift({
+                    time: now(),
+                    event: event,
+                    details: details
+                });
+                if (timeline.length > 50) timeline.pop();
+            }
+
+            // =============================================
+            // UPDATE HEADER
+            // =============================================
+            function updateHeader() {
+                if (!currentUser) return;
+                const avatar = document.getElementById('profileAvatar');
+                const name = document.getElementById('profileName');
+                const role = document.getElementById('profileRoleLabel');
+                const roleLabel = document.getElementById('roleLabel');
+                const roleScope = document.getElementById('roleScope');
+                const mobileRole = document.getElementById('mobileRoleFooter');
+
+                const initials = currentUser.initials || getInitials(currentUser.name);
+                const displayName = currentUser.name || 'User';
+
+                avatar.textContent = initials;
+                name.textContent = displayName;
+                role.textContent = currentRole || 'RA';
+                roleLabel.textContent = currentRole || 'RA';
+                const areaDisplay = assignedArea || 'Not Assigned';
+                roleScope.textContent = assignedHostelName ? `${assignedHostelName} · ${areaDisplay}` : 'No hostel assigned';
+                mobileRole.textContent = `${currentRole || 'RA'} · ${assignedHostelName || 'No hostel assigned'} · ${areaDisplay}`;
+            }
+
+            // =============================================
+            // ACTIONS
+            // =============================================
+            function startScanner() {
+                if (!isSessionActive) {
+                    showToast('⏳ Waiting for HRA to start session.', 'error');
+                    return;
+                }
+                if (!assignedArea) {
+                    showToast('⚠️ No floor/flat assigned to you. Contact HRA.', 'error');
+                    return;
+                }
+                showToast('📸 Scanner started. Scan hostel QR to authenticate.', 'info');
+                setTimeout(() => {
+                    authenticateHostel();
+                }, 1500);
+            }
+
+            function authenticateHostel() {
+                if (!isSessionActive) {
+                    showToast('No active session.', 'error');
+                    return;
+                }
+                isHostelAuthenticated = true;
+                addTimeline('Hostel QR authenticated', assignedHostelName);
+                showToast('✅ Hostel authenticated! You can now scan rooms.', 'success');
+                renderBedCheck();
+            }
+
+            function scanRoomQR(room) {
+                if (!isSessionActive) {
+                    showToast('No active session.', 'error');
+                    return;
+                }
+                if (!isHostelAuthenticated) {
+                    showToast('Please authenticate hostel QR first.', 'error');
+                    return;
+                }
+                
+                // Auto-absent for previous room
+                if (currentRoom && currentRoom !== room) {
+                    const prevRoomStudents = getStudentsForRoom(currentRoom);
+                    prevRoomStudents.forEach(s => {
+                        if (!bedScanStatus[s.id]?.verified) {
+                            bedScanStatus[s.id] = {
+                                verified: false,
+                                status: 'Absent',
+                                time: now(),
+                                method: 'auto-absent',
+                                room: currentRoom
+                            };
+                            if (!autoAbsentQueue.find(a => a.id === s.id)) {
+                                autoAbsentQueue.push({
+                                    id: s.id,
+                                    name: s.name,
+                                    matric: s.matric,
+                                    room: currentRoom,
+                                    bed: s.bed || 'BS1',
+                                    time: now(),
+                                    status: 'auto-absent'
+                                });
+                                addTimeline(`${s.name} moved to Auto-Absent Queue`, `Room ${currentRoom}`);
+                            }
+                        }
+                    });
+                }
+
+                currentRoom = room;
+                currentRoomStudents = getStudentsForRoom(room);
+                addTimeline(`Room ${room} scan started`, `${currentRoomStudents.length} students expected`);
+                showToast(`📸 Scanning Room ${room}...`, 'info');
+                renderBedCheck();
+            }
+
+            function markStudent(studentId, status) {
+                if (!isSessionActive) {
+                    showToast('No active session.', 'error');
+                    return;
+                }
+                if (!isHostelAuthenticated) {
+                    showToast('Please authenticate hostel QR first.', 'error');
+                    return;
+                }
+                const student = allStudents.find(s => s.id === studentId);
+                if (!student) return;
+                if (bedScanStatus[studentId]?.verified) {
+                    showToast(`${student.name} already marked.`, 'info');
+                    return;
+                }
+                bedScanStatus[studentId] = {
+                    verified: true,
+                    status: status,
+                    time: now(),
+                    method: 'manual'
+                };
+                addTimeline(`${student.name} marked ${status}`, `Room ${student.room}`);
+                showToast(`✅ ${student.name} - ${status}`, 'success');
+                apiCall(`/students/${studentId}/status`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: status })
+                }).catch(err => console.error('Error updating student status:', err));
+
+                if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
+                    if (!completedRooms.includes(currentRoom)) {
+                        completedRooms.push(currentRoom);
+                    }
+                    addTimeline(`Room ${currentRoom} completed`, `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
+                    showToast(`🎉 Room ${currentRoom} complete!`, 'success');
+                }
+                renderBedCheck();
+            }
+
+            function markAllAbsent() {
+                if (autoAbsentQueue.length === 0) {
+                    showToast('No absent records to mark.', 'info');
+                    return;
+                }
+                autoAbsentQueue.forEach(a => {
+                    bedScanStatus[a.id] = {
+                        verified: false,
+                        status: 'Absent',
+                        time: now(),
+                        method: 'auto-absent'
+                    };
+                });
+                addTimeline('All auto-absent records confirmed', `${autoAbsentQueue.length} students`);
+                showToast(`✅ ${autoAbsentQueue.length} students marked absent.`, 'success');
+                autoAbsentQueue = [];
+                renderBedCheck();
+            }
+
+            function clearResolved() {
+                autoAbsentQueue = [];
+                showToast('Queue cleared.', 'info');
+                renderBedCheck();
+            }
+
+            function rescanStudent(studentId) {
+                const student = allStudents.find(s => s.id === studentId);
+                if (!student) return;
+                autoAbsentQueue = autoAbsentQueue.filter(a => a.id !== studentId);
+                bedScanStatus[studentId] = {
+                    verified: false,
+                    status: null,
+                    time: null,
+                    method: null
+                };
+                showToast(`🔄 ${student.name} moved back for re-scan.`, 'info');
+                renderBedCheck();
+            }
+
+            function selectNextRoom() {
+                if (!currentRoom) return;
+                const rooms = getAssignedRooms();
+                const idx = rooms.indexOf(currentRoom);
+                if (idx < rooms.length - 1) {
+                    scanRoomQR(rooms[idx + 1]);
+                } else {
+                    showToast('🎉 You have completed all rooms in your assigned area!', 'success');
+                }
+            }
+
+            // =============================================
+            // RENDER
+            // =============================================
+            function renderBedCheck() {
+                const container = document.getElementById('screenContent');
+                const stats = getTotalStats();
+                const nowTime = new Date();
+                const timeStr = nowTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+                // Session banner state
+                const bannerClass = isSessionActive ? 'active' : 'inactive';
+                const statusText = isSessionActive ? 'Active' : 'Inactive';
+                const statusBadgeClass = isSessionActive ? 'active' : 'inactive';
+
+                // Room students for current room
+                const roomStudents = currentRoom ? getStudentsForRoom(currentRoom) : [];
+                const roomVerified = roomStudents.filter(s => bedScanStatus[s.id]?.verified).length;
+                const roomTotal = roomStudents.length;
+                const roomPending = roomTotal - roomVerified;
+
+                // Auto-absent queue
+                const absentCount = autoAbsentQueue.length;
+
+                // Available rooms for this RA's assigned area
+                availableRooms = getAssignedRooms();
+                if (availableRooms.length > 0 && !currentRoom) {
+                    currentRoom = availableRooms[0];
+                }
+
+                const areaDisplay = assignedArea || 'Not Assigned';
+                const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
+
+                // Build HTML
+                let html = `
+                    <!-- Session Banner -->
+                    <div class="session-banner ${bannerClass}">
+                        <div class="left">
+                            <div class="title">Today's BedCheck</div>
+                            ${isSessionActive ? `
+                                <div class="sub"><span style="color:#d6ad4b;">●</span> Session Active · <span class="qr-badge">QR Valid</span></div>
+                                <div class="sub"><span class="label">Session:</span> Night BedCheck · 10:00 PM – 12:00 AM</div>
+                                <div class="sub"><span class="label">Hostel:</span> ${assignedHostelName}</div>
+                                <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
+                            ` : `
+                                <div class="sub">${assignedHostelName} · ${areaTypeLabel} ${areaDisplay}</div>
+                                <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
+                            `}
+                        </div>
+                        <div class="right">
+                            <div class="time">${timeStr}</div>
+                            <div><span class="status-badge ${statusBadgeClass}">${statusText}</span></div>
+                            ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">QR Expires: 12:00 AM</div>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Assigned Area Card -->
+                    <div class="assigned-area">
+                        <div>
+                            <div class="label">Your Assigned Area</div>
+                            <div class="value">${areaTypeLabel} ${areaDisplay}</div>
+                        </div>
+                        <div>
+                            <span class="badge badge-assigned">${availableRooms.length} Rooms</span>
+                            <span class="badge ${isSessionActive ? 'badge-active' : 'badge-inactive'}" style="margin-left:0.3rem;">
+                                ${isSessionActive ? '🟢 Active' : '⏳ Inactive'}
+                            </span>
+                        </div>
+                    </div>
+                `;
+
+                // QR Scanner Control
+                html += `
+                    <div class="card">
+                        <div class="card-title"><span class="icon"><i class="fas fa-qrcode"></i></span> QR Scanner Control</div>
+                        <div class="scanner-control">
+                            <div class="camera-preview">
+                                <div class="icon"><i class="fas fa-camera"></i></div>
+                                <div class="text">${isSessionActive ? 'Camera ready - Scan QR code' : 'Waiting for session to start...'}</div>
+                                ${isSessionActive && isHostelAuthenticated ? `<div style="margin-top:0.5rem;font-size:0.7rem;color:#a8d5b8;">✅ Hostel QR authenticated · ${areaTypeLabel} ${areaDisplay} access granted</div>` : ''}
+                            </div>
+                            <div class="controls">
+                                <button class="btn-gold" onclick="startScanner()" ${!isSessionActive ? 'disabled' : ''}>
+                                    <i class="fas fa-play"></i> Start Scanner
+                                </button>
+                                <button class="btn-outline" onclick="startScanner()" style="background:rgba(255,255,255,0.1);color:white;border-color:rgba(255,255,255,0.2);" ${!isSessionActive ? 'disabled' : ''}>
+                                    <i class="fas fa-sync"></i> Switch Camera
+                                </button>
+                                <button class="btn-danger" onclick="showToast('Scanner stopped','info')" ${!isSessionActive ? 'disabled' : ''}>
+                                    <i class="fas fa-stop"></i> Stop Scanner
+                                </button>
+                            </div>
+                            <div class="auth-status ${isHostelAuthenticated ? 'authenticated' : 'pending'}">
+                                ${isHostelAuthenticated ? 
+                                    `✅ Hostel QR authenticated · <span class="badge" style="background:#2d6545;color:white;padding:0.1rem 0.4rem;border-radius:9999px;">${areaTypeLabel} ${areaDisplay} access granted</span>` :
+                                    `⏳ Scan hostel QR to authenticate · <span class="badge" style="background:#8b6513;color:white;padding:0.1rem 0.4rem;border-radius:9999px;">${isSessionActive ? 'Ready' : 'Waiting for session'}</span>`
+                                }
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Room buttons - only rooms in assigned area
+                html += `
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Rooms in ${areaTypeLabel} ${areaDisplay}</div>
+                        ${availableRooms.length > 0 ? `
+                            <div class="room-buttons">
+                                ${availableRooms.map(room => {
+                                    const students = getStudentsForRoom(room);
+                                    const allVerified = students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified);
+                                    const isActive = room === currentRoom;
+                                    let btnClass = 'room-btn';
+                                    if (isActive) btnClass += ' active';
+                                    else if (allVerified && students.length > 0) btnClass += ' completed';
+                                    return `
+                                        <button class="${btnClass}" onclick="scanRoomQR('${room}')" ${students.length === 0 || !isSessionActive || !isHostelAuthenticated ? 'disabled' : ''}>
+                                            ${room}
+                                            <span class="count-badge">${students.filter(s => bedScanStatus[s.id]?.verified).length}/${students.length}</span>
+                                        </button>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : `
+                            <p class="text-muted text-sm">No rooms found in your assigned area. Please contact HRA.</p>
+                        `}
+                    </div>
+                `;
+
+                // Current Room Panel
+                html += `
+                    <div class="card mt-4 room-panel">
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Current Room ${currentRoom ? `· ${currentRoom}` : ''}</div>
+                        ${currentRoom && roomStudents.length > 0 ? `
+                            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                                <div>
+                                    <span style="font-weight:700;font-size:1rem;">${roomVerified} / ${roomTotal} scanned</span>
+                                    <span style="font-size:0.7rem;color:#6b778b;margin-left:0.5rem;">${roomPending} pending</span>
+                                </div>
+                                <div>
+                                    <button class="btn-outline" style="font-size:0.7rem;padding:0.2rem 0.8rem;" onclick="selectNextRoom()" ${!isSessionActive || !isHostelAuthenticated ? 'disabled' : ''}>
+                                        <i class="fas fa-arrow-right"></i> Next Room
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                ${roomStudents.map((s, idx) => {
+                                    const scan = bedScanStatus[s.id];
+                                    const status = scan?.status || 'Pending';
+                                    const isVerified = scan?.verified || false;
+                                    const bedLabel = s.bed || `BS${idx + 1}`;
+                                    const statusClass = status.toLowerCase();
+                                    return `
+                                        <div class="student-row">
+                                            <span class="bed">${bedLabel}</span>
+                                            <span class="name">${s.name}</span>
+                                            <span class="status-tag ${statusClass}">${status}</span>
+                                            ${!isVerified && isSessionActive && isHostelAuthenticated ? `
+                                                <div class="action-group">
+                                                    <button class="action-btn present" onclick="markStudent(${s.id}, 'Present')">Present</button>
+                                                    <button class="action-btn late" onclick="markStudent(${s.id}, 'Late')">Late</button>
+                                                    <button class="action-btn absent" onclick="markStudent(${s.id}, 'Absent')">Absent</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                            <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                ${roomPending > 0 ? 
+                                    `⚠️ ${roomPending} student(s) pending. Scan or mark manually before moving to next room.` :
+                                    '✅ All students verified in this room.'
+                                }
+                            </div>
+                        ` : `
+                            <p class="text-muted text-sm">${currentRoom ? 'No students assigned to this room.' : 'Select a room to begin.'}</p>
+                        `}
+                    </div>
+                `;
+
+                // Live Progress Cards
+                html += `
+                    <div class="progress-cards mt-4">
+                        <div class="pcard"><div class="num" style="color:#2d6545;">${stats.completedRoomsCount}</div><div class="label">Rooms Completed</div></div>
+                        <div class="pcard"><div class="num" style="color:#1e3a5f;">${stats.verified}</div><div class="label">Students Verified</div></div>
+                        <div class="pcard"><div class="num" style="color:#d97706;">${roomPending}</div><div class="label">Pending in Current Room</div></div>
+                        <div class="pcard"><div class="num" style="color:#a84134;">${absentCount}</div><div class="label">Auto-Absent Count</div></div>
+                    </div>
+                `;
+
+                // Auto-Absent Queue
+                html += `
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Auto-Absent Queue</div>
+                        ${autoAbsentQueue.length > 0 ? `
+                            <div style="font-size:0.7rem;color:#6b778b;margin-bottom:0.5rem;">${autoAbsentQueue.length} students</div>
+                            <div style="overflow-x:auto;">
+                                <table class="absent-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Matric</th>
+                                            <th>Room</th>
+                                            <th>Time Added</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${autoAbsentQueue.map(a => `
+                                            <tr>
+                                                <td><strong>${a.name}</strong></td>
+                                                <td>${a.matric || '—'}</td>
+                                                <td>${a.room} · ${a.bed}</td>
+                                                <td>${formatTime(a.time)}</td>
+                                                <td>
+                                                    <button class="action-btn rescan" onclick="rescanStudent(${a.id})">Re-scan</button>
+                                                    <button class="action-btn absent" onclick="markStudent(${a.id}, 'Absent')">Mark Absent</button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="clearResolved()">Clear Resolved</button>
+                                <button class="btn-danger" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="markAllAbsent()">Mark All Absent</button>
+                            </div>
+                        ` : `
+                            <p class="text-muted text-sm">No auto-absent records. Students who are not scanned before moving to the next room will appear here.</p>
+                        `}
+                    </div>
+                `;
+
+                // Timeline
+                html += `
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Live Timeline</div>
+                        <div>
+                            ${timeline.length > 0 ? timeline.slice(0, 8).map(t => `
+                                <div class="timeline-item">
+                                    <span class="time">${formatTime(t.time)}</span>
+                                    <div class="content">
+                                        ${t.event}
+                                        ${t.details ? `<span style="color:#6b778b;font-size:0.75rem;"> · ${t.details}</span>` : ''}
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <p class="text-muted text-sm">No activity yet. Start scanning to build the timeline.</p>
+                            `}
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="text-center text-xs text-muted mt-3">
+                        ${assignedHostelName} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Session Active' : '⏳ Waiting for Session'}
+                    </div>
+                `;
+
+                container.innerHTML = html;
+            }
+
+            // =============================================
+            // AUTH & INIT
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
+                assignedHostelId = currentUser?.hostel_id || currentUser?.hostelId || null;
+                assignedArea = currentUser?.assigned_floor || currentUser?.assigned_flat || currentUser?.assignedArea || null;
+                
+                // Determine area type
+                if (assignedArea) {
+                    if (assignedArea.toLowerCase().includes('flat')) {
+                        assignedAreaType = 'flat';
+                    } else {
+                        assignedAreaType = 'floor';
+                    }
+                }
+                
+                updateHeader();
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            }
+
+            function setDate() {
+                const now = new Date();
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            async function loadSessionData() {
+                try {
+                    if (!assignedHostelId) {
+                        console.log('No hostel assigned to this RA');
+                        return;
+                    }
+                    const sessionResult = await apiCall(`/hostels/${assignedHostelId}/session`);
+                    if (sessionResult && sessionResult.data) {
+                        sessionData = sessionResult.data;
+                        isSessionActive = sessionData.status === 'Active' || sessionData.status === 'Running' || sessionData
+                            .status === 'Open';
+                        if (isSessionActive) {
+                            sessionStartTime = sessionData.created_at || new Date().toISOString();
+                            if (!isHostelAuthenticated) {
+                                setTimeout(() => {
+                                    isHostelAuthenticated = true;
+                                    addTimeline('Hostel QR authenticated', assignedHostelName);
+                                    renderBedCheck();
+                                }, 1000);
+                            }
+                        }
+                    } else {
+                        isSessionActive = false;
+                    }
+                } catch (error) {
+                    console.error('Error loading session:', error);
+                    isSessionActive = false;
+                }
+            }
+
+            // =============================================
+            // EXPOSE
+            // =============================================
+            window.showToast = showToast;
+            window.startScanner = startScanner;
+            window.authenticateHostel = authenticateHostel;
+            window.scanRoomQR = scanRoomQR;
+            window.markStudent = markStudent;
+            window.selectNextRoom = selectNextRoom;
+            window.markAllAbsent = markAllAbsent;
+            window.clearResolved = clearResolved;
+            window.rescanStudent = rescanStudent;
+            window.renderBedCheck = renderBedCheck;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                setDate();
+
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+                try {
+                    const [hostelsResult, studentsResult] = await Promise.all([
+                        apiCall('/hostels'),
+                        apiCall('/students')
+                    ]);
+                    hostels = hostelsResult.data || [];
+                    allStudents = studentsResult.data || [];
+
+                    // Find assigned hostel
+                    if (assignedHostelId) {
+                        assignedHostelData = hostels.find(h => h.id === assignedHostelId);
+                        if (assignedHostelData) {
+                            assignedHostelName = assignedHostelData.name;
+                        }
+                    }
+
+                    // If no hostel assigned via user, use first hostel
+                    if (!assignedHostelData && hostels.length > 0) {
+                        assignedHostelData = hostels[0];
+                        assignedHostelId = assignedHostelData.id;
+                        assignedHostelName = assignedHostelData.name;
+                    }
+
+                    // If no assigned area, try to detect from students
+                    if (!assignedArea && assignedHostelId) {
+                        const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                        const floors = [...new Set(hostelStudents.map(s => s.floor_name || s.floor).filter(Boolean))];
+                        if (floors.length > 0) {
+                            assignedArea = floors[0];
+                            // Check if it's a flat
+                            if (assignedArea.toLowerCase().includes('flat')) {
+                                assignedAreaType = 'flat';
+                            }
+                        }
+                    }
+
+                    await loadSessionData();
+
+                    // Set initial room
+                    availableRooms = getAssignedRooms();
+                    if (availableRooms.length > 0 && !currentRoom) {
+                        currentRoom = availableRooms[0];
+                    }
+
+                    renderBedCheck();
+
+                } catch (error) {
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

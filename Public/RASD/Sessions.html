@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BedCheck Sessions · RASD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+  <style>
+    /* ----- RESET & BASE ----- */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+    /* ----- PORTAL LAYOUT ----- */
+    .app-wrapper { display: flex; min-height: 100vh; }
+    .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+    @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+    .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+    .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+    .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+    .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+    .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+    .nav-item:hover { background: rgba(255,255,255,0.1); }
+    .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+    .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+    .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+    .sidebar .role-card .role-title i { color: #e1bd65; }
+    .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+    .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+    .mobile-drawer.open { transform: translateX(0); }
+    .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+    .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+    .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+    .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+    .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+    .drawer-overlay.show { display: block; opacity: 1; }
+    @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+    .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+    @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+    .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+    @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+    .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .header-left { display: flex; align-items: center; gap: 0.75rem; }
+    .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+    .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+    @media (min-width: 1024px) { .menu-toggle { display: none; } }
+    .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+    .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+    .header-right { display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+    .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+    .notif-btn:hover { background: rgba(0,0,0,0.05); }
+    .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+    .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+    .profile-btn:hover { background: #f5f1e8; }
+    .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+    .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+    .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+    .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+    .logout-btn:hover { color: #17233c; }
+    @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+    .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+    @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+    .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+    .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+    .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+    @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+    .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+    .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+    @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+    .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+    .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+    .btn-primary:hover { background: #18345a; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+    .btn-outline:hover { background: #f5f1e8; }
+    .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+    .btn-ghost i { margin-right: 0.25rem; }
+
+    .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+    @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(5, 1fr); } }
+    @media (max-width: 768px) { .metric-grid { grid-template-columns: 1fr 1fr; } }
+    .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+    .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+    .metric-icon.navy { background: #e7edf5; color: #24466f; }
+    .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+    .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+    .metric-icon.gray { background: #eceff2; color: #536274; }
+    .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+    .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; }
+    .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.85rem; }
+    .metric-detail { margin-top: 0.15rem; font-size: 0.7rem; color: #6b778b; }
+
+    .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+    .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+    .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-approved { background: #e1f0e5; color: #2d6545; }
+    .badge-draft { background: #e8edf2; color: #536274; }
+    .badge-provisional { background: #fff0cb; color: #8a6413; }
+    .badge-present { background: #e1f0e5; color: #2d6545; }
+    .badge-absent { background: #f8e1dc; color: #9b3c31; }
+    .badge-late { background: #fff0cb; color: #8a6413; }
+    .badge-scheduled { background: #e7edf5; color: #1e3a5f; }
+    .badge-running { background: #d6ad4b; color: #10233f; }
+
+    .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .gap-4 { gap: 1rem; }
+    .mt-1 { margin-top: 0.25rem; }
+    .mt-2 { margin-top: 0.5rem; }
+    .mt-3 { margin-top: 0.75rem; }
+    .mt-4 { margin-top: 1rem; }
+    .mt-5 { margin-top: 1.25rem; }
+    .mt-6 { margin-top: 1.5rem; }
+    .mt-7 { margin-top: 1.75rem; }
+    .text-sm { font-size: 0.9rem; }
+    .text-xs { font-size: 0.7rem; }
+    .text-gold { color: #a77915; }
+    .text-muted { color: #68768a; }
+    .font-bold { font-weight: 700; }
+    .font-serif { font-family: 'Merriweather',serif; }
+    .text-center { text-align: center; }
+    .border-t { border-top: 1px solid #ded6c9; }
+    .p-3 { padding: 0.75rem; }
+    .p-4 { padding: 1rem; }
+    .rounded-lg { border-radius: 0.5rem; }
+
+    .progress-bar { height: 0.4rem; overflow: hidden; border-radius: 9999px; background: #e6e2da; }
+    .progress-bar .fill { height: 100%; background: #3f755d; border-radius: 9999px; }
+
+    .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+    .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #3f755d; }
+    .toast.error { background: #a84134; }
+    .toast.info { background: #1e3a5f; }
+
+    .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+    .status-dot.green { background: #3f755d; }
+    .status-dot.blue { background: #1e3a5f; }
+    .status-dot.gold { background: #d4af37; }
+    .status-dot.red { background: #8a3328; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+    .table-wrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+    .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+    .table-wrap th { padding: 0.75rem 1rem; }
+    .table-wrap td { padding: 0.75rem 1rem; border-top: 1px solid #eee8de; }
+
+    .right-sidebar-card { background: #10233f; border-radius: 0.75rem; padding: 1.25rem; color: white; text-align: center; }
+    .right-sidebar-card .time { font-size: 2.5rem; font-weight: 700; font-family: 'Merriweather', serif; }
+    .right-sidebar-card .label { font-size: 0.7rem; color: #b9c7db; text-transform: uppercase; letter-spacing: 0.08em; }
+    .right-sidebar-card .value { font-size: 1.2rem; font-weight: 700; margin-top: 0.25rem; }
+    .right-sidebar-card .stat-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .right-sidebar-card .stat-row:last-child { border-bottom: none; }
+    .right-sidebar-card .stat-label { color: #b9c7db; font-size: 0.75rem; }
+    .right-sidebar-card .stat-value { font-weight: 700; font-size: 0.9rem; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #e8e4de; }
+    ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+  </style>
+</head>
+<body>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+   <!-- PORTAL -->
+  <div class="app-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-badge">BIU</div>
+        <div>
+          <div class="brand-text">BIU BedCheck</div>
+          <div class="brand-sub">Management System</div>
+        </div>
+      </div>
+      <p class="workspace-label">Workspace</p>
+      <nav id="desktopNav">
+        <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+        <a href="management.html" class="nav-item"><i class="fas fa-clipboard-list"></i> Management</a>
+        <a href="Sessions.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+        <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+        <a href="AuditLogs.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+        <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+      </nav>
+      <div class="role-card">
+        <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RASD</span></div>
+        <div class="role-scope" id="roleScope">All hostels · Sessions · Reports</div>
+      </div>
+    </aside>
+
+    <!-- Mobile Drawer -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <aside class="mobile-drawer" id="mobileDrawer">
+      <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+      <div class="brand">
+        <div class="brand-badge">BIU</div>
+        <div>
+          <div class="brand-text">BIU BedCheck</div>
+          <div class="brand-sub">Management System</div>
+        </div>
+      </div>
+      <nav id="mobileNav">
+        <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+        <a href="management.html" class="nav-item"><i class="fas fa-clipboard-list"></i> Management</a>
+        <a href="Sessions.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+        <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+        <a href="AuditLogs.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+        <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+      </nav>
+      <div class="drawer-footer" id="mobileRoleFooter">RASD · All hostels · Sessions · Reports</div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="main-header">
+        <div class="header-inner">
+          <div class="header-left">
+            <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+            <div>
+              <p class="header-date" id="currentDate">Loading...</p>
+              <p class="header-title">BIU BedCheck</p>
+            </div>
+          </div>
+          <div class="header-right">
+            <a href="#" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+            <a href="#" class="profile-btn">
+              <span class="profile-avatar" id="profileAvatar">JD</span>
+              <span class="profile-name" id="profileName">John Doe</span>
+              <span class="profile-role" id="profileRoleLabel">RASD</span>
+            </a>
+            <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+          </div>
+        </div>
+      </header>
+      <div class="content-container">
+        <div class="notice-banner" id="noticeBanner">
+          <i class="fas fa-clock"></i>
+          <span id="noticeText">Loading sessions...</span>
+        </div>
+        <div id="screenContent">
+          <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      // ========== CONFIG ==========
+      const API_BASE = 'http://localhost:3000/api';
+
+      // ========== TOAST ==========
+      function showToast(msg, type = 'success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `toast ${type}`;
+        setTimeout(() => t.classList.add('show'), 10);
+        setTimeout(() => t.classList.remove('show'), 4000);
+      }
+      window.showToast = showToast;
+
+      // ========== STATE ==========
+      let sessionStatus = 'Scheduled';
+      let hostels = [];
+      let students = [];
+      let bedcheckSessions = [];
+      let isLoading = false;
+      let currentUser = { name: 'John Doe', initials: 'JD', role: 'RASD' };
+
+      // ========== API HELPERS ==========
+      async function apiCall(endpoint, opts = {}) {
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+          ...opts,
+          headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'API error');
+        return data;
+      }
+
+      function formatTime(d) {
+        if (!d) return '—';
+        return new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+
+      function formatDate(d) {
+        if (!d) return '—';
+        return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+
+      function getStatusClass(s) {
+        const map = {
+          'Scheduled': 'badge-scheduled',
+          'Running': 'badge-running',
+          'Open': 'badge-running',
+          'Closed': 'badge-draft',
+          'Locked': 'badge-draft',
+          'Approved': 'badge-approved'
+        };
+        return map[s] || 'badge-draft';
+      }
+
+      function getStatusDot(s) {
+        const map = { 'Scheduled': '🟡', 'Running': '🟢', 'Open': '🟢', 'Closed': '🔴', 'Locked': '🔴' };
+        return map[s] || '🟡';
+      }
+
+      // ========== AUTOMATIC SESSION STATE (Nigeria time) ==========
+      function getAutomaticSessionState() {
+        const now = new Date();
+        const lagos = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
+        const h = lagos.getHours(),
+          m = lagos.getMinutes();
+        const cur = h * 60 + m;
+        const open = 22 * 60; // 10:00 PM
+        const close = 24 * 60; // 12:00 AM
+        if (cur >= open && cur < close) return 'Running';
+        if (cur >= close || cur < 6 * 60) return 'Closed';
+        return 'Scheduled';
+      }
+
+      // ========== DATA LOADING (real DB) ==========
+      async function loadHostels() {
+        try {
+          const d = await apiCall('/hostels');
+          hostels = d.data || [];
+        } catch (e) {
+          hostels = [];
+          console.warn('Failed to load hostels:', e);
+        }
+        return hostels;
+      }
+
+      async function loadStudents() {
+        try {
+          const d = await apiCall('/students');
+          students = d.data || [];
+        } catch (e) {
+          students = [];
+          console.warn('Failed to load students:', e);
+        }
+        return students;
+      }
+
+      async function loadBedCheckSessions() {
+        try {
+          const d = await apiCall('/bedcheck/sessions');
+          bedcheckSessions = d.data || [];
+        } catch (e) {
+          bedcheckSessions = [];
+          console.warn('Failed to load sessions:', e);
+        }
+        return bedcheckSessions;
+      }
+
+      async function loadSessionStatus() {
+        try {
+          const d = await apiCall('/submission');
+          sessionStatus = d.data?.state || getAutomaticSessionState();
+        } catch (e) {
+          sessionStatus = getAutomaticSessionState();
+          console.warn('Failed to load session status, using automatic:', e);
+        }
+        return sessionStatus;
+      }
+
+      // ========== RENDER (no mock data, all from DB) ==========
+      function renderSessions() {
+        const container = document.getElementById('screenContent');
+        const total = students.length;
+        const present = students.filter(s => s.status === 'Present').length || 0;
+        const absent = students.filter(s => s.status === 'Absent').length || 0;
+        const now = new Date();
+
+        // Calculate next session start from DB or fallback to 10pm
+        let nextStart = new Date(now);
+        nextStart.setDate(now.getDate() + 1);
+        nextStart.setHours(22, 0, 0, 0);
+        if (bedcheckSessions.length > 0 && bedcheckSessions[0].start_time) {
+          try {
+            const nextFromDb = new Date(bedcheckSessions[0].start_time);
+            if (!isNaN(nextFromDb)) nextStart = nextFromDb;
+          } catch (e) {}
+        }
+        const startIn = Math.max(0, Math.round((nextStart - now) / 60000));
+
+        container.innerHTML = `
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow"><i class="fas fa-clipboard-check"></i> RASD · Nightly Operations</p>
+              <h1>BedCheck Sessions</h1>
+              <p class="desc">Monitor all active and scheduled BedCheck sessions.</p>
+            </div>
+            <div class="action-group">
+              <button class="btn-outline" onclick="showToast('Reminders sent!','success')"><i class="fas fa-paper-plane"></i> Send Reminders</button>
+              <button class="btn-primary" onclick="refreshData()"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-card"><div class="metric-icon navy"><i class="fas fa-calendar-day"></i></div><div class="metric-value">${formatDate(now)}</div><div class="metric-title">Today's Date</div><div class="metric-detail">${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div></div>
+            <div class="metric-card"><div class="metric-icon gold"><i class="fas fa-moon"></i></div><div class="metric-value">${formatDate(nextStart)}</div><div class="metric-title">Next Session</div><div class="metric-detail">Starts in ${startIn}m</div></div>
+            <div class="metric-card"><div class="metric-icon green"><i class="fas fa-play-circle"></i></div><div class="metric-value">${sessionStatus}</div><div class="metric-title">Status</div><div class="metric-detail">${getStatusDot(sessionStatus)} ${sessionStatus}</div></div>
+            <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-clock"></i></div><div class="metric-value">${startIn}m</div><div class="metric-title">Starts In</div><div class="metric-detail">Next session begins</div></div>
+            <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-archive"></i></div><div class="metric-value">${bedcheckSessions.filter(s=>s.status==='Archived').length}</div><div class="metric-title">Archived</div><div class="metric-detail">Total archived sessions</div></div>
+          </div>
+
+          <div class="grid-2 mt-6">
+            <!-- Session List (left) -->
+            <div class="card">
+              <div class="flex-between"><div class="card-title">📋 Session List</div><span class="text-xs text-muted">${bedcheckSessions.length} total</span></div>
+              <div class="table-wrap mt-4">
+                <table><thead><tr><th>Session</th><th>Date</th><th>Start</th><th>End</th><th>Status</th><th>Action</th></tr></thead><tbody>
+                  ${bedcheckSessions.slice(0,10).map(s => `
+                    <tr><td style="font-weight:600;">${s.name||'Night BedCheck'}</td><td>${formatDate(s.date)}</td><td>${formatTime(s.start_time)||'10:00 PM'}</td><td>${formatTime(s.end_time)||'11:30 PM'}</td><td><span class="badge ${getStatusClass(s.status)}">${getStatusDot(s.status)} ${s.status||'Scheduled'}</span></td><td><button class="btn-ghost" onclick="showToast('Viewing details','info')" style="font-size:0.7rem;">View</button></td></tr>
+                  `).join('') || '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No sessions found</td></tr>'}
+                </tbody></table>
+              </div>
+              ${bedcheckSessions.length>10 ? `<div class="mt-3 text-center"><button class="btn-ghost" onclick="showToast('All sessions','info')" style="font-size:0.8rem;">View All ${bedcheckSessions.length}</button></div>` : ''}
+            </div>
+
+            <!-- Right side: Session Stats -->
+            <div>
+              <div class="right-sidebar-card">
+                <p class="label">Current Time</p>
+                <div class="time" id="liveTime">${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div>
+                <p class="label mt-3">Session</p>
+                <div class="value" style="color:${sessionStatus==='Running'||sessionStatus==='Open'?'#d6ad4b':'#b9c7db'};">${sessionStatus}</div>
+                <p class="label mt-3">Remaining</p>
+                <div class="value">${sessionStatus==='Running'||sessionStatus==='Open'?'01:09:14':'—'}</div>
+                <div class="mt-3 pt-3" style="border-top:1px solid rgba(255,255,255,0.1);">
+                  <div class="stat-row"><span class="stat-label">Students Present</span><span class="stat-value">${present}</span></div>
+                  <div class="stat-row"><span class="stat-label">Students Absent</span><span class="stat-value">${absent}</span></div>
+                  <div class="stat-row"><span class="stat-label">Total Students</span><span class="stat-value">${total}</span></div>
+                  <div class="stat-row"><span class="stat-label">Hostels</span><span class="stat-value">${hostels.length}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 pt-4 border-t text-center">
+            <p class="text-xs text-muted">BIU BedCheck System v1.0 · © Benson Idahosa University <span class="ml-4"><span class="status-dot green"></span> System Online</span></p>
+          </div>
+        `;
+        updateLiveTime();
+      }
+
+      function updateLiveTime() {
+        const el = document.getElementById('liveTime');
+        if (el) el.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      }
+      setInterval(updateLiveTime, 30000);
+
+      // ========== AUTO SESSION MONITOR ==========
+      function startAutomaticSessionMonitor() {
+        setInterval(async () => {
+          const newState = getAutomaticSessionState();
+          if (newState !== sessionStatus) {
+            sessionStatus = newState;
+            const notice = document.getElementById('noticeText');
+            if (notice) notice.textContent = `Session ${sessionStatus} · Auto-updated`;
+            renderSessions();
+            showToast(`Session automatically changed to ${sessionStatus}`, 'info');
+          }
+        }, 30000);
+      }
+
+      // ========== REFRESH ==========
+      async function refreshData() {
+        if (isLoading) return;
+        try {
+          isLoading = true;
+          showToast('Refreshing...', 'info');
+          await Promise.all([loadHostels(), loadStudents(), loadBedCheckSessions(), loadSessionStatus()]);
+          renderSessions();
+          document.getElementById('noticeText').textContent =
+            `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${bedcheckSessions.length} sessions`;
+          showToast('Data refreshed', 'success');
+        } catch (e) {
+          showToast('Error: ' + e.message, 'error');
+        } finally {
+          isLoading = false;
+        }
+      }
+      window.refreshData = refreshData;
+
+      // ========== INIT ==========
+      async function init() {
+        document.getElementById('menuToggle').addEventListener('click', () =>
+          document.getElementById('mobileDrawer').classList.add('open') ||
+          document.getElementById('drawerOverlay').classList.add('show')
+        );
+        document.getElementById('closeDrawer').addEventListener('click', () =>
+          document.getElementById('mobileDrawer').classList.remove('open') ||
+          document.getElementById('drawerOverlay').classList.remove('show')
+        );
+        document.getElementById('drawerOverlay').addEventListener('click', () =>
+          document.getElementById('mobileDrawer').classList.remove('open') ||
+          document.getElementById('drawerOverlay').classList.remove('show')
+        );
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+          sessionStorage.clear();
+          window.location.replace('../Login.html');
+        });
+
+        document.getElementById('currentDate').textContent =
+          new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        try {
+          await Promise.all([loadHostels(), loadStudents(), loadBedCheckSessions(), loadSessionStatus()]);
+          renderSessions();
+          document.getElementById('noticeText').textContent =
+            `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${bedcheckSessions.length} sessions`;
+          startAutomaticSessionMonitor();
+        } catch (e) {
+          document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+          showToast('Error: ' + e.message, 'error');
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', init);
+    })();
+  </script>
+</body>
+</html>

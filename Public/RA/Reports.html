@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Reports · RA · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE (RA Orange Theme) ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #fff7ed;
+            color: #1f2937;
+            min-height: 100vh;
+        }
+
+        /* ----- LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+
+        /* SIDEBAR – Dark Orange #9A3412 */
+        .sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: 16rem;
+            background: #9a3412;
+            color: white;
+            padding: 1.5rem 1rem;
+            display: none;
+            flex-direction: column;
+            z-index: 30;
+            overflow-y: auto;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: #f97316;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: white;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #fdba74; }
+
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #fdba74; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            width: 100%; padding: 0.6rem 0.75rem;
+            border: none; border-radius: 0.5rem;
+            background: transparent; color: #fdba74;
+            font-size: 0.9rem; font-weight: 500;
+            text-align: left; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: #7c2d12; }
+        .nav-item.active { background: #f97316; color: #7c2d12; }
+
+        .sidebar .role-card {
+            margin-top: auto;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #f97316; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #fdba74; line-height: 1.4; }
+
+        /* Mobile drawer */
+        .mobile-drawer {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: 18rem;
+            background: #9a3412;
+            color: white;
+            padding: 1.5rem 1rem;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            z-index: 50;
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: #f97316;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: white;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #fdba74; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #fdba74; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(154,52,18,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        /* ----- HEADER ----- */
+        .main-header {
+            position: sticky; top: 0; z-index: 20;
+            border-bottom: 1px solid #fed7aa;
+            background: rgba(255,247,237,0.95);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1rem;
+        }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #fed7aa; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #1f2937; }
+        .menu-toggle:hover { background: #ffedd5; }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b7280; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; color: #9a3412; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #6b7280; cursor: pointer; font-size: 1.1rem; }
+        .notif-btn:hover { background: #ffedd5; }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #dc2626; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #fed7aa; border-radius: 0.5rem; background: white; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; }
+        .profile-btn:hover { background: #ffedd5; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #f97316; font-size: 0.6rem; font-weight: 700; color: white; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #9a3412; }
+        .profile-role { display: none; font-size: 0.6rem; color: #6b7280; }
+        .logout-btn { background: transparent; border: none; color: #6b7280; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #9a3412; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        /* ----- CONTENT ----- */
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+
+        .notice-banner {
+            display: flex; gap: 0.75rem; padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #fed7aa;
+            border-radius: 0.5rem;
+            background: #ffedd5;
+            color: #9a3412;
+            font-size: 0.9rem;
+        }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; color: #f97316; }
+
+        /* ----- COMPONENTS ----- */
+        .card {
+            border: 1px solid #fed7aa;
+            border-radius: 18px;
+            background: white;
+            padding: 1.25rem;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+        }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; color: #9a3412; }
+
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-approved { background: #dcfce7; color: #166534; }
+        .badge-returned { background: #fee2e2; color: #991b1b; }
+        .badge-draft { background: #f3f4f6; color: #6b7280; }
+
+        .status-badge {
+            display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px;
+            font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+        }
+        .status-badge-approved { background: #dcfce7; color: #166534; }
+        .status-badge-returned { background: #fee2e2; color: #991b1b; }
+
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #f97316;
+            color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-primary:hover { background: #ea580c; }
+        .btn-primary i { color: white; }
+
+        .btn-secondary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #f97316;
+            border-radius: 0.5rem;
+            background: white;
+            color: #f97316;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-secondary:hover { background: #ffedd5; }
+
+        .btn-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #fed7aa;
+            border-radius: 0.5rem;
+            background: white;
+            font-weight: 600; font-size: 0.9rem;
+            color: #374151;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-outline:hover { background: #ffedd5; }
+
+        .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(6, 1fr); } }
+        .metric-card {
+            padding: 1rem;
+            border: 1px solid #fed7aa;
+            border-radius: 18px;
+            background: white;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.04);
+            text-align: center;
+        }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.orange { background: #ffedd5; color: #f97316; }
+        .metric-icon.green { background: #dcfce7; color: #16a34a; }
+        .metric-icon.red { background: #fee2e2; color: #dc2626; }
+        .metric-icon.blue { background: #dbeafe; color: #2563eb; }
+        .metric-icon.amber { background: #fef3c7; color: #f59e0b; }
+        .metric-icon.purple { background: #ede9fe; color: #7c3aed; }
+        .metric-value { margin-top: 0.5rem; font-size: 1.6rem; font-weight: 700; color: #9a3412; }
+        .metric-title { margin-top: 0.1rem; font-weight: 600; font-size: 0.8rem; color: #6b7280; }
+
+        .progress-bar { height: 0.5rem; overflow: hidden; border-radius: 9999px; background: #fed7aa; }
+        .progress-bar .fill { height: 100%; background: #f97316; border-radius: 9999px; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 480px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-orange { color: #f97316; }
+        .text-muted { color: #6b7280; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border-t { border-top: 1px solid #fed7aa; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #22c55e; }
+        .status-dot.amber { background: #f59e0b; }
+        .status-dot.red { background: #dc2626; }
+        .status-dot.blue { background: #2563eb; }
+        .status-dot.gray { background: #9ca3af; }
+        .status-dot.orange { background: #f97316; }
+
+        .table-wrap { overflow-x: auto; border: 1px solid #fed7aa; border-radius: 18px; background: white; }
+        .table-wrap table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+        .table-wrap thead { background: #ffedd5; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
+        .table-wrap th { padding: 0.75rem 1rem; }
+        .table-wrap td { padding: 0.75rem 1rem; border-top: 1px solid #fed7aa; }
+
+        .quick-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+        .quick-btn {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1rem;
+            border: 1px solid #fed7aa;
+            border-radius: 0.5rem;
+            background: white;
+            font-weight: 600; font-size: 0.85rem;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .quick-btn:hover { background: #ffedd5; border-color: #f97316; }
+        .quick-btn i { color: #f97316; }
+
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            background: #9a3412;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 400px;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #f97316; }
+        .toast.error { background: #dc2626; }
+
+        /* Detail panel */
+        .detail-panel {
+            position: fixed; top: 0; right: 0; bottom: 0;
+            width: 22rem;
+            background: white;
+            box-shadow: -8px 0 30px rgba(0,0,0,0.1);
+            z-index: 60;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            padding: 1.5rem;
+            overflow-y: auto;
+            border-left: 1px solid #fed7aa;
+        }
+        .detail-panel.open { transform: translateX(0); }
+        .detail-panel .panel-close {
+            background: transparent; border: none;
+            font-size: 1.2rem; color: #6b7280;
+            cursor: pointer; padding: 0.25rem;
+        }
+        .detail-panel .panel-close:hover { color: #9a3412; }
+
+        .overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 55;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .overlay.show { display: block; opacity: 1; }
+
+        /* Achievement badges */
+        .achievement-badge {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 0.3rem 0.8rem;
+            border-radius: 9999px;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+        .achievement-badge.gold { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+        .achievement-badge.silver { background: #f3f4f6; color: #4b5563; border: 1px solid #9ca3af; }
+        .achievement-badge.bronze { background: #ffedd5; color: #9a3412; border: 1px solid #f97316; }
+
+        .filter-bar {
+            display: flex; flex-wrap: wrap; gap: 0.75rem;
+            padding: 1rem;
+            background: #ffedd5;
+            border-radius: 18px;
+            border: 1px solid #fed7aa;
+            align-items: end;
+        }
+        .filter-bar .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .filter-bar .field label { font-size: 0.7rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+        .filter-bar .field select, .filter-bar .field input {
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #fed7aa;
+            border-radius: 0.5rem;
+            background: white;
+            font-size: 0.85rem;
+            min-width: 100px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== OVERLAY ===== -->
+    <div class="overlay" id="panelOverlay"></div>
+
+    <!-- ===== DETAIL PANEL ===== -->
+    <div class="detail-panel" id="detailPanel">
+        <div class="flex-between">
+            <h2 class="font-serif text-xl font-bold" style="color:#9a3412;" id="panelTitle">Report Details</h2>
+            <button class="panel-close" id="panelClose"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="panelContent" class="mt-4">
+            <!-- Rendered by JS -->
+        </div>
+    </div>
+
+    <!-- ===== PORTAL ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">RA · Champions</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <button class="nav-item" data-screen="dashboard"><i class="fas fa-home"></i> Dashboard</button>
+                <button class="nav-item" data-screen="bedcheck"><i class="fas fa-clipboard-check"></i> Today's BedCheck</button>
+                <button class="nav-item active" data-screen="reports"><i class="fas fa-chart-bar"></i> My Reports</button>
+                <button class="nav-item" data-screen="notifications"><i class="fas fa-bell"></i> Notifications</button>
+                <button class="nav-item" data-screen="profile"><i class="fas fa-user"></i> Profile</button>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-user-tie"></i> <span>RA</span></div>
+                <div class="role-scope">Champions Hostel · John Peter</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">RA · Champions</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <button class="nav-item" data-screen="dashboard"><i class="fas fa-home"></i> Dashboard</button>
+                <button class="nav-item" data-screen="bedcheck"><i class="fas fa-clipboard-check"></i> Today's BedCheck</button>
+                <button class="nav-item active" data-screen="reports"><i class="fas fa-chart-bar"></i> My Reports</button>
+                <button class="nav-item" data-screen="notifications"><i class="fas fa-bell"></i> Notifications</button>
+                <button class="nav-item" data-screen="profile"><i class="fas fa-user"></i> Profile</button>
+            </nav>
+            <div class="drawer-footer">RA · Champions Hostel</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Thursday, 9 July 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <button class="notif-btn" id="notifBtn"><i class="fas fa-bell"></i><span class="notif-badge"></span></button>
+                        <button class="profile-btn" id="profileBtn">
+                            <span class="profile-avatar" id="profileAvatar">JP</span>
+                            <span class="profile-name" id="profileName">John Peter</span>
+                            <span class="profile-role" id="profileRoleLabel">RA</span>
+                        </button>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-container">
+                <!-- Notice Banner -->
+                <div class="notice-banner">
+                    <i class="fas fa-chart-bar"></i>
+                    <span id="noticeText"><strong>Champions Hostel</strong> · My BedCheck Reports</span>
+                </div>
+
+                <!-- ===== MY REPORTS CONTENT ===== -->
+                <div id="reportsContent">
+
+                    <!-- Page Header -->
+                    <div class="flex-between">
+                        <div>
+                            <h1 class="font-serif text-2xl font-bold" style="color:#9a3412;">My Reports</h1>
+                            <p class="text-sm text-muted">View your completed sessions, attendance records and performance.</p>
+                        </div>
+                        <button class="btn-primary" onclick="showToast('Generating report...','success')"><i class="fas fa-file-alt"></i> Export Report</button>
+                    </div>
+
+                    <!-- Search & Filters -->
+                    <div class="filter-bar mt-4">
+                        <div class="field"><label>Search</label><input type="text" placeholder="Search reports..." style="min-width:180px;" /></div>
+                        <div class="field"><label>Date</label>
+                            <select><option>All Dates</option><option>Today</option><option>This Week</option><option>This Month</option></select>
+                        </div>
+                        <div class="field"><label>Session</label>
+                            <select><option>All</option><option>Morning</option><option>Night</option><option>Special</option></select>
+                        </div>
+                        <div class="field"><label>Status</label>
+                            <select><option>All</option><option>Approved</option><option>Returned</option><option>Pending</option></select>
+                        </div>
+                        <button class="btn-primary" onclick="showToast('Searching reports...','success')"><i class="fas fa-search"></i> Search</button>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="metric-grid mt-4">
+                        <div class="metric-card"><div class="metric-icon orange"><i class="fas fa-clipboard-list"></i></div><div class="metric-value">48</div><div class="metric-title">Total Sessions</div></div>
+                        <div class="metric-card"><div class="metric-icon green"><i class="fas fa-check-circle"></i></div><div class="metric-value">46</div><div class="metric-title">Approved</div></div>
+                        <div class="metric-card"><div class="metric-icon red"><i class="fas fa-undo"></i></div><div class="metric-value">2</div><div class="metric-title">Returned</div></div>
+                        <div class="metric-card"><div class="metric-icon blue"><i class="fas fa-clock"></i></div><div class="metric-value">39m</div><div class="metric-title">Avg Time</div></div>
+                        <div class="metric-card"><div class="metric-icon green"><i class="fas fa-percent"></i></div><div class="metric-value">97.4%</div><div class="metric-title">Attendance</div></div>
+                        <div class="metric-card"><div class="metric-icon amber"><i class="fas fa-calendar-alt"></i></div><div class="metric-value">12</div><div class="metric-title">This Month</div></div>
+                    </div>
+
+                    <!-- Performance Overview + Achievements -->
+                    <div class="grid-2 mt-6">
+                        <div class="card">
+                            <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-user-tie text-orange"></i> Performance Overview</h4>
+                            <div class="mt-2">
+                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;"><span class="text-muted">Hostel</span><span class="font-bold">Champions Hostel</span></div>
+                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;"><span class="text-muted">Resident Advisor</span><span class="font-bold">John Peter</span></div>
+                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;"><span class="text-muted">Current Session Status</span><span class="badge badge-approved">✅ Completed</span></div>
+                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;"><span class="text-muted">Overall Performance</span><span class="font-bold" style="color:#9a3412;">97%</span></div>
+                                <div class="flex-between" style="padding:0.3rem 0;"><span class="text-muted">Approval Rate</span><span class="font-bold" style="color:#9a3412;">96%</span></div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-trophy text-orange"></i> Achievement Badges</h4>
+                            <div class="mt-2 flex gap-2 flex-wrap">
+                                <span class="achievement-badge gold"><i class="fas fa-star"></i> 10 Consecutive Approved</span>
+                                <span class="achievement-badge gold"><i class="fas fa-check-circle"></i> 100% Room Completion</span>
+                                <span class="achievement-badge silver"><i class="fas fa-chart-line"></i> Excellent Attendance</span>
+                                <span class="achievement-badge bronze"><i class="fas fa-clock"></i> Fastest Session (31m)</span>
+                            </div>
+                            <div class="mt-3 pt-3 border-t">
+                                <p class="text-xs text-muted">🏆 <strong>Gold:</strong> 10+ approved sessions in a row</p>
+                                <p class="text-xs text-muted">⭐ <strong>Silver:</strong> 90%+ attendance rate</p>
+                                <p class="text-xs text-muted">🥉 <strong>Bronze:</strong> Session completed under 35 minutes</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ⭐ Performance Insights -->
+                    <div class="card mt-6" style="border-color:#f97316;background:#ffedd5;">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-lightbulb text-orange"></i> Performance Insights</h4>
+                        <div class="grid-3 mt-2">
+                            <div class="text-center"><span class="text-muted">Avg Completion Time</span><br><span class="font-bold text-lg" style="color:#9a3412;">39 min</span></div>
+                            <div class="text-center"><span class="text-muted">Approval Rate</span><br><span class="font-bold text-lg" style="color:#9a3412;">96%</span></div>
+                            <div class="text-center"><span class="text-muted">Fastest Session</span><br><span class="font-bold text-lg" style="color:#9a3412;">31 min</span></div>
+                            <div class="text-center"><span class="text-muted">Slowest Session</span><br><span class="font-bold text-lg" style="color:#9a3412;">52 min</span></div>
+                            <div class="text-center"><span class="text-muted">Attendance Trend</span><br><span class="font-bold text-lg" style="color:#9a3412;"><span style="color:#16a34a;">↑ 1.2%</span></span></div>
+                            <div class="text-center"><span class="text-muted">Sessions This Month</span><br><span class="font-bold text-lg" style="color:#9a3412;">12</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Report History -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-history text-orange"></i> Report History</h4>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr><th>Date</th><th>Session</th><th>Students</th><th>Present</th><th>Absent</th><th>Status</th><th>Action</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Jul 12</td><td>Night BedCheck</td><td>216</td><td>208</td><td>8</td><td><span class="badge badge-approved">🟢 Approved</span></td><td><button class="btn-secondary" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="openDetail('Jul 12')">View</button></td></tr>
+                                    <tr><td>Jul 10</td><td>Night BedCheck</td><td>216</td><td>210</td><td>6</td><td><span class="badge badge-approved">🟢 Approved</span></td><td><button class="btn-secondary" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="openDetail('Jul 10')">View</button></td></tr>
+                                    <tr><td>Jul 9</td><td>Morning BedCheck</td><td>216</td><td>206</td><td>10</td><td><span class="badge badge-returned">🔴 Returned</span></td><td><button class="btn-secondary" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="openDetail('Jul 9')">View</button></td></tr>
+                                    <tr><td>Jul 8</td><td>Night BedCheck</td><td>216</td><td>209</td><td>7</td><td><span class="badge badge-approved">🟢 Approved</span></td><td><button class="btn-secondary" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="openDetail('Jul 8')">View</button></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Floor Performance -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-layer-group text-orange"></i> Floor Performance</h4>
+                        <div class="card mt-2">
+                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #fed7aa;"><span>Floor A</span><span class="font-bold" style="color:#9a3412;">100%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:100%;"></div></div>
+                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #fed7aa;margin-top:0.5rem;"><span>Floor B</span><span class="font-bold" style="color:#9a3412;">98%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:98%;"></div></div>
+                            <div class="flex-between" style="padding:0.4rem 0;margin-top:0.5rem;"><span>Floor C</span><span class="font-bold" style="color:#9a3412;">95%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:95%;"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Returned Reports -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-undo text-orange"></i> Returned Reports</h4>
+                        <div class="card mt-2" style="border-color:#dc2626;background:#fef2f2;">
+                            <div class="flex-between">
+                                <div>
+                                    <p class="font-bold" style="color:#991b1b;">🔴 Returned Report</p>
+                                    <p class="text-sm text-muted">Date: 9 July 2026 · Morning BedCheck</p>
+                                    <p class="text-sm">Reason: Room C12 not verified.</p>
+                                    <p class="text-xs text-muted">Returned By: Sarah James (HRA)</p>
+                                </div>
+                                <button class="btn-primary" style="background:#dc2626;" onclick="showToast('Opening correction...','success')"><i class="fas fa-edit"></i> Open Correction</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Personal Statistics -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-user text-orange"></i> Personal Statistics</h4>
+                        <div class="grid-4 mt-2">
+                            <div class="card text-center"><span class="text-muted">Rooms Checked</span><br><span class="font-bold text-xl" style="color:#9a3412;">2,592</span></div>
+                            <div class="card text-center"><span class="text-muted">Students Verified</span><br><span class="font-bold text-xl" style="color:#9a3412;">10,368</span></div>
+                            <div class="card text-center"><span class="text-muted">Avg Session</span><br><span class="font-bold text-xl" style="color:#9a3412;">39 min</span></div>
+                            <div class="card text-center"><span class="text-muted">Fastest</span><br><span class="font-bold text-xl" style="color:#9a3412;">31 min</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Monthly Performance -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-calendar-alt text-orange"></i> Monthly Performance</h4>
+                        <div class="card mt-2">
+                            <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;"><span>Week 1</span><span class="font-bold" style="color:#9a3412;">98%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:98%;"></div></div>
+                            <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;margin-top:0.5rem;"><span>Week 2</span><span class="font-bold" style="color:#9a3412;">96%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:96%;"></div></div>
+                            <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #fed7aa;margin-top:0.5rem;"><span>Week 3</span><span class="font-bold" style="color:#9a3412;">99%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:99%;"></div></div>
+                            <div class="flex-between" style="padding:0.3rem 0;margin-top:0.5rem;"><span>Week 4</span><span class="font-bold" style="color:#9a3412;">97%</span></div>
+                            <div class="progress-bar mt-1"><div class="fill" style="width:97%;"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Export Options -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;"><i class="fas fa-download text-orange"></i> Export Options</h4>
+                        <div class="flex-center gap-2 mt-2 flex-wrap">
+                            <button class="btn-secondary" onclick="showToast('Downloading PDF...','success')"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                            <button class="btn-secondary" onclick="showToast('Exporting Excel...','success')"><i class="fas fa-file-excel"></i> Export Excel</button>
+                            <button class="btn-secondary" onclick="showToast('Exporting CSV...','success')"><i class="fas fa-file-csv"></i> Export CSV</button>
+                            <button class="btn-secondary" onclick="showToast('Printing...','success')"><i class="fas fa-print"></i> Print Report</button>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="mt-6">
+                        <h4 class="font-bold" style="color:#9a3412;">Quick Actions</h4>
+                        <div class="quick-actions mt-2">
+                            <button class="quick-btn" onclick="showToast('Loading latest report...','success')"><i class="fas fa-file-alt"></i> View Latest Report</button>
+                            <button class="quick-btn" onclick="showToast('Loading performance summary...','success')"><i class="fas fa-chart-line"></i> Performance Summary</button>
+                            <button class="quick-btn" onclick="showToast('Exporting reports...','success')"><i class="fas fa-download"></i> Export Reports</button>
+                            <button class="quick-btn" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                            <button class="quick-btn" onclick="showToast('Dashboard','success')"><i class="fas fa-home"></i> Dashboard</button>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar info (inline) -->
+                    <div class="mt-6 card" style="background:#ffedd5;border-color:#fed7aa;">
+                        <div class="flex-between">
+                            <div>
+                                <p class="text-xs font-bold uppercase text-orange">Today's Session</p>
+                                <p class="font-bold text-lg" style="color:#9a3412;"><span class="status-dot green"></span> Approved</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xs text-muted">Champions Hostel</p>
+                                <p class="font-bold" style="color:#9a3412;">Approved 10:18 PM</p>
+                                <p class="text-xs text-muted">Attendance 96.3% · Next: Tonight 9:30 PM</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="mt-7 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // =============================================
+        // MY REPORTS – RA
+        // =============================================
+
+        // ----- DATA -----
+        const reportDetails = {
+            'Jul 12': { session: 'Night BedCheck', hostel: 'Champions Hostel', date: '12 July 2026', started: '9:30 PM', completed: '10:14 PM', duration: '44 min', approvedBy: 'Sarah James (HRA)', status: 'Approved', students: 216, present: 208, absent: 8, rate: '96.3%', rooms: '54 / 54' },
+            'Jul 10': { session: 'Night BedCheck', hostel: 'Champions Hostel', date: '10 July 2026', started: '9:30 PM', completed: '10:08 PM', duration: '38 min', approvedBy: 'Sarah James (HRA)', status: 'Approved', students: 216, present: 210, absent: 6, rate: '97.2%', rooms: '54 / 54' },
+            'Jul 9': { session: 'Morning BedCheck', hostel: 'Champions Hostel', date: '9 July 2026', started: '8:00 AM', completed: '8:45 AM', duration: '45 min', approvedBy: 'Sarah James (HRA)', status: 'Returned', students: 216, present: 206, absent: 10, rate: '95.4%', rooms: '54 / 54' },
+            'Jul 8': { session: 'Night BedCheck', hostel: 'Champions Hostel', date: '8 July 2026', started: '9:30 PM', completed: '10:12 PM', duration: '42 min', approvedBy: 'Sarah James (HRA)', status: 'Approved', students: 216, present: 209, absent: 7, rate: '96.8%', rooms: '54 / 54' }
+        };
+
+        // ----- TOAST -----
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => { toast.classList.remove('show'); }, 3500);
+        }
+
+        // ----- DETAIL PANEL -----
+        function openDetail(date) {
+            const data = reportDetails[date];
+            if (!data) return;
+
+            const panel = document.getElementById('detailPanel');
+            const overlay = document.getElementById('panelOverlay');
+            document.getElementById('panelTitle').textContent = data.session;
+
+            const statusBadge = data.status === 'Approved' ? 'status-badge-approved' : 'status-badge-returned';
+            const statusIcon = data.status === 'Approved' ? '🟢' : '🔴';
+
+            document.getElementById('panelContent').innerHTML = `
+                <div class="card">
+                    <div class="flex-between"><span class="text-muted">Hostel</span><span class="font-bold">${data.hostel}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Date</span><span class="font-bold">${data.date}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Started</span><span class="font-bold">${data.started}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Completed</span><span class="font-bold">${data.completed}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Duration</span><span class="font-bold">${data.duration}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Approved By</span><span class="font-bold">${data.approvedBy}</span></div>
+                    <div class="flex-between mt-2"><span class="text-muted">Status</span><span class="status-badge ${statusBadge}">${statusIcon} ${data.status}</span></div>
+                    <div class="mt-4 pt-4 border-t">
+                        <p class="font-bold" style="color:#9a3412;">Attendance Breakdown</p>
+                        <div class="grid-2 mt-2">
+                            <div><span class="text-muted">Students</span><br><span class="font-bold" style="color:#9a3412;">${data.students}</span></div>
+                            <div><span class="text-muted">Present</span><br><span class="font-bold" style="color:#9a3412;">${data.present}</span></div>
+                            <div><span class="text-muted">Absent</span><br><span class="font-bold" style="color:#9a3412;">${data.absent}</span></div>
+                            <div><span class="text-muted">Attendance Rate</span><br><span class="font-bold" style="color:#9a3412;">${data.rate}</span></div>
+                        </div>
+                        <div class="mt-2"><span class="text-muted">Rooms Completed</span><br><span class="font-bold" style="color:#9a3412;">${data.rooms}</span></div>
+                    </div>
+                    <div class="mt-4 flex gap-2 flex-wrap">
+                        <button class="btn-secondary" onclick="showToast('Downloading report...','success')"><i class="fas fa-download"></i> Download</button>
+                        <button class="btn-outline" onclick="closePanel()">Close</button>
+                    </div>
+                </div>
+            `;
+
+            panel.classList.add('open');
+            overlay.classList.add('show');
+        }
+
+        function closePanel() {
+            document.getElementById('detailPanel').classList.remove('open');
+            document.getElementById('panelOverlay').classList.remove('show');
+        }
+
+        // ----- CLOCK -----
+        function updateClock() {
+            const now = new Date();
+            const clockEl = document.getElementById('liveClock');
+            if (clockEl) {
+                clockEl.innerHTML = `<i class="far fa-clock"></i> ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+            }
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // ----- DATE -----
+        document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        // ----- MOBILE DRAWER -----
+        const menuToggle = document.getElementById('menuToggle');
+        const closeDrawer = document.getElementById('closeDrawer');
+        const drawerOverlay = document.getElementById('drawerOverlay');
+        const mobileDrawer = document.getElementById('mobileDrawer');
+
+        menuToggle.addEventListener('click', () => { mobileDrawer.classList.add('open'); drawerOverlay.classList.add('show'); });
+        closeDrawer.addEventListener('click', () => { mobileDrawer.classList.remove('open'); drawerOverlay.classList.remove('show'); });
+        drawerOverlay.addEventListener('click', () => { mobileDrawer.classList.remove('open'); drawerOverlay.classList.remove('show'); });
+
+        // ----- NAVIGATION -----
+        document.querySelectorAll('.nav-item').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const screen = this.dataset.screen;
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                if (screen === 'reports') {
+                    showToast('My Reports', 'success');
+                } else {
+                    showToast(`Navigating to ${screen}...`, 'success');
+                }
+                mobileDrawer.classList.remove('open');
+                drawerOverlay.classList.remove('show');
+            });
+        });
+
+        // ----- LOGOUT -----
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            if (confirm('Logout?')) { showToast('Logging out...', 'success'); setTimeout(() => { window.location.href = '../Login.html'; }, 500); }
+        });
+
+        // ----- PROFILE & NOTIFICATIONS -----
+        document.getElementById('profileBtn').addEventListener('click', () => {});
+        document.getElementById('notifBtn').addEventListener('click', () => {
+            document.querySelector('.nav-item[data-screen="notifications"]')?.click();
+        });
+
+        // ----- PANEL CONTROLS -----
+        document.getElementById('panelClose').addEventListener('click', closePanel);
+        document.getElementById('panelOverlay').addEventListener('click', closePanel);
+
+        // Expose
+        window.showToast = showToast;
+        window.openDetail = openDetail;
+        window.closePanel = closePanel;
+
+        console.log('My Reports · Champions · RA');
+    </script>
+</body>
+</html>

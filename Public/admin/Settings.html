@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>System Settings · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.85rem; cursor: pointer; text-decoration: none; }
+        .btn-outline:hover { background: #f5f1e8; }
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.85rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+        .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; }
+        .btn-success:hover { background: #1f4a32; }
+        .btn-danger { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #a84134; color: white; font-weight: 700; font-size: 0.8rem; cursor: pointer; transition: background 0.15s; }
+        .btn-danger:hover { background: #8a3328; }
+
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; color: #17233c; }
+
+        /* Status Cards */
+        .status-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, 1fr); }
+        @media (min-width: 640px) { .status-grid { grid-template-columns: repeat(4, 1fr); } }
+        .status-card { padding: 0.75rem 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .status-card .status-icon { font-size: 1.2rem; }
+        .status-card .status-icon.green { color: #2d6545; }
+        .status-card .status-icon.gold { color: #d4af37; }
+        .status-card .status-icon.blue { color: #24466f; }
+        .status-card .status-value { font-size: 0.8rem; font-weight: 700; margin-top: 0.15rem; }
+        .status-card .status-label { font-size: 0.7rem; color: #68768a; }
+        .status-card .status-detail { font-size: 0.6rem; color: #6b778b; margin-top: 0.1rem; }
+
+        /* Settings Layout */
+        .settings-layout { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+        @media (min-width: 1024px) { .settings-layout { grid-template-columns: 14rem 1fr; } }
+
+        .settings-menu { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 0.5rem; }
+        .settings-menu .menu-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #17233c; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.15s; text-align: left; }
+        .settings-menu .menu-item:hover { background: #f5f1e8; }
+        .settings-menu .menu-item.active { background: #d6ad4b; color: #10233f; }
+        .settings-menu .menu-item i { width: 1.2rem; text-align: center; font-size: 0.9rem; }
+
+        .settings-panel { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .settings-panel .panel-title { font-family: 'Merriweather',serif; font-size: 1.1rem; font-weight: 700; margin-bottom: 0.25rem; }
+        .settings-panel .panel-desc { font-size: 0.85rem; color: #68768a; margin-bottom: 1rem; }
+
+        .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #eee8de; flex-wrap: wrap; gap: 0.5rem; }
+        .setting-item:last-child { border-bottom: none; }
+        .setting-item .setting-label { font-weight: 600; font-size: 0.85rem; color: #17233c; }
+        .setting-item .setting-value { color: #5c6a7d; font-size: 0.85rem; }
+        .setting-item .setting-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+        .toggle-switch { position: relative; width: 2.8rem; height: 1.5rem; background: #cbd2db; border-radius: 9999px; cursor: pointer; transition: background 0.3s; flex-shrink: 0; }
+        .toggle-switch.active { background: #2d6545; }
+        .toggle-switch .toggle-knob { position: absolute; top: 0.15rem; left: 0.15rem; width: 1.2rem; height: 1.2rem; background: white; border-radius: 50%; transition: transform 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+        .toggle-switch.active .toggle-knob { transform: translateX(1.3rem); }
+
+        .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .field label { font-weight: 600; font-size: 0.85rem; color: #17233c; }
+        .field input, .field select { padding: 0.5rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.85rem; outline: none; width: 100%; font-family: inherit; }
+        .field input:focus, .field select:focus { border-color: #a77915; }
+        .field .helper { font-size: 0.65rem; color: #6b778b; margin-top: 0.1rem; }
+
+        .grid-2 { display: grid; gap: 0.75rem; grid-template-columns: 1fr; }
+        @media (min-width: 640px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .text-sm { font-size: 0.85rem; }
+        .text-xs { font-size: 0.65rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+
+        .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-success { background: #e1f0e5; color: #2d6545; }
+        .badge-warning { background: #fff0cb; color: #8a6413; }
+        .badge-danger { background: #f8e1dc; color: #9b3c31; }
+        .badge-info { background: #e7edf5; color: #24466f; }
+
+        .role-matrix { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .role-matrix th { background: #fbf7ef; padding: 0.5rem 0.75rem; text-align: left; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: #68768a; }
+        .role-matrix td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee8de; }
+        .role-matrix td .check { color: #2d6545; font-size: 1rem; }
+        .role-matrix td .cross { color: #8a3328; font-size: 1rem; }
+
+        .status-dot { display: inline-block; width: 0.4rem; height: 0.4rem; border-radius: 50%; }
+        .status-dot.green { background: #3f755d; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+        .toast.info { background: #1e3a5f; }
+        .toast.warning { background: #d4af37; color: #10233f; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST NOTIFICATION ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL ===== -->
+    <div id="portalApp" class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item active"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Administrator</span></div>
+                <div class="role-scope" id="roleScope">System-wide access</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item active"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Tuesday, 14 October 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+                        <a href="Profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar">IM</span>
+                            <span class="profile-name" id="profileName">Ibrahim Musa</span>
+                            <span class="profile-role" id="profileRoleLabel">Administrator</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-cog"></i>
+                    <span id="noticeText">System Settings · BIU BedCheck Administration</span>
+                </div>
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // CONFIGURATION
+            // =============================================
+            const API_BASE_URL = 'http://localhost:3000/api';
+
+            // =============================================
+            // TOAST NOTIFICATION
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'Administrator';
+            let activeSection = 'security';
+
+            // =============================================
+            // ROLE MATRIX DATA
+            // =============================================
+            const roleMatrixData = [
+                { role: 'Administrator', view: true, edit: true, approve: true },
+                { role: 'RASD', view: true, edit: true, approve: true },
+                { role: 'HRA', view: true, edit: true, approve: false },
+                { role: 'RA', view: true, edit: false, approve: false }
+            ];
+
+            // =============================================
+            // SECTIONS DATA
+            // =============================================
+            const sectionsData = [
+                { id: 'security', label: 'Security', icon: 'fa-shield-alt' },
+                { id: 'bedcheck', label: 'BedCheck', icon: 'fa-clipboard-check' },
+                { id: 'backup', label: 'Backup & Restore', icon: 'fa-database' },
+                { id: 'roles', label: 'Roles & Permissions', icon: 'fa-users-cog' },
+                { id: 'preferences', label: 'System Preferences', icon: 'fa-sliders-h' }
+            ];
+
+            // =============================================
+            // AUTHENTICATION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
+                
+                document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
+                document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
+                document.getElementById('profileRoleLabel').textContent = currentRole;
+                document.getElementById('roleLabel').textContent = currentRole;
+                document.getElementById('roleScope').textContent = 'System-wide access';
+                document.getElementById('mobileRoleFooter').textContent = `${currentRole} · System-wide access`;
+                
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('login.html');
+            }
+
+            // =============================================
+            // SET DATE
+            // =============================================
+            function setDate() {
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+            }
+
+            // =============================================
+            // MOBILE DRAWER
+            // =============================================
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // TOGGLE SWITCH
+            // =============================================
+            function toggleSwitch(id) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('active');
+                const isActive = el.classList.contains('active');
+                showToast(`${id.replace(/-/g, ' ')} ${isActive ? 'enabled' : 'disabled'}`, 'success');
+            }
+
+            // =============================================
+            // NAVIGATE SETTINGS
+            // =============================================
+            function navigateTo(section) {
+                activeSection = section;
+                renderScreen();
+            }
+
+            // =============================================
+            // SAVE SETTINGS HANDLER
+            // =============================================
+            function saveSettings(sectionName) {
+                showToast(`${sectionName} settings saved successfully!`, 'success');
+            }
+
+            // =============================================
+            // RESET SETTINGS HANDLER
+            // =============================================
+            function resetSettings() {
+                if (confirm('Are you sure you want to reset all settings to default?')) {
+                    showToast('Settings reset to default successfully!', 'warning');
+                }
+            }
+
+            // =============================================
+            // RENDER PANEL CONTENT
+            // =============================================
+            function renderPanelContent(section) {
+                const panels = {
+                    security: `
+                        <div class="panel-title">Security Settings</div>
+                        <div class="panel-desc">Manage administrator authentication and session protection.</div>
+                        
+                        <div class="setting-item">
+                            <div><div class="setting-label">Two-factor authentication</div></div>
+                            <div class="toggle-switch active" onclick="toggleSwitch('2fa-global')" id="2fa-global">
+                                <div class="toggle-knob"></div>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Require 2FA for all administrators</div></div>
+                            <div class="toggle-switch active" onclick="toggleSwitch('2fa-admin')" id="2fa-admin">
+                                <div class="toggle-knob"></div>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Require 2FA for HRA accounts</div></div>
+                            <div class="toggle-switch" onclick="toggleSwitch('2fa-hra')" id="2fa-hra">
+                                <div class="toggle-knob"></div>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Allow backup recovery codes</div></div>
+                            <div class="toggle-switch active" onclick="toggleSwitch('backup-codes')" id="backup-codes">
+                                <div class="toggle-knob"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Session timeout</label>
+                                    <select>
+                                        <option>15 minutes</option>
+                                        <option selected>30 minutes</option>
+                                        <option>45 minutes</option>
+                                        <option>60 minutes</option>
+                                    </select>
+                                    <div class="helper">Auto logout after inactivity</div>
+                                </div>
+                                <div class="field">
+                                    <label>Trusted devices</label>
+                                    <select>
+                                        <option>1 day</option>
+                                        <option selected>7 days</option>
+                                        <option>14 days</option>
+                                        <option>30 days</option>
+                                    </select>
+                                    <div class="helper">Remember trusted devices for</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <div class="panel-title" style="font-size:1rem;">Password Policy</div>
+                            <div class="grid-2 mt-2">
+                                <div class="setting-item">
+                                    <div><div class="setting-label">Minimum 8 characters</div></div>
+                                    <div class="toggle-switch active" onclick="toggleSwitch('pwd-length')" id="pwd-length">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <div><div class="setting-label">Require uppercase letters</div></div>
+                                    <div class="toggle-switch active" onclick="toggleSwitch('pwd-upper')" id="pwd-upper">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <div><div class="setting-label">Require numbers</div></div>
+                                    <div class="toggle-switch active" onclick="toggleSwitch('pwd-numbers')" id="pwd-numbers">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <div><div class="setting-label">Require special characters</div></div>
+                                    <div class="toggle-switch" onclick="toggleSwitch('pwd-special')" id="pwd-special">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <button class="btn-outline" style="font-size:0.8rem;" onclick="resetSettings()"><i class="fas fa-undo"></i> Reset to default</button>
+                            <button class="btn-primary" style="margin-left:0.5rem;font-size:0.8rem;" onclick="saveSettings('Security')"><i class="fas fa-save"></i> Save security settings</button>
+                        </div>
+                    `,
+
+                    bedcheck: `
+                        <div class="panel-title">BedCheck Settings</div>
+                        <div class="panel-desc">Configure BedCheck session parameters and behavior.</div>
+                        
+                        <div class="grid-2">
+                            <div class="field">
+                                <label>Start time</label>
+                                <input type="time" value="22:00" />
+                            </div>
+                            <div class="field">
+                                <label>End time</label>
+                                <input type="time" value="00:00" />
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <div class="setting-item">
+                                <div><div class="setting-label">Allow QR scanning during active sessions</div></div>
+                                <div class="toggle-switch active" onclick="toggleSwitch('qr-scan')" id="qr-scan">
+                                    <div class="toggle-knob"></div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div><div class="setting-label">Automatically mark unscanned students absent</div></div>
+                                <div class="toggle-switch" onclick="toggleSwitch('auto-absent')" id="auto-absent">
+                                    <div class="toggle-knob"></div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div><div class="setting-label">Allow HRA override after session closes</div></div>
+                                <div class="toggle-switch active" onclick="toggleSwitch('hra-override')" id="hra-override">
+                                    <div class="toggle-knob"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <button class="btn-primary" style="font-size:0.8rem;" onclick="saveSettings('BedCheck')"><i class="fas fa-save"></i> Save BedCheck settings</button>
+                        </div>
+                    `,
+
+                    backup: `
+                        <div class="panel-title">Backup & Restore</div>
+                        <div class="panel-desc">Manage system backups and data recovery.</div>
+                        
+                        <div class="setting-item">
+                            <div><div class="setting-label">Last backup</div><div class="setting-value">Today 02:00 AM</div></div>
+                            <span class="badge badge-success">Completed</span>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Automatic backup</div></div>
+                            <div class="toggle-switch active" onclick="toggleSwitch('auto-backup')" id="auto-backup">
+                                <div class="toggle-knob"></div>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Runs every 24 hours</div></div>
+                            <span class="text-xs text-muted">Enabled</span>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Retention</div><div class="setting-value">30 days</div></div>
+                            <span class="text-xs text-muted">Older backups are removed automatically</span>
+                        </div>
+                        <div class="setting-item">
+                            <div><div class="setting-label">Storage</div><div class="setting-value">Cloud</div></div>
+                            <span class="text-xs text-muted">Encrypted remote storage</span>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button class="btn-primary" style="font-size:0.8rem;" onclick="saveSettings('Backup')"><i class="fas fa-cloud-upload-alt"></i> Create backup now</button>
+                            <button class="btn-outline" style="font-size:0.8rem;" onclick="saveSettings('Restore')"><i class="fas fa-cloud-download-alt"></i> Restore backup</button>
+                        </div>
+                    `,
+
+                    roles: `
+                        <div class="panel-title">Roles & Permissions</div>
+                        <div class="panel-desc">Manage role-based access control for the system.</div>
+                        
+                        <div class="table-wrap mt-3" style="overflow-x:auto;border:1px solid #ded6c9;border-radius:0.75rem;">
+                            <table class="role-matrix">
+                                <thead><tr>
+                                    <th>Role</th>
+                                    <th style="text-align:center;">View</th>
+                                    <th style="text-align:center;">Edit</th>
+                                    <th style="text-align:center;">Approve</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${roleMatrixData.map(r => `
+                                        <tr>
+                                            <td><strong>${r.role}</strong></td>
+                                            <td style="text-align:center;">${r.view ? '<span class="check">✓</span>' : '<span class="cross">✗</span>'}</td>
+                                            <td style="text-align:center;">${r.edit ? '<span class="check">✓</span>' : '<span class="cross">✗</span>'}</td>
+                                            <td style="text-align:center;">${r.approve ? '<span class="check">✓</span>' : '<span class="cross">✗</span>'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <button class="btn-primary" style="font-size:0.8rem;" onclick="saveSettings('Roles & Permissions')"><i class="fas fa-save"></i> Save permissions</button>
+                        </div>
+                    `,
+
+                    preferences: `
+                        <div class="panel-title">System Preferences</div>
+                        <div class="panel-desc">General system configuration and preferences.</div>
+                        
+                        <div class="field mt-2">
+                            <label>Institution Name</label>
+                            <input value="Benson Idahosa University" />
+                        </div>
+                        <div class="field mt-2">
+                            <label>Current Session</label>
+                            <select>
+                                <option>2025/2026</option>
+                                <option selected>2026/2027</option>
+                                <option>2027/2028</option>
+                            </select>
+                        </div>
+                        <div class="field mt-2">
+                            <label>Time Zone</label>
+                            <select>
+                                <option selected>Africa/Lagos (WAT)</option>
+                                <option>Africa/Abidjan (GMT)</option>
+                                <option>Africa/Cairo (EET)</option>
+                            </select>
+                        </div>
+                        <div class="field mt-2">
+                            <label>Default Language</label>
+                            <select>
+                                <option selected>English</option>
+                                <option>French</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <div class="setting-item">
+                                <div><div class="setting-label">Maintenance mode</div><div class="setting-value">System is operational</div></div>
+                                <span class="badge badge-success">Online</span>
+                            </div>
+                            <div class="setting-item">
+                                <div><div class="setting-label">Debug logging</div></div>
+                                <div class="toggle-switch" onclick="toggleSwitch('debug-log')" id="debug-log">
+                                    <div class="toggle-knob"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <button class="btn-primary" style="font-size:0.8rem;" onclick="saveSettings('System Preferences')"><i class="fas fa-save"></i> Save preferences</button>
+                        </div>
+                    `
+                };
+
+                return panels[section] || panels.security;
+            }
+
+            // =============================================
+            // RENDER SETTINGS PAGE
+            // =============================================
+            function renderScreen() {
+                const container = document.getElementById('screenContent');
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-cog"></i> System Administration</p>
+                            <h1>System Settings</h1>
+                            <p class="desc">BIU BedCheck Administration — Control security, sessions, backups, and hostel operations from one place.</p>
+                        </div>
+                        <div class="action-group">
+                            <span class="badge badge-success" style="font-size:0.7rem;padding:0.3rem 0.8rem;"><i class="fas fa-circle" style="font-size:0.4rem;margin-right:0.3rem;"></i> System Online</span>
+                        </div>
+                    </div>
+
+                    <!-- Status Cards -->
+                    <div class="status-grid mt-4">
+                        <div class="status-card">
+                            <div class="status-icon green"><i class="fas fa-lock"></i></div>
+                            <div class="status-value">2FA Enabled</div>
+                            <div class="status-label">Security</div>
+                            <div class="status-detail">Last password change: 12 Jul 2026</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon blue"><i class="fas fa-database"></i></div>
+                            <div class="status-value">Connected</div>
+                            <div class="status-label">Database</div>
+                            <div class="status-detail">Auto backup every 24 hours</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon gold"><i class="fas fa-clock"></i></div>
+                            <div class="status-value">22:00 – 00:00</div>
+                            <div class="status-label">BedCheck</div>
+                            <div class="status-detail">Daily monitoring window</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon blue"><i class="fas fa-user-shield"></i></div>
+                            <div class="status-value">32 accounts</div>
+                            <div class="status-label">Administrators</div>
+                            <div class="status-detail">RA, HRA, RASD, Admin</div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Layout -->
+                    <div class="settings-layout mt-6">
+                        <!-- Left Menu -->
+                        <div class="settings-menu">
+                            ${sectionsData.map(s => `
+                                <button class="menu-item ${activeSection === s.id ? 'active' : ''}" onclick="navigateTo('${s.id}')">
+                                    <i class="fas ${s.icon}"></i> ${s.label}
+                                </button>
+                            `).join('')}
+                        </div>
+
+                        <!-- Right Panel -->
+                        <div class="settings-panel">
+                            ${renderPanelContent(activeSection)}
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="mt-6 pt-4 border-t">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                        </p>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.showToast = showToast;
+            window.toggleSwitch = toggleSwitch;
+            window.navigateTo = navigateTo;
+            window.saveSettings = saveSettings;
+            window.resetSettings = resetSettings;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                setDate();
+
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.logout-btn').forEach(btn => {
+                    btn.addEventListener('click', handleLogout);
+                });
+
+                try {
+                    document.getElementById('noticeText').textContent = 'Loading settings...';
+                    renderScreen();
+                    document.getElementById('noticeText').textContent = 'System Settings · BIU BedCheck Administration';
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading settings.';
+                    showToast('Error loading settings: ' + error.message, 'error');
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

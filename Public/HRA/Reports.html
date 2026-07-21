@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reports · HRA · BIU</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: #f5f1e8;
+            color: #17233c;
+            min-height: 100vh;
+        }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            position: fixed; inset: 0 0 0 0; width: 16rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            display: none; flex-direction: column;
+            z-index: 30;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            width: 100%; padding: 0.6rem 0.75rem;
+            border: none; border-radius: 0.5rem;
+            background: transparent; color: #dce5f2;
+            font-size: 0.9rem; font-weight: 500;
+            text-align: left; cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card {
+            margin-top: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        /* Mobile drawer */
+        .mobile-drawer {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: 18rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            z-index: 50;
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        /* ----- HEADER ----- */
+        .main-header {
+            position: sticky; top: 0; z-index: 20;
+            border-bottom: 1px solid #dfd8cb;
+            background: rgba(245,241,232,0.95);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1rem;
+        }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn {
+            display: flex; align-items: center; gap: 0.5rem;
+            border: 1px solid #d8d0c2; border-radius: 0.5rem;
+            background: #fffcf6;
+            padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+            cursor: pointer; text-decoration: none; color: #17233c;
+        }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+
+        .notice-banner {
+            display: flex; gap: 0.75rem; padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #d8c79e;
+            border-radius: 0.5rem;
+            background: #fff9e9;
+            color: #675121;
+            font-size: 0.9rem;
+        }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        /* ----- REPORTS SPECIFICS ----- */
+        .page-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; }
+        }
+        .page-heading .eyebrow {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #a77915;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .page-heading h1 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-top: 0.15rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading h1 { font-size: 2.25rem; }
+        }
+        .page-heading .desc {
+            margin-top: 0.25rem;
+            font-size: 0.9rem;
+            color: #5c6a7d;
+        }
+        .page-heading .action-group {
+            display: flex; flex-wrap: wrap; gap: 0.5rem;
+        }
+
+        .card {
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+            padding: 1.25rem;
+        }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #10233f; color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-primary:hover { background: #18345a; }
+
+        .btn-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #bfc8d5; border-radius: 0.5rem;
+            background: #fffcf6;
+            font-weight: 600; font-size: 0.9rem;
+            color: #17233c;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-outline:hover { background: #f5f1e8; }
+
+        .btn-success {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #2d6545; color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-success:hover { background: #1f4a32; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-provisional { background: #fff0cb; color: #8a6413; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-present { background: #e1f0e5; color: #2d6545; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .flex-wrap { flex-wrap: wrap; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 480px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+        .metric-card {
+            padding: 1rem;
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+            text-align: center;
+        }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+        .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+        .metric-icon.amber { background: #fff0cb; color: #8a6413; }
+        .metric-icon.blue { background: #e7edf5; color: #24466f; }
+        .metric-value { margin-top: 0.5rem; font-size: 1.8rem; font-weight: 700; }
+        .metric-title { margin-top: 0.1rem; font-weight: 600; font-size: 0.8rem; color: #68768a; }
+
+        .progress-bar { height: 0.4rem; overflow: hidden; border-radius: 9999px; background: #e6e2da; }
+        .progress-bar .fill { height: 100%; background: #3f755d; border-radius: 9999px; }
+
+        .table-wrap {
+            overflow-x: auto;
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+        }
+        .table-wrap table {
+            width: 100%; min-width: 600px;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        .table-wrap thead {
+            background: #fbf7ef;
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #68768a;
+        }
+        .table-wrap th { padding: 1rem; }
+        .table-wrap td { padding: 1rem; border-top: 1px solid #eee8de; }
+
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            background: #10233f;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 400px;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL (HRA) ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review BedCheck</a>
+                <a href="Reports.html" class="nav-item active"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">HRA</span></div>
+                <div class="role-scope" id="roleScope">Loading...</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review BedCheck</a>
+                <a href="Reports.html" class="nav-item active"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">HRA · Loading...</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Thursday, 9 July 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn" id="notifBtn">
+                            <i class="fas fa-bell"></i><span class="notif-badge" id="notifBadge"></span>
+                        </a>
+                        <a href="Profile.html" class="profile-btn" id="profileBtn">
+                            <span class="profile-avatar" id="profileAvatar">SO</span>
+                            <span class="profile-name" id="profileName">Sarah Okon</span>
+                            <span class="profile-role" id="profileRoleLabel">HRA</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-container">
+                <!-- Notice Banner -->
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-chart-line"></i>
+                    <span id="noticeText"><strong>Reports</strong> · Attendance and performance analytics</span>
+                </div>
+
+                <!-- ===== REPORTS CONTENT ===== -->
+                <div id="reportsContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // REPORTS – HRA (Connected to DB)
+            // =============================================
+
+            const API_BASE = 'http://localhost:3000/api';
+
+            // ---------- STATE ----------
+            let currentUser = null;
+            let hostelData = null;
+            let students = [];
+            let isLoading = true;
+            let activeTab = 'overview'; // 'overview', 'students', 'attendance'
+
+            // ---------- DOM REFS ----------
+            const reportsContent = document.getElementById('reportsContent');
+            const noticeText = document.getElementById('noticeText');
+            const notifBadge = document.getElementById('notifBadge');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRoleFooter = document.getElementById('mobileRoleFooter');
+            const profileAvatar = document.getElementById('profileAvatar');
+            const profileName = document.getElementById('profileName');
+            const profileRoleLabel = document.getElementById('profileRoleLabel');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const menuToggle = document.getElementById('menuToggle');
+
+            // ---------- TOAST ----------
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => { toast.classList.remove('show'); }, 3500);
+            }
+
+            // ---------- AUTH HELPERS ----------
+            function getAuthHeaders() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return { 'X-Staff-ID': user.id };
+                    } catch (e) {
+                        return {};
+                    }
+                }
+                return {};
+            }
+
+            function getStaffId() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return user.id;
+                    } catch (e) {
+                        return null;
+                    }
+                }
+                return null;
+            }
+
+            // ---------- API HELPERS ----------
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders(),
+                        ...(options.headers || {})
+                    };
+
+                    let url = `${API_BASE}${endpoint}`;
+                    if (endpoint === '/hra/hostel') {
+                        const staffId = getStaffId();
+                        if (staffId) {
+                            url += `?staff_id=${staffId}`;
+                        }
+                    }
+
+                    const response = await fetch(url, {
+                        ...options,
+                        headers: headers
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // ---------- UPDATE USER DISPLAY ----------
+            function updateUserDisplay() {
+                if (currentUser) {
+                    const name = currentUser.name || 'User';
+                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    const role = currentUser.role || 'HRA';
+
+                    profileAvatar.textContent = initials;
+                    profileName.textContent = name;
+                    profileRoleLabel.textContent = role;
+                    roleLabel.textContent = role;
+
+                    if (hostelData) {
+                        const hostelName = hostelData.name || 'Hostel';
+                        roleScope.textContent = hostelName + ' Hostel';
+                        mobileRoleFooter.textContent = `HRA · ${hostelName} Hostel`;
+                    }
+                }
+            }
+
+            // ---------- DATA LOADING ----------
+            async function loadAllData() {
+                try {
+                    isLoading = true;
+                    renderLoading();
+
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        currentUser = JSON.parse(userData);
+                    } else {
+                        const localUser = localStorage.getItem('bedcheck_user');
+                        if (localUser) {
+                            currentUser = JSON.parse(localUser);
+                            sessionStorage.setItem('bedcheck_user', localUser);
+                        } else {
+                            window.location.replace('../Login.html');
+                            return;
+                        }
+                    }
+
+                    if (!currentUser || !currentUser.id) {
+                        showToast('User not properly authenticated. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    // Load HRA's hostel
+                    const hostelRes = await apiCall(`/hra/hostel`);
+                    hostelData = hostelRes.data;
+
+                    if (!hostelData) {
+                        roleScope.textContent = 'No hostel assigned';
+                        mobileRoleFooter.textContent = 'HRA · No Hostel';
+                        showToast('No hostel assigned to this HRA account', 'error');
+                        renderNoHostel();
+                        return;
+                    }
+
+                    roleScope.textContent = hostelData.name + ' Hostel';
+                    mobileRoleFooter.textContent = `HRA · ${hostelData.name} Hostel`;
+                    setNotice(`${hostelData.name} · Reports`);
+                    updateUserDisplay();
+
+                    // Load students
+                    const studentsRes = await apiCall(`/hostels/${hostelData.id}/students`).catch(() => ({ data: [] }));
+                    students = studentsRes.data || [];
+
+                    // Get unread notification count
+                    try {
+                        const notifRes = await apiCall(`/hostels/${hostelData.id}/notifications`).catch(() => ({ data: [] }));
+                        const notifications = notifRes.data || [];
+                        const unreadCount = notifications.filter(n => !n.read).length;
+                        if (notifBadge) {
+                            if (unreadCount > 0) {
+                                notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                                notifBadge.style.display = 'block';
+                            } else {
+                                notifBadge.style.display = 'none';
+                            }
+                        }
+                    } catch (e) {}
+
+                    // Set date
+                    const now = new Date();
+                    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                    const dateEl = document.getElementById('currentDate');
+                    if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
+
+                    isLoading = false;
+                    renderReports();
+
+                } catch (error) {
+                    console.error('Load error:', error);
+                    isLoading = false;
+                    showToast('Error loading data: ' + error.message, 'error');
+                    setNotice('Error loading reports data. Please refresh.');
+                    renderError();
+                }
+            }
+
+            function setNotice(msg) {
+                noticeText.innerHTML = msg;
+            }
+
+            function renderLoading() {
+                reportsContent.innerHTML = `
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                    <p class="text-center text-muted">Loading reports...</p>
+                `;
+            }
+
+            function renderNoHostel() {
+                reportsContent.innerHTML = `
+                    <div class="card mt-4">
+                        <div class="text-center p-4">
+                            <i class="fas fa-building" style="font-size:3rem;color:#b9c7db;"></i>
+                            <h2 class="mt-3">No Hostel Assigned</h2>
+                            <p class="text-muted">You are not assigned to any hostel. Please contact the administrator.</p>
+                            <button class="btn-primary mt-3" onclick="window.location.href='hra-index.html'"><i class="fas fa-arrow-left"></i> Back to Dashboard</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderError() {
+                reportsContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
+                        <div class="text-center p-4">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading reports data. Please refresh the page.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // ---------- RENDER REPORTS ----------
+            function renderReports() {
+                const totalStudents = students.length;
+                const present = students.filter(s => s.status === 'Present').length;
+                const absent = students.filter(s => s.status === 'Absent').length;
+                const late = students.filter(s => s.status === 'Late').length;
+                const manual = students.filter(s => s.status === 'Manual' || s.verification_method === 'manual').length;
+                const verified = present + manual;
+                const completion = totalStudents > 0 ? Math.round((verified / totalStudents) * 100) : 0;
+                const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
+
+                const hostelName = hostelData?.name || 'Your Hostel';
+                const totalRooms = hostelData?.total_rooms || 0;
+
+                // Get floor distribution
+                const floorData = {};
+                students.forEach(s => {
+                    if (s.floor) {
+                        floorData[s.floor] = (floorData[s.floor] || 0) + 1;
+                    }
+                });
+
+                const floorKeys = Object.keys(floorData);
+                const floorStats = floorKeys.map(floor => {
+                    const count = floorData[floor];
+                    const presentCount = students.filter(s => s.floor === floor && s.status === 'Present').length;
+                    return { floor, total: count, present: presentCount, rate: count > 0 ? Math.round((presentCount / count) * 100) : 0 };
+                });
+
+                const html = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow">📊 Analytics</p>
+                            <h1>${hostelName} Reports</h1>
+                            <p class="desc">Attendance and performance overview for your hostel</p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-outline" onclick="window.showToast('Exporting report...','success')"><i class="fas fa-download"></i> Export</button>
+                            <button class="btn-primary" onclick="window.showToast('Generating PDF...','success')"><i class="fas fa-file-pdf"></i> Generate PDF</button>
+                        </div>
+                    </div>
+
+                    <!-- Report Tabs -->
+                    <div class="flex-center gap-2 flex-wrap mt-2">
+                        <button class="${activeTab === 'overview' ? 'btn-primary' : 'btn-outline'}" onclick="window.setReportTab('overview')">Overview</button>
+                        <button class="${activeTab === 'students' ? 'btn-primary' : 'btn-outline'}" onclick="window.setReportTab('students')">Student List</button>
+                        <button class="${activeTab === 'attendance' ? 'btn-primary' : 'btn-outline'}" onclick="window.setReportTab('attendance')">Attendance Details</button>
+                    </div>
+
+                    ${activeTab === 'overview' ? `
+                    <!-- Overview Tab -->
+                    <div class="mt-4">
+                        <!-- Summary Cards -->
+                        <div class="grid-3">
+                            <div class="metric-card">
+                                <div class="metric-icon blue"><i class="fas fa-users"></i></div>
+                                <div class="metric-value">${totalStudents}</div>
+                                <div class="metric-title">Total Students</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                                <div class="metric-value">${present}</div>
+                                <div class="metric-title">Present</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
+                                <div class="metric-value">${absent + late}</div>
+                                <div class="metric-title">Absent / Late</div>
+                            </div>
+                        </div>
+
+                        <div class="grid-2 mt-4">
+                            <div class="card">
+                                <div class="card-title">Attendance Overview</div>
+                                <div class="mt-3">
+                                    <div class="flex-between"><span class="text-muted">Present</span><span class="font-bold">${present} (${attendanceRate}%)</span></div>
+                                    <div class="progress-bar mt-1"><div class="fill" style="width:${attendanceRate}%;"></div></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Absent</span><span class="font-bold">${absent}</span></div>
+                                    <div class="progress-bar mt-1"><div class="fill" style="width:${totalStudents > 0 ? (absent / totalStudents) * 100 : 0}%;background:#a84134;"></div></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Late</span><span class="font-bold">${late}</span></div>
+                                    <div class="progress-bar mt-1"><div class="fill" style="width:${totalStudents > 0 ? (late / totalStudents) * 100 : 0}%;background:#d09b2e;"></div></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Manual Verification</span><span class="font-bold">${manual}</span></div>
+                                    <div class="progress-bar mt-1"><div class="fill" style="width:${totalStudents > 0 ? (manual / totalStudents) * 100 : 0}%;background:#315b8a;"></div></div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-title">Floor Distribution</div>
+                                <div class="mt-3">
+                                    ${floorStats.length > 0 ? floorStats.map(f => `
+                                        <div class="flex-between"><span class="text-muted">${f.floor}</span><span class="font-bold">${f.present}/${f.total}</span></div>
+                                        <div class="progress-bar mt-1"><div class="fill" style="width:${f.rate}%;"></div></div>
+                                    `).join('') : '<p class="text-muted text-sm">No floor data available</p>'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mt-4">
+                            <div class="card-title">Quick Stats</div>
+                            <div class="grid-3 mt-3">
+                                <div class="text-center p-3 border rounded-lg">
+                                    <div class="font-bold text-xl">${totalRooms}</div>
+                                    <div class="text-xs text-muted">Total Rooms</div>
+                                </div>
+                                <div class="text-center p-3 border rounded-lg">
+                                    <div class="font-bold text-xl">${completion}%</div>
+                                    <div class="text-xs text-muted">Verification Rate</div>
+                                </div>
+                                <div class="text-center p-3 border rounded-lg">
+                                    <div class="font-bold text-xl">${totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0}%</div>
+                                    <div class="text-xs text-muted">Attendance Rate</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    ${activeTab === 'students' ? `
+                    <!-- Student List Tab -->
+                    <div class="card mt-4">
+                        <div class="flex-between">
+                            <div class="card-title">Student List</div>
+                            <div class="flex-center gap-2">
+                                <input type="text" id="studentSearch" placeholder="Search..." style="padding:0.4rem 0.6rem;border:1px solid #ded6c9;border-radius:0.5rem;font-size:0.8rem;" oninput="window.filterStudentList()" />
+                                <select id="statusFilter" onchange="window.filterStudentList()" style="padding:0.4rem 0.6rem;border:1px solid #ded6c9;border-radius:0.5rem;font-size:0.8rem;">
+                                    <option value="all">All Status</option>
+                                    <option value="Present">Present</option>
+                                    <option value="Absent">Absent</option>
+                                    <option value="Late">Late</option>
+                                    <option value="Manual">Manual</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="table-wrap mt-3">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Student</th>
+                                        <th>Matric</th>
+                                        <th>Room</th>
+                                        <th>Status</th>
+                                        <th>Verification</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    ${activeTab === 'attendance' ? `
+                    <!-- Attendance Details Tab -->
+                    <div class="mt-4">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-title">Attendance Summary</div>
+                                <div class="mt-3">
+                                    <div class="flex-between"><span class="text-muted">Total Students</span><span class="font-bold">${totalStudents}</span></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Present</span><span class="font-bold badge badge-present">${present}</span></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Absent</span><span class="font-bold badge badge-absent">${absent}</span></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Late</span><span class="font-bold badge badge-provisional">${late}</span></div>
+                                    <div class="flex-between mt-2"><span class="text-muted">Manual Verification</span><span class="font-bold badge badge-provisional">${manual}</span></div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-title">Attendance by Floor</div>
+                                <div class="mt-3">
+                                    ${floorStats.length > 0 ? floorStats.map(f => `
+                                        <div class="flex-between"><span class="text-muted">${f.floor}</span><span class="font-bold">${f.present}/${f.total} (${f.rate}%)</span></div>
+                                        <div class="progress-bar mt-1"><div class="fill" style="width:${f.rate}%;"></div></div>
+                                    `).join('') : '<p class="text-muted text-sm">No floor data available</p>'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mt-4">
+                            <div class="card-title">Recent Activity</div>
+                            <div class="mt-3">
+                                <p class="text-muted text-sm">Student attendance logs will appear here</p>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Footer -->
+                    <div class="mt-7 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4">Report generated: ${new Date().toLocaleString()}</span>
+                        </p>
+                    </div>
+                `;
+
+                reportsContent.innerHTML = html;
+                updateUserDisplay();
+
+                // Render student table if on students tab
+                if (activeTab === 'students') {
+                    renderStudentTable('all', '');
+                }
+
+                // Rebind globals
+                window.setReportTab = setReportTab;
+                window.filterStudentList = filterStudentList;
+                window.showToast = showToast;
+            }
+
+            // ---------- STUDENT TABLE ----------
+            function renderStudentTable(statusFilter = 'all', searchTerm = '') {
+                const tbody = document.getElementById('studentTableBody');
+                if (!tbody) return;
+
+                let filtered = students;
+                if (statusFilter && statusFilter !== 'all') {
+                    filtered = filtered.filter(s => s.status === statusFilter);
+                }
+                if (searchTerm) {
+                    const search = searchTerm.toLowerCase();
+                    filtered = filtered.filter(s => 
+                        (s.name || '').toLowerCase().includes(search) || 
+                        (s.matric || '').toLowerCase().includes(search) ||
+                        (s.room || '').toLowerCase().includes(search)
+                    );
+                }
+
+                tbody.innerHTML = filtered.map(s => `
+                    <tr>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <span class="avatar" style="display:inline-grid;place-items:center;width:2rem;height:2rem;border-radius:50%;background:#e7edf5;font-size:0.6rem;font-weight:700;">${s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}</span>
+                                <span class="font-bold">${s.name || 'Unknown'}</span>
+                            </div>
+                        </td>
+                        <td>${s.matric || '—'}</td>
+                        <td>${s.room || '—'}</td>
+                        <td>
+                            <span class="badge ${s.status === 'Present' ? 'badge-present' : s.status === 'Absent' ? 'badge-absent' : s.status === 'Late' ? 'badge-provisional' : 'badge-provisional'}">${s.status || 'Unknown'}</span>
+                        </td>
+                        <td>
+                            ${s.fingerprint ? '<span class="badge badge-approved"><i class="fas fa-fingerprint"></i> Fingerprint</span>' : 
+                              s.status === 'Manual' ? '<span class="badge badge-provisional"><i class="fas fa-pen"></i> Manual</span>' :
+                              '<span class="badge badge-absent">—</span>'}
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" class="text-center text-muted">No students found</td></tr>';
+            }
+
+            function filterStudentList() {
+                const search = document.getElementById('studentSearch');
+                const filter = document.getElementById('statusFilter');
+                if (search && filter) {
+                    renderStudentTable(filter.value, search.value);
+                }
+            }
+
+            // ---------- TAB SWITCHING ----------
+            function setReportTab(tab) {
+                activeTab = tab;
+                renderReports();
+            }
+
+            // ---------- LOGOUT ----------
+            function handleLogout() {
+                sessionStorage.removeItem('bedcheck_user');
+                localStorage.removeItem('bedcheck_user');
+                showToast('Logging out...', 'success');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 500);
+            }
+
+            // ---------- INIT ----------
+            function init() {
+                const userData = sessionStorage.getItem('bedcheck_user') || localStorage.getItem('bedcheck_user');
+
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return;
+                }
+
+                try {
+                    currentUser = JSON.parse(userData);
+                    if (!sessionStorage.getItem('bedcheck_user')) {
+                        sessionStorage.setItem('bedcheck_user', userData);
+                    }
+
+                    if (!currentUser.id) {
+                        showToast('User data incomplete. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    updateUserDisplay();
+                    loadAllData();
+                } catch (e) {
+                    console.error('Error parsing user data:', e);
+                    window.location.replace('../Login.html');
+                }
+
+                logoutBtn.addEventListener('click', handleLogout);
+                menuToggle.addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.add('open');
+                    document.getElementById('drawerOverlay').classList.add('show');
+                });
+                
+                document.getElementById('closeDrawer').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+                
+                document.getElementById('drawerOverlay').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+
+                document.getElementById('profileBtn').addEventListener('click', () => {
+                    window.location.href = 'Profile.html';
+                });
+                document.getElementById('notifBtn').addEventListener('click', () => {
+                    window.location.href = 'Notifications.html';
+                });
+            }
+
+            // expose to window
+            window.showToast = showToast;
+            window.setNotice = setNotice;
+            window.setReportTab = setReportTab;
+            window.filterStudentList = filterStudentList;
+            window.handleLogout = handleLogout;
+
+            // start
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+</body>
+</html>

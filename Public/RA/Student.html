@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Search Student · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+        .btn-outline:hover { background: #f5f1e8; }
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-present { background: #e1f0e5; color: #2d6545; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-late { background: #fff0cb; color: #8a6413; }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-draft { background: #e8edf2; color: #536274; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .text-center { text-align: center; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+
+        .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .field label { font-weight: 700; font-size: 0.85rem; }
+        .field input, .field select { padding: 0.7rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; width: 100%; font-family: inherit; }
+        .field input:focus, .field select:focus { border-color: #a77915; }
+
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .table-wrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+        .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+        .table-wrap th { padding: 1rem; }
+        .table-wrap td { padding: 1rem; border-top: 1px solid #eee8de; }
+        .table-wrap .avatar { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #e7edf5; font-size: 0.6rem; font-weight: 700; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+        .toast.info { background: #1e3a5f; }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #3f755d; }
+
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1.25rem;
+            border-top: 1px solid #eee8de;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .pagination .info { font-size: 0.8rem; color: #6b778b; }
+        .pagination .pages { display: flex; gap: 0.25rem; }
+        .pagination .pages button {
+            padding: 0.3rem 0.7rem;
+            border: 1px solid #ded6c9;
+            border-radius: 0.3rem;
+            background: white;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #17233c;
+        }
+        .pagination .pages button:hover { border-color: #a77915; }
+        .pagination .pages button.active { background: #10233f; color: white; border-color: #10233f; }
+        .pagination .pages button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .assigned-hostel-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0.75rem;
+            background: #e7edf5;
+            border-radius: 0.5rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #10233f;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST NOTIFICATION ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
+                <a href="Student.html" class="nav-item active"><i class="fas fa-search"></i> Search Student</a>
+                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RA</span></div>
+                <div class="role-scope" id="roleScope">Assigned hostel · Perform nightly BedCheck</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
+                <a href="Student.html" class="nav-item active"><i class="fas fa-search"></i> Search Student</a>
+                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned hostel · Perform nightly BedCheck</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Loading...</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="ra-notifications.html" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
+                        <a href="ra-profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar"></span>
+                            <span class="profile-name" id="profileName"></span>
+                            <span class="profile-role" id="profileRoleLabel">RA</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-search"></i>
+                    <span id="noticeText">Loading student data...</span>
+                </div>
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // CONFIGURATION
+            // =============================================
+            const API_BASE_URL = 'http://localhost:3000/api';
+            const ITEMS_PER_PAGE = 15;
+
+            // =============================================
+            // TOAST NOTIFICATION
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'RA';
+            let allStudents = [];
+            let hostelStudents = [];
+            let filteredStudents = [];
+            let currentPage = 1;
+            let searchQuery = '';
+            let assignedHostelName = '';
+
+            // =============================================
+            // API HELPER
+            // =============================================
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(options.headers || {})
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function getInitials(name) {
+                if (!name) return 'U';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function attBadge(status) {
+                const map = {
+                    'Present': 'badge-present',
+                    'Absent': 'badge-absent',
+                    'Late': 'badge-late',
+                    'Excused': 'badge-approved'
+                };
+                return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
+            }
+
+            // =============================================
+            // DATA LOADING
+            // =============================================
+            async function loadStudents() {
+                try {
+                    const data = await apiCall('/students');
+                    allStudents = data.data || [];
+                    return allStudents;
+                } catch (error) {
+                    allStudents = [];
+                    return allStudents;
+                }
+            }
+
+            // =============================================
+            // UPDATE HEADER
+            // =============================================
+            function updateHeader() {
+                if (!currentUser) return;
+                
+                const avatar = document.getElementById('profileAvatar');
+                const name = document.getElementById('profileName');
+                const role = document.getElementById('profileRoleLabel');
+                const roleLabel = document.getElementById('roleLabel');
+                const roleScope = document.getElementById('roleScope');
+                const mobileRole = document.getElementById('mobileRoleFooter');
+
+                const initials = currentUser.initials || getInitials(currentUser.name);
+                const displayName = currentUser.name || 'User';
+
+                avatar.textContent = initials;
+                name.textContent = displayName;
+                role.textContent = 'RA';
+                roleLabel.textContent = 'RA';
+                roleScope.textContent = `Assigned: ${assignedHostelName || 'None'} · Perform nightly BedCheck`;
+                mobileRole.textContent = `RA · Assigned: ${assignedHostelName || 'None'}`;
+            }
+
+            // =============================================
+            // SEARCH STUDENTS (Only in assigned hostel)
+            // =============================================
+            function searchStudents() {
+                const query = document.getElementById('searchInput')?.value?.toLowerCase() || '';
+                const roomFilter = document.getElementById('roomFilter')?.value || 'all';
+                const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+
+                searchQuery = query;
+
+                filteredStudents = hostelStudents.filter(s => {
+                    // Search match - using correct field names
+                    const searchMatch = !query || 
+                        s.name?.toLowerCase().includes(query) ||
+                        s.matric?.toLowerCase().includes(query) ||
+                        s.room_code?.toLowerCase().includes(query) ||
+                        s.room?.toLowerCase().includes(query) ||
+                        s.department?.toLowerCase().includes(query) ||
+                        s.level?.toLowerCase().includes(query);
+
+                    // Room filter
+                    const roomMatch = roomFilter === 'all' || 
+                        s.room_code === roomFilter || 
+                        s.room === roomFilter;
+
+                    // Status filter
+                    const statusMatch = statusFilter === 'all' || s.status === statusFilter;
+
+                    return searchMatch && roomMatch && statusMatch;
+                });
+
+                currentPage = 1;
+                renderResults();
+            }
+
+            // =============================================
+            // RENDER RESULTS
+            // =============================================
+            function renderResults() {
+                const container = document.getElementById('screenContent');
+
+                // Get unique rooms from the hostel students
+                const rooms = [...new Set(hostelStudents.map(s => s.room_code || s.room).filter(Boolean))];
+
+                const start = (currentPage - 1) * ITEMS_PER_PAGE;
+                const end = start + ITEMS_PER_PAGE;
+                const pageStudents = filteredStudents.slice(start, end);
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-search"></i> RA · Student Search</p>
+                            <h1>Search Students</h1>
+                            <p class="desc">
+                                <span class="assigned-hostel-badge">
+                                    <i class="fas fa-building"></i> ${assignedHostelName || 'No Hostel Assigned'}
+                                </span>
+                                <span class="text-muted" style="margin-left:0.5rem;">${hostelStudents.length} students in your hostel</span>
+                            </p>
+                        </div>
+                        <div class="action-group">
+                            <span class="text-xs text-muted">${filteredStudents.length} students found</span>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="field">
+                            <label>Search</label>
+                            <input type="text" placeholder="Search by name, matric, room, department..." id="searchInput" oninput="searchStudents()" />
+                        </div>
+                        <div class="grid-2 mt-3">
+                            <div class="field">
+                                <label>Filter by Room</label>
+                                <select id="roomFilter" onchange="searchStudents()">
+                                    <option value="all">All Rooms</option>
+                                    ${rooms.map(r => `<option value="${r}">${r}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Filter by Status</label>
+                                <select id="statusFilter" onchange="searchStudents()">
+                                    <option value="all">All Status</option>
+                                    <option value="Present">Present</option>
+                                    <option value="Absent">Absent</option>
+                                    <option value="Late">Late</option>
+                                    <option value="Manual">Manual</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mt-3" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button class="btn-primary" onclick="searchStudents()"><i class="fas fa-search"></i> Search</button>
+                            <button class="btn-outline" onclick="resetSearch()"><i class="fas fa-undo"></i> Reset</button>
+                            <span class="text-xs text-muted" style="align-self:center;margin-left:auto;">
+                                <i class="fas fa-info-circle"></i> Showing only students in ${assignedHostelName}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap mt-4">
+                        <table>
+                            <thead><tr>
+                                <th>Student</th>
+                                <th>Matric</th>
+                                <th>Room</th>
+                                <th>Bed</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr></thead>
+                            <tbody id="studentTableBody">
+                                ${pageStudents.length === 0 ? `
+                                    <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">
+                                        ${searchQuery || filteredStudents.length === 0 ? 'No students found in this hostel.' : 'Start typing to search for students.'}
+                                    </td></tr>
+                                ` : pageStudents.map(s => `
+                                    <tr>
+                                        <td>
+                                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                                <span class="avatar">${getInitials(s.name)}</span>
+                                                <span class="font-bold">${s.name || 'Unknown'}</span>
+                                            </div>
+                                        </td>
+                                        <td>${s.matric || '—'}</td>
+                                        <td>${s.room_code || s.room || '—'}</td>
+                                        <td>${s.bed_code || s.bed || '—'}</td>
+                                        <td>${attBadge(s.status)}</td>
+                                        <td>
+                                            <button class="btn-outline" style="padding:0.2rem 0.6rem;font-size:0.7rem;" onclick="viewStudent(${s.id})">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination">
+                        <div class="info" id="paginationInfo">Showing ${filteredStudents.length > 0 ? start + 1 : 0}-${Math.min(end, filteredStudents.length)} of ${filteredStudents.length} students</div>
+                        <div class="pages" id="paginationControls"></div>
+                    </div>
+
+                    <div class="mt-6 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                        </p>
+                    </div>
+                `;
+
+                updatePagination();
+            }
+
+            // =============================================
+            // UPDATE PAGINATION
+            // =============================================
+            function updatePagination() {
+                const total = filteredStudents.length;
+                const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+                const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+                const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
+
+                document.getElementById('paginationInfo').textContent = 
+                    `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
+
+                const controls = document.getElementById('paginationControls');
+                let html = '';
+                html += `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+                
+                for (let i = 1; i <= Math.min(totalPages, 7); i++) {
+                    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+                    } else if (i === currentPage - 3 || i === currentPage + 3) {
+                        html += `<button disabled>...</button>`;
+                    }
+                }
+                
+                html += `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+                controls.innerHTML = html;
+            }
+
+            // =============================================
+            // CHANGE PAGE
+            // =============================================
+            function changePage(page) {
+                const totalPages = Math.ceil(filteredStudents.length / ITEMS_PER_PAGE);
+                if (page < 1 || page > totalPages) return;
+                currentPage = page;
+                renderResults();
+            }
+
+            // =============================================
+            // RESET SEARCH
+            // =============================================
+            function resetSearch() {
+                const searchInput = document.getElementById('searchInput');
+                const roomFilter = document.getElementById('roomFilter');
+                const statusFilter = document.getElementById('statusFilter');
+                
+                if (searchInput) searchInput.value = '';
+                if (roomFilter) roomFilter.value = 'all';
+                if (statusFilter) statusFilter.value = 'all';
+                
+                searchQuery = '';
+                filteredStudents = [...hostelStudents];
+                currentPage = 1;
+                renderResults();
+                showToast('Search reset', 'info');
+            }
+
+            // =============================================
+            // VIEW STUDENT
+            // =============================================
+            function viewStudent(id) {
+                const student = allStudents.find(s => s.id === id);
+                if (!student) return;
+                
+                showToast(`Viewing ${student.name} (${student.matric})`, 'info');
+                // In a real app, this would open a student details modal
+                // For now, log the student data
+                console.log('Student Details:', student);
+            }
+
+            // =============================================
+            // AUTHENTICATION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
+                
+                // Get assigned hostel from user
+                assignedHostelName = currentUser?.hostel || currentUser?.hostel_name || '';
+                
+                updateHeader();
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            }
+
+            // =============================================
+            // SET DATE
+            // =============================================
+            function setDate() {
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+            }
+
+            // =============================================
+            // MOBILE DRAWER
+            // =============================================
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.showToast = showToast;
+            window.searchStudents = searchStudents;
+            window.resetSearch = resetSearch;
+            window.changePage = changePage;
+            window.viewStudent = viewStudent;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                
+                setDate();
+                
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+                try {
+                    document.getElementById('noticeText').textContent = 'Loading student data...';
+                    await loadStudents();
+                    
+                    // Filter students by assigned hostel - check both field names
+                    hostelStudents = allStudents.filter(s => 
+                        s.hostel_name === assignedHostelName || 
+                        s.hostel === assignedHostelName
+                    );
+                    
+                    filteredStudents = [...hostelStudents];
+                    
+                    document.getElementById('noticeText').textContent = 
+                        `${hostelStudents.length} students in ${assignedHostelName || 'your hostel'}. Search to find specific students.`;
+                    
+                    renderResults();
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

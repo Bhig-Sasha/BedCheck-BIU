@@ -1,0 +1,1746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hostel Configuration · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+        .btn-outline:hover { background: #f5f1e8; }
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+        .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; }
+        .btn-success:hover { background: #1f4a32; }
+        .btn-danger { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #a84134; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; }
+        .btn-danger:hover { background: #8a3328; }
+        .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+
+        .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(4, 1fr); } }
+        .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.navy { background: #e7edf5; color: #24466f; }
+        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+        .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+        .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+        .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; }
+        .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.95rem; }
+        .metric-detail { margin-top: 0.15rem; font-size: 0.75rem; color: #6b778b; }
+
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .card-clickable { cursor: pointer; transition: all 0.15s; }
+        .card-clickable:hover { border-color: #d6ad4b; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .card-clickable.active { border-color: #d6ad4b; background: #fff9e9; }
+
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-provisional { background: #fff0cb; color: #8a6413; }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-available { background: #e1f0e5; color: #2d6545; }
+        .badge-occupied { background: #f8e1dc; color: #9b3c31; }
+        .badge-full { background: #f8e1dc; color: #9b3c31; }
+        .badge-partial { background: #fff0cb; color: #8a6413; }
+        .badge-maintenance { background: #e8edf2; color: #536274; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
+        .grid-4 { display: grid; gap: 1rem; grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 480px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-3 { margin-bottom: 0.75rem; }
+        .mb-4 { margin-bottom: 1rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .text-center { text-align: center; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border { border: 1px solid #ded6c9; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
+        .bg-gold-light { background: #fff9e9; }
+        .bg-blue-light { background: #e7edf5; }
+        .bg-green-light { background: #e1f0e5; }
+        .bg-red-light { background: #f9e2de; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .progress-bar { height: 0.4rem; overflow: hidden; border-radius: 9999px; background: #e6e2da; }
+        .progress-bar .fill { height: 100%; background: #3f755d; border-radius: 9999px; }
+
+        .status-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .status-badge-not-started { background: #e8edf2; color: #536274; }
+        .status-badge-in-progress { background: #e7edf5; color: #315b8a; }
+        .status-badge-submitted { background: #fff0cb; color: #8a6413; }
+        .status-badge-approved { background: #e1f0e5; color: #2d6545; }
+        .status-badge-rejected { background: #f8e1dc; color: #9b3c31; }
+        .hostel-type-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: #d6ad4b; color: #10233f; }
+
+        .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .field label { font-weight: 700; font-size: 0.85rem; }
+        .field input, .field select, .field textarea { padding: 0.7rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; width: 100%; font-family: inherit; }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: #a77915; }
+        .field textarea { resize: vertical; min-height: 6rem; }
+        .field input:disabled, .field select:disabled { background: #f5f1e8; cursor: not-allowed; }
+
+        .hostel-type-selector { display: flex; gap: 1.5rem; padding: 0.75rem 0; }
+        .hostel-type-selector label { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+
+        .info-box { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-radius: 0.5rem; background: #e7edf5; font-size: 0.8rem; color: #24466f; }
+        .info-box i { color: #a77915; }
+
+        /* Table */
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .table-wrap table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+        .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+        .table-wrap th { padding: 0.75rem 1rem; }
+        .table-wrap td { padding: 0.75rem 1rem; border-top: 1px solid #eee8de; }
+
+        /* Toast */
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* ----- ROOM DRAWER (Right) ----- */
+        .drawer-right { position: fixed; top: 0; right: 0; bottom: 0; width: 100%; max-width: 480px; background: #fffcf6; z-index: 60; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: -10px 0 40px rgba(0,0,0,0.15); overflow-y: auto; }
+        .drawer-right.open { transform: translateX(0); }
+        @media (min-width: 640px) { .drawer-right { max-width: 480px; } }
+        .drawer-right .drawer-header { position: sticky; top: 0; background: #fffcf6; padding: 1.25rem 1.5rem; border-bottom: 1px solid #ded6c9; display: flex; justify-content: space-between; align-items: flex-start; z-index: 2; }
+        .drawer-right .drawer-header .close-btn { background: transparent; border: none; font-size: 1.2rem; color: #68768a; cursor: pointer; padding: 0.25rem; }
+        .drawer-right .drawer-header .close-btn:hover { color: #17233c; }
+        .drawer-right .drawer-body { padding: 1.5rem; }
+
+        .bed-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #eee8de; border-radius: 0.5rem; margin-bottom: 0.5rem; }
+        .bed-item .bed-label { font-weight: 700; font-size: 1rem; min-width: 2.5rem; }
+        .bed-item .bed-student { flex: 1; margin: 0 0.75rem; }
+        .bed-item .bed-student .name { font-weight: 600; }
+        .bed-item .bed-student .matric { font-size: 0.7rem; color: #68768a; }
+        .bed-item .bed-status { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; padding: 0.15rem 0.5rem; border-radius: 9999px; }
+        .bed-status.available { background: #e1f0e5; color: #2d6545; }
+        .bed-status.occupied { background: #f8e1dc; color: #9b3c31; }
+        .bed-status.maintenance { background: #e8edf2; color: #536274; }
+        .bed-status.reserved { background: #fff0cb; color: #8a6413; }
+
+        .bed-actions { display: flex; gap: 0.25rem; }
+        .bed-actions button { background: transparent; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.8rem; color: #68768a; border-radius: 0.25rem; }
+        .bed-actions button:hover { background: #f5f1e8; color: #17233c; }
+
+        .drawer-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .drawer-actions button { flex: 1; justify-content: center; min-width: 80px; }
+
+        /* ----- Modal ----- */
+        .dialog-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(16,35,63,0.45); display: none; place-items: center; padding: 1rem; }
+        .dialog-overlay.show { display: grid; }
+        .dialog-box { width: 100%; max-width: 32rem; background: #fffcf6; border-radius: 1.5rem; padding: 1.5rem; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-height: 95vh; overflow-y: auto; }
+        .dialog-box .dialog-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .dialog-box .dialog-header .eyebrow { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a77915; }
+        .dialog-box .dialog-header h2 { font-family: 'Merriweather',serif; font-size: 1.4rem; font-weight: 700; margin-top: 0.15rem; }
+        .dialog-box .dialog-header .close-x { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #68768a; padding: 0.25rem; }
+        .dialog-box .dialog-header .close-x:hover { color: #17233c; }
+        .dialog-box .section-divider { padding: 0.75rem 0 0.5rem; border-bottom: 1px solid #eee8de; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: #68768a; }
+
+        /* Floor/Flat selector cards */
+        .floor-card { border: 1px solid #ded6c9; border-radius: 0.75rem; padding: 1rem; cursor: pointer; transition: all 0.15s; background: #fffcf6; }
+        .floor-card:hover { border-color: #d6ad4b; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .floor-card.active { border-color: #d6ad4b; background: #fff9e9; }
+        .floor-card .floor-name { font-weight: 700; font-size: 1.1rem; }
+        .floor-card .floor-detail { font-size: 0.85rem; color: #68768a; }
+        .floor-card .occupancy-bar { height: 0.3rem; border-radius: 9999px; background: #e6e2da; margin-top: 0.5rem; overflow: hidden; }
+        .floor-card .occupancy-bar .fill { height: 100%; border-radius: 9999px; background: #3f755d; }
+        .floor-card .occupancy-text { font-size: 0.7rem; color: #68768a; margin-top: 0.25rem; }
+
+        /* Back button */
+        .back-link { display: inline-flex; align-items: center; gap: 0.5rem; color: #a77915; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+        .back-link:hover { color: #8a6413; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST NOTIFICATION ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== ROOM DRAWER (Right) ===== -->
+    <div class="drawer-right" id="roomDrawer">
+        <div class="drawer-header">
+            <div>
+                <p class="eyebrow"><i class="fas fa-door-open"></i> Room Details</p>
+                <h2 id="roomDrawerTitle">Room A-101</h2>
+                <p class="text-sm text-muted" id="roomDrawerSubtitle">Loading...</p>
+            </div>
+            <button class="close-btn" onclick="closeRoomDrawer()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="drawer-body" id="roomDrawerBody">
+            <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+        </div>
+    </div>
+
+    <!-- ===== ADD ROOM MODAL ===== -->
+    <div class="dialog-overlay" id="addRoomModal">
+        <div class="dialog-box">
+            <div class="dialog-header">
+                <div>
+                    <p class="eyebrow"><i class="fas fa-plus-circle"></i> Room Management</p>
+                    <h2>Add New Room</h2>
+                </div>
+                <button class="close-x" onclick="closeAddRoomModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="grid-2 mt-4">
+                <div class="field">
+                    <label>Floor <span class="text-gold">*</span></label>
+                    <select id="roomFloor">
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Room Number <span class="text-gold">*</span></label>
+                    <input id="roomNumber" placeholder="e.g. 101" />
+                </div>
+                <div class="field">
+                    <label>Capacity <span class="text-gold">*</span></label>
+                    <select id="roomCapacity">
+                        <option value="4">4 (Boys)</option>
+                        <option value="6">6 (Girls)</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Room Status</label>
+                    <select id="roomStatus">
+                        <option value="available">Available</option>
+                        <option value="maintenance">Maintenance</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field mt-3">
+                <label>
+                    <input type="checkbox" id="autoCreateBeds" checked />
+                    Auto-create beds (A–D or A–F based on capacity)
+                </label>
+            </div>
+            <div class="flex-between mt-6 pt-4 border-t">
+                <button class="btn-outline" onclick="closeAddRoomModal()">Cancel</button>
+                <button class="btn-success" onclick="saveRoom()"><i class="fas fa-save"></i> Create Room</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ASSIGN STUDENT MODAL ===== -->
+    <div class="dialog-overlay" id="assignStudentModal">
+        <div class="dialog-box">
+            <div class="dialog-header">
+                <div>
+                    <p class="eyebrow"><i class="fas fa-user-plus"></i> Assign Student</p>
+                    <h2>Assign Student to Bed</h2>
+                    <p class="text-sm text-muted" id="assignBedInfo">Bed A · Room A-101</p>
+                </div>
+                <button class="close-x" onclick="closeAssignStudentModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="field mt-4">
+                <label>Select Student <span class="text-gold">*</span></label>
+                <select id="studentSelect">
+                    <option value="">Select a student...</option>
+                </select>
+            </div>
+            <div class="flex-between mt-6 pt-4 border-t">
+                <button class="btn-outline" onclick="closeAssignStudentModal()">Cancel</button>
+                <button class="btn-success" onclick="assignStudentToBed()"><i class="fas fa-user-check"></i> Assign</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== PORTAL ===== -->
+    <div id="portalApp" class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item active"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Administrator</span></div>
+                <div class="role-scope" id="roleScope">System-wide access</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">Management System</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
+                <a href="Hostels.html" class="nav-item active"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Tuesday, 14 October 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Profile.html" class="profile-btn">
+                            <span class="profile-avatar" id="profileAvatar">IM</span>
+                            <span class="profile-name" id="profileName">Ibrahim Musa</span>
+                            <span class="profile-role" id="profileRoleLabel">Administrator</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+            <div class="content-container">
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-building"></i>
+                    <span id="noticeText">Loading hostels...</span>
+                </div>
+                <div id="screenContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // CONFIGURATION
+            // =============================================
+            const API_BASE_URL = 'http://localhost:3000/api';
+
+            // =============================================
+            // HOSTEL PRESETS
+            // =============================================
+            const HOSTEL_PRESETS = {
+                'Above Only': { type: 'flat', total_flats: 9, rooms_per_flat: 4, beds_per_room: 4, gender: 'male' },
+                'Balm of Gilead': { type: 'flat', total_flats: 9, rooms_per_flat: 4, beds_per_room: 4, gender: 'male' },
+                'Splendor': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Grace': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Champions': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Hope': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Love': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Peace': { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' },
+                'Purpose': { type: 'floor', floors: 3, rooms_per_floor: 24, beds_per_room: 6, gender: 'female' },
+                'Destiny': { type: 'floor', floors: 3, rooms_per_floor: 24, beds_per_room: 6, gender: 'female' },
+                'Favour': { type: 'floor', floors: 3, rooms_per_floor: 24, beds_per_room: 6, gender: 'female' }
+            };
+
+            function getHostelDefaults(name) {
+                return HOSTEL_PRESETS[name] || { type: 'floor', floors: 3, rooms_per_floor: 18, beds_per_room: 4, gender: 'male' };
+            }
+
+            function getHostelType(h) {
+                if (!h) return 'floor';
+                const preset = HOSTEL_PRESETS[h.name];
+                if (preset) return preset.type;
+                return h.type || 'floor';
+            }
+
+            function getHostelDisplayInfo(hostel) {
+                const type = getHostelType(hostel);
+                const preset = HOSTEL_PRESETS[hostel.name];
+                
+                if (type === 'flat') {
+                    const flats = hostel.total_flats || preset?.total_flats || 9;
+                    const roomsPerFlat = hostel.rooms_per_flat || preset?.rooms_per_flat || 4;
+                    const bedsPerRoom = 4;
+                    return {
+                        type: 'flat',
+                        label: 'Flats',
+                        count: flats,
+                        rooms: flats * roomsPerFlat,
+                        capacity: flats * roomsPerFlat * bedsPerRoom,
+                        bedsPerRoom: bedsPerRoom,
+                        roomsPerFlat: roomsPerFlat,
+                        floors: flats
+                    };
+                } else {
+                    const floors = hostel.total_floors || preset?.floors || 3;
+                    const roomsPerFloor = hostel.rooms_per_floor || preset?.rooms_per_floor || 18;
+                    const bedsPerRoom = 4;
+                    return {
+                        type: 'floor',
+                        label: 'Floors',
+                        count: floors,
+                        rooms: floors * roomsPerFloor,
+                        capacity: floors * roomsPerFloor * bedsPerRoom,
+                        bedsPerRoom: bedsPerRoom,
+                        roomsPerFloor: roomsPerFloor,
+                        floors: floors
+                    };
+                }
+            }
+
+            function getBedsPerRoomForHostel(hostel) {
+                const preset = HOSTEL_PRESETS[hostel.name];
+                if (preset) return preset.beds_per_room || 4;
+                return hostel.bedsPerRoom || 4;
+            }
+
+            function getBedLabels(hostel) {
+                const bedsPerRoom = getBedsPerRoomForHostel(hostel);
+                if (bedsPerRoom >= 6) return ['A', 'B', 'C', 'D', 'E', 'F'];
+                return ['A', 'B', 'C', 'D'];
+            }
+
+            // =============================================
+            // TOAST NOTIFICATION
+            // =============================================
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+
+            // =============================================
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'Administrator';
+            let hostels = [];
+            let students = [];
+            let editingHostelId = null;
+            let selectedHostelForRoom = null;
+            let selectedFloor = null;
+            let selectedRoom = null;
+            let selectedBed = null;
+
+            // Room data structure: { id, room_code, floor_label, room_number, capacity, status, occupiedCount, availableCount }
+            let rooms = [];
+            // Bed data structure: { id, room_id, bed_label, status, student_id }
+            let beds = [];
+
+            // =============================================
+            // API HELPER
+            // =============================================
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(options.headers || {})
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function getInitials(name) {
+                if (!name) return 'U';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function statusBadge(status) {
+                const map = {
+                    'In progress': 'status-badge-in-progress',
+                    'Completed': 'status-badge-approved',
+                    'In review': 'status-badge-submitted',
+                    'Pending': 'status-badge-not-started',
+                    'Waiting': 'status-badge-not-started',
+                    'Not Started': 'status-badge-not-started'
+                };
+                const cls = map[status] || 'status-badge-not-started';
+                return `<span class="status-badge ${cls}">${status || 'In progress'}</span>`;
+            }
+
+            function roomStatusBadge(status) {
+                const map = {
+                    'available': 'badge-available',
+                    'full': 'badge-full',
+                    'partial': 'badge-partial',
+                    'maintenance': 'badge-maintenance'
+                };
+                const cls = map[status] || 'badge-draft';
+                const labels = {
+                    'available': 'Available',
+                    'full': 'Full',
+                    'partial': 'Partially occupied',
+                    'maintenance': 'Maintenance'
+                };
+                return `<span class="badge ${cls}">${labels[status] || status}</span>`;
+            }
+
+            function bedStatusBadge(status) {
+                const map = {
+                    'available': 'available',
+                    'occupied': 'occupied',
+                    'maintenance': 'maintenance',
+                    'reserved': 'reserved'
+                };
+                const labels = {
+                    'available': 'Available',
+                    'occupied': 'Occupied',
+                    'maintenance': 'Maintenance',
+                    'reserved': 'Reserved'
+                };
+                return `<span class="bed-status ${map[status] || 'available'}">${labels[status] || status}</span>`;
+            }
+
+            // =============================================
+            // DATA LOADING
+            // =============================================
+            async function loadHostels() {
+                try {
+                    const data = await apiCall('/hostels');
+                    hostels = data.data || [];
+                    return hostels;
+                } catch (error) {
+                    hostels = [];
+                    return hostels;
+                }
+            }
+
+            async function loadStudents() {
+                try {
+                    const data = await apiCall('/students');
+                    students = data.data || [];
+                    return students;
+                } catch (error) {
+                    students = [];
+                    return students;
+                }
+            }
+
+            async function loadRoomsForHostel(hostelId) {
+                try {
+                    // Try to fetch rooms from API
+                    const data = await apiCall(`/hostels/${hostelId}/rooms`);
+                    return data.data || [];
+                } catch (error) {
+                    // If rooms table doesn't exist yet, generate default rooms
+                    console.log('No rooms found, generating default rooms');
+                    return [];
+                }
+            }
+
+            async function loadBedsForRoom(roomId) {
+                try {
+                    const data = await apiCall(`/rooms/${roomId}/beds`);
+                    return data.data || [];
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            // =============================================
+            // GENERATE ROOMS FOR HOSTEL
+            // =============================================
+            function generateRoomsForHostel(hostel) {
+                const type = getHostelType(hostel);
+                const bedsPerRoom = getBedsPerRoomForHostel(hostel);
+                const isGirls = hostel.gender === 'female' || ['Purpose', 'Destiny', 'Favour'].includes(hostel.name);
+                
+                let generatedRooms = [];
+                let roomCounter = 1;
+
+                if (type === 'flat') {
+                    const totalFlats = hostel.total_flats || 9;
+                    for (let flat = 1; flat <= totalFlats; flat++) {
+                        let roomsInFlat = (flat === 1 || flat === 4 || flat === 7) ? 3 : (hostel.rooms_per_flat || 4);
+                        for (let r = 1; r <= roomsInFlat; r++) {
+                            const roomCode = `F${flat}R${r}`;
+                            generatedRooms.push({
+                                id: `room_${roomCounter++}`,
+                                room_code: roomCode,
+                                floor_label: `F${flat}`,
+                                room_number: r,
+                                capacity: bedsPerRoom,
+                                status: 'available',
+                                occupiedCount: 0,
+                                availableCount: bedsPerRoom,
+                                beds: []
+                            });
+                        }
+                    }
+                } else {
+                    const floors = hostel.total_floors || 3;
+                    const roomsPerFloor = hostel.rooms_per_floor || (isGirls ? 24 : 18);
+                    const letters = ['A', 'B', 'C'];
+                    for (let f = 0; f < floors; f++) {
+                        for (let r = 1; r <= roomsPerFloor; r++) {
+                            const roomCode = `${letters[f]}${String(r).padStart(3, '0')}`;
+                            generatedRooms.push({
+                                id: `room_${roomCounter++}`,
+                                room_code: roomCode,
+                                floor_label: letters[f],
+                                room_number: r,
+                                capacity: bedsPerRoom,
+                                status: 'available',
+                                occupiedCount: 0,
+                                availableCount: bedsPerRoom,
+                                beds: []
+                            });
+                        }
+                    }
+                }
+                return generatedRooms;
+            }
+
+            // =============================================
+            // GENERATE BEDS FOR ROOM
+            // =============================================
+            function generateBedsForRoom(roomId, capacity) {
+                const bedLabels = capacity >= 6 ? ['A', 'B', 'C', 'D', 'E', 'F'] : ['A', 'B', 'C', 'D'];
+                return bedLabels.slice(0, capacity).map(label => ({
+                    id: `bed_${roomId}_${label}`,
+                    room_id: roomId,
+                    bed_label: label,
+                    status: 'available',
+                    student_id: null,
+                    student: null
+                }));
+            }
+
+            // =============================================
+            // RENDER HOSTELS PAGE
+            // =============================================
+            function renderScreen() {
+                const container = document.getElementById('screenContent');
+                
+                const total = hostels.length;
+                const boys = hostels.filter(h => h.gender === 'male').length;
+                const girls = hostels.filter(h => h.gender === 'female').length;
+                const totalBeds = hostels.reduce((sum, h) => sum + (h.total_beds || 0), 0);
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-building"></i> Accommodation Structure</p>
+                            <h1>Hostel Configuration</h1>
+                            <p class="desc">Manage floors, flats, rooms and bed capacity across all hostels.</p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-outline"><i class="fas fa-file-export"></i> Export</button>
+                            <button class="btn-primary" onclick="openAddHostel()"><i class="fas fa-plus"></i> Add Hostel</button>
+                        </div>
+                    </div>
+
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-building"></i></div>
+                            <div class="metric-value">${total}</div>
+                            <div class="metric-title">Total Hostels</div>
+                            <div class="metric-detail">All hostels</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-venus-mars"></i></div>
+                            <div class="metric-value">${boys}</div>
+                            <div class="metric-title">Boys</div>
+                            <div class="metric-detail">Male hostels</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-venus"></i></div>
+                            <div class="metric-value">${girls}</div>
+                            <div class="metric-title">Girls</div>
+                            <div class="metric-detail">Female hostels</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gray"><i class="fas fa-bed"></i></div>
+                            <div class="metric-value">${totalBeds}</div>
+                            <div class="metric-title">Total Beds</div>
+                            <div class="metric-detail">Bed spaces</div>
+                        </div>
+                    </div>
+
+                    <div class="grid-3 mt-6" id="hostelsGrid"></div>
+                    <div class="card mt-6" id="hostelDetail" style="display:none;"></div>
+                `;
+
+                loadHostelsGrid();
+            }
+
+            // =============================================
+            // HOSTELS GRID
+            // =============================================
+            function loadHostelsGrid() {
+                const grid = document.getElementById('hostelsGrid');
+                if (!grid) return;
+                
+                grid.innerHTML = hostels.map(h => {
+                    const info = getHostelDisplayInfo(h);
+                    const pct = h.progress || 0;
+                    const statusText = pct === 100 ? 'Completed' : (h.state || 'In progress');
+                    const displayGender = h.gender ? h.gender.charAt(0).toUpperCase() + h.gender.slice(1) : '—';
+                    return `
+                        <div class="card card-clickable" onclick="showHostelDetail(${h.id})">
+                            <div class="flex-between">
+                                <div>
+                                    <p class="font-serif text-xl font-bold">${h.name || 'Unknown'}</p>
+                                    <p class="text-xs text-muted">${displayGender} Hostel · <span class="hostel-type-badge">${info.type}</span></p>
+                                </div>
+                                ${statusBadge(statusText)}
+                            </div>
+                            <div class="grid-3 mt-4" style="text-align:center;">
+                                <div><div class="font-bold">${info.count}</div><div class="text-xs text-muted">${info.label}</div></div>
+                                <div><div class="font-bold">${info.rooms}</div><div class="text-xs text-muted">Rooms</div></div>
+                                <div><div class="font-bold">${info.capacity}</div><div class="text-xs text-muted">Capacity</div></div>
+                            </div>
+                            <div class="progress-bar mt-3"><div class="fill" style="width:${pct}%;"></div></div>
+                            <p class="text-xs text-gold mt-3"><i class="fas fa-chevron-right"></i> Configure</p>
+                        </div>
+                    `;
+                }).join('') || '<p class="text-center text-muted">No hostels found</p>';
+            }
+
+            // =============================================
+            // HOSTEL DETAIL WITH FLOOR/SECTION SELECTOR
+            // =============================================
+            function showHostelDetail(hostelId) {
+                const hostel = hostels.find(h => h.id === hostelId);
+                if (!hostel) return;
+                
+                editingHostelId = hostelId;
+                selectedHostelForRoom = hostel;
+                selectedFloor = null;
+                
+                const detailContainer = document.getElementById('hostelDetail');
+                if (!detailContainer) return;
+                
+                detailContainer.style.display = 'block';
+                
+                const preset = HOSTEL_PRESETS[hostel.name];
+                const type = getHostelType(hostel);
+                const isFlat = type === 'flat';
+                const info = getHostelDisplayInfo(hostel);
+                
+                const isBoys = hostel.gender === 'male' || ['Splendor', 'Grace', 'Champions', 'Hope', 'Love', 'Peace', 'Above Only', 'Balm of Gilead'].includes(hostel.name);
+                const isGirls = hostel.gender === 'female' || ['Purpose', 'Destiny', 'Favour'].includes(hostel.name);
+                
+                const defaultRoomsPerFloor = isGirls ? 24 : 18;
+                const defaultBedsPerRoom = isGirls ? 6 : 4;
+                
+                // Generate rooms for this hostel (real data will be loaded)
+                rooms = generateRoomsForHostel(hostel);
+                
+                // Calculate stats
+                const totalRooms = rooms.length;
+                const totalBeds = totalRooms * defaultBedsPerRoom;
+                const occupiedBeds = 0; // Start with 0, will be updated from real data
+                const availableBeds = totalBeds;
+                
+                detailContainer.innerHTML = `
+                    <!-- Hostel Configuration Section -->
+                    <div class="flex-between">
+                        <div>
+                            <h2 class="font-serif text-xl font-bold">${hostel.name} · Configuration</h2>
+                            <p class="text-sm text-muted">HRA ID: ${hostel.hra_id || 'Not assigned'}</p>
+                            <p class="text-xs text-muted mt-1">Type: <span id="hostelTypeLabel" class="font-bold">${isFlat ? 'Flat-based (9 flats, 4 rooms each)' : 'Floor-based (3 floors A, B, C)'}</span></p>
+                            ${isBoys ? '<p class="text-xs text-gold mt-1">🏠 Boys Hostel · 4 persons per room</p>' : ''}
+                            ${isGirls ? '<p class="text-xs text-gold mt-1">🏠 Girls Hostel · 6 persons per room</p>' : ''}
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn-outline" onclick="closeHostelConfig()"><i class="fas fa-times"></i> Close</button>
+                            <button class="btn-primary" onclick="saveHostelConfig()" id="saveHostelBtn"><i class="fas fa-save"></i> Save Configuration</button>
+                        </div>
+                    </div>
+                    
+                    <div class="hostel-type-selector mt-4">
+                        <label>
+                            <input type="radio" name="hostelType" value="floor" ${!isFlat ? 'checked' : ''} onchange="updateHostelType('floor')">
+                            Floor-based (Floors A, B, C)
+                        </label>
+                        <label>
+                            <input type="radio" name="hostelType" value="flat" ${isFlat ? 'checked' : ''} onchange="updateHostelType('flat')">
+                            Flat-based (Flats 1-9)
+                        </label>
+                    </div>
+                    
+                    <div class="grid-3 mt-4">
+                        <div class="field">
+                            <label>Hostel Name</label>
+                            <input id="hostelName" value="${hostel.name}" />
+                        </div>
+                        <div class="field">
+                            <label>Gender</label>
+                            <select id="hostelGender">
+                                <option value="male" ${hostel.gender === 'male' ? 'selected' : ''}>Male</option>
+                                <option value="female" ${hostel.gender === 'female' ? 'selected' : ''}>Female</option>
+                                <option value="mixed" ${hostel.gender === 'mixed' ? 'selected' : ''}>Mixed</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Progress %</label>
+                            <input type="number" id="hostelProgress" value="${hostel.progress || 0}" min="0" max="100" />
+                        </div>
+                    </div>
+                    
+                    <!-- Floor-based Fields -->
+                    <div id="floorFields" style="${isFlat ? 'display:none;' : 'display:block;'}">
+                        <div class="grid-3 mt-4">
+                            <div class="field">
+                                <label>Number of Floors</label>
+                                <input type="number" id="hostelFloors" value="${hostel.total_floors || 3}" />
+                            </div>
+                            <div class="field">
+                                <label>Rooms per Floor</label>
+                                <input type="number" id="hostelRoomsPerFloor" value="${hostel.rooms_per_floor || defaultRoomsPerFloor}" />
+                                <p class="text-xs text-muted">${isGirls ? 'Girls hostels: 24 rooms per floor' : 'Boys hostels: 18 rooms per floor'}</p>
+                            </div>
+                            <div class="field">
+                                <label>Total Rooms</label>
+                                <input type="number" id="hostelTotalRooms" value="${(hostel.total_floors || 3) * (hostel.rooms_per_floor || defaultRoomsPerFloor)}" disabled style="background:#f5f1e8;" />
+                            </div>
+                        </div>
+                        <div class="info-box mt-2">
+                            <i class="fas fa-info-circle"></i> ${isGirls ? 'Girls hostels have 24 rooms per floor with 6 beds per room' : 'Boys hostels have 18 rooms per floor with 4 beds per room'}
+                        </div>
+                    </div>
+                    
+                    <!-- Flat-based Fields -->
+                    <div id="flatFields" style="${isFlat ? 'display:block;' : 'display:none;'}">
+                        <div class="grid-3 mt-4">
+                            <div class="field">
+                                <label>Number of Flats</label>
+                                <input type="number" id="hostelTotalFlats" value="${hostel.total_flats || 9}" />
+                            </div>
+                            <div class="field">
+                                <label>Rooms per Flat</label>
+                                <input type="number" id="hostelRoomsPerFlat" value="${hostel.rooms_per_flat || 4}" />
+                            </div>
+                            <div class="field">
+                                <label>Total Rooms</label>
+                                <input type="number" id="hostelTotalRoomsFlat" value="${(hostel.total_flats || 9) * (hostel.rooms_per_flat || 4)}" disabled style="background:#f5f1e8;" />
+                            </div>
+                        </div>
+                        <div class="info-box mt-2">
+                            <i class="fas fa-info-circle"></i> Flats 1, 4, 7 have 3 rooms each (special configuration)
+                        </div>
+                    </div>
+                    
+                    <div class="field mt-4">
+                        <label>Status</label>
+                        <select id="hostelStatus">
+                            <option value="In progress" ${hostel.state === 'In progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="Completed" ${hostel.state === 'Completed' ? 'selected' : ''}>Completed</option>
+                            <option value="In review" ${hostel.state === 'In review' ? 'selected' : ''}>In Review</option>
+                            <option value="Pending" ${hostel.state === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="Waiting" ${hostel.state === 'Waiting' ? 'selected' : ''}>Waiting</option>
+                        </select>
+                    </div>
+                    
+                    <div class="grid-3 mt-4">
+                        <div class="bg-[#fbf7ef] p-3 rounded-lg text-center">
+                            <div class="font-bold text-2xl">${info.rooms}</div>
+                            <div class="text-xs text-muted">Total Rooms</div>
+                        </div>
+                        <div class="bg-[#fbf7ef] p-3 rounded-lg text-center">
+                            <div class="font-bold text-2xl">${info.capacity}</div>
+                            <div class="text-xs text-muted">Total Capacity</div>
+                        </div>
+                        <div class="bg-[#fbf7ef] p-3 rounded-lg text-center">
+                            <div class="font-bold text-2xl">${hostel.progress || 0}%</div>
+                            <div class="text-xs text-muted">Completion</div>
+                        </div>
+                    </div>
+                    
+                    <!-- ========================================= -->
+                    <!-- FLOOR / FLAT SELECTOR                     -->
+                    <!-- ========================================= -->
+                    <div class="mt-6 pt-4 border-t">
+                        <div class="flex-between">
+                            <div>
+                                <h3 class="font-serif text-lg font-bold">${isFlat ? 'Select a Flat' : 'Select a Floor'}</h3>
+                                <p class="text-sm text-muted">${isFlat ? `${info.count} flats` : `${info.count} floors`}</p>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="openAddRoomModal()"><i class="fas fa-plus"></i> Add Room</button>
+                        </div>
+                        
+                        <div class="grid-3 mt-4" id="floorSelector"></div>
+                    </div>
+                    
+                    <!-- ========================================= -->
+                    <!-- ROOM TABLE (appears when floor selected)  -->
+                    <!-- ========================================= -->
+                    <div id="roomTableContainer" style="display:none;" class="mt-4">
+                        <div class="flex-between mb-3">
+                            <div>
+                                <span class="back-link" onclick="clearFloorSelection()"><i class="fas fa-arrow-left"></i> Back to ${isFlat ? 'flats' : 'floors'}</span>
+                                <h4 class="font-serif text-lg font-bold mt-2" id="floorTitle">Floor A</h4>
+                                <p class="text-sm text-muted" id="floorRoomsCount">0 rooms</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn-outline btn-sm" onclick="openAddRoomModal()"><i class="fas fa-plus"></i> Add Room</button>
+                                <button class="btn-outline btn-sm" onclick="showToast('Generate rooms functionality coming soon!', 'warning')"><i class="fas fa-magic"></i> Generate Rooms</button>
+                            </div>
+                        </div>
+                        
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr>
+                                    <th>Room</th>
+                                    <th>Beds</th>
+                                    <th>Occupied</th>
+                                    <th>Available</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr></thead>
+                                <tbody id="roomTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                
+                // Load floor/flat selector
+                renderFloorSelector();
+            }
+
+            // =============================================
+            // RENDER FLOOR / FLAT SELECTOR
+            // =============================================
+            function renderFloorSelector() {
+                const container = document.getElementById('floorSelector');
+                if (!container || !selectedHostelForRoom) return;
+                
+                const hostel = selectedHostelForRoom;
+                const isFlat = getHostelType(hostel) === 'flat';
+                const info = getHostelDisplayInfo(hostel);
+                const bedsPerRoom = getBedsPerRoomForHostel(hostel);
+                
+                let floorData = [];
+                
+                if (isFlat) {
+                    const totalFlats = hostel.total_flats || 9;
+                    for (let i = 1; i <= totalFlats; i++) {
+                        const roomsInFlat = (i === 1 || i === 4 || i === 7) ? 3 : (hostel.rooms_per_flat || 4);
+                        const floorRooms = getRoomsForFloor(`F${i}`);
+                        const totalBeds = floorRooms.length * bedsPerRoom;
+                        const occupied = floorRooms.reduce((sum, r) => sum + (r.occupiedCount || 0), 0);
+                        const available = totalBeds - occupied;
+                        const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
+                        floorData.push({
+                            label: `Flat ${i}`,
+                            value: `F${i}`,
+                            rooms: floorRooms.length,
+                            totalBeds: totalBeds,
+                            occupied: occupied,
+                            available: available,
+                            pct: pct,
+                            isSpecial: (i === 1 || i === 4 || i === 7),
+                            roomsInFlat: roomsInFlat
+                        });
+                    }
+                } else {
+                    const floors = hostel.total_floors || 3;
+                    const letters = ['A', 'B', 'C'];
+                    for (let i = 0; i < floors; i++) {
+                        const floorLabel = letters[i];
+                        const floorRooms = getRoomsForFloor(floorLabel);
+                        const totalBeds = floorRooms.length * bedsPerRoom;
+                        const occupied = floorRooms.reduce((sum, r) => sum + (r.occupiedCount || 0), 0);
+                        const available = totalBeds - occupied;
+                        const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
+                        floorData.push({
+                            label: `Floor ${floorLabel}`,
+                            value: floorLabel,
+                            rooms: floorRooms.length,
+                            totalBeds: totalBeds,
+                            occupied: occupied,
+                            available: available,
+                            pct: pct,
+                            isSpecial: false
+                        });
+                    }
+                }
+                
+                container.innerHTML = floorData.map(f => `
+                    <div class="floor-card ${selectedFloor === f.value ? 'active' : ''}" onclick="selectFloor('${f.value}')">
+                        <div class="flex-between">
+                            <span class="floor-name">${f.label}</span>
+                            <span class="text-xs text-muted">${f.rooms} ${f.rooms === 1 ? 'room' : 'rooms'}</span>
+                        </div>
+                        ${f.isSpecial ? '<p class="text-xs text-gold mt-1">⭐ 3 rooms (special)</p>' : ''}
+                        <div class="occupancy-bar mt-2">
+                            <div class="fill" style="width:${f.pct}%;"></div>
+                        </div>
+                        <div class="flex-between mt-1">
+                            <span class="occupancy-text">${f.occupied} / ${f.totalBeds} occupied</span>
+                            <span class="text-xs text-gold">${f.available} available</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // =============================================
+            // GET ROOMS FOR FLOOR
+            // =============================================
+            function getRoomsForFloor(floorLabel) {
+                return rooms.filter(r => r.floor_label === floorLabel);
+            }
+
+            // =============================================
+            // SELECT FLOOR / FLAT
+            // =============================================
+            function selectFloor(floorValue) {
+                selectedFloor = floorValue;
+                
+                // Update active state
+                document.querySelectorAll('.floor-card').forEach(el => el.classList.remove('active'));
+                const cards = document.querySelectorAll('.floor-card');
+                cards.forEach(el => {
+                    if (el.textContent.includes(floorValue) || el.textContent.includes(`Flat ${floorValue.replace('F', '')}`)) {
+                        el.classList.add('active');
+                    }
+                });
+                
+                // Show room table
+                const container = document.getElementById('roomTableContainer');
+                if (container) {
+                    container.style.display = 'block';
+                }
+                
+                const title = document.getElementById('floorTitle');
+                const isFlat = getHostelType(selectedHostelForRoom) === 'flat';
+                if (title) {
+                    title.textContent = isFlat ? `Flat ${floorValue.replace('F', '')}` : `Floor ${floorValue}`;
+                }
+                
+                // Render rooms for this floor
+                renderRoomTable(floorValue);
+            }
+
+            // =============================================
+            // CLEAR FLOOR SELECTION
+            // =============================================
+            function clearFloorSelection() {
+                selectedFloor = null;
+                const container = document.getElementById('roomTableContainer');
+                if (container) {
+                    container.style.display = 'none';
+                }
+                document.querySelectorAll('.floor-card').forEach(el => el.classList.remove('active'));
+                renderFloorSelector();
+            }
+
+            // =============================================
+            // RENDER ROOM TABLE FOR SELECTED FLOOR
+            // =============================================
+            function renderRoomTable(floorValue) {
+                const tbody = document.getElementById('roomTableBody');
+                if (!tbody) return;
+                
+                const floorRooms = getRoomsForFloor(floorValue);
+                
+                // Calculate occupancy from real data
+                const roomsWithData = floorRooms.map(r => {
+                    const totalBeds = r.capacity || 4;
+                    const occupiedCount = r.occupiedCount || 0;
+                    const availableCount = totalBeds - occupiedCount;
+                    let status = 'available';
+                    if (availableCount === 0) status = 'full';
+                    else if (occupiedCount > 0) status = 'partial';
+                    return { ...r, occupiedCount, availableCount, status };
+                });
+                
+                const countEl = document.getElementById('floorRoomsCount');
+                if (countEl) {
+                    countEl.textContent = `${roomsWithData.length} rooms`;
+                }
+                
+                tbody.innerHTML = roomsWithData.map(r => `
+                    <tr>
+                        <td><span class="font-bold">${r.room_code}</span></td>
+                        <td>${r.capacity}</td>
+                        <td>${r.occupiedCount}</td>
+                        <td>${r.availableCount}</td>
+                        <td>${roomStatusBadge(r.status)}</td>
+                        <td><button class="btn-ghost" onclick="openRoomDrawer('${r.id}')"><i class="fas fa-eye"></i> View</button></td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" class="text-center text-muted">No rooms found on this floor</td></tr>';
+            }
+
+            // =============================================
+            // ROOM DRAWER
+            // =============================================
+            function openRoomDrawer(roomId) {
+                const room = rooms.find(r => r.id === roomId);
+                if (!room) return;
+                
+                selectedRoom = room;
+                const drawer = document.getElementById('roomDrawer');
+                const title = document.getElementById('roomDrawerTitle');
+                const subtitle = document.getElementById('roomDrawerSubtitle');
+                const body = document.getElementById('roomDrawerBody');
+                
+                const totalBeds = room.capacity || 4;
+                const occupiedCount = room.occupiedCount || 0;
+                const availableCount = totalBeds - occupiedCount;
+                const isGirls = selectedHostelForRoom?.gender === 'female' || ['Purpose', 'Destiny', 'Favour'].includes(selectedHostelForRoom?.name);
+                const bedLabels = isGirls ? ['A', 'B', 'C', 'D', 'E', 'F'] : ['A', 'B', 'C', 'D'];
+                
+                // Generate beds for this room
+                const bedsData = bedLabels.slice(0, totalBeds).map((label, index) => {
+                    // Check if this bed has a student assigned
+                    const bed = room.beds?.find(b => b.bed_label === label);
+                    const isOccupied = bed?.status === 'occupied' || false;
+                    return {
+                        label: label,
+                        status: isOccupied ? 'occupied' : 'available',
+                        student: isOccupied ? bed?.student || null : null
+                    };
+                });
+                
+                title.textContent = room.room_code;
+                subtitle.textContent = `${availableCount} bed${availableCount !== 1 ? 's' : ''} available · ${room.capacity} students`;
+                
+                body.innerHTML = `
+                    <div class="info-box">
+                        <i class="fas fa-info-circle"></i> Capacity: ${room.capacity} students · ${occupiedCount} occupied · ${availableCount} available
+                    </div>
+                    
+                    <div class="mt-4">
+                        <p class="font-bold text-sm">Bed spaces</p>
+                        ${bedsData.map(bed => `
+                            <div class="bed-item">
+                                <span class="bed-label">Bed ${bed.label}</span>
+                                <div class="bed-student">
+                                    ${bed.student ? `
+                                        <div class="name">${bed.student.name}</div>
+                                        <div class="matric">${bed.student.matric}</div>
+                                    ` : `
+                                        <div class="text-muted text-sm">Available</div>
+                                    `}
+                                </div>
+                                ${bedStatusBadge(bed.status)}
+                                <div class="bed-actions">
+                                    ${bed.status === 'available' ? `
+                                        <button onclick="openAssignStudentModal('${room.id}', '${bed.label}')" title="Assign student">
+                                            <i class="fas fa-user-plus"></i>
+                                        </button>
+                                    ` : ''}
+                                    ${bed.status === 'occupied' ? `
+                                        <button onclick="removeStudentFromBed('${room.id}', '${bed.label}')" title="Remove student">
+                                            <i class="fas fa-user-minus"></i>
+                                        </button>
+                                    ` : ''}
+                                    <button onclick="markBedMaintenance('${room.id}', '${bed.label}')" title="Mark maintenance">
+                                        <i class="fas fa-tools"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="drawer-actions mt-4 pt-4 border-t">
+                        <button class="btn-outline" onclick="closeRoomDrawer()">Close</button>
+                        <button class="btn-outline" onclick="showToast('Edit room functionality coming soon!', 'warning')"><i class="fas fa-edit"></i> Edit</button>
+                        <button class="btn-primary" onclick="openAddRoomModal()"><i class="fas fa-plus"></i> Add Room</button>
+                    </div>
+                `;
+                
+                drawer.classList.add('open');
+            }
+
+            function closeRoomDrawer() {
+                document.getElementById('roomDrawer').classList.remove('open');
+                selectedRoom = null;
+            }
+
+            // =============================================
+            // ADD ROOM MODAL
+            // =============================================
+            function openAddRoomModal() {
+                document.getElementById('addRoomModal').classList.add('show');
+                document.getElementById('roomNumber').value = '';
+                document.getElementById('roomFloor').value = selectedFloor || 'A';
+                const isGirls = selectedHostelForRoom?.gender === 'female' || ['Purpose', 'Destiny', 'Favour'].includes(selectedHostelForRoom?.name);
+                document.getElementById('roomCapacity').value = isGirls ? '6' : '4';
+                document.getElementById('roomStatus').value = 'available';
+                document.getElementById('autoCreateBeds').checked = true;
+            }
+
+            function closeAddRoomModal() {
+                document.getElementById('addRoomModal').classList.remove('show');
+            }
+
+            function saveRoom() {
+                const floor = document.getElementById('roomFloor').value;
+                const roomNumber = document.getElementById('roomNumber').value.trim();
+                const capacity = parseInt(document.getElementById('roomCapacity').value);
+                const status = document.getElementById('roomStatus').value;
+                const autoCreateBeds = document.getElementById('autoCreateBeds').checked;
+                
+                if (!roomNumber) {
+                    showToast('Please enter a room number', 'error');
+                    return;
+                }
+                
+                const roomCode = `${floor}${String(roomNumber).padStart(3, '0')}`;
+                const newRoom = {
+                    id: `room_${Date.now()}`,
+                    room_code: roomCode,
+                    floor_label: floor,
+                    room_number: parseInt(roomNumber),
+                    capacity: capacity,
+                    status: status,
+                    occupiedCount: 0,
+                    availableCount: capacity,
+                    beds: []
+                };
+                
+                // Auto-create beds if checked
+                if (autoCreateBeds) {
+                    const bedLabels = capacity >= 6 ? ['A', 'B', 'C', 'D', 'E', 'F'] : ['A', 'B', 'C', 'D'];
+                    newRoom.beds = bedLabels.slice(0, capacity).map(label => ({
+                        id: `bed_${newRoom.id}_${label}`,
+                        room_id: newRoom.id,
+                        bed_label: label,
+                        status: 'available',
+                        student_id: null,
+                        student: null
+                    }));
+                }
+                
+                rooms.push(newRoom);
+                showToast(`Room ${roomCode} created successfully!`);
+                closeAddRoomModal();
+                
+                // Re-render the floor selector and room table
+                renderFloorSelector();
+                if (selectedFloor) {
+                    renderRoomTable(selectedFloor);
+                }
+            }
+
+            // =============================================
+            // ASSIGN STUDENT MODAL
+            // =============================================
+            function openAssignStudentModal(roomId, bedLabel) {
+                selectedRoom = rooms.find(r => r.id === roomId);
+                selectedBed = bedLabel;
+                
+                if (!selectedRoom) return;
+                
+                document.getElementById('assignBedInfo').textContent = `Bed ${bedLabel} · Room ${selectedRoom.room_code}`;
+                
+                const select = document.getElementById('studentSelect');
+                select.innerHTML = '<option value="">Select a student...</option>';
+                // Use real students from API
+                students.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = `${s.name} (${s.matric})`;
+                    select.appendChild(opt);
+                });
+                
+                document.getElementById('assignStudentModal').classList.add('show');
+            }
+
+            function closeAssignStudentModal() {
+                document.getElementById('assignStudentModal').classList.remove('show');
+            }
+
+            function assignStudentToBed() {
+                const studentId = document.getElementById('studentSelect').value;
+                if (!studentId) {
+                    showToast('Please select a student', 'error');
+                    return;
+                }
+                
+                const student = students.find(s => s.id == studentId);
+                if (!student) {
+                    showToast('Student not found', 'error');
+                    return;
+                }
+                
+                // Find the bed and update it
+                if (selectedRoom) {
+                    const bed = selectedRoom.beds?.find(b => b.bed_label === selectedBed);
+                    if (bed) {
+                        bed.status = 'occupied';
+                        bed.student_id = student.id;
+                        bed.student = student;
+                    } else {
+                        // If beds array doesn't exist, create it
+                        if (!selectedRoom.beds) selectedRoom.beds = [];
+                        selectedRoom.beds.push({
+                            id: `bed_${selectedRoom.id}_${selectedBed}`,
+                            room_id: selectedRoom.id,
+                            bed_label: selectedBed,
+                            status: 'occupied',
+                            student_id: student.id,
+                            student: student
+                        });
+                    }
+                    
+                    // Update room occupancy
+                    selectedRoom.occupiedCount = (selectedRoom.occupiedCount || 0) + 1;
+                    selectedRoom.availableCount = (selectedRoom.capacity || 4) - selectedRoom.occupiedCount;
+                    if (selectedRoom.availableCount === 0) selectedRoom.status = 'full';
+                    else if (selectedRoom.occupiedCount > 0) selectedRoom.status = 'partial';
+                    
+                    showToast(`${student.name} assigned to Bed ${selectedBed} in Room ${selectedRoom.room_code}`, 'success');
+                    closeAssignStudentModal();
+                    
+                    // Re-render
+                    renderFloorSelector();
+                    if (selectedFloor) {
+                        renderRoomTable(selectedFloor);
+                    }
+                    // Close and reopen drawer to refresh
+                    closeRoomDrawer();
+                    setTimeout(() => openRoomDrawer(selectedRoom.id), 300);
+                }
+            }
+
+            function removeStudentFromBed(roomId, bedLabel) {
+                const room = rooms.find(r => r.id === roomId);
+                if (!room) return;
+                
+                const bed = room.beds?.find(b => b.bed_label === bedLabel);
+                if (bed && bed.status === 'occupied') {
+                    bed.status = 'available';
+                    bed.student_id = null;
+                    bed.student = null;
+                    
+                    room.occupiedCount = Math.max(0, (room.occupiedCount || 0) - 1);
+                    room.availableCount = (room.capacity || 4) - room.occupiedCount;
+                    if (room.availableCount === room.capacity) room.status = 'available';
+                    else if (room.occupiedCount > 0) room.status = 'partial';
+                    
+                    showToast(`Student removed from Bed ${bedLabel}`, 'success');
+                    
+                    renderFloorSelector();
+                    if (selectedFloor) {
+                        renderRoomTable(selectedFloor);
+                    }
+                    closeRoomDrawer();
+                    setTimeout(() => openRoomDrawer(room.id), 300);
+                }
+            }
+
+            // =============================================
+            // BED MAINTENANCE
+            // =============================================
+            function markBedMaintenance(roomId, bedLabel) {
+                const room = rooms.find(r => r.id === roomId);
+                if (!room) return;
+                
+                const bed = room.beds?.find(b => b.bed_label === bedLabel);
+                if (bed) {
+                    bed.status = 'maintenance';
+                    showToast(`Bed ${bedLabel} marked for maintenance`, 'warning');
+                    
+                    // Close and reopen drawer to refresh
+                    closeRoomDrawer();
+                    setTimeout(() => openRoomDrawer(room.id), 300);
+                }
+            }
+
+            // =============================================
+            // CLOSE HOSTEL CONFIGURATION
+            // =============================================
+            function closeHostelConfig() {
+                const detailContainer = document.getElementById('hostelDetail');
+                if (detailContainer) {
+                    detailContainer.style.display = 'none';
+                }
+                editingHostelId = null;
+                selectedFloor = null;
+            }
+
+            // =============================================
+            // UPDATE HOSTEL TYPE
+            // =============================================
+            function updateHostelType(type) {
+                const flatFields = document.getElementById('flatFields');
+                const floorFields = document.getElementById('floorFields');
+                const typeLabel = document.getElementById('hostelTypeLabel');
+                
+                if (type === 'flat') {
+                    if (flatFields) flatFields.style.display = 'block';
+                    if (floorFields) floorFields.style.display = 'none';
+                    if (typeLabel) typeLabel.textContent = 'Flat-based Hostel (9 flats, 4 rooms each)';
+                } else {
+                    if (flatFields) flatFields.style.display = 'none';
+                    if (floorFields) floorFields.style.display = 'block';
+                    if (typeLabel) typeLabel.textContent = 'Floor-based Hostel (3 floors A, B, C)';
+                }
+            }
+
+            // =============================================
+            // SAVE HOSTEL CONFIGURATION
+            // =============================================
+            async function saveHostelConfig() {
+                if (!editingHostelId) {
+                    showToast('No hostel selected', 'error');
+                    return;
+                }
+
+                const saveBtn = document.getElementById('saveHostelBtn');
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                }
+
+                try {
+                    const name = document.getElementById('hostelName').value;
+                    const gender = document.getElementById('hostelGender').value.toLowerCase();
+                    const progress = parseInt(document.getElementById('hostelProgress').value) || 0;
+                    const status = document.getElementById('hostelStatus').value;
+                    
+                    const typeRadio = document.querySelector('input[name="hostelType"]:checked');
+                    const type = typeRadio ? typeRadio.value : 'floor';
+                    
+                    let payload = {
+                        name: name,
+                        gender: gender,
+                        progress: Math.min(100, Math.max(0, progress)),
+                        state: status,
+                        type: type
+                    };
+
+                    if (type === 'floor') {
+                        const floors = parseInt(document.getElementById('hostelFloors').value) || 3;
+                        const roomsPerFloor = parseInt(document.getElementById('hostelRoomsPerFloor').value) || 18;
+                        payload.total_floors = floors;
+                        payload.rooms_per_floor = roomsPerFloor;
+                        payload.total_flats = null;
+                        payload.rooms_per_flat = null;
+                    } else {
+                        const totalFlats = parseInt(document.getElementById('hostelTotalFlats').value) || 9;
+                        const roomsPerFlat = parseInt(document.getElementById('hostelRoomsPerFlat').value) || 4;
+                        payload.total_flats = totalFlats;
+                        payload.rooms_per_flat = roomsPerFlat;
+                        payload.total_floors = null;
+                        payload.rooms_per_floor = null;
+                    }
+
+                    Object.keys(payload).forEach(key => {
+                        if (payload[key] === null || payload[key] === undefined) {
+                            delete payload[key];
+                        }
+                    });
+
+                    const response = await fetch(`${API_BASE_URL}/hostels/${editingHostelId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        throw new Error(data.message || 'Failed to save');
+                    }
+
+                    showToast('Hostel configuration saved successfully!');
+                    closeHostelConfig();
+                    await loadHostels();
+                    renderScreen();
+                    
+                } catch (error) {
+                    console.error('Save error:', error);
+                    showToast('Error saving: ' + error.message, 'error');
+                } finally {
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Configuration';
+                    }
+                }
+            }
+
+            // =============================================
+            // ADD HOSTEL
+            // =============================================
+            function openAddHostel() {
+                showToast('Opening Add Hostel form...', 'warning');
+            }
+
+            // =============================================
+            // AUTHENTICATION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
+                
+                document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
+                document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
+                document.getElementById('profileRoleLabel').textContent = currentRole;
+                document.getElementById('roleLabel').textContent = currentRole;
+                document.getElementById('roleScope').textContent = 'System-wide access';
+                document.getElementById('mobileRoleFooter').textContent = `${currentRole} · System-wide access`;
+                
+                return true;
+            }
+
+            function handleLogout(e) {
+                e.preventDefault();
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            }
+
+            // =============================================
+            // SET DATE
+            // =============================================
+            function setDate() {
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+            }
+
+            // =============================================
+            // MOBILE DRAWER
+            // =============================================
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.showToast = showToast;
+            window.showHostelDetail = showHostelDetail;
+            window.closeHostelConfig = closeHostelConfig;
+            window.saveHostelConfig = saveHostelConfig;
+            window.updateHostelType = updateHostelType;
+            window.openAddHostel = openAddHostel;
+            window.selectFloor = selectFloor;
+            window.clearFloorSelection = clearFloorSelection;
+            window.openRoomDrawer = openRoomDrawer;
+            window.closeRoomDrawer = closeRoomDrawer;
+            window.openAddRoomModal = openAddRoomModal;
+            window.closeAddRoomModal = closeAddRoomModal;
+            window.saveRoom = saveRoom;
+            window.openAssignStudentModal = openAssignStudentModal;
+            window.closeAssignStudentModal = closeAssignStudentModal;
+            window.assignStudentToBed = assignStudentToBed;
+            window.removeStudentFromBed = removeStudentFromBed;
+            window.markBedMaintenance = markBedMaintenance;
+
+            // =============================================
+            // INIT
+            // =============================================
+            async function init() {
+                if (!checkAuth()) return;
+                setDate();
+
+                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.logout-btn').forEach(btn => {
+                    btn.addEventListener('click', handleLogout);
+                });
+
+                try {
+                    document.getElementById('noticeText').textContent = 'Loading hostels...';
+                    await Promise.all([loadHostels(), loadStudents()]);
+                    renderScreen();
+                    document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels and ${students.length} students.`;
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+
+                // Close drawer on escape
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        closeRoomDrawer();
+                        closeAddRoomModal();
+                        closeAssignStudentModal();
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+
+</body>
+</html>

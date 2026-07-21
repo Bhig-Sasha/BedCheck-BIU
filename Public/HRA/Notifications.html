@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notifications · BIU BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: #f5f1e8;
+            color: #17233c;
+            min-height: 100vh;
+        }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            position: fixed; inset: 0 0 0 0; width: 16rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            display: none; flex-direction: column;
+            z-index: 30;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            width: 100%; padding: 0.6rem 0.75rem;
+            border: none; border-radius: 0.5rem;
+            background: transparent; color: #dce5f2;
+            font-size: 0.9rem; font-weight: 500;
+            text-align: left; cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card {
+            margin-top: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        /* Mobile drawer */
+        .mobile-drawer {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: 18rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            z-index: 50;
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        /* ----- HEADER ----- */
+        .main-header {
+            position: sticky; top: 0; z-index: 20;
+            border-bottom: 1px solid #dfd8cb;
+            background: rgba(245,241,232,0.95);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1rem;
+        }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn {
+            display: flex; align-items: center; gap: 0.5rem;
+            border: 1px solid #d8d0c2; border-radius: 0.5rem;
+            background: #fffcf6;
+            padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+            cursor: pointer; text-decoration: none; color: #17233c;
+        }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+
+        .notice-banner {
+            display: flex; gap: 0.75rem; padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #d8c79e;
+            border-radius: 0.5rem;
+            background: #fff9e9;
+            color: #675121;
+            font-size: 0.9rem;
+        }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        /* ----- NOTIFICATIONS SPECIFICS ----- */
+        .page-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; }
+        }
+        .page-heading .eyebrow {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #a77915;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .page-heading h1 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-top: 0.15rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading h1 { font-size: 2.25rem; }
+        }
+        .page-heading .desc {
+            margin-top: 0.25rem;
+            font-size: 0.9rem;
+            color: #5c6a7d;
+        }
+        .page-heading .action-group {
+            display: flex; flex-wrap: wrap; gap: 0.5rem;
+        }
+
+        .card {
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+            padding: 1.25rem;
+        }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-unread { background: #e7edf5; color: #24466f; }
+        .badge-read { background: #e8edf2; color: #536274; }
+        .badge-critical { background: #f9e2de; color: #9c3e32; }
+
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #10233f; color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-primary:hover { background: #18345a; }
+
+        .btn-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #bfc8d5; border-radius: 0.5rem;
+            background: #fffcf6;
+            font-weight: 600; font-size: 0.9rem;
+            color: #17233c;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-outline:hover { background: #f5f1e8; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+
+        /* Notification Item */
+        .notification-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem 0;
+            border-bottom: 1px solid #eee8de;
+            transition: background 0.15s;
+            cursor: pointer;
+        }
+        .notification-item:hover { background: #fbf7ef; margin: 0 -0.5rem; padding: 1rem 0.5rem; border-radius: 0.5rem; }
+        .notification-item:last-child { border-bottom: none; }
+        .notification-item .notif-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            flex-shrink: 0;
+            font-size: 1rem;
+        }
+        .notification-item .notif-icon.blue { background: #e7edf5; color: #24466f; }
+        .notification-item .notif-icon.green { background: #e1f0e5; color: #2d6545; }
+        .notification-item .notif-icon.amber { background: #fff0cb; color: #8a6413; }
+        .notification-item .notif-icon.red { background: #f9e2de; color: #9c3e32; }
+        .notification-item .notif-icon.gray { background: #eceff2; color: #536274; }
+
+        .notification-item .notif-content { flex: 1; }
+        .notification-item .notif-content .notif-title { font-weight: 600; color: #17233c; }
+        .notification-item .notif-content .notif-detail { font-size: 0.9rem; color: #68768a; margin-top: 0.1rem; }
+        .notification-item .notif-content .notif-time { font-size: 0.7rem; color: #9ca3af; margin-top: 0.2rem; }
+        .notification-item .notif-badge-status { flex-shrink: 0; margin-top: 0.2rem; }
+        .notification-item .source-tag {
+            font-size: 0.6rem;
+            padding: 0.1rem 0.5rem;
+            border-radius: 9999px;
+            background: #e8edf2;
+            color: #536274;
+            margin-left: 0.5rem;
+        }
+        .notification-item .source-tag.session { background: #e7edf5; color: #24466f; }
+        .notification-item .source-tag.hostel { background: #e1f0e5; color: #2d6545; }
+        .notification-item .source-tag.approval { background: #fff0cb; color: #8a6413; }
+        .notification-item .source-tag.ra { background: #e7edf5; color: #315b8a; }
+        .notification-item .source-tag.incident { background: #f9e2de; color: #9c3e32; }
+
+        /* Filter tabs */
+        .filter-tabs {
+            display: flex; gap: 0.5rem; flex-wrap: wrap;
+        }
+        .filter-tab {
+            padding: 0.4rem 1rem;
+            border: 1px solid #ded6c9;
+            border-radius: 9999px;
+            background: #fffcf6;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #68768a;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .filter-tab:hover { border-color: #a77915; color: #17233c; }
+        .filter-tab.active { background: #d6ad4b; border-color: #d6ad4b; color: #10233f; }
+
+        /* Critical alert count */
+        .critical-count {
+            background: #a84134;
+            color: white;
+            padding: 0.1rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            margin-left: 0.3rem;
+        }
+
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            background: #10233f;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 400px;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #3f755d; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8e4de; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== PORTAL (HRA) ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item active"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">HRA</span></div>
+                <div class="role-scope" id="roleScope">Loading...</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item active"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">HRA · Loading...</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Thursday, 9 July 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn" id="notifBtn">
+                            <i class="fas fa-bell"></i><span class="notif-badge" id="notifBadge"></span>
+                        </a>
+                        <a href="Profile.html" class="profile-btn" id="profileBtn">
+                            <span class="profile-avatar" id="profileAvatar">SO</span>
+                            <span class="profile-name" id="profileName">Sarah Okon</span>
+                            <span class="profile-role" id="profileRoleLabel">HRA</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-container">
+                <!-- Notice Banner -->
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-bell"></i>
+                    <span id="noticeText"><strong>Operations Center</strong> · Session alerts, RA activity, room incidents, and approval updates</span>
+                </div>
+
+                <!-- ===== NOTIFICATIONS CONTENT ===== -->
+                <div id="notificationsContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // NOTIFICATIONS – Operations Center
+            // =============================================
+
+            const API_BASE = 'http://localhost:3000/api';
+
+            // ---------- STATE ----------
+            let currentUser = null;
+            let hostelData = null;
+            let notifications = [];
+            let isLoading = true;
+            let filterType = 'all';
+
+            // ---------- DOM REFS ----------
+            const notificationsContent = document.getElementById('notificationsContent');
+            const noticeText = document.getElementById('noticeText');
+            const notifBadge = document.getElementById('notifBadge');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRoleFooter = document.getElementById('mobileRoleFooter');
+            const profileAvatar = document.getElementById('profileAvatar');
+            const profileName = document.getElementById('profileName');
+            const profileRoleLabel = document.getElementById('profileRoleLabel');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const menuToggle = document.getElementById('menuToggle');
+
+            // ---------- TOAST ----------
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => { toast.classList.remove('show'); }, 3500);
+            }
+
+            // ---------- AUTH HELPERS ----------
+            function getAuthHeaders() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return { 'X-Staff-ID': user.id };
+                    } catch (e) {
+                        return {};
+                    }
+                }
+                return {};
+            }
+
+            function getStaffId() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return user.id;
+                    } catch (e) {
+                        return null;
+                    }
+                }
+                return null;
+            }
+
+            // ---------- API HELPERS ----------
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders(),
+                        ...(options.headers || {})
+                    };
+
+                    let url = `${API_BASE}${endpoint}`;
+                    if (endpoint === '/hra/hostel') {
+                        const staffId = getStaffId();
+                        if (staffId) {
+                            url += `?staff_id=${staffId}`;
+                        }
+                    }
+
+                    const response = await fetch(url, {
+                        ...options,
+                        headers: headers
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // ---------- UPDATE USER DISPLAY ----------
+            function updateUserDisplay() {
+                if (currentUser) {
+                    const name = currentUser.name || 'User';
+                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    const role = currentUser.role || 'HRA';
+
+                    profileAvatar.textContent = initials;
+                    profileName.textContent = name;
+                    profileRoleLabel.textContent = role;
+                    roleLabel.textContent = role;
+
+                    if (hostelData) {
+                        const hostelName = hostelData.name || 'Hostel';
+                        roleScope.textContent = hostelName + ' Hostel';
+                        mobileRoleFooter.textContent = `HRA · ${hostelName} Hostel`;
+                    }
+                }
+            }
+
+            // ---------- DATA LOADING ----------
+            async function loadAllData() {
+                try {
+                    isLoading = true;
+                    renderLoading();
+
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        currentUser = JSON.parse(userData);
+                    } else {
+                        const localUser = localStorage.getItem('bedcheck_user');
+                        if (localUser) {
+                            currentUser = JSON.parse(localUser);
+                            sessionStorage.setItem('bedcheck_user', localUser);
+                        } else {
+                            window.location.replace('../Login.html');
+                            return;
+                        }
+                    }
+
+                    if (!currentUser || !currentUser.id) {
+                        showToast('User not properly authenticated. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    updateUserDisplay();
+
+                    // Load HRA's hostel
+                    const hostelRes = await apiCall(`/hra/hostel`);
+                    hostelData = hostelRes.data;
+
+                    if (!hostelData) {
+                        roleScope.textContent = 'No hostel assigned';
+                        mobileRoleFooter.textContent = 'HRA · No Hostel';
+                        showToast('No hostel assigned to this HRA account', 'error');
+                        renderNoHostel();
+                        return;
+                    }
+
+                    roleScope.textContent = hostelData.name + ' Hostel';
+                    mobileRoleFooter.textContent = `HRA · ${hostelData.name} Hostel`;
+                    setNotice(`Operations Center · ${hostelData.name} Hostel`);
+                    updateUserDisplay();
+
+                    // Load notifications - try multiple sources
+                    let allNotifs = [];
+
+                    // 1. Try hostel notifications
+                    try {
+                        const notifRes = await apiCall(`/hostels/${hostelData.id}/notifications`);
+                        if (notifRes.data && notifRes.data.length > 0) {
+                            allNotifs = [...notifRes.data];
+                        }
+                    } catch (e) {
+                        // Table might not exist - silently continue
+                        console.log('Hostel notifications not available:', e.message);
+                    }
+
+                    // 2. Try role-based notifications
+                    if (currentUser?.role) {
+                        try {
+                            const roleNotifs = await apiCall(`/notifications/role/${currentUser.role}`);
+                            if (roleNotifs.data && roleNotifs.data.length > 0) {
+                                const existingIds = new Set(allNotifs.map(n => n.id));
+                                roleNotifs.data.forEach(n => {
+                                    if (!existingIds.has(n.id)) {
+                                        allNotifs.push(n);
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            // Endpoint might not exist yet - this is fine
+                            console.log('Role notifications not available:', e.message);
+                        }
+                    }
+
+                    // 3. Try recipient-based notifications
+                    if (currentUser?.id) {
+                        try {
+                            const recipientNotifs = await apiCall(`/notifications/recipient/${currentUser.id}`);
+                            if (recipientNotifs.data && recipientNotifs.data.length > 0) {
+                                const existingIds = new Set(allNotifs.map(n => n.id));
+                                recipientNotifs.data.forEach(n => {
+                                    if (!existingIds.has(n.id)) {
+                                        allNotifs.push(n);
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            // Endpoint might not exist yet
+                            console.log('Recipient notifications not available:', e.message);
+                        }
+                    }
+
+                    // Sort by created_at descending (newest first)
+                    allNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                    notifications = allNotifs;
+
+                    // Update badge count
+                    const unreadCount = notifications.filter(n => !n.read).length;
+                    if (notifBadge) {
+                        if (unreadCount > 0) {
+                            notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                            notifBadge.style.display = 'block';
+                        } else {
+                            notifBadge.style.display = 'none';
+                        }
+                    }
+
+                    // Set date
+                    const now = new Date();
+                    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                    const dateEl = document.getElementById('currentDate');
+                    if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
+
+                    isLoading = false;
+                    renderNotifications();
+
+                } catch (error) {
+                    console.error('Load error:', error);
+                    isLoading = false;
+                    showToast('Error loading data: ' + error.message, 'error');
+                    setNotice('Error loading notifications. Please refresh.');
+                    renderError();
+                }
+            }
+
+            function setNotice(msg) {
+                noticeText.innerHTML = msg;
+            }
+
+            function renderLoading() {
+                notificationsContent.innerHTML = `
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                    <p class="text-center text-muted">Loading operations center...</p>
+                `;
+            }
+
+            function renderNoHostel() {
+                notificationsContent.innerHTML = `
+                    <div class="card mt-4">
+                        <div class="text-center p-4">
+                            <i class="fas fa-building" style="font-size:3rem;color:#b9c7db;"></i>
+                            <h2 class="mt-3">No Hostel Assigned</h2>
+                            <p class="text-muted">You are not assigned to any hostel. Please contact the administrator.</p>
+                            <button class="btn-primary mt-3" onclick="window.location.href='hra-index.html'"><i class="fas fa-arrow-left"></i> Back to Dashboard</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderError() {
+                notificationsContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
+                        <div class="text-center p-4">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading notifications. Please refresh the page.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // ---------- RENDER NOTIFICATIONS ----------
+            function renderNotifications() {
+                const unreadCount = notifications.filter(n => !n.read).length;
+                const criticalCount = notifications.filter(n => n.tone === 'danger' || n.priority === 'high').length;
+                const filtered = filterType === 'all' ? notifications : 
+                                filterType === 'unread' ? notifications.filter(n => !n.read) :
+                                notifications.filter(n => n.read);
+
+                const html = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow">🔔 Operations Center</p>
+                            <h1>Notifications</h1>
+                            <p class="desc">
+                                ${unreadCount} unread
+                                ${criticalCount > 0 ? `<span class="critical-count">${criticalCount} critical</span>` : ''}
+                                · ${hostelData?.name || 'Your'} Hostel
+                            </p>
+                        </div>
+                        <div class="action-group">
+                            ${unreadCount > 0 ? `<button class="btn-primary" onclick="window.markAllAsRead()"><i class="fas fa-check-double"></i> Mark All Read</button>` : ''}
+                            <button class="btn-outline" onclick="window.location.reload()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                        </div>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div class="filter-tabs mt-2">
+                        <button class="filter-tab ${filterType === 'all' ? 'active' : ''}" onclick="window.setFilter('all')">All</button>
+                        <button class="filter-tab ${filterType === 'unread' ? 'active' : ''}" onclick="window.setFilter('unread')">Unread ${unreadCount > 0 ? `(${unreadCount})` : ''}</button>
+                        <button class="filter-tab ${filterType === 'read' ? 'active' : ''}" onclick="window.setFilter('read')">Read</button>
+                    </div>
+
+                    <div class="card mt-4">
+                        ${notifications.length === 0 ? `
+                            <div class="text-center p-4">
+                                <i class="fas fa-bell-slash" style="font-size:3rem;color:#b9c7db;"></i>
+                                <h3 class="mt-3">All Caught Up</h3>
+                                <p class="text-muted">No notifications to display. Check back for session updates and RA activity.</p>
+                            </div>
+                        ` : filtered.length === 0 ? `
+                            <div class="text-center p-4">
+                                <i class="fas fa-filter" style="font-size:3rem;color:#b9c7db;"></i>
+                                <h3 class="mt-3">No ${filterType} Notifications</h3>
+                                <p class="text-muted">Try changing the filter to see more notifications.</p>
+                            </div>
+                        ` : filtered.map(notif => {
+                            const iconMap = {
+                                'info': { icon: 'fa-info-circle', color: 'blue' },
+                                'warning': { icon: 'fa-exclamation-triangle', color: 'amber' },
+                                'danger': { icon: 'fa-exclamation-circle', color: 'red' },
+                                'success': { icon: 'fa-check-circle', color: 'green' },
+                                'default': { icon: 'fa-bell', color: 'gray' }
+                            };
+                            const iconData = iconMap[notif.tone || 'default'] || iconMap.default;
+                            
+                            // Determine source type
+                            let sourceType = 'hostel';
+                            let sourceLabel = 'Hostel';
+                            const title = notif.title || '';
+                            const detail = notif.detail || notif.body || '';
+                            const actor = notif.actor || '';
+                            const action = notif.action || '';
+                            
+                            if (title.includes('Session') || title.includes('BedCheck') || detail.includes('session') || action.includes('session')) {
+                                sourceType = 'session';
+                                sourceLabel = 'Session';
+                            } else if (title.includes('Approved') || title.includes('Review') || title.includes('Return') || title.includes('Approval') || action.includes('Approved')) {
+                                sourceType = 'approval';
+                                sourceLabel = 'Approval';
+                            } else if (title.includes('RA') || title.includes('Advisor') || notif.recipient_role === 'RA' || actor.includes('RA')) {
+                                sourceType = 'ra';
+                                sourceLabel = 'RA';
+                            } else if (notif.tone === 'danger' || notif.priority === 'high' || title.includes('Incident') || title.includes('Alert')) {
+                                sourceType = 'incident';
+                                sourceLabel = 'Incident';
+                            }
+                            
+                            const sourceClass = sourceType === 'session' ? 'session' : 
+                                                sourceType === 'approval' ? 'approval' : 
+                                                sourceType === 'ra' ? 'ra' : 
+                                                sourceType === 'incident' ? 'incident' : 'hostel';
+                            
+                            return `
+                                <div class="notification-item" onclick="window.markAsRead(${notif.id})">
+                                    <div class="notif-icon ${iconData.color}">
+                                        <i class="fas ${iconData.icon}"></i>
+                                    </div>
+                                    <div class="notif-content">
+                                        <div class="notif-title">${notif.title || 'Notification'}
+                                            <span class="source-tag ${sourceClass}">${sourceLabel}</span>
+                                            ${notif.priority === 'high' ? '<span class="badge badge-critical" style="font-size:0.5rem;">Critical</span>' : ''}
+                                        </div>
+                                        <div class="notif-detail">${notif.detail || notif.body || notif.message || ''}</div>
+                                        <div class="notif-time">${notif.time || notif.created_at ? new Date(notif.created_at).toLocaleString() : 'Just now'}</div>
+                                    </div>
+                                    <div class="notif-badge-status">
+                                        ${!notif.read ? '<span class="badge badge-unread">Unread</span>' : '<span class="badge badge-read">Read</span>'}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="mt-7 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                        </p>
+                    </div>
+                `;
+
+                notificationsContent.innerHTML = html;
+                updateUserDisplay();
+
+                // Rebind globals
+                window.markAsRead = markAsRead;
+                window.markAllAsRead = markAllAsRead;
+                window.setFilter = setFilter;
+                window.showToast = showToast;
+            }
+
+            // ---------- NOTIFICATION ACTIONS ----------
+            function setFilter(filter) {
+                filterType = filter;
+                renderNotifications();
+            }
+
+            async function markAsRead(notificationId) {
+                try {
+                    await apiCall(`/notifications/${notificationId}/read`, {
+                        method: 'PUT'
+                    });
+                    
+                    // Update local state
+                    const notif = notifications.find(n => n.id === notificationId);
+                    if (notif) {
+                        notif.read = true;
+                    }
+                    
+                    // Update badge
+                    const unreadCount = notifications.filter(n => !n.read).length;
+                    if (notifBadge) {
+                        if (unreadCount > 0) {
+                            notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                            notifBadge.style.display = 'block';
+                        } else {
+                            notifBadge.style.display = 'none';
+                        }
+                    }
+                    
+                    renderNotifications();
+                    showToast('Notification marked as read', 'success');
+                } catch (error) {
+                    // If the table doesn't exist, just update local state
+                    const notif = notifications.find(n => n.id === notificationId);
+                    if (notif) {
+                        notif.read = true;
+                        const unreadCount = notifications.filter(n => !n.read).length;
+                        if (notifBadge) {
+                            if (unreadCount > 0) {
+                                notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                                notifBadge.style.display = 'block';
+                            } else {
+                                notifBadge.style.display = 'none';
+                            }
+                        }
+                        renderNotifications();
+                        showToast('Notification marked as read', 'success');
+                    } else {
+                        showToast('Error marking as read: ' + error.message, 'error');
+                    }
+                }
+            }
+
+            async function markAllAsRead() {
+                try {
+                    // Try to mark all read by hostel
+                    if (hostelData?.id) {
+                        try {
+                            await apiCall('/notifications/mark-all-read', {
+                                method: 'PUT',
+                                body: JSON.stringify({ hostel_id: hostelData.id })
+                            });
+                        } catch (e) {
+                            // Endpoint might not exist
+                        }
+                    }
+                    
+                    // Try by role
+                    if (currentUser?.role) {
+                        try {
+                            await apiCall('/notifications/mark-all-read', {
+                                method: 'PUT',
+                                body: JSON.stringify({ recipient_role: currentUser.role })
+                            });
+                        } catch (e) {
+                            // Endpoint might not exist
+                        }
+                    }
+                    
+                    // Try by recipient ID
+                    if (currentUser?.id) {
+                        try {
+                            await apiCall('/notifications/mark-all-read', {
+                                method: 'PUT',
+                                body: JSON.stringify({ recipient_id: currentUser.id })
+                            });
+                        } catch (e) {
+                            // Endpoint might not exist
+                        }
+                    }
+                    
+                    // Update local state
+                    notifications.forEach(n => n.read = true);
+                    
+                    if (notifBadge) {
+                        notifBadge.style.display = 'none';
+                    }
+                    
+                    renderNotifications();
+                    showToast('All notifications marked as read', 'success');
+                } catch (error) {
+                    // If all else fails, just update local state
+                    notifications.forEach(n => n.read = true);
+                    if (notifBadge) {
+                        notifBadge.style.display = 'none';
+                    }
+                    renderNotifications();
+                    showToast('All notifications marked as read', 'success');
+                }
+            }
+
+            // ---------- LOGOUT ----------
+            function handleLogout() {
+                sessionStorage.removeItem('bedcheck_user');
+                localStorage.removeItem('bedcheck_user');
+                showToast('Logging out...', 'success');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 500);
+            }
+
+            // ---------- INIT ----------
+            function init() {
+                const userData = sessionStorage.getItem('bedcheck_user') || localStorage.getItem('bedcheck_user');
+
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return;
+                }
+
+                try {
+                    currentUser = JSON.parse(userData);
+                    if (!sessionStorage.getItem('bedcheck_user')) {
+                        sessionStorage.setItem('bedcheck_user', userData);
+                    }
+
+                    if (!currentUser.id) {
+                        showToast('User data incomplete. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    updateUserDisplay();
+                    loadAllData();
+                } catch (e) {
+                    console.error('Error parsing user data:', e);
+                    window.location.replace('../Login.html');
+                }
+
+                logoutBtn.addEventListener('click', handleLogout);
+                menuToggle.addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.add('open');
+                    document.getElementById('drawerOverlay').classList.add('show');
+                });
+                
+                document.getElementById('closeDrawer').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+                
+                document.getElementById('drawerOverlay').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+
+                document.getElementById('profileBtn').addEventListener('click', () => {
+                    window.location.href = 'Profile.html';
+                });
+            }
+
+            // expose to window
+            window.showToast = showToast;
+            window.setNotice = setNotice;
+            window.markAsRead = markAsRead;
+            window.markAllAsRead = markAllAsRead;
+            window.setFilter = setFilter;
+
+            // start
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+</body>
+</html>

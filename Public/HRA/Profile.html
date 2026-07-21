@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profile · HRA · BIU</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        /* ----- RESET & BASE ----- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: #f5f1e8;
+            color: #17233c;
+            min-height: 100vh;
+        }
+
+        /* ----- PORTAL LAYOUT ----- */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            position: fixed; inset: 0 0 0 0; width: 16rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            display: none; flex-direction: column;
+            z-index: 30;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            width: 100%; padding: 0.6rem 0.75rem;
+            border: none; border-radius: 0.5rem;
+            background: transparent; color: #dce5f2;
+            font-size: 0.9rem; font-weight: 500;
+            text-align: left; cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card {
+            margin-top: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        /* Mobile drawer */
+        .mobile-drawer {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: 18rem;
+            background-color: #10233f; color: white;
+            padding: 1.5rem 1rem;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            z-index: 50;
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-badge {
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+            border: 1px solid rgba(225,189,101,0.7);
+            background-color: #d6ad4b;
+            border-radius: 0.5rem;
+            font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem;
+            color: #10233f;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        /* ----- HEADER ----- */
+        .main-header {
+            position: sticky; top: 0; z-index: 20;
+            border-bottom: 1px solid #dfd8cb;
+            background: rgba(245,241,232,0.95);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1rem;
+        }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
+        .notif-btn:hover { background: rgba(0,0,0,0.05); }
+        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+        .profile-btn {
+            display: flex; align-items: center; gap: 0.5rem;
+            border: 1px solid #d8d0c2; border-radius: 0.5rem;
+            background: #fffcf6;
+            padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+            cursor: pointer; text-decoration: none; color: #17233c;
+        }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
+
+        .notice-banner {
+            display: flex; gap: 0.75rem; padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #d8c79e;
+            border-radius: 0.5rem;
+            background: #fff9e9;
+            color: #675121;
+            font-size: 0.9rem;
+        }
+        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+
+        /* ----- PROFILE SPECIFICS ----- */
+        .page-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; }
+        }
+        .page-heading .eyebrow {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #a77915;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .page-heading h1 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-top: 0.15rem;
+        }
+        @media (min-width: 640px) {
+            .page-heading h1 { font-size: 2.25rem; }
+        }
+        .page-heading .desc {
+            margin-top: 0.25rem;
+            font-size: 0.9rem;
+            color: #5c6a7d;
+        }
+
+        .card {
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+            padding: 1.25rem;
+        }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #10233f; color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-primary:hover { background: #18345a; }
+
+        .btn-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #bfc8d5; border-radius: 0.5rem;
+            background: #fffcf6;
+            font-weight: 600; font-size: 0.9rem;
+            color: #17233c;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-outline:hover { background: #f5f1e8; }
+
+        .btn-danger-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: 1px solid #a84134; border-radius: 0.5rem;
+            background: #fffcf6;
+            font-weight: 600; font-size: 0.9rem;
+            color: #a84134;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-danger-outline:hover { background: #f9e2de; }
+
+        .btn-success {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.7rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #2d6545; color: white;
+            font-weight: 700; font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-success:hover { background: #1f4a32; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-6 { margin-top: 1.5rem; }
+        .mt-7 { margin-top: 1.75rem; }
+        .text-sm { font-size: 0.9rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-gold { color: #a77915; }
+        .text-muted { color: #68768a; }
+        .font-bold { font-weight: 700; }
+        .font-serif { font-family: 'Merriweather',serif; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+        .w-full { width: 100%; }
+
+        .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+        @media (max-width: 480px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        /* Profile Avatar Large */
+        .profile-avatar-large {
+            display: grid; place-items: center;
+            width: 6rem; height: 6rem;
+            border-radius: 50%;
+            background: #d6ad4b;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #10233f;
+            border: 3px solid #d6ad4b;
+            flex-shrink: 0;
+        }
+        .profile-avatar-large img {
+            width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid #f0ebe2;
+            font-size: 0.9rem;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-row .info-label { color: #68768a; font-weight: 500; }
+        .info-row .info-value { font-weight: 600; }
+
+        /* Status indicator */
+        .status-indicator {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.2rem 0.8rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+        .status-indicator.active { background: #e1f0e5; color: #2d6545; }
+        .status-indicator.inactive { background: #f9e2de; color: #9c3e32; }
+
+        /* ----- EDIT PROFILE MODAL ----- */
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(16,35,63,0.5);
+            z-index: 60;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .modal-overlay.show { display: flex; }
+
+        .modal-box {
+            background: #fffcf6;
+            border-radius: 1.5rem;
+            padding: 2rem;
+            max-width: 700px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .modal-box .modal-close {
+            position: absolute; top: 1rem; right: 1.5rem;
+            background: transparent; border: none;
+            font-size: 1.5rem; color: #68768a;
+            cursor: pointer; padding: 0.25rem;
+        }
+        .modal-box .modal-close:hover { color: #17233c; }
+
+        .modal-box .modal-header {
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #eee8de;
+            margin-bottom: 1.25rem;
+        }
+        .modal-box .modal-header h2 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #17233c;
+        }
+        .modal-box .modal-header p {
+            color: #68768a;
+            font-size: 0.9rem;
+        }
+
+        .modal-box .form-group {
+            margin-bottom: 1rem;
+        }
+        .modal-box .form-group label {
+            display: block;
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+            color: #17233c;
+        }
+        .modal-box .form-group label .required {
+            color: #a84134;
+        }
+        .modal-box .form-group input,
+        .modal-box .form-group select {
+            width: 100%;
+            padding: 0.7rem 0.75rem;
+            border: 1px solid #cbd2db;
+            border-radius: 0.5rem;
+            background: white;
+            font-size: 0.9rem;
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+        .modal-box .form-group input:focus,
+        .modal-box .form-group select:focus {
+            border-color: #a77915;
+        }
+        .modal-box .form-group input:disabled {
+            background: #f5f1e8;
+            cursor: not-allowed;
+        }
+
+        .modal-box .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        @media (max-width: 480px) {
+            .modal-box .form-row { grid-template-columns: 1fr; }
+        }
+
+        .modal-box .photo-upload {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 1rem;
+            border: 2px dashed #cbd2db;
+            border-radius: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+        .modal-box .photo-upload .photo-preview {
+            width: 4rem; height: 4rem;
+            border-radius: 50%;
+            background: #e7edf5;
+            display: grid; place-items: center;
+            font-size: 1.5rem;
+            color: #68768a;
+            overflow: hidden;
+        }
+        .modal-box .photo-upload .photo-preview img {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+        .modal-box .photo-upload .upload-btn {
+            padding: 0.4rem 1rem;
+            border: 1px solid #cbd2db;
+            border-radius: 0.5rem;
+            background: white;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+        .modal-box .photo-upload .upload-btn:hover { background: #f5f1e8; }
+        .modal-box .photo-upload .text-muted { font-size: 0.7rem; color: #68768a; }
+
+        .modal-box .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #eee8de;
+            flex-wrap: wrap;
+        }
+
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            background: #10233f;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 400px;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-provisional { background: #fff0cb; color: #8a6413; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ===== EDIT PROFILE MODAL ===== -->
+    <div class="modal-overlay" id="editProfileModal">
+        <div class="modal-box">
+            <button class="modal-close" onclick="closeEditProfile()"><i class="fas fa-times"></i></button>
+
+            <div class="modal-header">
+                <h2><i class="fas fa-user-edit text-gold"></i> Edit Profile</h2>
+                <p>Update your personal information and account settings</p>
+            </div>
+
+            <!-- Photo Upload -->
+            <div class="photo-upload">
+                <div class="photo-preview" id="photoPreview">
+                    <i class="fas fa-camera"></i>
+                </div>
+                <div>
+                    <button class="upload-btn" onclick="document.getElementById('photoInput').click()">
+                        <i class="fas fa-upload"></i> Upload Photo
+                    </button>
+                    <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="previewPhoto(event)" />
+                    <p class="text-muted mt-1">JPG, PNG or GIF · Max 2MB</p>
+                </div>
+            </div>
+
+            <!-- Personal Information -->
+            <h4 class="font-bold text-sm text-gold mb-2"><i class="fas fa-user"></i> Personal Information</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Full Name <span class="required">*</span></label>
+                    <input id="editFullName" placeholder="e.g. Sarah Okon" />
+                </div>
+                <div class="form-group">
+                    <label>Staff ID <span class="required">*</span></label>
+                    <input id="editStaffId" placeholder="e.g. STAFF-001" disabled />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Email Address <span class="required">*</span></label>
+                    <input id="editEmail" type="email" placeholder="sarah.okon@biu.edu.ng" />
+                </div>
+                <div class="form-group">
+                    <label>Phone Number</label>
+                    <input id="editPhone" placeholder="+234 800 000 0000" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Gender</label>
+                    <select id="editGender">
+                        <option value="Male">Male</option>
+                        <option value="Female" selected>Female</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Date of Birth</label>
+                    <input id="editDob" type="date" />
+                </div>
+            </div>
+
+            <!-- Employment Information -->
+            <h4 class="font-bold text-sm text-gold mt-4 mb-2"><i class="fas fa-briefcase"></i> Employment Information</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Role <span class="required">*</span></label>
+                    <select id="editRole">
+                        <option value="HRA" selected>HRA</option>
+                        <option value="RA">RA</option>
+                        <option value="RASD">RASD</option>
+                        <option value="Administrator">Administrator</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Assigned Hostel <span class="required">*</span></label>
+                    <select id="editHostel">
+                        <option value="Champions">Champions</option>
+                        <option value="Above Only">Above Only</option>
+                        <option value="Balm of Gilead">Balm of Gilead</option>
+                        <option value="Splendor">Splendor</option>
+                        <option value="Grace">Grace</option>
+                        <option value="Hope">Hope</option>
+                        <option value="Love">Love</option>
+                        <option value="Peace">Peace</option>
+                        <option value="Purpose">Purpose</option>
+                        <option value="Destiny">Destiny</option>
+                        <option value="Favour">Favour</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Assigned Floor</label>
+                    <input id="editFloor" placeholder="e.g. Floor A" />
+                </div>
+                <div class="form-group">
+                    <label>Assigned Room</label>
+                    <input id="editRoom" placeholder="e.g. A1" />
+                </div>
+            </div>
+
+            <!-- Security -->
+            <h4 class="font-bold text-sm text-gold mt-4 mb-2"><i class="fas fa-lock"></i> Security</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input id="editPassword" type="password" placeholder="Enter new password" />
+                    <p class="text-xs text-muted mt-1">Leave blank to keep current password</p>
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input id="editConfirmPassword" type="password" placeholder="Confirm new password" />
+                </div>
+            </div>
+
+            <!-- Notification Preferences -->
+            <h4 class="font-bold text-sm text-gold mt-4 mb-2"><i class="fas fa-bell"></i> Notification Preferences</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label><input type="checkbox" checked /> Email Notifications</label>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" /> SMS Notifications</label>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" checked /> In-App Notifications</label>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" checked /> BedCheck Alerts</label>
+                </div>
+            </div>
+
+            <!-- Modal Actions -->
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="saveProfile()"><i class="fas fa-save"></i> Save Changes</button>
+                <button class="btn-outline" onclick="closeEditProfile()">Cancel</button>
+                <button class="btn-danger-outline" onclick="resetForm()" style="margin-left:auto;"><i class="fas fa-undo"></i> Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== PORTAL (HRA) ===== -->
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <p class="workspace-label">Workspace</p>
+            <nav id="desktopNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item active"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="role-card">
+                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">HRA</span></div>
+                <div class="role-scope" id="roleScope">Loading...</div>
+            </div>
+        </aside>
+
+        <!-- Mobile Drawer -->
+        <div class="drawer-overlay" id="drawerOverlay"></div>
+        <aside class="mobile-drawer" id="mobileDrawer">
+            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+            <div class="brand">
+                <div class="brand-badge">BIU</div>
+                <div>
+                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-sub">HRA · Champions</div>
+                </div>
+            </div>
+            <nav id="mobileNav">
+                <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-check-double"></i> Review</a>
+                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+                <a href="Notifications.html" class="nav-item"><i class="fas fa-bell"></i> Notifications</a>
+                <a href="Profile.html" class="nav-item active"><i class="fas fa-user"></i> Profile</a>
+            </nav>
+            <div class="drawer-footer" id="mobileRoleFooter">HRA · Loading...</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-inner">
+                    <div class="header-left">
+                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                        <div>
+                            <p class="header-date" id="currentDate">Thursday, 9 July 2026</p>
+                            <p class="header-title">BIU BedCheck</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <a href="Notifications.html" class="notif-btn" id="notifBtn">
+                            <i class="fas fa-bell"></i><span class="notif-badge" id="notifBadge"></span>
+                        </a>
+                        <a href="Profile.html" class="profile-btn" id="profileBtn">
+                            <span class="profile-avatar" id="profileAvatar">SO</span>
+                            <span class="profile-name" id="profileName">Sarah Okon</span>
+                            <span class="profile-role" id="profileRoleLabel">HRA</span>
+                        </a>
+                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-container">
+                <!-- Notice Banner -->
+                <div class="notice-banner" id="noticeBanner">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="noticeText"><strong>Profile</strong> · Manage your account information</span>
+                </div>
+
+                <!-- ===== PROFILE CONTENT ===== -->
+                <div id="profileContent">
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // =============================================
+            // PROFILE – HRA (Connected to DB)
+            // =============================================
+
+            const API_BASE = 'http://localhost:3000/api';
+
+            // ---------- STATE ----------
+            let currentUser = null;
+            let hostelData = null;
+            let isLoading = true;
+
+            // ---------- DOM REFS ----------
+            const profileContent = document.getElementById('profileContent');
+            const noticeText = document.getElementById('noticeText');
+            const notifBadge = document.getElementById('notifBadge');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRoleFooter = document.getElementById('mobileRoleFooter');
+            const profileAvatar = document.getElementById('profileAvatar');
+            const profileName = document.getElementById('profileName');
+            const profileRoleLabel = document.getElementById('profileRoleLabel');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const menuToggle = document.getElementById('menuToggle');
+
+            // ---------- TOAST ----------
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => { toast.classList.remove('show'); }, 3500);
+            }
+
+            // ---------- AUTH HELPERS ----------
+            function getAuthHeaders() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return { 'X-Staff-ID': user.id };
+                    } catch (e) {
+                        return {};
+                    }
+                }
+                return {};
+            }
+
+            function getStaffId() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                if (userData) {
+                    try {
+                        const user = JSON.parse(userData);
+                        return user.id;
+                    } catch (e) {
+                        return null;
+                    }
+                }
+                return null;
+            }
+
+            // ---------- API HELPERS ----------
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders(),
+                        ...(options.headers || {})
+                    };
+
+                    let url = `${API_BASE}${endpoint}`;
+                    if (endpoint === '/hra/hostel') {
+                        const staffId = getStaffId();
+                        if (staffId) {
+                            url += `?staff_id=${staffId}`;
+                        }
+                    }
+
+                    const response = await fetch(url, {
+                        ...options,
+                        headers: headers
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
+                }
+            }
+
+            // ---------- UPDATE USER DISPLAY ----------
+            function updateUserDisplay() {
+                if (currentUser) {
+                    const name = currentUser.name || 'User';
+                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    const role = currentUser.role || 'HRA';
+
+                    profileAvatar.textContent = initials;
+                    profileName.textContent = name;
+                    profileRoleLabel.textContent = role;
+                    roleLabel.textContent = role;
+
+                    if (hostelData) {
+                        const hostelName = hostelData.name || 'Hostel';
+                        roleScope.textContent = hostelName + ' Hostel';
+                        mobileRoleFooter.textContent = `HRA · ${hostelName} Hostel`;
+                    }
+                }
+            }
+
+            // ---------- DATA LOADING ----------
+            async function loadAllData() {
+                try {
+                    isLoading = true;
+                    renderLoading();
+
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        currentUser = JSON.parse(userData);
+                    } else {
+                        const localUser = localStorage.getItem('bedcheck_user');
+                        if (localUser) {
+                            currentUser = JSON.parse(localUser);
+                            sessionStorage.setItem('bedcheck_user', localUser);
+                        } else {
+                            window.location.replace('../Login.html');
+                            return;
+                        }
+                    }
+
+                    if (!currentUser || !currentUser.id) {
+                        showToast('User not properly authenticated. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    // Load HRA's hostel
+                    const hostelRes = await apiCall(`/hra/hostel`);
+                    hostelData = hostelRes.data;
+
+                    if (!hostelData) {
+                        roleScope.textContent = 'No hostel assigned';
+                        mobileRoleFooter.textContent = 'HRA · No Hostel';
+                    } else {
+                        roleScope.textContent = hostelData.name + ' Hostel';
+                        mobileRoleFooter.textContent = `HRA · ${hostelData.name} Hostel`;
+                    }
+
+                    updateUserDisplay();
+
+                    // Set date
+                    const now = new Date();
+                    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                    const dateEl = document.getElementById('currentDate');
+                    if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
+
+                    // Get unread notification count for badge
+                    try {
+                        const notifRes = await apiCall(`/hostels/${hostelData?.id}/notifications`).catch(() => ({ data: [] }));
+                        const notifications = notifRes.data || [];
+                        const unreadCount = notifications.filter(n => !n.read).length;
+                        if (notifBadge) {
+                            if (unreadCount > 0) {
+                                notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                                notifBadge.style.display = 'block';
+                            } else {
+                                notifBadge.style.display = 'none';
+                            }
+                        }
+                    } catch (e) {}
+
+                    setNotice(`Welcome, ${currentUser?.name || 'User'} · ${hostelData?.name || 'Your'} Hostel`);
+                    isLoading = false;
+                    renderProfile();
+
+                } catch (error) {
+                    console.error('Load error:', error);
+                    isLoading = false;
+                    showToast('Error loading data: ' + error.message, 'error');
+                    setNotice('Error loading profile data. Please refresh.');
+                    renderError();
+                }
+            }
+
+            function setNotice(msg) {
+                noticeText.innerHTML = msg;
+            }
+
+            function renderLoading() {
+                profileContent.innerHTML = `
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                    <p class="text-center text-muted">Loading profile...</p>
+                `;
+            }
+
+            function renderError() {
+                profileContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
+                        <div class="text-center p-4">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading your profile. Please refresh the page.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // ---------- RENDER PROFILE ----------
+            function renderProfile() {
+                const user = currentUser || { 
+                    name: 'Sarah Okon', 
+                    initials: 'SO', 
+                    role: 'HRA', 
+                    email: 'sarah.okon@biu.edu.ng', 
+                    phone: '+234 800 000 0000',
+                    username: 'sarah.okon',
+                    department: 'Student Affairs',
+                    staff_id: 'STAFF-001',
+                    assigned_floor: 'Floor A',
+                    assigned_room: 'A1',
+                    status: 'Active',
+                    joined: '2024-01-15'
+                };
+                const hostelName = hostelData?.name || 'Champions Hostel';
+                const status = user.status || 'Active';
+                const statusClass = status === 'Active' ? 'active' : 'inactive';
+                const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : new Date().toLocaleString();
+
+                const html = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow">👤 Account</p>
+                            <h1>Profile</h1>
+                            <p class="desc">Manage your account information and preferences</p>
+                        </div>
+                        <div class="action-group">
+                            <span class="status-indicator ${statusClass}">
+                                <span class="status-dot" style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:${status === 'Active' ? '#2d6545' : '#9c3e32'};"></span>
+                                ${status}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-4">
+                        <!-- Left Column: Profile Card -->
+                        <div class="card" style="max-width:100%;">
+                            <div class="flex-center gap-4">
+                                <div class="profile-avatar-large" id="profileAvatarLarge">${user.initials || 'U'}</div>
+                                <div>
+                                    <h2 class="font-serif text-2xl font-bold">${user.name || 'User'}</h2>
+                                    <p class="text-sm text-muted">${user.role || 'HRA'} · ${hostelName}</p>
+                                    <div class="flex-center gap-2 mt-2">
+                                        <span class="badge badge-approved" style="padding:0.2rem 0.8rem;font-size:0.6rem;">${user.role || 'HRA'}</span>
+                                        <span class="badge" style="padding:0.2rem 0.8rem;font-size:0.6rem;background:#e7edf5;color:#24466f;">ID: ${user.staff_id || user.id || '—'}</span>
+                                    </div>
+                                    <button class="btn-outline mt-2" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="openEditProfile()">
+                                        <i class="fas fa-edit"></i> Edit Profile
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 pt-4 border-t">
+                                <div class="info-row">
+                                    <span class="info-label">Full Name</span>
+                                    <span class="info-value">${user.name || '—'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Username</span>
+                                    <span class="info-value">${user.username || '—'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Email</span>
+                                    <span class="info-value">${user.email || '—'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Phone</span>
+                                    <span class="info-value">${user.phone || '—'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Department</span>
+                                    <span class="info-value">${user.department || '—'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Staff ID</span>
+                                    <span class="info-value">${user.staff_id || '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Details & Actions -->
+                        <div>
+                            <div class="card">
+                                <h3 class="font-bold" style="color:#17233c;"><i class="fas fa-info-circle text-gold"></i> Account Details</h3>
+                                <div class="mt-3">
+                                    <div class="info-row">
+                                        <span class="info-label">Role</span>
+                                        <span class="info-value"><span class="badge badge-approved">${user.role || 'HRA'}</span></span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Hostel</span>
+                                        <span class="info-value">${hostelName}</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Assigned Floor</span>
+                                        <span class="info-value">${user.assigned_floor || '—'}</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Assigned Room</span>
+                                        <span class="info-value">${user.assigned_room || '—'}</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Status</span>
+                                        <span class="info-value"><span class="badge ${status === 'Active' ? 'badge-approved' : 'badge-absent'}">${status}</span></span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Last Login</span>
+                                        <span class="info-value">${lastLogin}</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Joined</span>
+                                        <span class="info-value">${user.joined ? new Date(user.joined).toLocaleDateString() : '—'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card mt-4">
+                                <h3 class="font-bold" style="color:#17233c;"><i class="fas fa-cog text-gold"></i> Account Actions</h3>
+                                <div class="mt-3 flex-center gap-2 flex-wrap">
+                                    <button class="btn-primary" onclick="window.showToast('Password reset link sent to your email', 'success')">
+                                        <i class="fas fa-key"></i> Reset Password
+                                    </button>
+                                    <button class="btn-outline" onclick="openEditProfile()">
+                                        <i class="fas fa-edit"></i> Edit Profile
+                                    </button>
+                                    <button class="btn-danger-outline" onclick="window.handleLogout()">
+                                        <i class="fas fa-sign-out-alt"></i> Logout
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Quick Stats -->
+                            <div class="card mt-4">
+                                <h3 class="font-bold" style="color:#17233c;"><i class="fas fa-chart-simple text-gold"></i> Quick Stats</h3>
+                                <div class="grid-2 mt-3">
+                                    <div class="text-center p-3 border rounded-lg">
+                                        <div class="font-bold text-xl" style="color:#10233f;">${hostelData?.total_students || '—'}</div>
+                                        <div class="text-xs text-muted">Students</div>
+                                    </div>
+                                    <div class="text-center p-3 border rounded-lg">
+                                        <div class="font-bold text-xl" style="color:#10233f;">${hostelData?.ra_count || '—'}</div>
+                                        <div class="text-xs text-muted">RAs</div>
+                                    </div>
+                                    <div class="text-center p-3 border rounded-lg">
+                                        <div class="font-bold text-xl" style="color:#10233f;">${hostelData?.total_rooms || '—'}</div>
+                                        <div class="text-xs text-muted">Rooms</div>
+                                    </div>
+                                    <div class="text-center p-3 border rounded-lg">
+                                        <div class="font-bold text-xl" style="color:#10233f;">${hostelData?.progress || '0'}%</div>
+                                        <div class="text-xs text-muted">Completion</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="mt-7 pt-4 border-t text-center">
+                        <p class="text-xs text-muted">
+                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                        </p>
+                    </div>
+                `;
+
+                profileContent.innerHTML = html;
+                updateUserDisplay();
+
+                // Rebind globals
+                window.showToast = showToast;
+                window.handleLogout = handleLogout;
+                window.openEditProfile = openEditProfile;
+                window.closeEditProfile = closeEditProfile;
+            }
+
+            // ---------- EDIT PROFILE MODAL ----------
+            function openEditProfile() {
+                const user = currentUser || {};
+                const modal = document.getElementById('editProfileModal');
+                
+                // Populate form fields
+                document.getElementById('editFullName').value = user.name || '';
+                document.getElementById('editStaffId').value = user.staff_id || user.id || '';
+                document.getElementById('editEmail').value = user.email || '';
+                document.getElementById('editPhone').value = user.phone || '';
+                document.getElementById('editGender').value = user.gender || 'Female';
+                document.getElementById('editDob').value = user.dob || '';
+                document.getElementById('editRole').value = user.role || 'HRA';
+                document.getElementById('editHostel').value = hostelData?.name || 'Champions';
+                document.getElementById('editFloor').value = user.assigned_floor || '';
+                document.getElementById('editRoom').value = user.assigned_room || '';
+                document.getElementById('editPassword').value = '';
+                document.getElementById('editConfirmPassword').value = '';
+                
+                // Update photo preview
+                const preview = document.getElementById('photoPreview');
+                if (user.photo) {
+                    preview.innerHTML = `<img src="${user.photo}" alt="Profile" />`;
+                } else {
+                    preview.innerHTML = `<i class="fas fa-camera"></i>`;
+                }
+                
+                modal.classList.add('show');
+            }
+
+            function closeEditProfile() {
+                document.getElementById('editProfileModal').classList.remove('show');
+            }
+
+            function previewPhoto(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const preview = document.getElementById('photoPreview');
+                        preview.innerHTML = `<img src="${e.target.result}" alt="Profile" />`;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            function saveProfile() {
+                const name = document.getElementById('editFullName').value.trim();
+                const email = document.getElementById('editEmail').value.trim();
+                const phone = document.getElementById('editPhone').value.trim();
+                const gender = document.getElementById('editGender').value;
+                const dob = document.getElementById('editDob').value;
+                const role = document.getElementById('editRole').value;
+                const hostel = document.getElementById('editHostel').value;
+                const floor = document.getElementById('editFloor').value.trim();
+                const room = document.getElementById('editRoom').value.trim();
+                const password = document.getElementById('editPassword').value;
+                const confirmPassword = document.getElementById('editConfirmPassword').value;
+
+                // Validation
+                if (!name) { showToast('Please enter your full name', 'error'); return; }
+                if (!email) { showToast('Please enter your email', 'error'); return; }
+                
+                if (password && password !== confirmPassword) {
+                    showToast('Passwords do not match', 'error');
+                    return;
+                }
+
+                // Build update payload
+                const payload = {
+                    name,
+                    email,
+                    phone,
+                    gender,
+                    dob,
+                    role,
+                    hostel_name: hostel,
+                    assigned_floor: floor,
+                    assigned_room: room
+                };
+
+                if (password) {
+                    payload.password = password;
+                }
+
+                // Send to API
+                apiCall(`/staff/${currentUser.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                }).then(() => {
+                    showToast('Profile updated successfully!', 'success');
+                    closeEditProfile();
+                    // Update local state
+                    if (currentUser) {
+                        currentUser.name = name;
+                        currentUser.email = email;
+                        currentUser.phone = phone;
+                        currentUser.gender = gender;
+                        currentUser.dob = dob;
+                        currentUser.role = role;
+                        currentUser.assigned_floor = floor;
+                        currentUser.assigned_room = room;
+                    }
+                    // Refresh profile display
+                    renderProfile();
+                }).catch(error => {
+                    showToast('Error updating profile: ' + error.message, 'error');
+                });
+            }
+
+            function resetForm() {
+                if (confirm('Reset all changes?')) {
+                    const user = currentUser || {};
+                    document.getElementById('editFullName').value = user.name || '';
+                    document.getElementById('editEmail').value = user.email || '';
+                    document.getElementById('editPhone').value = user.phone || '';
+                    document.getElementById('editGender').value = user.gender || 'Female';
+                    document.getElementById('editDob').value = user.dob || '';
+                    document.getElementById('editRole').value = user.role || 'HRA';
+                    document.getElementById('editHostel').value = hostelData?.name || 'Champions';
+                    document.getElementById('editFloor').value = user.assigned_floor || '';
+                    document.getElementById('editRoom').value = user.assigned_room || '';
+                    document.getElementById('editPassword').value = '';
+                    document.getElementById('editConfirmPassword').value = '';
+                    showToast('Form reset', 'success');
+                }
+            }
+
+            // Close modal on overlay click
+            document.getElementById('editProfileModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeEditProfile();
+                }
+            });
+
+            // ---------- LOGOUT ----------
+            function handleLogout() {
+                sessionStorage.removeItem('bedcheck_user');
+                localStorage.removeItem('bedcheck_user');
+                showToast('Logging out...', 'success');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 500);
+            }
+
+            // ---------- INIT ----------
+            function init() {
+                const userData = sessionStorage.getItem('bedcheck_user') || localStorage.getItem('bedcheck_user');
+
+                if (!userData) {
+                    window.location.replace('../Login.html');
+                    return;
+                }
+
+                try {
+                    currentUser = JSON.parse(userData);
+                    if (!sessionStorage.getItem('bedcheck_user')) {
+                        sessionStorage.setItem('bedcheck_user', userData);
+                    }
+
+                    if (!currentUser.id) {
+                        showToast('User data incomplete. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
+                    updateUserDisplay();
+                    loadAllData();
+                } catch (e) {
+                    console.error('Error parsing user data:', e);
+                    window.location.replace('../Login.html');
+                }
+
+                logoutBtn.addEventListener('click', handleLogout);
+                menuToggle.addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.add('open');
+                    document.getElementById('drawerOverlay').classList.add('show');
+                });
+                
+                document.getElementById('closeDrawer').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+                
+                document.getElementById('drawerOverlay').addEventListener('click', () => {
+                    document.getElementById('mobileDrawer').classList.remove('open');
+                    document.getElementById('drawerOverlay').classList.remove('show');
+                });
+
+                // Profile button already on profile page
+                document.getElementById('profileBtn').addEventListener('click', (e) => {
+                    e.preventDefault();
+                });
+            }
+
+            // expose to window
+            window.showToast = showToast;
+            window.setNotice = setNotice;
+            window.handleLogout = handleLogout;
+            window.openEditProfile = openEditProfile;
+            window.closeEditProfile = closeEditProfile;
+            window.saveProfile = saveProfile;
+            window.resetForm = resetForm;
+            window.previewPhoto = previewPhoto;
+
+            // start
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
+    </script>
+</body>
+</html>

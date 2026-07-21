@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RASD Management · BIU BedCheck</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
+    .app-wrapper { display: flex; min-height: 100vh; }
+    /* SIDEBAR */
+    .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
+    @media (min-width:1024px) { .sidebar { display: flex; } }
+    .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+    .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather', serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+    .sidebar .brand-text { font-family: 'Merriweather', serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+    .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+    .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+    .nav-item:hover { background: rgba(255,255,255,0.1); }
+    .nav-item.active { background: #d6ad4b; color: #10233f; }
+    .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+    .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+    .sidebar .role-card .role-title i { color: #e1bd65; }
+    .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+    /* MOBILE DRAWER */
+    .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+    .mobile-drawer.open { transform: translateX(0); }
+    .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+    .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather', serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
+    .mobile-drawer .brand-text { font-family: 'Merriweather', serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+    .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+    .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+    .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+    .drawer-overlay.show { display: block; opacity: 1; }
+    @media (min-width:1024px) { .drawer-overlay { display: none !important; } }
+
+    /* MAIN */
+    .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+    @media (min-width:1024px) { .main-content { margin-left: 16rem; } }
+    .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+    @media (min-width:640px) { .main-header { padding: 0.75rem 1.75rem; } }
+    .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .header-left { display: flex; align-items: center; gap: 0.75rem; }
+    .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+    .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+    @media (min-width:1024px) { .menu-toggle { display: none; } }
+    .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+    .header-title { font-family: 'Merriweather', serif; font-size: 1.2rem; font-weight: 700; }
+    .header-right { display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width:640px) { .header-right { gap: 0.75rem; } }
+    .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; }
+    .notif-btn:hover { background: rgba(0,0,0,0.05); }
+    .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
+    .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+    .profile-btn:hover { background: #f5f1e8; }
+    .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+    .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+    .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+    @media (min-width:640px) { .profile-name { display: block; } .profile-role { display: block; } }
+    .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+    .logout-btn:hover { color: #17233c; }
+
+    .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
+    @media (min-width:640px) { .content-container { padding: 1.75rem 1.75rem; } }
+
+    /* CARDS & ANIMATIONS */
+    .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; animation: fadeIn 0.4s ease; }
+    .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; animation: slideUp 0.5s ease; }
+    @media (min-width:640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+    .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+    .page-heading h1 { font-family: 'Merriweather', serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+    @media (min-width:640px) { .page-heading h1 { font-size: 2.25rem; } }
+    .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+    .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+    .btn-primary:hover { background: #18345a; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,35,63,0.2); }
+    .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+    .btn-outline:hover { background: #f5f1e8; border-color: #a77915; transform: translateY(-1px); }
+    .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; transition: color 0.2s; }
+    .btn-ghost:hover { color: #6b4a0a; }
+    .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+    .btn-success:hover { background: #1f4a32; transform: translateY(-1px); }
+
+    .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; animation: fadeIn 0.6s ease; }
+    @media (min-width:640px) { .metric-grid { grid-template-columns: repeat(4,1fr); } }
+    .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.25s ease; cursor: default; }
+    .metric-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-color: #c9bca8; }
+    .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+    .metric-icon.navy { background: #e7edf5; color: #24466f; }
+    .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+    .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+    .metric-icon.gray { background: #eceff2; color: #536274; }
+    .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+    .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; transition: all 0.3s; }
+    .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.95rem; }
+    .metric-detail { margin-top: 0.15rem; font-size: 0.75rem; color: #6b778b; }
+
+    .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; transition: all 0.25s ease; animation: fadeIn 0.5s ease; }
+    .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
+    .card-title { font-family: 'Merriweather', serif; font-size: 1.2rem; font-weight: 700; }
+
+    .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-approved { background: #e1f0e5; color: #2d6545; }
+    .badge-draft { background: #e8edf2; color: #536274; }
+    .badge-absent { background: #f8e1dc; color: #9b3c31; }
+    .badge-late { background: #fef3c7; color: #92400e; }
+    .badge-present { background: #e1f0e5; color: #2d6545; }
+
+    .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+    @media (max-width:768px) { .grid-2 { grid-template-columns: 1fr; } }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .mt-1 { margin-top: 0.25rem; }
+    .mt-2 { margin-top: 0.5rem; }
+    .mt-3 { margin-top: 0.75rem; }
+    .mt-4 { margin-top: 1rem; }
+    .mt-6 { margin-top: 1.5rem; }
+    .text-sm { font-size: 0.9rem; }
+    .text-xs { font-size: 0.7rem; }
+    .text-muted { color: #68768a; }
+    .text-green { color: #2d6545; }
+    .font-bold { font-weight: 700; }
+    .border-t { border-top: 1px solid #ded6c9; }
+
+    .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+    .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+
+    .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); max-width: 400px; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #3f755d; }
+    .toast.error { background: #a84134; }
+    .toast.info { background: #1e3a5f; }
+
+    .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+    .status-dot.green { background: #3f755d; }
+    .status-dot.gold { background: #d4af37; }
+    .status-dot.red { background: #8a3328; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.2s; }
+    .table-wrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+    .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+    .table-wrap th { padding: 0.75rem 1rem; font-weight: 700; }
+    .table-wrap td { padding: 0.75rem 1rem; border-top: 1px solid #eee8de; transition: background 0.15s; }
+    .table-wrap tbody tr { transition: background 0.15s; }
+    .table-wrap tbody tr:hover { background: #f8f4ec; }
+    .table-wrap .avatar { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #e7edf5; font-size: 0.6rem; font-weight: 700; }
+
+    .view-btn { background: transparent; border: 1px solid #d8d0c2; padding: 0.2rem 0.8rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.7rem; font-weight: 600; transition: all 0.2s; color: #17233c; }
+    .view-btn:hover { background: #10233f; color: white; border-color: #10233f; transform: scale(1.02); }
+
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.5rem 0; }
+    .filter-bar select, .filter-bar input { padding: 0.4rem 0.75rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; font-size: 0.85rem; transition: border 0.2s; }
+    .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: #a77915; }
+
+    .pagination { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; padding: 0.75rem 0; flex-wrap: wrap; }
+    .pagination button { border: 1px solid #ded6c9; background: #fffcf6; padding: 0.25rem 0.75rem; border-radius: 0.25rem; cursor: pointer; transition: all 0.2s; }
+    .pagination button:hover { background: #f5f1e8; border-color: #a77915; }
+    .pagination .active { background: #10233f; color: white; border-color: #10233f; }
+    .pagination .disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* STUDENT DRAWER */
+    .student-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 28rem; max-width: 90vw; background: #fffcf6; box-shadow: -8px 0 40px rgba(0,0,0,0.15); z-index: 70; transform: translateX(100%); transition: transform 0.35s cubic-bezier(0.4,0,0.2,1); display: flex; flex-direction: column; padding: 1.5rem 1.25rem; overflow-y: auto; }
+    .student-drawer.open { transform: translateX(0); }
+    .drawer-close { align-self: flex-end; background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: #68768a; transition: color 0.2s; }
+    .drawer-close:hover { color: #17233c; }
+    .drawer-section { margin-top: 1.5rem; animation: fadeIn 0.3s ease; }
+    .drawer-section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; font-weight: 700; border-bottom: 1px solid #eee8de; padding-bottom: 0.4rem; margin-bottom: 0.75rem; }
+    .drawer-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 0.75rem; }
+    .drawer-info-grid .label { font-size: 0.7rem; color: #68768a; }
+    .drawer-info-grid .value { font-weight: 600; font-size: 0.9rem; }
+
+    .qr-dropdown { border: 1px solid #ded6c9; border-radius: 0.5rem; padding: 0.75rem; margin-top: 0.5rem; background: #fbf7ef; }
+    .qr-dropdown .qr-code-display { display: flex; align-items: center; gap: 1rem; }
+    .qr-placeholder { width: 4rem; height: 4rem; background: #e6e2da; display: grid; place-items: center; font-size: 1.8rem; color: #68768a; border-radius: 0.5rem; }
+
+    .bedcheck-history { background: #f9f6ef; border-radius: 0.5rem; padding: 0.75rem; margin-top: 0.5rem; }
+    .bedcheck-history .stats-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .bedcheck-history .stat-item { font-size: 0.8rem; }
+    .bedcheck-history .stat-item span { font-weight: 700; }
+
+    .drawer-footer-actions { margin-top: auto; display: flex; gap: 0.5rem; flex-wrap: wrap; border-top: 1px solid #eee8de; padding-top: 1rem; }
+    .drawer-footer-actions .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 0.5rem; border: 1px solid #ded6c9; background: #fffcf6; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+    .drawer-footer-actions .btn-sm:hover { background: #f5f1e8; transform: translateY(-1px); }
+    .drawer-footer-actions .btn-sm.primary { background: #10233f; color: white; border-color: #10233f; }
+    .drawer-footer-actions .btn-sm.primary:hover { background: #18345a; }
+    .drawer-footer-actions .btn-sm.danger { background: #a84134; color: white; border-color: #a84134; }
+    .drawer-footer-actions .btn-sm.danger:hover { background: #8a3328; }
+
+    .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .quick-action-btn { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border: 1px solid #ded6c9; border-radius: 0.5rem; background: #fffcf6; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; text-decoration: none; color: #17233c; }
+    .quick-action-btn:hover { border-color: #a77915; background: #fbf7ef; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+    .quick-action-btn i { color: #a77915; width: 1.2rem; }
+
+    .hostel-progress-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #f0ebe3; transition: background 0.15s; }
+    .hostel-progress-row:last-child { border-bottom: none; }
+    .hostel-progress-row:hover { background: #f8f4ec; }
+    .hostel-progress-row .hostel-name { font-weight: 600; font-size: 0.85rem; min-width: 10rem; }
+    .hostel-progress-row .hostel-stats { font-size: 0.7rem; color: #6b778b; }
+    .hostel-progress-row .progress-bar { flex: 1; height: 0.3rem; background: #e6e2da; border-radius: 9999px; overflow: hidden; }
+    .hostel-progress-row .progress-bar .fill { height: 100%; border-radius: 9999px; transition: width 0.8s ease; }
+
+    .activity-item { display: flex; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #f0ebe3; transition: background 0.15s; }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-item:hover { background: #f8f4ec; }
+    .activity-item .activity-time { font-size: 0.7rem; color: #6b778b; white-space: nowrap; }
+    .activity-item .activity-text { font-size: 0.85rem; }
+
+    @media (max-width:640px) { .quick-actions { grid-template-columns: 1fr; } }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #e8e4de; }
+    ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+  </style>
+</head>
+<body>
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- APP -->
+<div class="app-wrapper">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-badge">BIU</div><div><div class="brand-text">BIU BedCheck</div><div class="brand-sub">Management System</div></div></div>
+    <p class="workspace-label">Workspace</p>
+    <nav id="desktopNav">
+      <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+      <a href="management.html" class="nav-item active"><i class="fas fa-clipboard-list"></i> Management</a>
+      <a href="Sessions.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+      <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+      <a href="AuditLogs.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+      <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+    </nav>
+    <div class="role-card"><div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RASD</span></div><div class="role-scope" id="roleScope">All hostels · Registration Management</div></div>
+  </aside>
+
+  <!-- MOBILE DRAWER -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <aside class="mobile-drawer" id="mobileDrawer">
+    <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+    <div class="brand"><div class="brand-badge">BIU</div><div><div class="brand-text">BIU BedCheck</div><div class="brand-sub">Management System</div></div></div>
+    <nav id="mobileNav">
+      <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+      <a href="management.html" class="nav-item active"><i class="fas fa-clipboard-list"></i> Management</a>
+      <a href="Sessions.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
+      <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+      <a href="AuditLogs.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
+      <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+    </nav>
+    <div class="drawer-footer" id="mobileRoleFooter">RASD · All hostels · Registration Management</div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main-content">
+    <header class="main-header">
+      <div class="header-inner">
+        <div class="header-left">
+          <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+          <div><p class="header-date" id="currentDate">Loading...</p><p class="header-title">BIU BedCheck</p></div>
+        </div>
+        <div class="header-right">
+          <a href="Profile.html" class="profile-btn"><span class="profile-avatar" id="profileAvatar">RA</span><span class="profile-name" id="profileName">RASD Admin</span><span class="profile-role" id="profileRoleLabel">RASD</span></a>
+          <button class="logout-btn" id="logoutBtn"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+      </div>
+    </header>
+    <div class="content-container">
+      <div class="notice-banner" id="noticeBanner"><i class="fas fa-clipboard-list"></i><span id="noticeText">Loading RASD Management data...</span></div>
+      <div id="screenContent"><div class="loading-spinner"><i class="fas fa-spinner"></i></div></div>
+    </div>
+  </main>
+</div>
+
+<!-- STUDENT DRAWER -->
+<div class="student-drawer" id="studentDrawer">
+  <button class="drawer-close" id="drawerClose"><i class="fas fa-times"></i></button>
+  <div id="drawerContent">
+    <div style="display:flex;align-items:center;gap:1rem;margin-top:0.5rem;">
+      <span class="avatar" style="width:3rem;height:3rem;font-size:1.2rem;background:#d6ad4b;color:#10233f;display:grid;place-items:center;border-radius:50%;">ST</span>
+      <div><div style="font-weight:700;font-size:1.2rem;" id="drawerName">Student Name</div><div style="color:#68768a;font-size:0.85rem;" id="drawerMatric">MATRIC</div></div>
+    </div>
+    <div class="drawer-section"><div class="drawer-section-title">Student Information</div><div class="drawer-info-grid" id="studentInfoGrid"></div></div>
+    <div class="drawer-section"><div class="drawer-section-title">Hostel Information</div><div class="drawer-info-grid" id="hostelInfoGrid"></div></div>
+    <div class="drawer-section"><div class="drawer-section-title">Student QR Code</div><div class="qr-dropdown"><div class="qr-code-display"><div class="qr-placeholder"><i class="fas fa-qrcode"></i></div><div><div style="font-weight:600;" id="qrMatric">MATRIC</div><div style="font-size:0.7rem;color:#68768a;">Scan for BedCheck verification</div></div></div><div style="margin-top:0.5rem;display:flex;gap:0.5rem;"><button class="btn-sm">Generate</button><button class="btn-sm">Regenerate</button><button class="btn-sm">Print</button></div></div></div>
+    <div class="drawer-section"><div class="drawer-section-title">Night BedCheck Records <span style="font-weight:400;font-size:0.7rem;color:#68768a;">Official Record</span></div><div class="bedcheck-history"><div class="stats-row"><div class="stat-item"><span style="color:#2d6545;">●</span> Present: <span id="hcPresent">0</span></div><div class="stat-item"><span style="color:#8a3328;">●</span> Absent: <span id="hcAbsent">0</span></div><div class="stat-item"><span style="color:#92400e;">●</span> Late: <span id="hcLate">0</span></div><div class="stat-item" style="margin-left:auto;">Last approved: <span id="hcLast">—</span></div></div><div style="margin-top:0.75rem;"><div style="display:flex;justify-content:space-between;font-size:0.7rem;font-weight:600;color:#68768a;border-bottom:1px solid #e6e2da;padding-bottom:0.2rem;"><span>Date</span><span>Hostel</span><span>RA</span><span>HRA</span><span>Status</span><span>Time</span></div><div id="historyList" style="font-size:0.8rem;"><div style="padding:0.5rem;text-align:center;color:#68768a;">No history records</div></div></div><div style="margin-top:0.3rem;font-size:0.65rem;color:#68768a;display:flex;justify-content:space-between;"><span>Night BedCheck record</span><span style="cursor:pointer;color:#a77915;">View full audit</span></div></div></div>
+    <div class="drawer-footer-actions"><button class="btn-sm primary">Print Student Slip</button><button class="btn-sm">Change Room</button><button class="btn-sm danger">Suspend Bed Space</button></div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    'use strict';
+
+    const API_BASE = 'http://localhost:3000/api';
+    let currentUser = null;
+    let allStudents = [];
+    let allHostels = [];
+    let allBedSpaces = [];
+    let isLoading = false;
+
+    // TOAST
+    function showToast(msg, type='success') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = `toast ${type}`;
+      setTimeout(()=>t.classList.add('show'),10);
+      setTimeout(()=>t.classList.remove('show'),4000);
+    }
+    window.showToast = showToast;
+
+    // API helpers
+    async function apiFetch(endpoint, opts={}) {
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers||{}) } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message || 'API error');
+        return json;
+      } catch(e) {
+        showToast('API Error: '+e.message, 'error');
+        throw e;
+      }
+    }
+
+    // Load data
+    async function loadData() {
+      try {
+        const [studentsRes, hostelsRes, bedRes] = await Promise.all([
+          apiFetch('/students'),
+          apiFetch('/hostels'),
+          apiFetch('/bed-spaces')
+        ]);
+        allStudents = studentsRes.data || [];
+        allHostels = hostelsRes.data || [];
+        allBedSpaces = bedRes.data || [];
+        return { students: allStudents, hostels: allHostels, bedSpaces: allBedSpaces };
+      } catch(e) {
+        return { students: [], hostels: [], bedSpaces: [] };
+      }
+    }
+
+    // Stats
+    function calcStats(students, hostels, bedSpaces) {
+      const total = students.length;
+      const assigned = students.filter(s => s.room_id !== null && s.room_id > 0).length;
+      const completed = students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete').length;
+      const issues = students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)).length;
+      const totalBeds = bedSpaces.length;
+      const available = bedSpaces.filter(b => b.status === 'available').length;
+      const present = students.filter(s => s.status === 'Present').length;
+      const absent = students.filter(s => s.status === 'Absent').length;
+      const late = students.filter(s => s.status === 'Late').length;
+      const onlineReg = total;
+      return { total, assigned, completed, issues, totalBeds, available, present, absent, late, onlineReg };
+    }
+
+    // Render main page
+    function renderPage(stats, students, hostels) {
+      const container = document.getElementById('screenContent');
+      const total = stats.total || 0;
+      const assigned = stats.assigned || 0;
+      const completed = stats.completed || 0;
+      const issues = stats.issues || 0;
+      const available = stats.available || 0;
+      const present = stats.present || 0;
+      const absent = stats.absent || 0;
+      const late = stats.late || 0;
+      const onlineReg = stats.onlineReg || 0;
+
+      // Pipeline stages
+      const pipeline = [
+        { label: 'Online Registration', count: total, icon: 'fa-globe', color: 'blue' },
+        { label: 'Hostel Assignment', count: assigned, icon: 'fa-building', color: 'purple' },
+        { label: 'Registration Completed', count: completed, icon: 'fa-check-circle', color: 'green' },
+        { label: 'Registration Issues', count: issues, icon: 'fa-exclamation-triangle', color: 'red' }
+      ];
+
+      // Hostel progress
+      const hostelProgress = hostels.map(h => {
+        const hostelStudents = students.filter(s => s.hostel_id === h.id || s.hostel_name === h.name);
+        const totalH = hostelStudents.length;
+        const assignedH = hostelStudents.filter(s => s.room_id !== null && s.room_id > 0).length;
+        const progress = totalH > 0 ? Math.round((assignedH / totalH) * 100) : 0;
+        return { name: h.name || 'Unknown', registered: totalH, assigned: assignedH, progress };
+      });
+
+      // Recent registrations (top 5)
+      const recent = [...students].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0,5);
+
+      // Awaiting actions
+      const awaiting = [
+        { label: 'No Hostel Assigned', count: students.filter(s => s.room_id === null || s.room_id === 0).length },
+        { label: 'Missing Name', count: students.filter(s => !s.name || s.name === '').length },
+        { label: 'Missing Matric', count: students.filter(s => !s.matric || s.matric === '').length }
+      ].filter(a => a.count > 0);
+
+      container.innerHTML = `
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RASD Workspace</p>
+            <h1>Student Operations & BedCheck</h1>
+            <p class="desc">Monitor student status, hostel assignment, attendance, and QR identity across all hostels.</p>
+          </div>
+          <div class="action-group">
+            <button class="btn-outline" onclick="exportCSV()"><i class="fas fa-file-csv"></i> Export CSV</button>
+            <button class="btn-outline" onclick="showToast('Printing...','info')"><i class="fas fa-print"></i> Print</button>
+            <button class="btn-primary" onclick="refreshData()"><i class="fas fa-sync"></i> Refresh</button>
+          </div>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric-card"><div class="metric-icon navy"><i class="fas fa-users"></i></div><div class="metric-value">${total}</div><div class="metric-title">Total Students</div><div class="metric-detail">Registered students</div></div>
+          <div class="metric-card"><div class="metric-icon green"><i class="fas fa-check-circle"></i></div><div class="metric-value" style="color:#2d6545;">${present}</div><div class="metric-title">Present</div><div class="metric-detail">Currently present</div></div>
+          <div class="metric-card"><div class="metric-icon red"><i class="fas fa-times-circle"></i></div><div class="metric-value" style="color:#8a3328;">${absent}</div><div class="metric-title">Absent</div><div class="metric-detail">Currently absent</div></div>
+          <div class="metric-card"><div class="metric-icon gold"><i class="fas fa-clock"></i></div><div class="metric-value" style="color:#92400e;">${late}</div><div class="metric-title">Late</div><div class="metric-detail">Late arrivals</div></div>
+          <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-globe"></i></div><div class="metric-value">${onlineReg}</div><div class="metric-title">Online Registered</div><div class="metric-detail">Total online registrations</div></div>
+          <div class="metric-card"><div class="metric-icon green"><i class="fas fa-home"></i></div><div class="metric-value" style="color:#2d6545;">${assigned}</div><div class="metric-title">Assigned Hostel</div><div class="metric-detail">Students with hostel assignment</div></div>
+        </div>
+
+        <div class="card mt-4" style="padding:0.75rem 1rem;">
+          <div class="filter-bar">
+            <select id="filterHostel"><option value="">All hostels</option>${hostels.map(h => `<option value="${h.id}">${h.name}</option>`).join('')}</select>
+            <select id="filterLevel"><option value="">All levels</option><option>100</option><option>200</option><option>300</option><option>400</option></select>
+            <select id="filterStatus"><option value="">All statuses</option><option>Present</option><option>Absent</option><option>Late</option></select>
+            <button class="btn-primary" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="applyFilters()">Apply Filters</button>
+            <button class="btn-outline" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="clearFilters()">Clear</button>
+          </div>
+        </div>
+
+        <div class="card mt-4">
+          <div class="flex-between"><span class="card-title">Students</span><span class="text-muted text-sm" id="recordCount">${total} records</span></div>
+          <div class="table-wrap mt-3">
+            <table>
+              <thead><tr><th>Name</th><th>Matric</th><th>Faculty</th><th>Level</th><th>Gender</th><th>Hostel</th><th>Room</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="studentTableBody">
+                ${students.slice(0,20).map(s => `
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:0.5rem;"><span class="avatar">${(s.name||'U').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</span> ${s.name||'Unknown'}</div></td>
+                    <td>${s.matric||'—'}</td>
+                    <td>${s.faculty||'—'}</td>
+                    <td>${s.level||'—'}</td>
+                    <td>${s.gender||'—'}</td>
+                    <td>${s.hostel_name||s.hostel||'—'}</td>
+                    <td>${s.room_code||s.room||'—'}</td>
+                    <td><span class="badge ${s.status==='Present'?'badge-present':s.status==='Absent'?'badge-absent':'badge-late'}">${s.status||'Registered'}</span></td>
+                    <td><button class="view-btn" onclick="openDrawer(${s.id})">View</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="paginationControls">
+            <span>Showing 1–${Math.min(20,students.length)} of ${total} students</span>
+            <button class="active">1</button>
+            <button onclick="showToast('Page 2','info')">2</button>
+            <button onclick="showToast('Page 3','info')">3</button>
+            <button onclick="showToast('Next page','info')">Next</button>
+          </div>
+        </div>
+
+        <div class="grid-2 mt-6">
+          <div class="card">
+            <div class="card-title"><i class="fas fa-bolt"></i> Recent Online Registrations</div>
+            <div class="mt-3">
+              ${recent.length > 0 ? recent.map(a => `
+                <div class="activity-item">
+                  <span class="activity-time">${new Date(a.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                  <div class="activity-text"><span class="highlight">${a.name||'Unknown'}</span> Registered · ${a.matric||'—'} ${a.hostel_name ? '· '+a.hostel_name : ''}</div>
+                </div>
+              `).join('') : '<p class="text-muted text-sm">No recent registrations</p>'}
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-title"><i class="fas fa-clock"></i> Students Awaiting Action</div>
+              <div class="mt-3">
+                ${awaiting.length > 0 ? awaiting.map(item => `
+                  <div class="flex-between" style="padding:0.5rem 0;border-bottom:1px solid #f0ebe3;">
+                    <span class="text-sm">${item.label}</span>
+                    <span class="badge badge-absent">${item.count}</span>
+                  </div>
+                `).join('') : '<p class="text-muted text-sm">No pending actions</p>'}
+              </div>
+            </div>
+            <div class="card mt-4">
+              <div class="card-title">Hostel Registration Progress</div>
+              <div class="mt-3">
+                ${hostelProgress.map(h => `
+                  <div class="hostel-progress-row">
+                    <span class="hostel-name">${h.name}</span>
+                    <span class="hostel-stats">${h.assigned} / ${h.registered}</span>
+                    <div class="progress-bar"><div class="fill" style="width:${h.progress}%;background:${h.progress === 100 ? '#2d6545' : '#d6ad4b'};"></div></div>
+                    <span style="font-size:0.7rem;font-weight:600;color:#68768a;min-width:2.5rem;text-align:right;">${h.progress}%</span>
+                  </div>
+                `).join('') || '<p class="text-muted text-sm">No hostels found</p>'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-6">
+          <div class="card-title"><i class="fas fa-bolt"></i> Quick Actions</div>
+          <div class="quick-actions mt-3">
+            <button class="quick-action-btn" onclick="showToast('Search student dialog','info')"><i class="fas fa-search"></i> Search Student</button>
+            <button class="quick-action-btn" onclick="showToast('Viewing registration queue','info')"><i class="fas fa-users"></i> View Registration Queue</button>
+            <button class="quick-action-btn" onclick="showToast('Hostel assignment wizard','info')"><i class="fas fa-home"></i> Hostel Assignment</button>
+            <button class="quick-action-btn" onclick="exportCSV()"><i class="fas fa-file-export"></i> Export Registration List</button>
+          </div>
+        </div>
+
+        <div class="mt-6 pt-4 border-t text-center">
+          <p class="text-xs text-muted">BIU BedCheck System v1.0 · © Benson Idahosa University <span class="ml-4"><span class="status-dot green"></span> System Online</span></p>
+        </div>
+      `;
+      document.getElementById('noticeText').textContent = `RASD Management · ${total} students, ${hostels.length} hostels`;
+    }
+
+    // Apply filters (client-side)
+    window.applyFilters = function() {
+      const hostelVal = document.getElementById('filterHostel')?.value;
+      const levelVal = document.getElementById('filterLevel')?.value;
+      const statusVal = document.getElementById('filterStatus')?.value;
+      let filtered = allStudents;
+      if (hostelVal) filtered = filtered.filter(s => s.hostel_id == hostelVal || s.hostel_name === hostelVal);
+      if (levelVal) filtered = filtered.filter(s => s.level === levelVal);
+      if (statusVal) filtered = filtered.filter(s => s.status === statusVal);
+      const stats = calcStats(filtered, allHostels, allBedSpaces);
+      renderPage(stats, filtered, allHostels);
+      showToast(`Showing ${filtered.length} students`, 'info');
+    };
+
+    window.clearFilters = function() {
+      document.getElementById('filterHostel').value = '';
+      document.getElementById('filterLevel').value = '';
+      document.getElementById('filterStatus').value = '';
+      const stats = calcStats(allStudents, allHostels, allBedSpaces);
+      renderPage(stats, allStudents, allHostels);
+    };
+
+    // Export CSV
+    window.exportCSV = function() {
+      if (!allStudents.length) { showToast('No data to export', 'error'); return; }
+      const header = 'Name,Matric,Faculty,Department,Level,Hostel,Room,Status\n';
+      const rows = allStudents.map(s => `${s.name||''},${s.matric||''},${s.faculty||''},${s.department||''},${s.level||''},${s.hostel_name||s.hostel||''},${s.room_code||s.room||''},${s.status||''}`);
+      const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `students_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast(`${allStudents.length} records exported`, 'success');
+    };
+
+    // Refresh
+    window.refreshData = async function() {
+      if (isLoading) return;
+      isLoading = true;
+      showToast('Refreshing data...', 'info');
+      try {
+        const data = await loadData();
+        allStudents = data.students;
+        allHostels = data.hostels;
+        allBedSpaces = data.bedSpaces;
+        const stats = calcStats(allStudents, allHostels, allBedSpaces);
+        renderPage(stats, allStudents, allHostels);
+        showToast('Data refreshed', 'success');
+      } catch(e) { showToast('Refresh failed', 'error'); }
+      isLoading = false;
+    };
+
+    // Open student drawer
+    window.openDrawer = async function(studentId) {
+      try {
+        const res = await apiFetch(`/students/${studentId}`);
+        const student = res.data;
+        if (!student) { showToast('Student not found', 'error'); return; }
+        // Also try to fetch scans for this student
+        let scans = [];
+        try {
+          const scanRes = await apiFetch(`/bedcheck/scans?student_id=${studentId}`);
+          scans = scanRes.data || [];
+        } catch(e) {}
+
+        document.getElementById('drawerName').textContent = student.name || 'Unknown';
+        document.getElementById('drawerMatric').textContent = student.matric || '—';
+        document.getElementById('qrMatric').textContent = student.matric || '—';
+
+        document.getElementById('studentInfoGrid').innerHTML = `
+          <span class="label">Full Name</span><span class="value">${student.name||'—'}</span>
+          <span class="label">Matric Number</span><span class="value">${student.matric||'—'}</span>
+          <span class="label">Faculty</span><span class="value">${student.faculty||'—'}</span>
+          <span class="label">Department</span><span class="value">${student.department||'—'}</span>
+          <span class="label">Level</span><span class="value">${student.level||'—'}</span>
+          <span class="label">Gender</span><span class="value">${student.gender||'—'}</span>
+          <span class="label">Phone</span><span class="value">${student.phone||'—'}</span>
+        `;
+
+        document.getElementById('hostelInfoGrid').innerHTML = `
+          <span class="label">Hostel</span><span class="value">${student.hostel_name||student.hostel||'—'}</span>
+          <span class="label">Floor / Flat</span><span class="value">${student.floor_name||'—'}</span>
+          <span class="label">Room</span><span class="value">${student.room_code||student.room||'—'}</span>
+          <span class="label">Bed Space</span><span class="value">${student.bed_code||'—'}</span>
+          <span class="label">Assigned By</span><span class="value">System</span>
+          <span class="label">Assigned Date</span><span class="value">${student.created_at ? new Date(student.created_at).toLocaleDateString() : '—'}</span>
+        `;
+
+        // BedCheck history from scans
+        const presentCount = scans.filter(s => s.status === 'Verified' || s.status === 'Present').length;
+        const absentCount = scans.filter(s => s.status === 'Absent' || s.status === 'Failed').length;
+        const lateCount = scans.filter(s => s.status === 'Late').length;
+        document.getElementById('hcPresent').textContent = presentCount;
+        document.getElementById('hcAbsent').textContent = absentCount;
+        document.getElementById('hcLate').textContent = lateCount;
+        document.getElementById('hcLast').textContent = scans.length > 0 ? new Date(scans[0].created_at).toLocaleDateString() : '—';
+
+        const historyList = document.getElementById('historyList');
+        if (scans.length > 0) {
+          historyList.innerHTML = scans.slice(0,5).map(s => `
+            <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee8de;">
+              <span>${new Date(s.created_at).toLocaleDateString()}</span>
+              <span>${s.room||'—'}</span>
+              <span>${s.scanner_id||'RA'}</span>
+              <span>HRA</span>
+              <span class="badge ${s.status==='Verified'||s.status==='Present'?'badge-present':s.status==='Late'?'badge-late':'badge-absent'}">${s.status||'—'}</span>
+              <span>${new Date(s.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+            </div>
+          `).join('');
+        } else {
+          historyList.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#68768a;">No history records</div>';
+        }
+
+        document.getElementById('studentDrawer').classList.add('open');
+      } catch(e) {
+        showToast('Error loading student details', 'error');
+      }
+    };
+
+    document.getElementById('drawerClose').addEventListener('click', ()=>{
+      document.getElementById('studentDrawer').classList.remove('open');
+    });
+    document.addEventListener('click', (e)=>{
+      if (document.getElementById('studentDrawer').classList.contains('open') &&
+          !e.target.closest('.student-drawer') && !e.target.closest('.view-btn')) {
+        document.getElementById('studentDrawer').classList.remove('open');
+      }
+    });
+
+    // Mobile drawer
+    document.getElementById('menuToggle').addEventListener('click', ()=>{
+      document.getElementById('mobileDrawer').classList.add('open');
+      document.getElementById('drawerOverlay').classList.add('show');
+    });
+    document.getElementById('closeDrawer').addEventListener('click', ()=>{
+      document.getElementById('mobileDrawer').classList.remove('open');
+      document.getElementById('drawerOverlay').classList.remove('show');
+    });
+    document.getElementById('drawerOverlay').addEventListener('click', ()=>{
+      document.getElementById('mobileDrawer').classList.remove('open');
+      document.getElementById('drawerOverlay').classList.remove('show');
+    });
+
+    // Set date
+    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+    // Profile
+    document.getElementById('profileAvatar').textContent = 'RA';
+    document.getElementById('profileName').textContent = 'RASD Admin';
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', ()=>{
+      showToast('Logging out...', 'info');
+      setTimeout(()=>window.location.href='login.html',500);
+    });
+
+    // INIT
+    async function init() {
+      try {
+        const data = await loadData();
+        allStudents = data.students;
+        allHostels = data.hostels;
+        allBedSpaces = data.bedSpaces;
+        const stats = calcStats(allStudents, allHostels, allBedSpaces);
+        renderPage(stats, allStudents, allHostels);
+      } catch(e) {
+        document.getElementById('screenContent').innerHTML = `<div class="card mt-4" style="padding:2rem;text-align:center;color:#8a3328;"><i class="fas fa-exclamation-triangle" style="font-size:2rem;"></i><p class="mt-2">Error loading data. Please check server connection.</p><button class="btn-primary mt-3" onclick="refreshData()">Retry</button></div>`;
+        showToast('Failed to load data from server', 'error');
+      }
+    }
+
+    init();
+  })();
+</script>
+</body>
+</html>
