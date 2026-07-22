@@ -215,8 +215,8 @@
         <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
       </nav>
       <div class="role-card">
-        <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RASD</span></div>
-        <div class="role-scope" id="roleScope">All hostels · Sessions · Reports</div>
+        <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Loading...</span></div>
+        <div class="role-scope" id="roleScope">Loading...</div>
       </div>
     </aside>
 
@@ -239,7 +239,7 @@
         <a href="AuditLogs.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
         <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
       </nav>
-      <div class="drawer-footer" id="mobileRoleFooter">RASD · All hostels · Sessions · Reports</div>
+      <div class="drawer-footer" id="mobileRoleFooter">Loading...</div>
     </aside>
 
     <!-- Main Content -->
@@ -256,9 +256,9 @@
           <div class="header-right">
             <a href="#" class="notif-btn"><i class="fas fa-bell"></i><span class="notif-badge"></span></a>
             <a href="#" class="profile-btn">
-              <span class="profile-avatar" id="profileAvatar">JD</span>
-              <span class="profile-name" id="profileName">John Doe</span>
-              <span class="profile-role" id="profileRoleLabel">RASD</span>
+              <span class="profile-avatar" id="profileAvatar">??</span>
+              <span class="profile-name" id="profileName">Loading...</span>
+              <span class="profile-role" id="profileRoleLabel">Loading...</span>
             </a>
             <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
           </div>
@@ -299,7 +299,7 @@
       let students = [];
       let bedcheckSessions = [];
       let isLoading = false;
-      let currentUser = { name: 'John Doe', initials: 'JD', role: 'RASD' };
+      let currentUser = null;
 
       // ========== API HELPERS ==========
       async function apiCall(endpoint, opts = {}) {
@@ -354,6 +354,86 @@
         return 'Scheduled';
       }
 
+      // ========== GET USER FROM SESSION ==========
+      function getUserFromSession() {
+        try {
+          // Try to get user from sessionStorage
+          const storedUser = sessionStorage.getItem('bedcheck_user');
+          if (storedUser) {
+            return JSON.parse(storedUser);
+          }
+          
+          // Try to get from localStorage
+          const localUser = localStorage.getItem('bedcheck_user');
+          if (localUser) {
+            return JSON.parse(localUser);
+          }
+          
+          // Try to get from URL params (for testing)
+          const params = new URLSearchParams(window.location.search);
+          const userId = params.get('staff_id');
+          if (userId) {
+            // Will be fetched from API
+            return { id: parseInt(userId), name: 'Loading...', role: 'Loading...' };
+          }
+          
+          return null;
+        } catch (e) {
+          console.warn('Failed to parse user from session:', e);
+          return null;
+        }
+      }
+
+      // ========== FETCH USER FROM DB ==========
+      async function fetchUserFromDB(staffId) {
+        try {
+          const data = await apiCall(`/staff/${staffId}`);
+          if (data && data.data) {
+            const user = data.data;
+            // Store in session
+            sessionStorage.setItem('bedcheck_user', JSON.stringify(user));
+            return user;
+          }
+          return null;
+        } catch (e) {
+          console.warn('Failed to fetch user from DB:', e);
+          return null;
+        }
+      }
+
+      // ========== UPDATE UI WITH USER ==========
+      function updateUserUI(user) {
+        if (!user) {
+          document.getElementById('profileName').textContent = 'Guest';
+          document.getElementById('profileRoleLabel').textContent = 'Viewer';
+          document.getElementById('profileAvatar').textContent = '??';
+          document.getElementById('roleLabel').textContent = 'Viewer';
+          document.getElementById('roleScope').textContent = 'Read-only access';
+          document.getElementById('mobileRoleFooter').textContent = 'Viewer · Read-only';
+          return;
+        }
+
+        const name = user.name || 'User';
+        const role = user.role || 'Staff';
+        const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        
+        document.getElementById('profileName').textContent = name;
+        document.getElementById('profileRoleLabel').textContent = role;
+        document.getElementById('profileAvatar').textContent = initials;
+        document.getElementById('roleLabel').textContent = role;
+        
+        let scopeText = '';
+        if (user.hostel_id) {
+          const hostel = hostels.find(h => h.id === user.hostel_id);
+          scopeText = hostel ? `${hostel.name} · ` : '';
+        }
+        scopeText += `${role} · ${hostels.length} hostels`;
+        document.getElementById('roleScope').textContent = scopeText;
+        document.getElementById('mobileRoleFooter').textContent = scopeText;
+        
+        currentUser = user;
+      }
+
       // ========== DATA LOADING (real DB) ==========
       async function loadHostels() {
         try {
@@ -399,12 +479,13 @@
         return sessionStatus;
       }
 
-      // ========== RENDER (no mock data, all from DB) ==========
+      // ========== RENDER (all from DB, no mock data) ==========
       function renderSessions() {
         const container = document.getElementById('screenContent');
         const total = students.length;
-        const present = students.filter(s => s.status === 'Present').length || 0;
+        const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
         const absent = students.filter(s => s.status === 'Absent').length || 0;
+        const late = students.filter(s => s.status === 'Late').length || 0;
         const now = new Date();
 
         // Calculate next session start from DB or fallback to 10pm
@@ -419,6 +500,10 @@
         }
         const startIn = Math.max(0, Math.round((nextStart - now) / 60000));
 
+        // Get active sessions count
+        const activeSessions = bedcheckSessions.filter(s => s.status === 'Running' || s.status === 'Open').length;
+        const archivedSessions = bedcheckSessions.filter(s => s.status === 'Archived' || s.status === 'Closed').length;
+
         container.innerHTML = `
           <div class="page-heading">
             <div>
@@ -427,7 +512,7 @@
               <p class="desc">Monitor all active and scheduled BedCheck sessions.</p>
             </div>
             <div class="action-group">
-              <button class="btn-outline" onclick="showToast('Reminders sent!','success')"><i class="fas fa-paper-plane"></i> Send Reminders</button>
+              <button class="btn-outline" onclick="window.sendReminders()"><i class="fas fa-paper-plane"></i> Send Reminders</button>
               <button class="btn-primary" onclick="refreshData()"><i class="fas fa-sync"></i> Refresh</button>
             </div>
           </div>
@@ -437,7 +522,7 @@
             <div class="metric-card"><div class="metric-icon gold"><i class="fas fa-moon"></i></div><div class="metric-value">${formatDate(nextStart)}</div><div class="metric-title">Next Session</div><div class="metric-detail">Starts in ${startIn}m</div></div>
             <div class="metric-card"><div class="metric-icon green"><i class="fas fa-play-circle"></i></div><div class="metric-value">${sessionStatus}</div><div class="metric-title">Status</div><div class="metric-detail">${getStatusDot(sessionStatus)} ${sessionStatus}</div></div>
             <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-clock"></i></div><div class="metric-value">${startIn}m</div><div class="metric-title">Starts In</div><div class="metric-detail">Next session begins</div></div>
-            <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-archive"></i></div><div class="metric-value">${bedcheckSessions.filter(s=>s.status==='Archived').length}</div><div class="metric-title">Archived</div><div class="metric-detail">Total archived sessions</div></div>
+            <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-archive"></i></div><div class="metric-value">${archivedSessions}</div><div class="metric-title">Archived</div><div class="metric-detail">Total archived sessions</div></div>
           </div>
 
           <div class="grid-2 mt-6">
@@ -446,12 +531,12 @@
               <div class="flex-between"><div class="card-title">📋 Session List</div><span class="text-xs text-muted">${bedcheckSessions.length} total</span></div>
               <div class="table-wrap mt-4">
                 <table><thead><tr><th>Session</th><th>Date</th><th>Start</th><th>End</th><th>Status</th><th>Action</th></tr></thead><tbody>
-                  ${bedcheckSessions.slice(0,10).map(s => `
-                    <tr><td style="font-weight:600;">${s.name||'Night BedCheck'}</td><td>${formatDate(s.date)}</td><td>${formatTime(s.start_time)||'10:00 PM'}</td><td>${formatTime(s.end_time)||'11:30 PM'}</td><td><span class="badge ${getStatusClass(s.status)}">${getStatusDot(s.status)} ${s.status||'Scheduled'}</span></td><td><button class="btn-ghost" onclick="showToast('Viewing details','info')" style="font-size:0.7rem;">View</button></td></tr>
-                  `).join('') || '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No sessions found</td></tr>'}
+                  ${bedcheckSessions.length > 0 ? bedcheckSessions.slice(0,10).map(s => `
+                    <tr><td style="font-weight:600;">${s.name || 'Night BedCheck'}</td><td>${formatDate(s.date || s.created_at)}</td><td>${formatTime(s.start_time) || '10:00 PM'}</td><td>${formatTime(s.end_time) || '11:30 PM'}</td><td><span class="badge ${getStatusClass(s.status)}">${getStatusDot(s.status)} ${s.status || 'Scheduled'}</span></td><td><button class="btn-ghost" onclick="window.viewSession('${s.id}')" style="font-size:0.7rem;">View</button></td></tr>
+                  `).join('') : '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No sessions found</td></tr>'}
                 </tbody></table>
               </div>
-              ${bedcheckSessions.length>10 ? `<div class="mt-3 text-center"><button class="btn-ghost" onclick="showToast('All sessions','info')" style="font-size:0.8rem;">View All ${bedcheckSessions.length}</button></div>` : ''}
+              ${bedcheckSessions.length > 10 ? `<div class="mt-3 text-center"><button class="btn-ghost" onclick="window.viewAllSessions()" style="font-size:0.8rem;">View All ${bedcheckSessions.length}</button></div>` : ''}
             </div>
 
             <!-- Right side: Session Stats -->
@@ -460,12 +545,13 @@
                 <p class="label">Current Time</p>
                 <div class="time" id="liveTime">${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div>
                 <p class="label mt-3">Session</p>
-                <div class="value" style="color:${sessionStatus==='Running'||sessionStatus==='Open'?'#d6ad4b':'#b9c7db'};">${sessionStatus}</div>
-                <p class="label mt-3">Remaining</p>
-                <div class="value">${sessionStatus==='Running'||sessionStatus==='Open'?'01:09:14':'—'}</div>
+                <div class="value" style="color:${sessionStatus === 'Running' || sessionStatus === 'Open' ? '#d6ad4b' : '#b9c7db'};">${sessionStatus}</div>
+                <p class="label mt-3">Active Sessions</p>
+                <div class="value">${activeSessions}</div>
                 <div class="mt-3 pt-3" style="border-top:1px solid rgba(255,255,255,0.1);">
                   <div class="stat-row"><span class="stat-label">Students Present</span><span class="stat-value">${present}</span></div>
                   <div class="stat-row"><span class="stat-label">Students Absent</span><span class="stat-value">${absent}</span></div>
+                  <div class="stat-row"><span class="stat-label">Students Late</span><span class="stat-value">${late}</span></div>
                   <div class="stat-row"><span class="stat-label">Total Students</span><span class="stat-value">${total}</span></div>
                   <div class="stat-row"><span class="stat-label">Hostels</span><span class="stat-value">${hostels.length}</span></div>
                 </div>
@@ -485,6 +571,23 @@
         if (el) el.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       }
       setInterval(updateLiveTime, 30000);
+
+      // ========== WINDOW FUNCTIONS ==========
+      window.sendReminders = function() {
+        showToast('Reminders sent to all RAs!', 'success');
+      };
+
+      window.viewSession = function(sessionId) {
+        showToast(`Viewing session ${sessionId}`, 'info');
+        // Navigate to session detail page if it exists
+        // window.location.href = `SessionDetail.html?id=${sessionId}`;
+      };
+
+      window.viewAllSessions = function() {
+        showToast('Showing all sessions', 'info');
+        // Navigate to full session list if it exists
+        // window.location.href = 'AllSessions.html';
+      };
 
       // ========== AUTO SESSION MONITOR ==========
       function startAutomaticSessionMonitor() {
@@ -507,6 +610,15 @@
           isLoading = true;
           showToast('Refreshing...', 'info');
           await Promise.all([loadHostels(), loadStudents(), loadBedCheckSessions(), loadSessionStatus()]);
+          
+          // Re-fetch user if we have a stored ID
+          if (currentUser && currentUser.id) {
+            const updatedUser = await fetchUserFromDB(currentUser.id);
+            if (updatedUser) {
+              updateUserUI(updatedUser);
+            }
+          }
+          
           renderSessions();
           document.getElementById('noticeText').textContent =
             `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${bedcheckSessions.length} sessions`;
@@ -521,28 +633,61 @@
 
       // ========== INIT ==========
       async function init() {
-        document.getElementById('menuToggle').addEventListener('click', () =>
-          document.getElementById('mobileDrawer').classList.add('open') ||
-          document.getElementById('drawerOverlay').classList.add('show')
-        );
-        document.getElementById('closeDrawer').addEventListener('click', () =>
-          document.getElementById('mobileDrawer').classList.remove('open') ||
-          document.getElementById('drawerOverlay').classList.remove('show')
-        );
-        document.getElementById('drawerOverlay').addEventListener('click', () =>
-          document.getElementById('mobileDrawer').classList.remove('open') ||
-          document.getElementById('drawerOverlay').classList.remove('show')
-        );
+        // Mobile menu handlers
+        document.getElementById('menuToggle').addEventListener('click', () => {
+          document.getElementById('mobileDrawer').classList.add('open');
+          document.getElementById('drawerOverlay').classList.add('show');
+        });
+        document.getElementById('closeDrawer').addEventListener('click', () => {
+          document.getElementById('mobileDrawer').classList.remove('open');
+          document.getElementById('drawerOverlay').classList.remove('show');
+        });
+        document.getElementById('drawerOverlay').addEventListener('click', () => {
+          document.getElementById('mobileDrawer').classList.remove('open');
+          document.getElementById('drawerOverlay').classList.remove('show');
+        });
         document.getElementById('logoutBtn').addEventListener('click', () => {
           sessionStorage.clear();
+          localStorage.removeItem('bedcheck_user');
           window.location.replace('../Login.html');
         });
 
+        // Set date
         document.getElementById('currentDate').textContent =
           new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         try {
+          // Load data first
           await Promise.all([loadHostels(), loadStudents(), loadBedCheckSessions(), loadSessionStatus()]);
+          
+          // Get and load user from session/db
+          let user = getUserFromSession();
+          if (user && user.id && !user.name) {
+            // User exists but missing name, fetch from DB
+            const dbUser = await fetchUserFromDB(user.id);
+            if (dbUser) {
+              user = dbUser;
+              updateUserUI(user);
+            }
+          } else if (user) {
+            updateUserUI(user);
+          } else {
+            // Try to get user from localStorage as fallback
+            const localUser = localStorage.getItem('bedcheck_user');
+            if (localUser) {
+              const parsed = JSON.parse(localUser);
+              if (parsed && parsed.id) {
+                const dbUser = await fetchUserFromDB(parsed.id);
+                if (dbUser) {
+                  updateUserUI(dbUser);
+                }
+              }
+            } else {
+              // No user found, show guest view
+              updateUserUI(null);
+            }
+          }
+          
           renderSessions();
           document.getElementById('noticeText').textContent =
             `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${bedcheckSessions.length} sessions`;
