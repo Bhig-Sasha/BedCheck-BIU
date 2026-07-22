@@ -1418,6 +1418,7 @@
                 const roomsByFloor = {};
                 const floorIds = floors.map(f => f.id);
                 
+                // Only process rooms that belong to this hostel's floors
                 rooms.forEach(room => {
                     const floorId = room.floor_flat_id;
                     // Check if this floor belongs to the current hostel
@@ -1431,16 +1432,18 @@
                         };
                     }
                     
-                    // Calculate occupancy from bed spaces, not students
+                    // Calculate occupancy from bed spaces
                     const roomBedSpaces = bedSpaces.filter(b => b.room_id === room.id);
-                    const occupied = roomBedSpaces.filter(b => b.status === 'occupied' || b.status === 'Occupied').length;
-                    const capacity = roomBedSpaces.length || 4;
+                    const occupied = roomBedSpaces.filter(b => b.status === 'occupied' || b.status === 'Occupied' || b.student_id !== null).length;
+                    const capacity = roomBedSpaces.length || 0;
                     const available = capacity - occupied;
                     
-                    let status = 'Available';
-                    if (occupied === capacity && capacity > 0) status = 'Full';
-                    else if (available > 0 && occupied > 0) status = 'Available';
-                    else if (available === capacity && capacity > 0) status = 'Available';
+                    let status = 'No Beds';
+                    if (capacity > 0) {
+                        if (occupied === capacity) status = 'Full';
+                        else if (occupied > 0 && available > 0) status = 'Partial';
+                        else if (available === capacity) status = 'Available';
+                    }
                     
                     roomsByFloor[floorId].rooms.push({
                         code: room.room_code || 'Room ' + room.id,
