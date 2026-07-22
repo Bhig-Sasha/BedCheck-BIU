@@ -802,6 +802,9 @@
             let pendingCases = [];
             let qrData = null;
 
+            // Make hostelData globally accessible for QR functions
+            window._hostelData = hostelData;
+
             // ---------- DOM REFS ----------
             const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
@@ -903,15 +906,36 @@
             }
 
             // =============================================
-            // QR CODE FUNCTIONS
+            // QR CODE FUNCTIONS - FIXED WITH GLOBAL ACCESS
             // =============================================
+
+            // Helper to get current hostel ID from the global variable
+            function getCurrentHostelId() {
+                // Try both the local and global reference
+                const id = hostelData?.id || window._hostelData?.id;
+                if (id) {
+                    console.log('Found hostel ID:', id);
+                    return id;
+                }
+                console.warn('No hostel ID found in hostelData or window._hostelData');
+                return null;
+            }
 
             async function loadHostelQR() {
                 try {
-                    // Use the actual hostel ID from hostelData
-                    const hostelId = hostelData?.id;
+                    // Use the helper to get hostel ID
+                    const hostelId = getCurrentHostelId();
                     if (!hostelId) {
                         console.warn('No hostel ID available for QR loading');
+                        const qrContainer = document.getElementById('qrContainer');
+                        if (qrContainer) {
+                            qrContainer.innerHTML = `
+                                <div class="text-center text-muted text-sm" style="padding:1rem;">
+                                    <i class="fas fa-exclamation-triangle" style="color:#d6ad4b;"></i>
+                                    <span>No hostel assigned. Please contact administrator.</span>
+                                </div>
+                            `;
+                        }
                         return;
                     }
 
@@ -937,13 +961,14 @@
                             const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
                             const usageCount = qrDataResult.usage_count || 0;
                             const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
+                            const hostelName = hostelData?.name || 'Hostel';
 
                             qrContainer.innerHTML = `
                                 <div class="qr-status-display">
                                     <div class="qr-code-image">
                                         <i class="fas fa-qrcode"></i>
                                     </div>
-                                    <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelData.code || hostelData.name.toUpperCase().replace(/\s/g, '-')}</div>
+                                    <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelData?.code || hostelName.toUpperCase().replace(/\s/g, '-')}</div>
                                     <div class="text-xs text-muted text-center">QR Code: ${qrCode}</div>
                                     <div class="text-xs text-muted text-center">Generated: ${generatedAt}</div>
                                     <div class="text-xs text-muted text-center">Expires: ${expiresAt}</div>
@@ -956,6 +981,7 @@
                                 </div>
                             `;
                             qrData = qrDataResult;
+                            window._qrData = qrDataResult;
                             
                             // Update status badge
                             const statusBadge = document.getElementById('qrStatusBadge');
@@ -975,6 +1001,7 @@
                                 </div>
                             `;
                             qrData = null;
+                            window._qrData = null;
                             
                             // Update status badge
                             const statusBadge = document.getElementById('qrStatusBadge');
@@ -996,6 +1023,7 @@
                             </div>
                         `;
                         qrData = null;
+                        window._qrData = null;
                         
                         const statusBadge = document.getElementById('qrStatusBadge');
                         if (statusBadge) {
@@ -1021,8 +1049,7 @@
             // Generate QR code for hostel
             async function generateQRCode() {
                 try {
-                    // Use the actual hostel ID from hostelData
-                    const hostelId = hostelData?.id;
+                    const hostelId = getCurrentHostelId();
                     if (!hostelId) {
                         showToast('No hostel found. Please contact administrator.', 'error');
                         return;
@@ -1053,8 +1080,7 @@
             // Regenerate QR code (deletes old, creates new)
             async function regenerateQRCode() {
                 try {
-                    // Use the actual hostel ID from hostelData
-                    const hostelId = hostelData?.id;
+                    const hostelId = getCurrentHostelId();
                     if (!hostelId) {
                         showToast('No hostel found', 'error');
                         return;
@@ -1086,7 +1112,8 @@
 
             // Show QR code in a modal/dialog
             function showQRCodeModal() {
-                if (!qrData) {
+                const currentQrData = qrData || window._qrData;
+                if (!currentQrData) {
                     showToast('No QR code available. Generate one first.', 'error');
                     return;
                 }
@@ -1114,8 +1141,8 @@
                     <div style="width:200px;height:200px;margin:0 auto;background:#fff;border:2px solid #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:6rem;color:#10233f;">
                         <i class="fas fa-qrcode"></i>
                     </div>
-                    <div style="margin-top:0.5rem;font-size:0.8rem;font-weight:600;">${qrData.code}</div>
-                    <div style="font-size:0.7rem;color:#68768a;margin-top:0.25rem;">Generated: ${new Date(qrData.generated_at).toLocaleString()}</div>
+                    <div style="margin-top:0.5rem;font-size:0.8rem;font-weight:600;">${currentQrData.code}</div>
+                    <div style="font-size:0.7rem;color:#68768a;margin-top:0.25rem;">Generated: ${new Date(currentQrData.generated_at).toLocaleString()}</div>
                     <button class="btn-primary mt-3" onclick="this.closest('div[style]').parentElement.remove()" style="font-size:0.8rem;padding:0.4rem 1.5rem;">
                         Close
                     </button>
@@ -1163,6 +1190,9 @@
                     // Load HRA's hostel
                     const hostelRes = await apiCall(`/hra/hostel`);
                     hostelData = hostelRes.data;
+                    
+                    // Update the global reference
+                    window._hostelData = hostelData;
                     
                     if (!hostelData) {
                         roleScope.textContent = 'No hostel assigned';
@@ -1688,6 +1718,7 @@
             window.downloadQRCode = downloadQRCode;
             window.showToast = showToast;
             window.loadAllData = loadAllData;
+            window.getCurrentHostelId = getCurrentHostelId;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
