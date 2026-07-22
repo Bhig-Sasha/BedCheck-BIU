@@ -1133,7 +1133,7 @@ app.get('/api/hra/hostel', async (req, res) => {
     
     let presentCount = 0, absentCount = 0, lateCount = 0;
     if (!statusError && studentStatuses) {
-      presentCount = studentStatuses.filter(s => s.status === 'Present').length;
+      presentCount = studentStatuses.filter(s => s.status === 'Present' || s.status === 'Verified').length;
       absentCount = studentStatuses.filter(s => s.status === 'Absent').length;
       lateCount = studentStatuses.filter(s => s.status === 'Late').length;
     }
@@ -1264,374 +1264,281 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// NOTIFICATIONS - COMPLETE CRUD WITH TABLE CHECK
+// QR CODE MANAGEMENT
 // =====================================================
 
-// Helper to check if notifications table exists
-async function notificationsTableExists() {
+// Generate QR code for hostel
+app.post('/api/hostels/:id/qr/generate', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_name', 'notifications')
-      .eq('table_schema', 'public')
+    const hostelId = parseInt(req.params.id);
+    const staffId = parseInt(req.headers['x-staff-id']) || null;
+    const staffName = req.headers['x-staff-name'] || 'System';
+    const staffRole = req.headers['x-staff-role'] || 'System';
+    
+    // Check if hostel exists
+    const { data: hostel, error: hostelError } = await supabase
+      .from('hostels')
+      .select('id, name, code')
+      .eq('id', hostelId)
       .single();
     
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
-// GET all notifications
-app.get('/api/notifications', async (req, res) => {
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Returning empty array.');
-      return res.json({ success: true, data: [] });
-    }
-    
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// GET notifications by hostel
-app.get('/api/hostels/:id/notifications', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { limit } = req.query;
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Returning empty array.');
-      return res.json({ success: true, data: [] });
-    }
-    
-    const hasHostelId = await columnExists('notifications', 'hostel_id');
-    if (!hasHostelId) {
-      console.log('⚠️ notifications.hostel_id column does not exist. Returning empty array.');
-      return res.json({ success: true, data: [] });
-    }
-    
-    let query = supabase
-      .from('notifications')
-      .select('*')
-      .eq('hostel_id', id)
-      .order('created_at', { ascending: false });
-    
-    if (limit) {
-      query = query.limit(parseInt(limit));
-    }
-    
-    const { data, error } = await query;
-    
-    if (error) throw error;
-    res.json({ success: true, data: data || [] });
-  } catch (error) {
-    console.error('Error fetching hostel notifications:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// GET notifications by role
-app.get('/api/notifications/role/:role', async (req, res) => {
-  const { role } = req.params;
-  const { limit } = req.query;
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Returning empty array.');
-      return res.json({ success: true, data: [] });
-    }
-    
-    let query = supabase
-      .from('notifications')
-      .select('*')
-      .eq('recipient_role', role)
-      .order('created_at', { ascending: false });
-    
-    if (limit) {
-      query = query.limit(parseInt(limit));
-    }
-    
-    const { data, error } = await query;
-    
-    if (error) throw error;
-    res.json({ success: true, data: data || [] });
-  } catch (error) {
-    console.error('Error fetching role notifications:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// GET notifications by recipient
-app.get('/api/notifications/recipient/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { limit } = req.query;
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Returning empty array.');
-      return res.json({ success: true, data: [] });
-    }
-    
-    let query = supabase
-      .from('notifications')
-      .select('*')
-      .eq('recipient_id', id)
-      .order('created_at', { ascending: false });
-    
-    if (limit) {
-      query = query.limit(parseInt(limit));
-    }
-    
-    const { data, error } = await query;
-    
-    if (error) throw error;
-    res.json({ success: true, data: data || [] });
-  } catch (error) {
-    console.error('Error fetching recipient notifications:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// CREATE notification
-app.post('/api/notifications', async (req, res) => {
-  const { 
-    title, detail, body, type, priority, time, date,
-    hostel, hostel_id, actor, action,
-    tone, recipient_role, recipient_id,
-    read = false
-  } = req.body;
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Cannot create notification.');
-      return res.status(400).json({ 
+    if (hostelError || !hostel) {
+      return res.status(404).json({ 
         success: false, 
-        message: 'Notifications table does not exist. Please create it first.' 
+        message: 'Hostel not found' 
       });
     }
-    
-    const newNotification = {
-      title: title || 'Notification',
-      detail: detail || body || '',
-      body: body || detail || '',
-      type: type || 'system',
-      priority: priority || 'medium',
-      time: time || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      date: date || new Date().toISOString().split('T')[0],
-      hostel: hostel || null,
-      hostel_id: hostel_id || null,
-      actor: actor || 'System',
-      action: action || 'Notification',
-      tone: tone || 'blue',
-      recipient_role: recipient_role || null,
-      recipient_id: recipient_id || null,
-      read: read || false,
-      created_at: new Date().toISOString()
-    };
-    
-    const { data, error } = await supabase
-      .from('notifications')
-      .insert(newNotification)
-      .select()
-      .single();
-    
-    if (error) throw error;
-    
-    await auditService.log({
-      actor: req.headers['x-staff-name'] || 'System',
-      actor_id: parseInt(req.headers['x-staff-id']) || null,
-      actor_role: req.headers['x-staff-role'] || 'System',
-      action: 'Notification Sent',
-      module: 'notifications',
-      details: `${title}: ${detail || body || ''}`,
-      context: `Sent to ${recipient_role || 'all'}${recipient_id ? ' (ID: ' + recipient_id + ')' : ''}`,
-      result: 'success',
-      category: 'notifications',
-      tone: tone || 'blue',
-      hostel_id: hostel_id
+
+    // Generate unique QR code
+    const qrCode = `BIU-${hostel.code || hostel.name.toUpperCase().replace(/\s/g, '-')}-${Date.now().toString(36).toUpperCase()}`;
+    const qrData = JSON.stringify({
+      type: 'hostel_verification',
+      hostel_id: hostelId,
+      hostel_name: hostel.name,
+      code: qrCode,
+      timestamp: new Date().toISOString()
     });
-    
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error creating notification:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
 
-// MARK notification as read
-app.put('/api/notifications/:id/read', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Cannot mark as read.');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Notifications table does not exist. Please create it first.' 
-      });
-    }
-    
-    const { data, error } = await supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('id', id)
+    // Inactivate old QR codes for this hostel
+    await supabase
+      .from('qr_codes')
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('hostel_id', hostelId)
+      .eq('is_active', true);
+
+    // Insert new QR code
+    const { data: qrDataInsert, error: qrError } = await supabase
+      .from('qr_codes')
+      .insert({
+        hostel_id: hostelId,
+        code: qrCode,
+        qr_data: qrData,
+        generated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+        is_active: true,
+        created_by: staffId
+      })
       .select()
       .single();
-    
-    if (error) throw error;
-    res.json({ success: true, data: data });
+
+    if (qrError) throw qrError;
+
+    // Log the QR generation
+    await auditService.log({
+      actor: staffName,
+      actor_id: staffId,
+      actor_role: staffRole,
+      action: 'QR Code Generated',
+      module: 'qr_codes',
+      details: `QR code generated for ${hostel.name}`,
+      context: `Hostel ID: ${hostelId}`,
+      result: 'success',
+      category: 'qr',
+      tone: 'blue',
+      hostel_id: hostelId
+    });
+
+    res.json({
+      success: true,
+      data: {
+        id: qrDataInsert.id,
+        code: qrCode,
+        qr_data: qrData,
+        generated_at: qrDataInsert.generated_at,
+        expires_at: qrDataInsert.expires_at,
+        is_active: qrDataInsert.is_active,
+        hostel: {
+          id: hostel.id,
+          name: hostel.name
+        }
+      }
+    });
   } catch (error) {
-    console.error('Error marking notification as read:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+    console.error('Error generating QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
   }
 });
 
-// MARK notification as unread
-app.put('/api/notifications/:id/unread', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
+// Get active QR code for hostel
+app.get('/api/hostels/:id/qr', async (req, res) => {
   try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Cannot mark as unread.');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Notifications table does not exist. Please create it first.' 
-      });
-    }
+    const hostelId = parseInt(req.params.id);
     
-    const { data, error } = await supabase
-      .from('notifications')
-      .update({ read: false })
-      .eq('id', id)
-      .select()
+    // Check if hostel exists
+    const { data: hostel, error: hostelError } = await supabase
+      .from('hostels')
+      .select('id, name, code')
+      .eq('id', hostelId)
       .single();
     
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error marking notification as unread:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// MARK all notifications as read
-app.put('/api/notifications/mark-all-read', async (req, res) => {
-  const { hostel_id, recipient_id, recipient_role } = req.body;
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Cannot mark all as read.');
-      return res.json({ success: true, message: 'No notifications table found', count: 0 });
-    }
-    
-    let query = supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('read', false);
-    
-    if (hostel_id) {
-      query = query.eq('hostel_id', parseInt(hostel_id));
-    }
-    
-    if (recipient_id) {
-      query = query.eq('recipient_id', parseInt(recipient_id));
-    }
-    
-    if (recipient_role) {
-      query = query.eq('recipient_role', recipient_role);
-    }
-    
-    const { data, error } = await query.select();
-    
-    if (error) throw error;
-    res.json({ success: true, data: data, count: data?.length || 0 });
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// DELETE notification
-app.delete('/api/notifications/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
-  try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Cannot delete notification.');
-      return res.status(400).json({ 
+    if (hostelError || !hostel) {
+      return res.status(404).json({ 
         success: false, 
-        message: 'Notifications table does not exist. Please create it first.' 
+        message: 'Hostel not found' 
       });
     }
     
-    const { error } = await supabase
-      .from('notifications')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
-    res.json({ success: true, message: 'Notification deleted successfully' });
+    const { data: qrData, error: qrError } = await supabase
+      .from('qr_codes')
+      .select('*')
+      .eq('hostel_id', hostelId)
+      .eq('is_active', true)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (qrError && qrError.code !== 'PGRST116') {
+      throw qrError;
+    }
+
+    if (!qrData) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active QR code found. Generate one first.'
+      });
+    }
+
+    // Update usage count when viewed
+    await supabase
+      .from('qr_codes')
+      .update({
+        last_used_at: new Date().toISOString(),
+        usage_count: supabase.rpc('increment_usage_count', { row_id: qrData.id })
+      })
+      .eq('id', qrData.id);
+
+    res.json({
+      success: true,
+      data: {
+        ...qrData,
+        hostel: {
+          id: hostel.id,
+          name: hostel.name,
+          code: hostel.code
+        }
+      }
+    });
   } catch (error) {
-    console.error('Error deleting notification:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+    console.error('Error fetching QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
   }
 });
 
-// GET unread notification count
-app.get('/api/notifications/unread/count', async (req, res) => {
-  const { hostel_id, recipient_id, recipient_role } = req.query;
-  
+// Verify QR code scan
+app.post('/api/qr/verify', async (req, res) => {
   try {
-    const tableExists = await notificationsTableExists();
-    if (!tableExists) {
-      console.log('⚠️ notifications table does not exist. Returning count 0.');
-      return res.json({ success: true, count: 0 });
+    const { qr_code, scanner_id } = req.body;
+    const staffId = parseInt(req.headers['x-staff-id']) || null;
+    const staffName = req.headers['x-staff-name'] || 'Scanner';
+
+    if (!qr_code) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code is required'
+      });
     }
-    
-    let query = supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('read', false);
-    
-    if (hostel_id) {
-      query = query.eq('hostel_id', parseInt(hostel_id));
+
+    // Find QR code in database
+    const { data: qrRecord, error: qrError } = await supabase
+      .from('qr_codes')
+      .select('*, hostels(id, name)')
+      .eq('code', qr_code)
+      .eq('is_active', true)
+      .single();
+
+    if (qrError || !qrRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid or inactive QR code'
+      });
     }
-    
-    if (recipient_id) {
-      query = query.eq('recipient_id', parseInt(recipient_id));
+
+    // Check if expired
+    if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code has expired'
+      });
     }
-    
-    if (recipient_role) {
-      query = query.eq('recipient_role', recipient_role);
-    }
-    
-    const { count, error } = await query;
-    
-    if (error) throw error;
-    res.json({ success: true, count: count || 0 });
+
+    // Update usage
+    await supabase
+      .from('qr_codes')
+      .update({
+        last_used_at: new Date().toISOString(),
+        usage_count: supabase.rpc('increment_usage_count', { row_id: qrRecord.id })
+      })
+      .eq('id', qrRecord.id);
+
+    // Log the scan
+    await auditService.log({
+      actor: staffName,
+      actor_id: staffId,
+      actor_role: req.headers['x-staff-role'] || 'Staff',
+      action: 'QR Code Scanned',
+      module: 'qr_codes',
+      details: `QR code scanned for ${qrRecord.hostels?.name || 'Unknown Hostel'}`,
+      context: `Scanner ID: ${scanner_id || 'Unknown'}`,
+      result: 'success',
+      category: 'qr',
+      tone: 'green',
+      hostel_id: qrRecord.hostel_id
+    });
+
+    res.json({
+      success: true,
+      data: {
+        hostel_id: qrRecord.hostel_id,
+        hostel_name: qrRecord.hostels?.name,
+        verified: true,
+        timestamp: new Date().toISOString(),
+        scan_count: qrRecord.usage_count + 1
+      }
+    });
   } catch (error) {
-    console.error('Error counting unread notifications:', error);
-    res.json({ success: true, count: 0 });
+    console.error('Error verifying QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+// Get QR code history for hostel
+app.get('/api/hostels/:id/qr/history', async (req, res) => {
+  try {
+    const hostelId = parseInt(req.params.id);
+    const { limit = 10 } = req.query;
+
+    const { data: qrHistory, error: historyError } = await supabase
+      .from('qr_codes')
+      .select('*, created_by_staff:staff(id, name)')
+      .eq('hostel_id', hostelId)
+      .order('generated_at', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (historyError) throw historyError;
+
+    res.json({
+      success: true,
+      data: qrHistory
+    });
+  } catch (error) {
+    console.error('Error fetching QR history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
   }
 });
 
@@ -2801,7 +2708,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 BedCheck API Server running on port ${PORT}`);
   console.log(`📋 API Endpoint: http://localhost:${PORT}/api`);
   console.log(`📝 Audit System: Enabled`);
-  console.log(`📨 Notification System: Complete CRUD with table checks`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`✅ Server started successfully`);
   console.log(`${'='.repeat(60)}\n`);
