@@ -808,7 +808,7 @@
             'use strict';
 
             // =============================================
-            // HRA HOSTEL COMMAND CENTER
+            // HRA HOSTEL COMMAND CENTER - FIXED QR ENDPOINTS
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -925,10 +925,10 @@
             }
 
             // =============================================
-            // QR CODE FUNCTIONS - USING STAFF ID (NEW ENDPOINTS)
+            // QR CODE FUNCTIONS - USING STAFF ID (FIXED)
             // =============================================
 
-            // Load QR code using the staff ID (new endpoint: /api/qr/my-hostel)
+            // Load QR code using the staff ID
             async function loadHostelQR() {
                 try {
                     const qrContainer = document.getElementById('qrContainer');
@@ -942,8 +942,35 @@
                     `;
 
                     try {
-                        // Use the new endpoint that uses the staff ID from headers
-                        const response = await apiCall('/qr/my-hostel');
+                        // Get the staff ID from session
+                        const staffId = getStaffId();
+                        if (!staffId) {
+                            qrContainer.innerHTML = `
+                                <div class="qr-container-error">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <span>Staff ID not found. Please login again.</span>
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        console.log('🔍 Fetching QR for staff ID:', staffId);
+                        console.log('🔍 Hostel ID from data:', hostelData?.id);
+
+                        // Try to get QR by hostel ID directly
+                        const hostelId = hostelData?.id;
+                        if (!hostelId) {
+                            qrContainer.innerHTML = `
+                                <div class="qr-container-error">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <span>No hostel assigned to you.</span>
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        // Use the /qr/hostel/:id endpoint
+                        const response = await apiCall(`/qr/hostel/${hostelId}`);
                         const qrDataResult = response.data;
 
                         if (qrDataResult) {
@@ -953,7 +980,7 @@
                             const usageCount = qrDataResult.usage_count || 0;
                             const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
                             const hostelName = qrDataResult.hostel?.name || hostelData?.name || 'Hostel';
-                            const createdByName = qrDataResult.created_by_name || qrDataResult.staff?.name || 'Unknown';
+                            const createdByName = qrDataResult.created_by_name || 'Unknown';
 
                             qrContainer.innerHTML = `
                                 <div class="qr-status-display">
@@ -1012,25 +1039,37 @@
                         }
                     } catch (error) {
                         console.warn('QR API error:', error.message);
-                        // Show generate button if no QR exists
-                        qrContainer.innerHTML = `
-                            <div class="qr-container-empty">
-                                <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                    <i class="fas fa-qrcode"></i>
+                        
+                        // Check if error is 404 - no QR found
+                        if (error.message.includes('404')) {
+                            qrContainer.innerHTML = `
+                                <div class="qr-container-empty">
+                                    <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
+                                        <i class="fas fa-qrcode"></i>
+                                    </div>
+                                    <div class="text-sm text-muted mt-2">No QR code generated for this hostel</div>
+                                    <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()">
+                                        <i class="fas fa-plus"></i> Generate QR Code
+                                    </button>
                                 </div>
-                                <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()">
-                                    <i class="fas fa-plus"></i> Generate QR Code
-                                </button>
-                            </div>
-                        `;
+                            `;
+                        } else {
+                            qrContainer.innerHTML = `
+                                <div class="qr-container-error">
+                                    <i class="fas fa-exclamation-triangle" style="color:#a84134;"></i>
+                                    <span>Error loading QR: ${error.message}</span>
+                                    <button class="btn-ghost" style="font-size:0.7rem;display:block;margin:0.5rem auto;" onclick="window.loadHostelQR()">Retry</button>
+                                </div>
+                            `;
+                        }
+                        
                         qrData = null;
                         window._qrData = null;
                         
                         const statusBadge = document.getElementById('qrStatusBadge');
                         if (statusBadge) {
                             statusBadge.className = 'badge badge-draft';
-                            statusBadge.textContent = '⏳ NOT GENERATED';
+                            statusBadge.textContent = '⚠️ ERROR';
                         }
                     }
                 } catch (error) {
@@ -1049,7 +1088,7 @@
             }
             window.loadHostelQR = loadHostelQR;
 
-            // Generate QR code using the staff ID (new endpoint: /api/qr/generate)
+            // Generate QR code for the hostel
             async function generateQRCode() {
                 try {
                     const staffId = getStaffId();
@@ -1058,11 +1097,20 @@
                         return;
                     }
 
-                    console.log('🔄 Generating QR for staff ID:', staffId);
+                    const hostelId = hostelData?.id;
+                    if (!hostelId) {
+                        showToast('No hostel assigned to you.', 'error');
+                        return;
+                    }
+
+                    console.log('🔄 Generating QR for hostel ID:', hostelId);
                     showToast('Generating QR code...', 'info');
 
                     const response = await apiCall('/qr/generate', {
                         method: 'POST',
+                        body: JSON.stringify({
+                            hostel_id: hostelId
+                        }),
                         headers: {
                             'X-Staff-Name': currentUser?.name || 'HRA',
                             'X-Staff-Role': currentUser?.role || 'HRA'
@@ -1082,7 +1130,7 @@
             }
             window.generateQRCode = generateQRCode;
 
-            // Regenerate QR code using the staff ID
+            // Regenerate QR code
             async function regenerateQRCode() {
                 try {
                     if (!confirm('This will replace the current QR code. The old QR code will no longer work. Continue?')) {
@@ -1092,6 +1140,9 @@
                     showToast('Regenerating QR code...', 'info');
                     const response = await apiCall('/qr/generate', {
                         method: 'POST',
+                        body: JSON.stringify({
+                            hostel_id: hostelData?.id
+                        }),
                         headers: {
                             'X-Staff-Name': currentUser?.name || 'HRA',
                             'X-Staff-Role': currentUser?.role || 'HRA'

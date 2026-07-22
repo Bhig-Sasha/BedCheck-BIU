@@ -1168,8 +1168,101 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT - STAFF ID ONLY
+// QR CODE MANAGEMENT
 // =====================================================
+
+// GET QR code by hostel ID (NEW ENDPOINT - FIX)
+app.get('/api/qr/hostel/:hostelId', async (req, res) => {
+  try {
+    const hostelId = parseInt(req.params.hostelId);
+    
+    if (!hostelId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hostel ID is required'
+      });
+    }
+
+    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
+    
+    // Get QR code for this hostel that is active
+    const { data: qrData, error: qrError } = await supabase
+      .from('qr_codes')
+      .select(`
+        *,
+        hostels (
+          id,
+          name,
+          code
+        ),
+        staff (
+          id,
+          name
+        )
+      `)
+      .eq('hostel_id', hostelId)
+      .eq('is_active', true)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (qrError) {
+      console.error('❌ QR fetch error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error fetching QR code: ' + qrError.message
+      });
+    }
+
+    if (!qrData) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active QR code found for this hostel'
+      });
+    }
+
+    // Get creator name
+    let creatorName = 'Unknown';
+    if (qrData.created_by) {
+      const { data: creator } = await supabase
+        .from('staff')
+        .select('name')
+        .eq('id', qrData.created_by)
+        .maybeSingle();
+      if (creator) creatorName = creator.name;
+    }
+
+    console.log(`✅ QR found: ${qrData.code} for hostel ID ${hostelId}`);
+
+    res.json({
+      success: true,
+      data: {
+        id: qrData.id,
+        hostel_id: qrData.hostel_id,
+        code: qrData.code,
+        qr_data: qrData.qr_data,
+        generated_at: qrData.generated_at,
+        expires_at: qrData.expires_at,
+        is_active: qrData.is_active,
+        last_used_at: qrData.last_used_at,
+        usage_count: qrData.usage_count || 0,
+        created_by: qrData.created_by,
+        created_by_name: creatorName,
+        created_at: qrData.created_at,
+        updated_at: qrData.updated_at,
+        hostel: qrData.hostels || null,
+        staff: qrData.staff || null
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching QR by hostel:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
 
 // Get active QR code for the staff member's hostel
 app.get('/api/qr/my-hostel', async (req, res) => {
@@ -2803,7 +2896,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 BedCheck API Server running on port ${PORT}`);
   console.log(`📋 API Endpoint: http://localhost:${PORT}/api`);
-  console.log(`📝 Audit System: Enabled`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`✅ Server started successfully`);
   console.log(`${'='.repeat(60)}\n`);
