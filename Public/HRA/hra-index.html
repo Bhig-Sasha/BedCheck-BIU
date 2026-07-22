@@ -709,12 +709,6 @@
             font-size: 3rem;
             color: #10233f;
         }
-        #qrContainer .qr-status-display .qr-code-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            padding: 0.25rem;
-        }
     </style>
 </head>
 <body>
@@ -914,11 +908,14 @@
 
             async function loadHostelQR() {
                 try {
+                    // Use the actual hostel ID from hostelData
                     const hostelId = hostelData?.id;
                     if (!hostelId) {
                         console.warn('No hostel ID available for QR loading');
                         return;
                     }
+
+                    console.log('Loading QR for hostel ID:', hostelId);
 
                     const qrContainer = document.getElementById('qrContainer');
                     if (!qrContainer) return;
@@ -987,26 +984,23 @@
                             }
                         }
                     } catch (error) {
-                        // If the API returns 404 (Hostel not found), show generate button
-                        if (error.message.includes('404') || error.message.includes('not found')) {
-                            qrContainer.innerHTML = `
-                                <div class="qr-status-display text-center">
-                                    <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                        <i class="fas fa-qrcode"></i>
-                                    </div>
-                                    <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                    <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
+                        // If the API returns 404, show generate button
+                        console.warn('QR API error:', error.message);
+                        qrContainer.innerHTML = `
+                            <div class="qr-status-display text-center">
+                                <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
+                                    <i class="fas fa-qrcode"></i>
                                 </div>
-                            `;
-                            qrData = null;
-                            
-                            const statusBadge = document.getElementById('qrStatusBadge');
-                            if (statusBadge) {
-                                statusBadge.className = 'badge badge-draft';
-                                statusBadge.textContent = '⏳ NOT GENERATED';
-                            }
-                        } else {
-                            throw error;
+                                <div class="text-sm text-muted mt-2">No QR code generated yet</div>
+                                <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
+                            </div>
+                        `;
+                        qrData = null;
+                        
+                        const statusBadge = document.getElementById('qrStatusBadge');
+                        if (statusBadge) {
+                            statusBadge.className = 'badge badge-draft';
+                            statusBadge.textContent = '⏳ NOT GENERATED';
                         }
                     }
                 } catch (error) {
@@ -1027,15 +1021,22 @@
             // Generate QR code for hostel
             async function generateQRCode() {
                 try {
+                    // Use the actual hostel ID from hostelData
                     const hostelId = hostelData?.id;
                     if (!hostelId) {
-                        showToast('No hostel found', 'error');
+                        showToast('No hostel found. Please contact administrator.', 'error');
                         return;
                     }
 
+                    console.log('Generating QR for hostel ID:', hostelId);
+
                     showToast('Generating QR code...', 'info');
                     const response = await apiCall(`/hostels/${hostelId}/qr/generate`, {
-                        method: 'POST'
+                        method: 'POST',
+                        headers: {
+                            'X-Staff-Name': currentUser?.name || 'HRA',
+                            'X-Staff-Role': currentUser?.role || 'HRA'
+                        }
                     });
 
                     if (response.success) {
@@ -1052,6 +1053,7 @@
             // Regenerate QR code (deletes old, creates new)
             async function regenerateQRCode() {
                 try {
+                    // Use the actual hostel ID from hostelData
                     const hostelId = hostelData?.id;
                     if (!hostelId) {
                         showToast('No hostel found', 'error');
@@ -1064,7 +1066,11 @@
 
                     showToast('Regenerating QR code...', 'info');
                     const response = await apiCall(`/hostels/${hostelId}/qr/generate`, {
-                        method: 'POST'
+                        method: 'POST',
+                        headers: {
+                            'X-Staff-Name': currentUser?.name || 'HRA',
+                            'X-Staff-Role': currentUser?.role || 'HRA'
+                        }
                     });
 
                     if (response.success) {
@@ -1164,6 +1170,9 @@
                         renderScreen();
                         return;
                     }
+
+                    console.log('HRA Hostel Data:', hostelData);
+                    console.log('Hostel ID:', hostelData.id);
 
                     updateUserDisplay();
 
