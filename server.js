@@ -1,4 +1,6 @@
 // server.js - Supabase Version with Unified Staff Table & Full Audit System
+// Optimized for Render.com Deployment
+
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
@@ -17,7 +19,10 @@ const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
 if (!supabaseUrl || !supabaseKey) {
   console.error('❌ Missing Supabase credentials in .env file');
   console.error('Please set SUPABASE_URL and SUPABASE_KEY');
-  process.exit(1);
+  // Don't exit on Render - let it try to continue
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -26,22 +31,68 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // MIDDLEWARE
 // =====================================================
 
-app.use(cors({
-  origin: ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://localhost:3001'],
+// CORS - Allow all origins in production
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In production, allow any origin or configure specific ones
+    const allowedOrigins = process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',') 
+      : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://localhost:3001'];
+    
+    // Allow any origin in production if not specified
+    if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      // In production, be more permissive
+      if (process.env.NODE_ENV === 'production') {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Staff-ID'],
   credentials: true,
-}));
+};
 
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Capture request details for audit
 app.use((req, res, next) => {
-  req.clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
+  req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.connection?.remoteAddress || 'unknown';
   req.userAgent = req.headers['user-agent'] || 'unknown';
   console.log(`📨 ${req.method} ${req.path}`);
   next();
+});
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    name: 'BIU BedCheck API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: '/api/*',
+    health: '/health'
+  });
 });
 
 // =====================================================
@@ -2745,12 +2796,13 @@ app.use((err, req, res, next) => {
 // START SERVER
 // =====================================================
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`🚀 BedCheck API Server running on http://localhost:${PORT}`);
+  console.log(`🚀 BedCheck API Server running on port ${PORT}`);
   console.log(`📋 API Endpoint: http://localhost:${PORT}/api`);
   console.log(`📝 Audit System: Enabled`);
   console.log(`📨 Notification System: Complete CRUD with table checks`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`✅ Server started successfully`);
   console.log(`${'='.repeat(60)}\n`);
 });

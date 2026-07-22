@@ -323,6 +323,50 @@
             display: inline-block;
             margin: 0.5rem 0;
         }
+        .success-screen .qr-placeholder {
+            width: 140px;
+            height: 140px;
+            margin: 1rem auto;
+            background: white;
+            border: 3px dashed #d6ad4b;
+            border-radius: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #10233f;
+            font-size: 0.8rem;
+        }
+        .success-screen .qr-placeholder i {
+            font-size: 3rem;
+            color: #d6ad4b;
+            margin-bottom: 0.5rem;
+        }
+        .success-screen .student-detail-card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            max-width: 420px;
+            margin: 0 auto;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            border: 1px solid #eee8de;
+        }
+        .success-screen .student-detail-card .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f0ebe3;
+            font-size: 0.85rem;
+        }
+        .success-screen .student-detail-card .detail-row:last-child {
+            border-bottom: none;
+        }
+        .success-screen .student-detail-card .detail-label {
+            color: #68768a;
+        }
+        .success-screen .student-detail-card .detail-value {
+            font-weight: 600;
+        }
 
         /* ----- TOAST ----- */
         .toast {
@@ -354,9 +398,9 @@
         /* ----- HOSTEL INFO BADGE ----- */
         .hostel-info-badge {
             display: inline-block;
-            padding: 0.25rem 0.75rem;
+            padding: 0.15rem 0.6rem;
             border-radius: 999px;
-            font-size: 0.7rem;
+            font-size: 0.6rem;
             font-weight: 600;
             margin-left: 0.5rem;
         }
@@ -364,24 +408,15 @@
         .hostel-info-badge.floor-4 { background: #d1fae5; color: #065f46; }
         .hostel-info-badge.floor-6 { background: #fef3c7; color: #92400e; }
 
-        .info-box {
+        /* ----- QR NOTICE ----- */
+        .qr-notice {
             background: #f0f4f8;
             border-radius: 0.5rem;
-            padding: 0.75rem;
-            margin: 0.5rem 0;
+            padding: 0.75rem 1rem;
+            border-left: 4px solid #d6ad4b;
+            margin-top: 0.5rem;
         }
-        .info-box .label {
-            font-size: 0.7rem;
-            color: #68768a;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .info-box .value {
-            font-size: 0.9rem;
-            font-weight: 700;
-            color: #17233c;
-        }
+        .qr-notice i { color: #d6ad4b; margin-right: 0.5rem; }
 
         @media (max-width: 640px) {
             .register-container { padding: 1rem; }
@@ -406,7 +441,7 @@
                 <div class="logo-badge">BIU</div>
                 <h1>BedCheck Registration</h1>
             </div>
-            <p class="subtitle"><i class="fas fa-user-graduate"></i> Benson Idahosa University · Complete your information before resumption</p>
+            <p class="subtitle"><i class="fas fa-user-graduate"></i> Benson Idahosa University · Complete your hostel registration</p>
         </div>
 
         <!-- Registration Content -->
@@ -518,7 +553,6 @@
                     isLoading = true;
                     renderLoading();
 
-                    // Load all data in parallel
                     const [hostelsRes, floorsRes, roomsRes, bedRes] = await Promise.all([
                         apiCall('/hostels'),
                         apiCall('/floors-flats'),
@@ -601,6 +635,12 @@
                         }).join('')}
                     </div>
 
+                    <!-- QR Notice - Removed profile picture upload -->
+                    <div class="qr-notice text-sm">
+                        <i class="fas fa-qrcode"></i>
+                        <span>QR Code will be generated automatically after registration. No profile picture required.</span>
+                    </div>
+
                     <!-- Form Section -->
                     <div class="card mt-3" id="formSection">
                         ${renderStepContent()}
@@ -613,7 +653,7 @@
                             <div class="flex gap-2 flex-wrap">
                                 <button class="btn-outline" onclick="window.saveDraft()"><i class="fas fa-save"></i> Save Draft</button>
                                 ${currentStep < 5 ? `<button class="btn-primary" onclick="window.goToStep(${currentStep + 1})">Next <i class="fas fa-arrow-right"></i></button>` : ''}
-                                ${currentStep === 5 ? `<button class="btn-success" onclick="window.submitRegistration()"><i class="fas fa-paper-plane"></i> Submit Registration</button>` : ''}
+                                ${currentStep === 5 ? `<button class="btn-success" onclick="window.submitRegistration()"><i class="fas fa-paper-plane"></i> Submit & Generate QR</button>` : ''}
                             </div>
                         </div>
                     </div>
@@ -625,7 +665,6 @@
                 if (currentStep === 3) {
                     setTimeout(() => {
                         populateHostelDropdowns();
-                        // Restore selected values if any
                         if (studentData.hostel_id) {
                             document.getElementById('hostelSelect').value = studentData.hostel_id;
                             populateHostelDropdowns();
@@ -770,7 +809,7 @@
                     case 3:
                         return `
                             <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-building text-gold"></i> Hostel Information</h3>
-                            <p class="text-sm text-muted mb-4">Select your hostel, floor/flat, room and bed space</p>
+                            <p class="text-sm text-muted mb-4">Select your allocated hostel, floor/flat, room and bed space</p>
 
                             <div class="grid-2 mt-3">
                                 <div class="field">
@@ -908,8 +947,8 @@
                                     <label for="declaration" class="text-sm">I confirm that the information provided is accurate and complete.</label>
                                 </div>
                                 <div class="declaration-item">
-                                    <input type="checkbox" id="fingerprintNotice" checked disabled />
-                                    <label for="fingerprintNotice" class="text-sm text-muted">I understand that fingerprint enrollment will be completed physically after resumption.</label>
+                                    <input type="checkbox" id="qrNotice" checked disabled />
+                                    <label for="qrNotice" class="text-sm text-muted">I understand that my QR Code will be generated upon successful submission.</label>
                                 </div>
                             </div>
                         `;
@@ -1014,13 +1053,11 @@
                 const hostelId = document.getElementById('hostelSelect')?.value;
                 if (!hostelId) return;
 
-                // Get floors/flats for this hostel from database
                 const hostelFloors = floorsFlats.filter(f => f.hostel_id == parseInt(hostelId));
 
                 const floorSelect = document.getElementById('floorSelect');
                 floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
 
-                // Sort floors properly (F1-F9, A, B, C)
                 hostelFloors.sort((a, b) => {
                     const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.name.replace(/[^0-9]/g, '')) || 0;
@@ -1030,7 +1067,6 @@
                 hostelFloors.forEach(floor => {
                     const opt = document.createElement('option');
                     opt.value = floor.id;
-                    // Show room count for this floor
                     const roomCount = rooms.filter(r => r.floor_flat_id === floor.id).length;
                     opt.textContent = `${floor.name} (${roomCount} rooms)`;
                     if (studentData.floor_flat_id == floor.id) opt.selected = true;
@@ -1075,13 +1111,11 @@
 
                 if (!floorId) return;
 
-                // Get rooms for this floor from database
                 const floorRooms = rooms.filter(r => r.floor_flat_id == parseInt(floorId));
 
                 const roomSelect = document.getElementById('roomSelect');
                 roomSelect.innerHTML = '<option value="">Select Room</option>';
 
-                // Sort rooms properly
                 floorRooms.sort((a, b) => {
                     const aNum = parseInt(a.room_code.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.room_code.replace(/[^0-9]/g, '')) || 0;
@@ -1091,23 +1125,19 @@
                 floorRooms.forEach(room => {
                     const opt = document.createElement('option');
                     opt.value = room.id;
-                    // Show bed count for this room
                     const bedCount = bedSpaces.filter(b => b.room_id === room.id).length;
                     opt.textContent = `${room.room_code} (${bedCount} beds)`;
                     if (studentData.room_id == room.id) opt.selected = true;
                     roomSelect.appendChild(opt);
                 });
 
-                // Reset bed select
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
                 document.getElementById('bedVisualContainer').style.display = 'none';
                 document.getElementById('bedCountInfo').textContent = '';
                 
-                // Clear bed data
                 studentData.bed_space_id = '';
                 studentData.bed_code = '';
 
-                // If room was previously selected, update bed dependencies
                 if (studentData.room_id) {
                     updateBedDependencies();
                 }
@@ -1120,13 +1150,11 @@
 
                 if (!roomId) return;
 
-                // Get the selected room to get its code
                 const selectedRoom = rooms.find(r => r.id == parseInt(roomId));
                 if (selectedRoom) {
                     studentData.room_code = selectedRoom.room_code;
                 }
 
-                // Get bed spaces for this room from database
                 const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId));
 
                 const bedSelect = document.getElementById('bedSelect');
@@ -1144,7 +1172,6 @@
                     return;
                 }
 
-                // Get occupied beds for this room from students
                 occupiedBedIds = [];
                 try {
                     const studentsRes = await apiCall(`/students?room_id=${roomId}`);
@@ -1155,14 +1182,12 @@
                     console.warn('Could not fetch occupied beds:', e);
                 }
 
-                // Sort beds properly (BS1, BS2, BS3, BS4, BS5, BS6)
                 roomBeds.sort((a, b) => {
                     const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
                     return aNum - bNum;
                 });
 
-                // Count available beds
                 const availableBeds = roomBeds.filter(b => !occupiedBedIds.includes(b.id));
                 const occupiedCount = roomBeds.filter(b => occupiedBedIds.includes(b.id)).length;
 
@@ -1180,10 +1205,7 @@
                     bedSelect.appendChild(opt);
                 });
 
-                // Show bed visual with occupied status
                 renderBedVisual(roomBeds, occupiedBedIds);
-                
-                // Update bed count info
                 document.getElementById('bedCountInfo').textContent = 
                     `${availableBeds.length} available · ${occupiedCount} occupied · ${roomBeds.length} total`;
             }
@@ -1200,7 +1222,6 @@
                 container.style.display = 'block';
                 visual.innerHTML = '';
 
-                // Sort beds properly
                 beds.sort((a, b) => {
                     const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
@@ -1251,7 +1272,6 @@
                     if (bed) {
                         studentData.bed_space_id = bed.id;
                         studentData.bed_code = bed.bed_code;
-                        // Highlight the selected bed in visual
                         document.querySelectorAll('.bed-dot').forEach(d => d.classList.remove('selected'));
                         const dots = document.querySelectorAll('.bed-dot');
                         dots.forEach(d => {
@@ -1305,7 +1325,6 @@
                 const room = rooms.find(r => r.id == parseInt(studentData.room_id));
                 const bed = bedSpaces.find(b => b.id == parseInt(studentData.bed_space_id));
 
-                // Check if matric already exists
                 try {
                     const existing = await apiCall(`/students?search=${studentData.matric}`);
                     if (existing.data && existing.data.length > 0) {
@@ -1314,7 +1333,9 @@
                     }
                 } catch (e) {}
 
-                // Build student object
+                // Generate QR code ID
+                const qrId = `BIU-${studentData.matric.replace(/[^A-Z0-9]/g, '')}`;
+
                 const newStudent = {
                     name: `${studentData.surname} ${studentData.firstName} ${studentData.middleName}`.trim(),
                     matric: studentData.matric,
@@ -1337,7 +1358,9 @@
                     notes: studentData.notes || null,
                     emergency_name: studentData.emergency_name,
                     emergency_relation: studentData.emergency_relation,
-                    emergency_phone: studentData.emergency_phone
+                    emergency_phone: studentData.emergency_phone,
+                    qr_code: qrId,
+                    qr_generated: true
                 };
 
                 try {
@@ -1346,7 +1369,6 @@
                         body: JSON.stringify(newStudent)
                     });
 
-                    // Update bed space status to occupied
                     if (studentData.bed_space_id) {
                         await apiCall(`/bed-spaces/${studentData.bed_space_id}`, {
                             method: 'PATCH',
@@ -1359,7 +1381,7 @@
 
                     submitted = true;
                     renderSuccessScreen(result.data);
-                    showToast('Registration submitted successfully!', 'success');
+                    showToast('Registration submitted successfully! QR Code generated.', 'success');
                     localStorage.removeItem('studentRegistrationDraft');
 
                 } catch (error) {
@@ -1370,31 +1392,71 @@
             // ---------- SUCCESS SCREEN ----------
             function renderSuccessScreen(data) {
                 const refNumber = data?.id ? `BC-2026-${String(data.id).padStart(6, '0')}` : 'BC-2026-000245';
+                const qrId = data?.qr_code || `BIU-${data?.matric?.replace(/[^A-Z0-9]/g, '') || 'UNKNOWN'}`;
+                const studentName = data?.name || `${studentData.surname} ${studentData.firstName}`.trim();
+                const hostelName = data?.hostel_name || hostels.find(h => h.id == parseInt(studentData.hostel_id))?.name || '—';
+                const roomCode = data?.room_code || studentData.room_code || '—';
+                const bedCode = data?.bed_code || studentData.bed_code || '—';
+
                 registrationContent.innerHTML = `
                     <div class="card mt-4" style="border-color:#2d6545;background:#e1f0e5;">
                         <div class="success-screen">
                             <div class="success-icon"><i class="fas fa-check-circle"></i></div>
                             <h2 class="font-serif text-2xl font-bold" style="color:#14532d;">Registration Submitted Successfully</h2>
-                            <p class="text-sm text-muted mt-1">You have been registered into the hostel system</p>
+                            <p class="text-sm text-muted mt-1">QR Code generated for BedCheck verification</p>
 
-                            <div class="mt-4 p-4 bg-white rounded-lg" style="max-width:400px;margin:0 auto;">
-                                <p class="text-sm text-muted">Status</p>
-                                <p class="font-bold" style="color:#d09b2e;">Pending Fingerprint Enrollment</p>
-                                <p class="text-sm text-muted mt-2">Reference Number</p>
-                                <p class="ref-number">${refNumber}</p>
-                            </div>
-
-                            <div class="mt-4 text-left" style="max-width:400px;margin:0 auto;">
-                                <p class="text-sm font-bold">Next Step:</p>
-                                <p class="text-sm text-muted">Report to your assigned RA or HRA to complete fingerprint enrollment.</p>
+                            <div class="student-detail-card mt-4">
+                                <div class="qr-placeholder">
+                                    <i class="fas fa-qrcode"></i>
+                                    <span style="font-size:0.7rem;font-weight:700;">${qrId}</span>
+                                </div>
+                                <h4 style="font-size:1.1rem;font-weight:700;color:#17233c;">${studentName}</h4>
+                                <p style="font-size:0.85rem;color:#68768a;">${data?.matric || studentData.matric}</p>
+                                <div class="mt-2" style="border-top:1px solid #eee8de;padding-top:0.75rem;">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Hostel</span>
+                                        <span class="detail-value">${hostelName}</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Room</span>
+                                        <span class="detail-value">${roomCode}</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Bed</span>
+                                        <span class="detail-value">${bedCode}</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Status</span>
+                                        <span class="detail-value" style="color:#d09b2e;">Pending Fingerprint</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Reference</span>
+                                        <span class="detail-value" style="font-size:0.8rem;">${refNumber}</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="flex gap-3 mt-5 justify-center flex-wrap">
-                                <button class="btn-primary" onclick="window.resetRegistration()"><i class="fas fa-plus"></i> Register Another Student</button>
+                                <button class="btn-success" onclick="window.downloadQR()"><i class="fas fa-download"></i> Download QR</button>
+                                <button class="btn-outline" onclick="window.printSlip()"><i class="fas fa-print"></i> Print Slip</button>
+                                <button class="btn-primary" onclick="window.resetRegistration()"><i class="fas fa-plus"></i> Register Another</button>
                             </div>
+
+                            <p class="text-sm text-muted mt-4">
+                                <i class="fas fa-info-circle"></i> Present this QR during BedCheck verification. 
+                                You can also re-download it from the portal.
+                            </p>
                         </div>
                     </div>
                 `;
+            }
+
+            function downloadQR() {
+                showToast('QR Code download will be available soon.', 'info');
+            }
+
+            function printSlip() {
+                window.print();
             }
 
             function resetRegistration() {
@@ -1431,6 +1493,8 @@
             window.submitRegistration = submitRegistration;
             window.populateHostelDropdowns = populateHostelDropdowns;
             window.resetRegistration = resetRegistration;
+            window.downloadQR = downloadQR;
+            window.printSlip = printSlip;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
