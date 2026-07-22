@@ -79,73 +79,16 @@
         }
         .register-header .subtitle i { color: #a77915; }
 
-        /* ----- PROGRESS STEPS ----- */
-        .progress-steps {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 0 1.5rem 0;
-            position: relative;
-            gap: 0.5rem;
-        }
-        .progress-steps::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 2rem;
-            right: 2rem;
-            height: 2px;
-            background: #e5e7eb;
-            transform: translateY(-50%);
-            z-index: 0;
-        }
-        .progress-step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.25rem;
-            z-index: 1;
-            flex: 1;
-            cursor: pointer;
-        }
-        .progress-step .step-circle {
-            width: 2.2rem;
-            height: 2.2rem;
-            border-radius: 50%;
-            border: 2px solid #e5e7eb;
-            background: white;
-            display: grid;
-            place-items: center;
-            font-weight: 700;
-            font-size: 0.8rem;
-            color: #9ca3af;
-            transition: all 0.3s;
-        }
-        .progress-step .step-circle.active {
-            border-color: #d6ad4b;
-            background: #d6ad4b;
-            color: #10233f;
-        }
-        .progress-step .step-circle.completed {
-            border-color: #2d6545;
-            background: #2d6545;
-            color: white;
-        }
-        .progress-step .step-label {
-            font-size: 0.6rem;
-            font-weight: 600;
-            color: #9ca3af;
-            text-align: center;
-            max-width: 4rem;
-        }
-        .progress-step .step-label.active { color: #17233c; }
-
         /* ----- FORM ELEMENTS ----- */
         .card {
             border: 1px solid #ded6c9;
             border-radius: 0.75rem;
             background: #fffcf6;
             padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .card:last-child {
+            margin-bottom: 0;
         }
 
         .field { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -415,16 +358,62 @@
             padding: 0.75rem 1rem;
             border-left: 4px solid #d6ad4b;
             margin-top: 0.5rem;
+            margin-bottom: 1.5rem;
         }
         .qr-notice i { color: #d6ad4b; margin-right: 0.5rem; }
+
+        /* Section header styles */
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #eee8de;
+        }
+        .section-header .section-number {
+            display: grid;
+            place-items: center;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            background: #d6ad4b;
+            color: #10233f;
+            font-weight: 700;
+            font-size: 0.8rem;
+            flex-shrink: 0;
+        }
+        .section-header h3 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #17233c;
+        }
+        .section-header .section-badge {
+            font-size: 0.6rem;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            background: #e7edf5;
+            color: #24466f;
+            font-weight: 600;
+            margin-left: auto;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #ded6c9;
+        }
 
         @media (max-width: 640px) {
             .register-container { padding: 1rem; }
             .register-header .logo h1 { font-size: 1.3rem; }
-            .progress-step .step-label { font-size: 0.5rem; max-width: 3rem; }
-            .progress-step .step-circle { width: 1.8rem; height: 1.8rem; font-size: 0.65rem; }
             .bed-grid { grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); }
             .bed-dot { min-height: 40px; font-size: 0.6rem; }
+            .section-header h3 { font-size: 1rem; }
         }
     </style>
 </head>
@@ -455,7 +444,7 @@
             'use strict';
 
             // =============================================
-            // STUDENT REGISTRATION - Public (No Login Required)
+            // STUDENT REGISTRATION - All in One Page
             // Saves directly to student table with QR code generation
             // =============================================
 
@@ -467,7 +456,6 @@
             let rooms = [];
             let bedSpaces = [];
             let isLoading = true;
-            let currentStep = 1;
             let submitted = false;
             let occupiedBedIds = [];
             let studentData = {
@@ -561,9 +549,6 @@
                             const parsed = JSON.parse(savedDraft);
                             if (Object.values(parsed).some(v => v !== '' && v !== false && v !== null)) {
                                 studentData = parsed;
-                                if (studentData._step) {
-                                    currentStep = studentData._step;
-                                }
                                 showToast('Draft loaded. Continue where you left off.', 'info');
                             }
                         } catch (e) {
@@ -628,84 +613,55 @@
                     return;
                 }
 
-                const steps = [
-                    { number: 1, label: 'Personal' },
-                    { number: 2, label: 'Academic' },
-                    { number: 3, label: 'Hostel' },
-                    { number: 4, label: 'Emergency' },
-                    { number: 5, label: 'Submit' }
-                ];
-
                 const html = `
-                    <!-- Progress Steps -->
-                    <div class="progress-steps">
-                        ${steps.map((step, index) => {
-                            const stepNum = index + 1;
-                            let status = '';
-                            if (stepNum === currentStep) status = 'active';
-                            else if (stepNum < currentStep) status = 'completed';
-                            return `
-                                <div class="progress-step" onclick="window.goToStep(${stepNum})">
-                                    <div class="step-circle ${status}">${status === 'completed' ? '<i class="fas fa-check"></i>' : stepNum}</div>
-                                    <span class="step-label ${status}">${step.label}</span>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-
-                    <!-- QR Notice - Removed profile picture upload -->
+                    <!-- QR Notice -->
                     <div class="qr-notice text-sm">
                         <i class="fas fa-qrcode"></i>
                         <span>QR Code will be generated automatically after registration. No profile picture required.</span>
                     </div>
 
                     <!-- Form Section -->
-                    <div class="card mt-3" id="formSection">
-                        ${renderStepContent()}
+                    <div id="formSection">
+                        ${renderAllSteps()}
 
-                        <!-- Navigation Buttons -->
-                        <div class="flex-between mt-6 pt-4 border-t flex-wrap gap-3">
-                            <div>
-                                ${currentStep > 1 ? `<button class="btn-outline" onclick="window.goToStep(${currentStep - 1})"><i class="fas fa-arrow-left"></i> Previous</button>` : ''}
-                            </div>
-                            <div class="flex gap-2 flex-wrap">
-                                <button class="btn-outline" onclick="window.saveDraft()"><i class="fas fa-save"></i> Save Draft</button>
-                                ${currentStep < 5 ? `<button class="btn-primary" onclick="window.goToStep(${currentStep + 1})">Next <i class="fas fa-arrow-right"></i></button>` : ''}
-                                ${currentStep === 5 ? `<button class="btn-success" onclick="window.submitRegistration()"><i class="fas fa-paper-plane"></i> Submit & Generate QR</button>` : ''}
-                            </div>
+                        <!-- Form Actions -->
+                        <div class="form-actions">
+                            <button class="btn-outline" onclick="window.saveDraft()"><i class="fas fa-save"></i> Save Draft</button>
+                            <button class="btn-success" onclick="window.submitRegistration()" style="margin-left:auto;">
+                                <i class="fas fa-paper-plane"></i> Submit & Generate QR
+                            </button>
+                            <button class="btn-outline" onclick="window.resetForm()"><i class="fas fa-undo"></i> Reset Form</button>
                         </div>
                     </div>
                 `;
 
                 registrationContent.innerHTML = html;
-                updateStepIndicators();
 
-                if (currentStep === 3) {
-                    setTimeout(() => {
+                // Populate hostel dropdown after render
+                setTimeout(() => {
+                    populateHostelDropdowns();
+                    if (studentData.hostel_id) {
+                        document.getElementById('hostelSelect').value = studentData.hostel_id;
                         populateHostelDropdowns();
-                        if (studentData.hostel_id) {
-                            document.getElementById('hostelSelect').value = studentData.hostel_id;
-                            populateHostelDropdowns();
-                            if (studentData.floor_flat_id) {
-                                setTimeout(() => {
-                                    document.getElementById('floorSelect').value = studentData.floor_flat_id;
-                                    updateRoomDependencies();
-                                    if (studentData.room_id) {
-                                        setTimeout(() => {
-                                            document.getElementById('roomSelect').value = studentData.room_id;
-                                            updateBedDependencies();
-                                            if (studentData.bed_space_id) {
-                                                setTimeout(() => {
-                                                    document.getElementById('bedSelect').value = studentData.bed_space_id;
-                                                }, 100);
-                                            }
-                                        }, 100);
-                                    }
-                                }, 100);
-                            }
+                        if (studentData.floor_flat_id) {
+                            setTimeout(() => {
+                                document.getElementById('floorSelect').value = studentData.floor_flat_id;
+                                updateRoomDependencies();
+                                if (studentData.room_id) {
+                                    setTimeout(() => {
+                                        document.getElementById('roomSelect').value = studentData.room_id;
+                                        updateBedDependencies();
+                                        if (studentData.bed_space_id) {
+                                            setTimeout(() => {
+                                                document.getElementById('bedSelect').value = studentData.bed_space_id;
+                                            }, 100);
+                                        }
+                                    }, 100);
+                                }
+                            }, 100);
                         }
-                    }, 100);
-                }
+                    }
+                }, 100);
             }
 
             function getHostelType(hostelName) {
@@ -729,270 +685,259 @@
                 return `<span class="hostel-info-badge ${type}">${labels[type] || ''}</span>`;
             }
 
-            function renderStepContent() {
+            function renderAllSteps() {
                 const required = '<span class="required">*</span>';
-                switch(currentStep) {
-                    case 1:
-                        return `
-                            <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-user text-gold"></i> Personal Information</h3>
-                            <p class="text-sm text-muted mb-4">Provide your personal details</p>
+                
+                return `
+                    <!-- SECTION 1: Personal Information -->
+                    <div class="card">
+                        <div class="section-header">
+                            <span class="section-number">1</span>
+                            <h3><i class="fas fa-user text-gold"></i> Personal Information</h3>
+                            <span class="section-badge">Required</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">Provide your personal details</p>
 
-                            <div class="grid-2 mt-4">
-                                <div class="field">
-                                    <label>Surname ${required}</label>
-                                    <input id="surname" value="${studentData.surname || ''}" placeholder="e.g. Okafor" oninput="window.updateField('surname', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>First Name ${required}</label>
-                                    <input id="firstName" value="${studentData.firstName || ''}" placeholder="e.g. Daniel" oninput="window.updateField('firstName', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>Middle Name</label>
-                                    <input id="middleName" value="${studentData.middleName || ''}" placeholder="e.g. Chibueze" oninput="window.updateField('middleName', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>Gender ${required}</label>
-                                    <select id="gender" onchange="window.updateField('gender', this.value)">
-                                        <option value="">Select Gender</option>
-                                        <option value="Male" ${studentData.gender === 'Male' ? 'selected' : ''}>Male</option>
-                                        <option value="Female" ${studentData.gender === 'Female' ? 'selected' : ''}>Female</option>
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Date of Birth ${required}</label>
-                                    <input id="dob" type="date" value="${studentData.dob || ''}" onchange="window.updateField('dob', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>Phone Number ${required}</label>
-                                    <input id="phone" value="${studentData.phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('phone', this.value)" />
-                                </div>
-                                <div class="field" style="grid-column: span 2;">
-                                    <label>Email Address <span class="text-muted">(Optional)</span></label>
-                                    <input id="email" value="${studentData.email || ''}" type="email" placeholder="student@biu.edu.ng" oninput="window.updateField('email', this.value)" />
+                        <div class="grid-2">
+                            <div class="field">
+                                <label>Surname ${required}</label>
+                                <input id="surname" value="${studentData.surname || ''}" placeholder="e.g. Okafor" oninput="window.updateField('surname', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>First Name ${required}</label>
+                                <input id="firstName" value="${studentData.firstName || ''}" placeholder="e.g. Daniel" oninput="window.updateField('firstName', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>Middle Name</label>
+                                <input id="middleName" value="${studentData.middleName || ''}" placeholder="e.g. Chibueze" oninput="window.updateField('middleName', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>Gender ${required}</label>
+                                <select id="gender" onchange="window.updateField('gender', this.value)">
+                                    <option value="">Select Gender</option>
+                                    <option value="Male" ${studentData.gender === 'Male' ? 'selected' : ''}>Male</option>
+                                    <option value="Female" ${studentData.gender === 'Female' ? 'selected' : ''}>Female</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Date of Birth ${required}</label>
+                                <input id="dob" type="date" value="${studentData.dob || ''}" onchange="window.updateField('dob', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>Phone Number ${required}</label>
+                                <input id="phone" value="${studentData.phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('phone', this.value)" />
+                            </div>
+                            <div class="field" style="grid-column: span 2;">
+                                <label>Email Address <span class="text-muted">(Optional)</span></label>
+                                <input id="email" value="${studentData.email || ''}" type="email" placeholder="student@biu.edu.ng" oninput="window.updateField('email', this.value)" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: Academic Information -->
+                    <div class="card">
+                        <div class="section-header">
+                            <span class="section-number">2</span>
+                            <h3><i class="fas fa-graduation-cap text-gold"></i> Academic Information</h3>
+                            <span class="section-badge">Required</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">Enter your academic details</p>
+
+                        <div class="grid-2">
+                            <div class="field">
+                                <label>Matric Number ${required}</label>
+                                <input id="matric" value="${studentData.matric || ''}" placeholder="e.g. SCN/CSC/230586" oninput="window.updateField('matric', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>Faculty ${required}</label>
+                                <select id="faculty" onchange="window.updateFacultyDepartments()">
+                                    <option value="">Select Faculty</option>
+                                    ${Object.keys(facultyDepartments).map(f => `
+                                        <option value="${f}" ${studentData.faculty === f ? 'selected' : ''}>${f}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Department ${required}</label>
+                                <select id="department" onchange="window.updateField('department', this.value)">
+                                    <option value="">Select Department</option>
+                                    ${studentData.faculty ? facultyDepartments[studentData.faculty]?.map(d => `
+                                        <option value="${d}" ${studentData.department === d ? 'selected' : ''}>${d}</option>
+                                    `).join('') : ''}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Level ${required}</label>
+                                <select id="level" onchange="window.updateField('level', this.value)">
+                                    <option value="">Select Level</option>
+                                    <option value="100" ${studentData.level === '100' ? 'selected' : ''}>100 Level</option>
+                                    <option value="200" ${studentData.level === '200' ? 'selected' : ''}>200 Level</option>
+                                    <option value="300" ${studentData.level === '300' ? 'selected' : ''}>300 Level</option>
+                                    <option value="400" ${studentData.level === '400' ? 'selected' : ''}>400 Level</option>
+                                    <option value="500" ${studentData.level === '500' ? 'selected' : ''}>500 Level</option>
+                                    <option value="600" ${studentData.level === '600' ? 'selected' : ''}>600 Level</option>
+                                </select>
+                            </div>
+                            <div class="field" style="grid-column: span 2;">
+                                <label>Academic Session ${required}</label>
+                                <select id="session" onchange="window.updateField('session', this.value)">
+                                    <option value="2024/2025" ${studentData.session === '2024/2025' ? 'selected' : ''}>2024/2025</option>
+                                    <option value="2025/2026" ${studentData.session === '2025/2026' ? 'selected' : ''}>2025/2026</option>
+                                    <option value="2026/2027" ${studentData.session === '2026/2027' ? 'selected' : ''}>2026/2027</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: Hostel Information -->
+                    <div class="card">
+                        <div class="section-header">
+                            <span class="section-number">3</span>
+                            <h3><i class="fas fa-building text-gold"></i> Hostel Information</h3>
+                            <span class="section-badge">Required</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">Select your allocated hostel, floor/flat, room and bed space</p>
+
+                        <div class="grid-2">
+                            <div class="field">
+                                <label>Hostel ${required}</label>
+                                <select id="hostelSelect" onchange="window.updateHostelDependencies()">
+                                    <option value="">Select Hostel</option>
+                                    ${hostels.map(h => `
+                                        <option value="${h.id}" ${studentData.hostel_id == h.id ? 'selected' : ''}>
+                                            ${h.name} ${getHostelBadge(h.name)}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Floor / Flat ${required}</label>
+                                <select id="floorSelect" onchange="window.updateRoomDependencies()">
+                                    <option value="">Select Floor/Flat</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Room Number ${required}</label>
+                                <select id="roomSelect" onchange="window.updateBedDependencies()">
+                                    <option value="">Select Room</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Bed Space ${required}</label>
+                                <select id="bedSelect" onchange="window.onBedSelect()">
+                                    <option value="">Select Bed</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Bed Layout Visual -->
+                        <div id="bedVisualContainer" class="mt-3 p-3 border rounded-lg" style="background:#fff9e9;display:none;">
+                            <div class="flex-between">
+                                <p class="text-sm font-bold">Bed Layout <span class="text-muted text-xs">(Click available bed to select)</span></p>
+                                <span id="bedCountInfo" class="text-xs text-muted"></span>
+                            </div>
+                            <div id="bedVisual" class="bed-grid mt-2"></div>
+                        </div>
+
+                        <div class="mt-3 text-xs text-muted">
+                            <i class="fas fa-info-circle"></i> Bed spaces are dynamically loaded from the database
+                        </div>
+                    </div>
+
+                    <!-- SECTION 4: Emergency Contact -->
+                    <div class="card">
+                        <div class="section-header">
+                            <span class="section-number">4</span>
+                            <h3><i class="fas fa-phone-alt text-gold"></i> Emergency Contact</h3>
+                            <span class="section-badge">Required</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">Provide emergency contact information</p>
+
+                        <div class="grid-2">
+                            <div class="field">
+                                <label>Emergency Contact Name ${required}</label>
+                                <input id="emergencyName" value="${studentData.emergency_name || ''}" placeholder="e.g. Mrs. Jane Okafor" oninput="window.updateField('emergency_name', this.value)" />
+                            </div>
+                            <div class="field">
+                                <label>Relationship ${required}</label>
+                                <select id="emergencyRelation" onchange="window.updateField('emergency_relation', this.value)">
+                                    <option value="">Select Relationship</option>
+                                    <option value="Parent" ${studentData.emergency_relation === 'Parent' ? 'selected' : ''}>Parent</option>
+                                    <option value="Guardian" ${studentData.emergency_relation === 'Guardian' ? 'selected' : ''}>Guardian</option>
+                                    <option value="Sibling" ${studentData.emergency_relation === 'Sibling' ? 'selected' : ''}>Sibling</option>
+                                    <option value="Spouse" ${studentData.emergency_relation === 'Spouse' ? 'selected' : ''}>Spouse</option>
+                                    <option value="Other" ${studentData.emergency_relation === 'Other' ? 'selected' : ''}>Other</option>
+                                </select>
+                            </div>
+                            <div class="field" style="grid-column: span 2;">
+                                <label>Emergency Contact Phone ${required}</label>
+                                <input id="emergencyPhone" value="${studentData.emergency_phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('emergency_phone', this.value)" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 5: Review & Submit -->
+                    <div class="card">
+                        <div class="section-header">
+                            <span class="section-number">5</span>
+                            <h3><i class="fas fa-clipboard-check text-gold"></i> Review & Submit</h3>
+                            <span class="section-badge">Final Step</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">Review your information before submitting</p>
+
+                        <div class="grid-2">
+                            <div class="card" style="border-color:#e7edf5;padding:0.75rem;">
+                                <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-user"></i> Personal</h4>
+                                <div class="mt-1">
+                                    <div class="flex-between text-sm"><span class="text-muted">Name</span><span>${studentData.surname} ${studentData.firstName} ${studentData.middleName}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Gender</span><span>${studentData.gender || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Phone</span><span>${studentData.phone || '—'}</span></div>
                                 </div>
                             </div>
-                        `;
-
-                    case 2:
-                        return `
-                            <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-graduation-cap text-gold"></i> Academic Information</h3>
-                            <p class="text-sm text-muted mb-4">Enter your academic details</p>
-
-                            <div class="grid-2 mt-3">
-                                <div class="field">
-                                    <label>Matric Number ${required}</label>
-                                    <input id="matric" value="${studentData.matric || ''}" placeholder="e.g. SCN/CSC/230586" oninput="window.updateField('matric', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>Faculty ${required}</label>
-                                    <select id="faculty" onchange="window.updateFacultyDepartments()">
-                                        <option value="">Select Faculty</option>
-                                        ${Object.keys(facultyDepartments).map(f => `
-                                            <option value="${f}" ${studentData.faculty === f ? 'selected' : ''}>${f}</option>
-                                        `).join('')}
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Department ${required}</label>
-                                    <select id="department" onchange="window.updateField('department', this.value)">
-                                        <option value="">Select Department</option>
-                                        ${studentData.faculty ? facultyDepartments[studentData.faculty]?.map(d => `
-                                            <option value="${d}" ${studentData.department === d ? 'selected' : ''}>${d}</option>
-                                        `).join('') : ''}
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Level ${required}</label>
-                                    <select id="level" onchange="window.updateField('level', this.value)">
-                                        <option value="">Select Level</option>
-                                        <option value="100" ${studentData.level === '100' ? 'selected' : ''}>100 Level</option>
-                                        <option value="200" ${studentData.level === '200' ? 'selected' : ''}>200 Level</option>
-                                        <option value="300" ${studentData.level === '300' ? 'selected' : ''}>300 Level</option>
-                                        <option value="400" ${studentData.level === '400' ? 'selected' : ''}>400 Level</option>
-                                        <option value="500" ${studentData.level === '500' ? 'selected' : ''}>500 Level</option>
-                                        <option value="600" ${studentData.level === '600' ? 'selected' : ''}>600 Level</option>
-                                    </select>
-                                </div>
-                                <div class="field" style="grid-column: span 2;">
-                                    <label>Academic Session ${required}</label>
-                                    <select id="session" onchange="window.updateField('session', this.value)">
-                                        <option value="2024/2025" ${studentData.session === '2024/2025' ? 'selected' : ''}>2024/2025</option>
-                                        <option value="2025/2026" ${studentData.session === '2025/2026' ? 'selected' : ''}>2025/2026</option>
-                                        <option value="2026/2027" ${studentData.session === '2026/2027' ? 'selected' : ''}>2026/2027</option>
-                                    </select>
+                            <div class="card" style="border-color:#e7edf5;padding:0.75rem;">
+                                <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-graduation-cap"></i> Academic</h4>
+                                <div class="mt-1">
+                                    <div class="flex-between text-sm"><span class="text-muted">Matric</span><span>${studentData.matric || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Faculty</span><span>${studentData.faculty || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Level</span><span>${studentData.level || '—'}</span></div>
                                 </div>
                             </div>
-                        `;
-
-                    case 3:
-                        return `
-                            <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-building text-gold"></i> Hostel Information</h3>
-                            <p class="text-sm text-muted mb-4">Select your allocated hostel, floor/flat, room and bed space</p>
-
-                            <div class="grid-2 mt-3">
-                                <div class="field">
-                                    <label>Hostel ${required}</label>
-                                    <select id="hostelSelect" onchange="window.updateHostelDependencies()">
-                                        <option value="">Select Hostel</option>
-                                        ${hostels.map(h => `
-                                            <option value="${h.id}" ${studentData.hostel_id == h.id ? 'selected' : ''}>
-                                                ${h.name} ${getHostelBadge(h.name)}
-                                            </option>
-                                        `).join('')}
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Floor / Flat ${required}</label>
-                                    <select id="floorSelect" onchange="window.updateRoomDependencies()">
-                                        <option value="">Select Floor/Flat</option>
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Room Number ${required}</label>
-                                    <select id="roomSelect" onchange="window.updateBedDependencies()">
-                                        <option value="">Select Room</option>
-                                    </select>
-                                </div>
-                                <div class="field">
-                                    <label>Bed Space ${required}</label>
-                                    <select id="bedSelect" onchange="window.onBedSelect()">
-                                        <option value="">Select Bed</option>
-                                    </select>
+                            <div class="card" style="border-color:#e7edf5;padding:0.75rem;">
+                                <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-building"></i> Hostel</h4>
+                                <div class="mt-1">
+                                    <div class="flex-between text-sm"><span class="text-muted">Hostel</span><span>${hostels.find(h => h.id == studentData.hostel_id)?.name || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Room</span><span>${rooms.find(r => r.id == studentData.room_id)?.room_code || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Bed</span><span>${bedSpaces.find(b => b.id == studentData.bed_space_id)?.bed_code || '—'}</span></div>
                                 </div>
                             </div>
-
-                            <!-- Bed Layout Visual -->
-                            <div id="bedVisualContainer" class="mt-3 p-3 border rounded-lg" style="background:#fff9e9;display:none;">
-                                <div class="flex-between">
-                                    <p class="text-sm font-bold">Bed Layout <span class="text-muted text-xs">(Click available bed to select)</span></p>
-                                    <span id="bedCountInfo" class="text-xs text-muted"></span>
-                                </div>
-                                <div id="bedVisual" class="bed-grid mt-2"></div>
-                            </div>
-
-                            <div class="mt-3 text-xs text-muted">
-                                <i class="fas fa-info-circle"></i> Bed spaces are dynamically loaded from the database
-                            </div>
-                        `;
-
-                    case 4:
-                        return `
-                            <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-phone-alt text-gold"></i> Emergency Contact</h3>
-                            <p class="text-sm text-muted mb-4">Provide emergency contact information</p>
-
-                            <div class="grid-2 mt-3">
-                                <div class="field">
-                                    <label>Emergency Contact Name ${required}</label>
-                                    <input id="emergencyName" value="${studentData.emergency_name || ''}" placeholder="e.g. Mrs. Jane Okafor" oninput="window.updateField('emergency_name', this.value)" />
-                                </div>
-                                <div class="field">
-                                    <label>Relationship ${required}</label>
-                                    <select id="emergencyRelation" onchange="window.updateField('emergency_relation', this.value)">
-                                        <option value="">Select Relationship</option>
-                                        <option value="Parent" ${studentData.emergency_relation === 'Parent' ? 'selected' : ''}>Parent</option>
-                                        <option value="Guardian" ${studentData.emergency_relation === 'Guardian' ? 'selected' : ''}>Guardian</option>
-                                        <option value="Sibling" ${studentData.emergency_relation === 'Sibling' ? 'selected' : ''}>Sibling</option>
-                                        <option value="Spouse" ${studentData.emergency_relation === 'Spouse' ? 'selected' : ''}>Spouse</option>
-                                        <option value="Other" ${studentData.emergency_relation === 'Other' ? 'selected' : ''}>Other</option>
-                                    </select>
-                                </div>
-                                <div class="field" style="grid-column: span 2;">
-                                    <label>Emergency Contact Phone ${required}</label>
-                                    <input id="emergencyPhone" value="${studentData.emergency_phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('emergency_phone', this.value)" />
+                            <div class="card" style="border-color:#e7edf5;padding:0.75rem;">
+                                <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-phone-alt"></i> Emergency</h4>
+                                <div class="mt-1">
+                                    <div class="flex-between text-sm"><span class="text-muted">Name</span><span>${studentData.emergency_name || '—'}</span></div>
+                                    <div class="flex-between text-sm"><span class="text-muted">Phone</span><span>${studentData.emergency_phone || '—'}</span></div>
                                 </div>
                             </div>
-                        `;
+                        </div>
 
-                    case 5:
-                        const hostelName = hostels.find(h => h.id == studentData.hostel_id)?.name || '—';
-                        const floorName = floorsFlats.find(f => f.id == studentData.floor_flat_id)?.name || '—';
-                        const roomName = rooms.find(r => r.id == studentData.room_id)?.room_code || studentData.room_code || '—';
-                        const bedName = bedSpaces.find(b => b.id == studentData.bed_space_id)?.bed_code || studentData.bed_code || '—';
-                        return `
-                            <h3 class="font-bold text-lg" style="color:#17233c;"><i class="fas fa-clipboard-check text-gold"></i> Review & Submit</h3>
-                            <p class="text-sm text-muted mb-4">Review your information before submitting</p>
+                        <!-- Notes -->
+                        <div class="field mt-4">
+                            <label>Notes <span class="text-muted">(Optional)</span></label>
+                            <textarea id="notes" placeholder="Any special notes..." oninput="window.updateField('notes', this.value)">${studentData.notes}</textarea>
+                        </div>
 
-                            <div class="grid-2 mt-3">
-                                <div class="card" style="border-color:#e7edf5;">
-                                    <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-user"></i> Personal Information</h4>
-                                    <div class="mt-2">
-                                        <div class="flex-between text-sm"><span class="text-muted">Name</span><span>${studentData.surname} ${studentData.firstName} ${studentData.middleName}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Gender</span><span>${studentData.gender || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">DOB</span><span>${studentData.dob || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Phone</span><span>${studentData.phone || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Email</span><span>${studentData.email || '—'}</span></div>
-                                    </div>
-                                </div>
-                                <div class="card" style="border-color:#e7edf5;">
-                                    <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-graduation-cap"></i> Academic Information</h4>
-                                    <div class="mt-2">
-                                        <div class="flex-between text-sm"><span class="text-muted">Matric</span><span>${studentData.matric || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Faculty</span><span>${studentData.faculty || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Department</span><span>${studentData.department || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Level</span><span>${studentData.level || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Session</span><span>${studentData.session || '—'}</span></div>
-                                    </div>
-                                </div>
-                                <div class="card" style="border-color:#e7edf5;">
-                                    <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-building"></i> Hostel Information</h4>
-                                    <div class="mt-2">
-                                        <div class="flex-between text-sm"><span class="text-muted">Hostel</span><span>${hostelName}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Floor/Flat</span><span>${floorName || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Room</span><span>${roomName}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Bed</span><span>${bedName}</span></div>
-                                    </div>
-                                </div>
-                                <div class="card" style="border-color:#e7edf5;">
-                                    <h4 class="font-bold text-sm" style="color:#17233c;"><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
-                                    <div class="mt-2">
-                                        <div class="flex-between text-sm"><span class="text-muted">Name</span><span>${studentData.emergency_name || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Relationship</span><span>${studentData.emergency_relation || '—'}</span></div>
-                                        <div class="flex-between text-sm"><span class="text-muted">Phone</span><span>${studentData.emergency_phone || '—'}</span></div>
-                                    </div>
-                                </div>
+                        <!-- Declaration -->
+                        <div class="mt-4 pt-4 border-t">
+                            <div class="declaration-item">
+                                <input type="checkbox" id="declaration" ${studentData.declaration ? 'checked' : ''} onchange="window.updateField('declaration', this.checked)" />
+                                <label for="declaration" class="text-sm">I confirm that the information provided is accurate and complete.</label>
                             </div>
-
-                            <!-- Notes -->
-                            <div class="field mt-4">
-                                <label>Notes <span class="text-muted">(Optional)</span></label>
-                                <textarea id="notes" placeholder="Any special notes..." oninput="window.updateField('notes', this.value)">${studentData.notes}</textarea>
+                            <div class="declaration-item">
+                                <input type="checkbox" id="qrNotice" checked disabled />
+                                <label for="qrNotice" class="text-sm text-muted">I understand that my QR Code will be generated upon successful submission.</label>
                             </div>
-
-                            <!-- Declaration -->
-                            <div class="mt-4 pt-4 border-t">
-                                <div class="declaration-item">
-                                    <input type="checkbox" id="declaration" ${studentData.declaration ? 'checked' : ''} onchange="window.updateField('declaration', this.checked)" />
-                                    <label for="declaration" class="text-sm">I confirm that the information provided is accurate and complete.</label>
-                                </div>
-                                <div class="declaration-item">
-                                    <input type="checkbox" id="qrNotice" checked disabled />
-                                    <label for="qrNotice" class="text-sm text-muted">I understand that my QR Code will be generated upon successful submission.</label>
-                                </div>
-                            </div>
-                        `;
-
-                    default:
-                        return '<p>Unknown step</p>';
-                }
-            }
-
-            function updateStepIndicators() {
-                document.querySelectorAll('.progress-step').forEach((el, index) => {
-                    const stepNum = index + 1;
-                    const circle = el.querySelector('.step-circle');
-                    const label = el.querySelector('.step-label');
-                    circle.className = 'step-circle';
-                    label.className = 'step-label';
-                    if (stepNum === currentStep) {
-                        circle.classList.add('active');
-                        label.classList.add('active');
-                    } else if (stepNum < currentStep) {
-                        circle.classList.add('completed');
-                        circle.innerHTML = '<i class="fas fa-check"></i>';
-                    } else {
-                        circle.textContent = stepNum;
-                    }
-                });
+                        </div>
+                    </div>
+                `;
             }
 
             // ---------- FORM INTERACTIONS ----------
@@ -1023,23 +968,8 @@
                 }
             }
 
-            function goToStep(step) {
-                // If going to a later step, validate current step
-                if (step > currentStep) {
-                    if (!validateStep(currentStep)) {
-                        const formSection = document.getElementById('formSection');
-                        if (formSection) {
-                            formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                        return;
-                    }
-                }
-                currentStep = step;
-                renderRegistrationForm();
-            }
-
-            // ---------- IMPROVED VALIDATION WITH SPECIFIC MESSAGES ----------
-            function validateStep(step) {
+            // ---------- VALIDATION ----------
+            function validateForm() {
                 const getValue = (id) => {
                     const el = document.getElementById(id);
                     if (!el) return '';
@@ -1050,6 +980,7 @@
                     const value = getValue(id);
                     if (!value) {
                         showToast(`Please fill in your ${label}`, 'error');
+                        document.getElementById(id)?.focus();
                         return false;
                     }
                     return true;
@@ -1059,61 +990,38 @@
                     const value = getValue(id);
                     if (!value || value === '') {
                         showToast(`Please select your ${label}`, 'error');
+                        document.getElementById(id)?.focus();
                         return false;
                     }
                     return true;
                 };
-                
-                switch(step) {
-                    case 1:
-                        if (!isFilled('surname', 'surname')) return false;
-                        if (!isFilled('firstName', 'first name')) return false;
-                        if (!isSelected('gender', 'gender')) return false;
-                        if (!isFilled('dob', 'date of birth')) return false;
-                        if (!isFilled('phone', 'phone number')) return false;
-                        return true;
-                        
-                    case 2:
-                        if (!isFilled('matric', 'matric number')) return false;
-                        if (!isSelected('faculty', 'faculty')) return false;
-                        if (!isSelected('department', 'department')) return false;
-                        if (!isSelected('level', 'level')) return false;
-                        if (!isSelected('session', 'academic session')) return false;
-                        return true;
-                        
-                    case 3:
-                        const hostel = getValue('hostelSelect');
-                        const floor = getValue('floorSelect');
-                        const room = getValue('roomSelect');
-                        const bed = getValue('bedSelect');
-                        
-                        if (!hostel) {
-                            showToast('Please select your hostel', 'error');
-                            return false;
-                        }
-                        if (!floor) {
-                            showToast('Please select your floor or flat', 'error');
-                            return false;
-                        }
-                        if (!room) {
-                            showToast('Please select your room number', 'error');
-                            return false;
-                        }
-                        if (!bed) {
-                            showToast('Please select your bed space', 'error');
-                            return false;
-                        }
-                        return true;
-                        
-                    case 4:
-                        if (!isFilled('emergencyName', 'emergency contact name')) return false;
-                        if (!isSelected('emergencyRelation', 'emergency relationship')) return false;
-                        if (!isFilled('emergencyPhone', 'emergency phone number')) return false;
-                        return true;
-                        
-                    default:
-                        return true;
-                }
+
+                // Personal Info
+                if (!isFilled('surname', 'surname')) return false;
+                if (!isFilled('firstName', 'first name')) return false;
+                if (!isSelected('gender', 'gender')) return false;
+                if (!isFilled('dob', 'date of birth')) return false;
+                if (!isFilled('phone', 'phone number')) return false;
+
+                // Academic Info
+                if (!isFilled('matric', 'matric number')) return false;
+                if (!isSelected('faculty', 'faculty')) return false;
+                if (!isSelected('department', 'department')) return false;
+                if (!isSelected('level', 'level')) return false;
+                if (!isSelected('session', 'academic session')) return false;
+
+                // Hostel Info
+                if (!isSelected('hostelSelect', 'hostel')) return false;
+                if (!isSelected('floorSelect', 'floor or flat')) return false;
+                if (!isSelected('roomSelect', 'room number')) return false;
+                if (!isSelected('bedSelect', 'bed space')) return false;
+
+                // Emergency Contact
+                if (!isFilled('emergencyName', 'emergency contact name')) return false;
+                if (!isSelected('emergencyRelation', 'emergency relationship')) return false;
+                if (!isFilled('emergencyPhone', 'emergency phone number')) return false;
+
+                return true;
             }
 
             // ---------- HOSTEL DEPENDENT DROPDOWNS ----------
@@ -1369,9 +1277,6 @@
                 if (roomSelect) studentData.room_id = roomSelect.value;
                 const bedSelect = document.getElementById('bedSelect');
                 if (bedSelect) studentData.bed_space_id = bedSelect.value;
-                
-                // Save current step
-                studentData._step = currentStep;
 
                 localStorage.setItem('studentRegistrationDraft', JSON.stringify(studentData));
                 if (!silent) {
@@ -1379,19 +1284,39 @@
                 }
             }
 
+            // ---------- RESET FORM ----------
+            function resetForm() {
+                if (confirm('Are you sure you want to reset all fields?')) {
+                    studentData = {
+                        surname: '', firstName: '', middleName: '', gender: '', dob: '', phone: '', email: '',
+                        matric: '', faculty: '', department: '', level: '', session: '2025/2026',
+                        hostel_id: '', floor_flat_id: '', room_id: '', bed_space_id: '',
+                        hostel_name: '', floor_name: '', room_code: '', bed_code: '',
+                        status: 'Present', notes: '',
+                        emergency_name: '', emergency_relation: '', emergency_phone: '',
+                        declaration: false
+                    };
+                    localStorage.removeItem('studentRegistrationDraft');
+                    renderRegistrationForm();
+                    showToast('Form reset successfully', 'success');
+                }
+            }
+
             // ---------- SUBMIT REGISTRATION ----------
             async function submitRegistration() {
-                // Validate all steps
-                for (let i = 1; i <= 5; i++) {
-                    if (!validateStep(i)) {
-                        currentStep = i;
-                        renderRegistrationForm();
-                        return;
+                // Validate all fields
+                if (!validateForm()) {
+                    // Scroll to the first error
+                    const firstError = document.querySelector('.field input:invalid, .field select:invalid');
+                    if (firstError) {
+                        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
+                    return;
                 }
 
                 if (!studentData.declaration) {
                     showToast('Please agree to the declaration', 'error');
+                    document.getElementById('declaration')?.focus();
                     return;
                 }
 
@@ -1551,11 +1476,9 @@
                     hostel_name: '', floor_name: '', room_code: '', bed_code: '',
                     status: 'Present', notes: '',
                     emergency_name: '', emergency_relation: '', emergency_phone: '',
-                    declaration: false,
-                    _step: 1
+                    declaration: false
                 };
                 submitted = false;
-                currentStep = 1;
                 localStorage.removeItem('studentRegistrationDraft');
                 renderRegistrationForm();
             }
@@ -1567,7 +1490,6 @@
 
             // expose to window
             window.showToast = showToast;
-            window.goToStep = goToStep;
             window.updateField = updateField;
             window.updateFacultyDepartments = updateFacultyDepartments;
             window.updateHostelDependencies = updateHostelDependencies;
@@ -1578,6 +1500,7 @@
             window.submitRegistration = submitRegistration;
             window.populateHostelDropdowns = populateHostelDropdowns;
             window.resetRegistration = resetRegistration;
+            window.resetForm = resetForm;
             window.downloadQR = downloadQR;
             window.printSlip = printSlip;
 
