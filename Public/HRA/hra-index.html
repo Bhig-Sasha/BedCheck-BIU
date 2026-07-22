@@ -709,6 +709,12 @@
             font-size: 3rem;
             color: #10233f;
         }
+        #qrContainer .qr-status-display .qr-code-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 0.25rem;
+        }
     </style>
 </head>
 <body>
@@ -909,64 +915,109 @@
             async function loadHostelQR() {
                 try {
                     const hostelId = hostelData?.id;
-                    if (!hostelId) return;
-
-                    const response = await apiCall(`/hostels/${hostelId}/qr`);
-                    const qrDataResult = response.data;
+                    if (!hostelId) {
+                        console.warn('No hostel ID available for QR loading');
+                        return;
+                    }
 
                     const qrContainer = document.getElementById('qrContainer');
                     if (!qrContainer) return;
 
-                    if (qrDataResult) {
-                        // QR exists and is active
-                        const qrCode = qrDataResult.code;
-                        const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
-                        const usageCount = qrDataResult.usage_count || 0;
-                        const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
+                    // Show loading state
+                    qrContainer.innerHTML = `
+                        <div class="loading-spinner" style="padding:1rem;">
+                            <i class="fas fa-spinner"></i> Loading QR...
+                        </div>
+                    `;
 
-                        qrContainer.innerHTML = `
-                            <div class="qr-status-display">
-                                <div class="qr-code-image">
-                                    <i class="fas fa-qrcode"></i>
+                    try {
+                        const response = await apiCall(`/hostels/${hostelId}/qr`);
+                        const qrDataResult = response.data;
+
+                        if (qrDataResult) {
+                            // QR exists and is active
+                            const qrCode = qrDataResult.code;
+                            const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
+                            const usageCount = qrDataResult.usage_count || 0;
+                            const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
+
+                            qrContainer.innerHTML = `
+                                <div class="qr-status-display">
+                                    <div class="qr-code-image">
+                                        <i class="fas fa-qrcode"></i>
+                                    </div>
+                                    <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelData.code || hostelData.name.toUpperCase().replace(/\s/g, '-')}</div>
+                                    <div class="text-xs text-muted text-center">QR Code: ${qrCode}</div>
+                                    <div class="text-xs text-muted text-center">Generated: ${generatedAt}</div>
+                                    <div class="text-xs text-muted text-center">Expires: ${expiresAt}</div>
+                                    <div class="text-xs text-muted text-center">Scans: ${usageCount}</div>
+                                    <div class="mt-2 flex gap-2" style="justify-content:center;flex-wrap:wrap;">
+                                        <button class="btn-primary" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.showQRCodeModal()"><i class="fas fa-qrcode"></i> View QR</button>
+                                        <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.downloadQRCode('${qrCode}')"><i class="fas fa-download"></i> Download</button>
+                                        <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.regenerateQRCode()"><i class="fas fa-sync"></i> Regenerate</button>
+                                    </div>
                                 </div>
-                                <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelData.code || hostelData.name.toUpperCase().replace(/\s/g, '-')}</div>
-                                <div class="text-xs text-muted text-center">QR Code: ${qrCode}</div>
-                                <div class="text-xs text-muted text-center">Generated: ${generatedAt}</div>
-                                <div class="text-xs text-muted text-center">Expires: ${expiresAt}</div>
-                                <div class="text-xs text-muted text-center">Scans: ${usageCount}</div>
-                                <div class="mt-2 flex gap-2" style="justify-content:center;flex-wrap:wrap;">
-                                    <button class="btn-primary" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.showQRCodeModal()"><i class="fas fa-qrcode"></i> View QR</button>
-                                    <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.downloadQRCode('${qrCode}')"><i class="fas fa-download"></i> Download</button>
-                                    <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.regenerateQRCode()"><i class="fas fa-sync"></i> Regenerate</button>
+                            `;
+                            qrData = qrDataResult;
+                            
+                            // Update status badge
+                            const statusBadge = document.getElementById('qrStatusBadge');
+                            if (statusBadge) {
+                                statusBadge.className = 'badge badge-approved';
+                                statusBadge.textContent = '✅ ACTIVE';
+                            }
+                        } else {
+                            // No QR code exists yet
+                            qrContainer.innerHTML = `
+                                <div class="qr-status-display text-center">
+                                    <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
+                                        <i class="fas fa-qrcode"></i>
+                                    </div>
+                                    <div class="text-sm text-muted mt-2">No QR code generated yet</div>
+                                    <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
                                 </div>
-                            </div>
-                        `;
-                        qrData = qrDataResult;
-                    } else {
-                        // No QR code exists yet - Show Generate button
-                        qrContainer.innerHTML = `
-                            <div class="qr-status-display text-center">
-                                <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                    <i class="fas fa-qrcode"></i>
+                            `;
+                            qrData = null;
+                            
+                            // Update status badge
+                            const statusBadge = document.getElementById('qrStatusBadge');
+                            if (statusBadge) {
+                                statusBadge.className = 'badge badge-draft';
+                                statusBadge.textContent = '⏳ NOT GENERATED';
+                            }
+                        }
+                    } catch (error) {
+                        // If the API returns 404 (Hostel not found), show generate button
+                        if (error.message.includes('404') || error.message.includes('not found')) {
+                            qrContainer.innerHTML = `
+                                <div class="qr-status-display text-center">
+                                    <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
+                                        <i class="fas fa-qrcode"></i>
+                                    </div>
+                                    <div class="text-sm text-muted mt-2">No QR code generated yet</div>
+                                    <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
                                 </div>
-                                <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
-                            </div>
-                        `;
-                        qrData = null;
+                            `;
+                            qrData = null;
+                            
+                            const statusBadge = document.getElementById('qrStatusBadge');
+                            if (statusBadge) {
+                                statusBadge.className = 'badge badge-draft';
+                                statusBadge.textContent = '⏳ NOT GENERATED';
+                            }
+                        } else {
+                            throw error;
+                        }
                     }
                 } catch (error) {
                     console.error('Error loading QR code:', error);
                     const qrContainer = document.getElementById('qrContainer');
                     if (qrContainer) {
-                        // Still show generate button even if API fails
                         qrContainer.innerHTML = `
-                            <div class="qr-status-display text-center">
-                                <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                    <i class="fas fa-qrcode"></i>
-                                </div>
-                                <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
+                            <div class="text-center text-muted text-sm" style="padding:1rem;">
+                                <i class="fas fa-exclamation-triangle" style="color:#a84134;"></i>
+                                <span>Error loading QR. </span>
+                                <button class="btn-ghost" style="font-size:0.7rem;display:inline;" onclick="window.loadHostelQR()">Retry</button>
                             </div>
                         `;
                     }
@@ -1048,7 +1099,10 @@
                     background: white; border-radius: 1rem; padding: 2rem;
                     max-width: 90vw; max-height: 90vh;
                     text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                    position: relative;
                 `;
+                modal.onclick = function(e) { e.stopPropagation(); };
+                
                 modal.innerHTML = `
                     <h3 style="font-family:'Merriweather',serif;margin-bottom:0.5rem;">${hostelData?.name || 'Hostel'} QR Code</h3>
                     <div style="width:200px;height:200px;margin:0 auto;background:#fff;border:2px solid #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:6rem;color:#10233f;">
@@ -1113,7 +1167,7 @@
 
                     updateUserDisplay();
 
-                    // Load all data from DB - REMOVED notifications call
+                    // Load all data from DB
                     const [studentsRes, staffRes, floorsRes, roomsRes, bedRes, sessionRes, alertRes, scanRes] = await Promise.all([
                         apiCall(`/hostels/${hostelData.id}/students`).catch(() => ({ data: [] })),
                         apiCall(`/hostels/${hostelData.id}/staff`).catch(() => ({ data: [] })),
@@ -1236,9 +1290,6 @@
                 const activeRAs = staff.filter(s => (s.role === 'RA' || s.role === 'Resident Advisor') && s.status === 'Active').length;
                 
                 const roomsTotal = hostelData.total_rooms || 42;
-                const roomsOccupied = bedSpaces.filter(b => b.status === 'occupied').length;
-                const roomsAvailable = bedSpaces.filter(b => b.status === 'available').length;
-                const roomsMaintenance = bedSpaces.filter(b => b.status === 'maintenance').length;
 
                 const hasSession = sessionData !== null && sessionData.status === 'Active';
                 const sessionName = sessionData?.name || 'Night BedCheck';
@@ -1409,7 +1460,7 @@
                         <div class="card">
                             <div class="flex-between">
                                 <div class="card-title" style="font-size:1rem;">Hostel QR Code</div>
-                                <span class="badge ${qrData ? 'badge-approved' : 'badge-draft'}" style="font-size:0.7rem;">${qrData ? '✅ ACTIVE' : '⏳ NOT GENERATED'}</span>
+                                <span id="qrStatusBadge" class="badge badge-draft" style="font-size:0.7rem;">⏳ LOADING...</span>
                             </div>
                             <div id="qrContainer">
                                 <div class="loading-spinner" style="padding:1rem;">
@@ -1620,6 +1671,12 @@
                 });
             }
 
+            // Expose functions globally
+            window.loadHostelQR = loadHostelQR;
+            window.generateQRCode = generateQRCode;
+            window.regenerateQRCode = regenerateQRCode;
+            window.showQRCodeModal = showQRCodeModal;
+            window.downloadQRCode = downloadQRCode;
             window.showToast = showToast;
             window.loadAllData = loadAllData;
 
