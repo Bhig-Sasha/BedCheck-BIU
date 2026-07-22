@@ -734,6 +734,55 @@
             text-align: center;
             padding: 1rem;
         }
+
+        /* Floor group styles */
+        .floor-group {
+            margin-bottom: 1rem;
+        }
+        .floor-group:last-child {
+            margin-bottom: 0;
+        }
+        .floor-group-header {
+            background: #f0ebe3;
+            padding: 0.4rem 0.75rem;
+            border-radius: 0.4rem;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #17233c;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+        .floor-group-header .floor-group-count {
+            font-size: 0.65rem;
+            color: #68768a;
+            font-weight: 400;
+        }
+        .floor-group .room-row {
+            display: grid;
+            grid-template-columns: 1fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr;
+            padding: 0.3rem 0.75rem;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #f5f1e8;
+            align-items: center;
+        }
+        .floor-group .room-row:last-child {
+            border-bottom: none;
+        }
+        .floor-group .room-row .room-code {
+            font-weight: 600;
+        }
+        .floor-group .room-row .badge {
+            font-size: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            .floor-group .room-row {
+                grid-template-columns: 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;
+                font-size: 0.7rem;
+                padding: 0.3rem 0.5rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -808,7 +857,7 @@
             'use strict';
 
             // =============================================
-            // HRA HOSTEL COMMAND CENTER - FIXED QR ENDPOINTS
+            // HRA HOSTEL COMMAND CENTER
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -827,7 +876,6 @@
             let pendingCases = [];
             let qrData = null;
 
-            // Make hostelData globally accessible
             window._hostelData = hostelData;
 
             // ---------- DOM REFS ----------
@@ -925,16 +973,14 @@
             }
 
             // =============================================
-            // QR CODE FUNCTIONS - FIXED
+            // QR CODE FUNCTIONS
             // =============================================
 
-            // Load QR code using the hostel ID
             async function loadHostelQR() {
                 try {
                     const qrContainer = document.getElementById('qrContainer');
                     if (!qrContainer) return;
 
-                    // Show loading
                     qrContainer.innerHTML = `
                         <div class="qr-container-loading">
                             <i class="fas fa-spinner"></i> Loading QR...
@@ -955,12 +1001,10 @@
 
                         console.log('🔍 Fetching QR for hostel ID:', hostelId);
 
-                        // Use the /qr/hostel/:id endpoint
                         const response = await apiCall(`/qr/hostel/${hostelId}`);
                         const qrDataResult = response.data;
 
                         if (qrDataResult) {
-                            // QR exists and is active
                             const qrCode = qrDataResult.code;
                             const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
                             const usageCount = qrDataResult.usage_count || 0;
@@ -1001,14 +1045,12 @@
                                 statusBadge.textContent = '✅ ACTIVE';
                             }
                         } else {
-                            // No QR code exists yet
-                            const message = response.message || 'No QR code generated yet';
                             qrContainer.innerHTML = `
                                 <div class="qr-container-empty">
                                     <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
                                         <i class="fas fa-qrcode"></i>
                                     </div>
-                                    <div class="text-sm text-muted mt-2">${message}</div>
+                                    <div class="text-sm text-muted mt-2">No QR code generated yet</div>
                                     <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()">
                                         <i class="fas fa-plus"></i> Generate QR Code
                                     </button>
@@ -1026,7 +1068,6 @@
                     } catch (error) {
                         console.warn('QR API error:', error.message);
                         
-                        // Check if error is 404 or no QR found
                         if (error.message.includes('404') || error.message.includes('No active QR')) {
                             qrContainer.innerHTML = `
                                 <div class="qr-container-empty">
@@ -1074,7 +1115,6 @@
             }
             window.loadHostelQR = loadHostelQR;
 
-            // Generate QR code for the hostel
             async function generateQRCode() {
                 try {
                     const staffId = getStaffId();
@@ -1116,7 +1156,6 @@
             }
             window.generateQRCode = generateQRCode;
 
-            // Regenerate QR code
             async function regenerateQRCode() {
                 try {
                     if (!confirm('This will replace the current QR code. The old QR code will no longer work. Continue?')) {
@@ -1148,7 +1187,6 @@
             }
             window.regenerateQRCode = regenerateQRCode;
 
-            // Show QR code in a modal
             function showQRCodeModal() {
                 const currentQrData = qrData || window._qrData;
                 if (!currentQrData) {
@@ -1194,7 +1232,6 @@
             }
             window.showQRCodeModal = showQRCodeModal;
 
-            // Download QR code
             function downloadQRCode(qrCode) {
                 if (!qrCode) {
                     showToast('No QR code available', 'error');
@@ -1227,7 +1264,6 @@
                         return;
                     }
 
-                    // Load HRA's hostel
                     const hostelRes = await apiCall(`/hra/hostel`);
                     hostelData = hostelRes.data;
                     window._hostelData = hostelData;
@@ -1244,7 +1280,6 @@
 
                     updateUserDisplay();
 
-                    // Load all data from DB
                     const [studentsRes, staffRes, floorsRes, roomsRes, bedRes, sessionRes, alertRes, scanRes] = await Promise.all([
                         apiCall(`/hostels/${hostelData.id}/students`).catch(() => ({ data: [] })),
                         apiCall(`/hostels/${hostelData.id}/staff`).catch(() => ({ data: [] })),
@@ -1265,7 +1300,6 @@
                     alerts = alertRes.data || [];
                     scans = scanRes.data || [];
 
-                    // Generate pending cases
                     pendingCases = students
                         .filter(s => s.status === 'Absent' || s.status === 'Late' || (s.room_id === null || s.room_id === 0))
                         .slice(0, 4)
@@ -1279,7 +1313,6 @@
                                      s.status === 'Late' ? 'Review' : 'Investigate'
                         }));
 
-                    // Set date
                     const now = new Date();
                     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                     const dateEl = document.getElementById('currentDate');
@@ -1300,7 +1333,6 @@
                 noticeText.textContent = msg;
             }
 
-            // ---------- HELPERS ----------
             function statusBadge(status) {
                 const map = {
                     'Active': 'badge-active',
@@ -1347,14 +1379,11 @@
                 const verified = present;
                 const completion = totalStudents > 0 ? Math.round((verified / totalStudents) * 100) : 0;
                 
-                const roomsTotal = hostelData.total_rooms || 42;
-
                 const hasSession = sessionData !== null && sessionData.status === 'Active';
                 const sessionName = sessionData?.name || 'Night BedCheck';
                 const sessionStart = sessionData?.start_time || '10:00 PM';
                 const sessionEnd = sessionData?.end_time || '12:00 AM';
 
-                // Time
                 const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 const end = new Date();
                 end.setHours(23, 59, 59, 0);
@@ -1364,13 +1393,11 @@
                 const secs = diff % 60;
                 const countdownStr = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
-                // Greeting
                 const hour = now.getHours();
                 let greeting = 'Good Evening';
                 if (hour < 12) greeting = 'Good Morning';
                 else if (hour < 17) greeting = 'Good Afternoon';
 
-                // Floor status
                 const floorData = floors.map(f => {
                     const floorStudents = students.filter(s => s.floor_flat_id === f.id);
                     const total = floorStudents.length;
@@ -1387,22 +1414,32 @@
                     };
                 });
 
-                // Room data
-                const roomData = rooms.slice(0, 6).map(r => {
-                    const roomStudents = students.filter(s => s.room_id === r.id);
+                // Group rooms by floor for the room table
+                const roomsByFloor = {};
+                rooms.forEach(room => {
+                    const floorId = room.floor_flat_id;
+                    if (!roomsByFloor[floorId]) {
+                        const floor = floors.find(f => f.id === floorId);
+                        roomsByFloor[floorId] = {
+                            floorName: floor?.name || 'Unknown Floor',
+                            rooms: []
+                        };
+                    }
+                    const roomStudents = students.filter(s => s.room_id === room.id);
                     const occupied = roomStudents.length;
                     const capacity = 4;
                     const available = capacity - occupied;
                     let status = 'Available';
                     if (occupied === capacity) status = 'Full';
                     else if (available > 0) status = 'Available';
-                    return {
-                        code: r.room_code || 'Room ' + r.id,
+                    
+                    roomsByFloor[floorId].rooms.push({
+                        code: room.room_code || 'Room ' + room.id,
                         capacity: capacity,
                         occupied: occupied,
                         available: available,
                         status: status
-                    };
+                    });
                 });
 
                 // Recent activity
@@ -1425,6 +1462,41 @@
                             });
                         }
                     });
+                }
+
+                // Build room table HTML grouped by floor
+                let roomTableHtml = '';
+                if (Object.keys(roomsByFloor).length > 0) {
+                    // Sort floors by name
+                    const sortedFloorKeys = Object.keys(roomsByFloor).sort((a, b) => {
+                        const nameA = roomsByFloor[a].floorName;
+                        const nameB = roomsByFloor[b].floorName;
+                        return nameA.localeCompare(nameB);
+                    });
+                    
+                    sortedFloorKeys.forEach(floorId => {
+                        const floorGroup = roomsByFloor[floorId];
+                        roomTableHtml += `
+                            <div class="floor-group">
+                                <div class="floor-group-header">
+                                    <span>${floorGroup.floorName}</span>
+                                    <span class="floor-group-count">${floorGroup.rooms.length} rooms</span>
+                                </div>
+                                ${floorGroup.rooms.map(r => `
+                                    <div class="room-row">
+                                        <span class="room-code">${r.code}</span>
+                                        <span>${r.capacity}</span>
+                                        <span>${r.occupied}</span>
+                                        <span>${r.available}</span>
+                                        <span>${statusBadge(r.status)}</span>
+                                        <span><button class="btn-ghost" style="font-size:0.6rem;" onclick="showToast('Viewing ${r.code}','info')">View</button></span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    });
+                } else {
+                    roomTableHtml = '<p class="text-muted text-sm">No rooms found</p>';
                 }
 
                 const html = `
@@ -1553,30 +1625,22 @@
                         </div>
                     </div>
 
-                    <!-- ===== ROW 4: Room Occupancy ===== -->
+                    <!-- ===== ROW 4: Room Occupancy (Grouped by Floor/Flat) ===== -->
                     <div class="card mt-6">
                         <div class="flex-between">
                             <div class="card-title" style="font-size:1rem;">Room Occupancy & Bed Availability</div>
                             <span class="text-xs text-muted">${rooms.length} rooms · ${bedSpaces.length} beds</span>
                         </div>
                         <div class="room-table-wrap mt-2">
-                            <table>
-                                <thead>
-                                    <tr><th>Room</th><th>Capacity</th><th>Occupied</th><th>Available</th><th>Status</th><th>Action</th></tr>
-                                </thead>
-                                <tbody>
-                                    ${roomData.length > 0 ? roomData.map(r => `
-                                        <tr>
-                                            <td><span class="font-bold">${r.code}</span></td>
-                                            <td>${r.capacity}</td>
-                                            <td>${r.occupied}</td>
-                                            <td>${r.available}</td>
-                                            <td>${statusBadge(r.status)}</td>
-                                            <td><button class="btn-ghost" style="font-size:0.7rem;" onclick="showToast('Viewing ${r.code}','info')">View</button></td>
-                                        </tr>
-                                    `).join('') : '<tr><td colspan="6" class="text-center text-muted" style="padding:1rem;">No rooms found</td></tr>'}
-                                </tbody>
-                            </table>
+                            <div style="display:grid;grid-template-columns:1fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr;padding:0.4rem 0.75rem;font-weight:700;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.05em;color:#68768a;border-bottom:2px solid #ded6c9;background:#fbf7ef;border-radius:0.4rem 0.4rem 0 0;">
+                                <span>Room</span>
+                                <span>Capacity</span>
+                                <span>Occupied</span>
+                                <span>Available</span>
+                                <span>Status</span>
+                                <span>Action</span>
+                            </div>
+                            ${roomTableHtml}
                         </div>
                     </div>
 
@@ -1650,7 +1714,6 @@
 
                 screenContent.innerHTML = html;
                 
-                // Load QR code after rendering
                 setTimeout(() => {
                     loadHostelQR();
                 }, 500);
@@ -1684,7 +1747,6 @@
                 }, 1000);
             }
 
-            // ---------- LOGOUT ----------
             function handleLogout() {
                 sessionStorage.removeItem('bedcheck_user');
                 localStorage.removeItem('bedcheck_user');
