@@ -19,7 +19,6 @@ const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
 if (!supabaseUrl || !supabaseKey) {
   console.error('❌ Missing Supabase credentials in .env file');
   console.error('Please set SUPABASE_URL and SUPABASE_KEY');
-  // Don't exit on Render - let it try to continue
   if (process.env.NODE_ENV !== 'production') {
     process.exit(1);
   }
@@ -31,18 +30,13 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // MIDDLEWARE
 // =====================================================
 
-// CORS - Allow all origins in production
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    // In production, allow any origin or configure specific ones
     const allowedOrigins = process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',') 
       : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://localhost:3001'];
     
-    // Allow any origin in production if not specified
     if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
       return callback(null, true);
     }
@@ -50,7 +44,6 @@ const corsOptions = {
     if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
       callback(null, true);
     } else {
-      // In production, be more permissive
       if (process.env.NODE_ENV === 'production') {
         callback(null, true);
       } else {
@@ -67,7 +60,6 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Capture request details for audit
 app.use((req, res, next) => {
   req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.connection?.remoteAddress || 'unknown';
   req.userAgent = req.headers['user-agent'] || 'unknown';
@@ -75,7 +67,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint for Render
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
@@ -84,7 +75,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     name: 'BIU BedCheck API',
@@ -96,46 +86,11 @@ app.get('/', (req, res) => {
 });
 
 // =====================================================
-// HELPER: Check if table/column exists
-// =====================================================
-
-async function tableExists(tableName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_name', tableName)
-      .eq('table_schema', 'public')
-      .maybeSingle();
-    
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function columnExists(tableName, columnName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.columns')
-      .select('column_name')
-      .eq('table_name', tableName)
-      .eq('column_name', columnName)
-      .maybeSingle();
-    
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
-// =====================================================
-// QR CODES TABLE INITIALIZATION
+// HELPER FUNCTIONS
 // =====================================================
 
 async function ensureQRCodesTable() {
   try {
-    // Check if table exists
     const { data: tableCheck, error: tableError } = await supabase
       .from('information_schema.tables')
       .select('table_name')
@@ -155,7 +110,6 @@ async function ensureQRCodesTable() {
 
     console.log('⚠️ qr_codes table does not exist. Creating it...');
     
-    // Create the table using raw SQL
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS qr_codes (
         id BIGSERIAL PRIMARY KEY,
@@ -184,6 +138,34 @@ async function ensureQRCodesTable() {
     return false;
   } catch (error) {
     console.error('❌ Error ensuring qr_codes table:', error);
+    return false;
+  }
+}
+
+async function tableExists(tableName) {
+  try {
+    const { data, error } = await supabase
+      .from('information_schema.tables')
+      .select('table_name')
+      .eq('table_name', tableName)
+      .eq('table_schema', 'public')
+      .maybeSingle();
+    return !error && data;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function columnExists(tableName, columnName) {
+  try {
+    const { data, error } = await supabase
+      .from('information_schema.columns')
+      .select('column_name')
+      .eq('table_name', tableName)
+      .eq('column_name', columnName)
+      .maybeSingle();
+    return !error && data;
+  } catch (e) {
     return false;
   }
 }
@@ -217,8 +199,6 @@ const auditService = {
         time = null
       } = params;
 
-      const logResult = result;
-
       const { data, error } = await supabase
         .from('audit_logs')
         .insert({
@@ -229,7 +209,7 @@ const auditService = {
           module,
           details,
           context: context || action,
-          result: logResult,
+          result,
           category,
           tone,
           hostel_id,
@@ -247,8 +227,7 @@ const auditService = {
         .single();
 
       if (error) throw error;
-      
-      console.log(`📝 Audit Log: ${actor} (${actor_role}) - ${action} [${logResult}]`);
+      console.log(`📝 Audit Log: ${actor} (${actor_role}) - ${action} [${result}]`);
       return data;
     } catch (error) {
       console.error('❌ Failed to create audit log:', error);
@@ -258,46 +237,16 @@ const auditService = {
 
   async getLogs(filters = {}) {
     try {
-      let query = supabase
-        .from('audit_logs')
-        .select('*', { count: 'exact' });
-
-      if (filters.hostel_id) {
-        query = query.eq('hostel_id', parseInt(filters.hostel_id));
-      }
-
-      if (filters.actor) {
-        query = query.ilike('actor', `%${filters.actor}%`);
-      }
-
-      if (filters.action) {
-        query = query.ilike('action', `%${filters.action}%`);
-      }
-
-      if (filters.module) {
-        query = query.eq('module', filters.module);
-      }
-
-      if (filters.category) {
-        query = query.eq('category', filters.category);
-      }
-
-      if (filters.result) {
-        query = query.eq('result', filters.result);
-      }
-
-      if (filters.actor_role) {
-        query = query.eq('actor_role', filters.actor_role);
-      }
-
-      if (filters.from_date) {
-        query = query.gte('created_at', new Date(filters.from_date).toISOString());
-      }
-
-      if (filters.to_date) {
-        query = query.lte('created_at', new Date(filters.to_date).toISOString());
-      }
-
+      let query = supabase.from('audit_logs').select('*', { count: 'exact' });
+      if (filters.hostel_id) query = query.eq('hostel_id', parseInt(filters.hostel_id));
+      if (filters.actor) query = query.ilike('actor', `%${filters.actor}%`);
+      if (filters.action) query = query.ilike('action', `%${filters.action}%`);
+      if (filters.module) query = query.eq('module', filters.module);
+      if (filters.category) query = query.eq('category', filters.category);
+      if (filters.result) query = query.eq('result', filters.result);
+      if (filters.actor_role) query = query.eq('actor_role', filters.actor_role);
+      if (filters.from_date) query = query.gte('created_at', new Date(filters.from_date).toISOString());
+      if (filters.to_date) query = query.lte('created_at', new Date(filters.to_date).toISOString());
       if (filters.search) {
         query = query.or(
           `actor.ilike.%${filters.search}%,` +
@@ -309,53 +258,26 @@ const auditService = {
 
       const limit = filters.limit || 50;
       const offset = filters.offset || 0;
-
-      query = query
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+      query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data, error, count } = await query;
-
       if (error) throw error;
 
-      return {
-        success: true,
-        data,
-        total: count || 0,
-        limit,
-        offset
-      };
+      return { success: true, data, total: count || 0, limit, offset };
     } catch (error) {
       console.error('❌ Failed to get audit logs:', error);
-      return {
-        success: false,
-        error: error.message,
-        data: []
-      };
+      return { success: false, error: error.message, data: [] };
     }
   },
 
   async getRecentActivity(hostel_id = null, limit = 10) {
     try {
-      let query = supabase
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (hostel_id) {
-        query = query.eq('hostel_id', hostel_id);
-      }
-
+      let query = supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (hostel_id) query = query.eq('hostel_id', hostel_id);
       const { data, error } = await query;
-
       if (error) throw error;
-
       return data.map(log => ({
-        time: new Date(log.created_at).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
+        time: new Date(log.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         actor: log.actor,
         action: log.action,
         context: log.context || '',
@@ -371,24 +293,12 @@ const auditService = {
 
   async getStats(filters = {}) {
     try {
-      let query = supabase
-        .from('audit_logs')
-        .select('*', { count: 'exact' });
-
-      if (filters.hostel_id) {
-        query = query.eq('hostel_id', parseInt(filters.hostel_id));
-      }
-
-      if (filters.from_date) {
-        query = query.gte('created_at', new Date(filters.from_date).toISOString());
-      }
-
-      if (filters.to_date) {
-        query = query.lte('created_at', new Date(filters.to_date).toISOString());
-      }
+      let query = supabase.from('audit_logs').select('*', { count: 'exact' });
+      if (filters.hostel_id) query = query.eq('hostel_id', parseInt(filters.hostel_id));
+      if (filters.from_date) query = query.gte('created_at', new Date(filters.from_date).toISOString());
+      if (filters.to_date) query = query.lte('created_at', new Date(filters.to_date).toISOString());
 
       const { data, error } = await query;
-
       if (error) throw error;
 
       const stats = {
@@ -411,33 +321,25 @@ const auditService = {
 
       data.forEach(log => {
         const date = new Date(log.created_at);
-        
         stats.byResult[log.result] = (stats.byResult[log.result] || 0) + 1;
         stats.byCategory[log.category] = (stats.byCategory[log.category] || 0) + 1;
         stats.byModule[log.module] = (stats.byModule[log.module] || 0) + 1;
         stats.byActor[log.actor] = (stats.byActor[log.actor] || 0) + 1;
-        
         if (date >= today) stats.today++;
         if (date >= weekAgo) stats.thisWeek++;
         if (date >= monthAgo) stats.thisMonth++;
       });
 
-      return {
-        success: true,
-        data: stats
-      };
+      return { success: true, data: stats };
     } catch (error) {
       console.error('❌ Failed to get audit stats:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 };
 
 // =====================================================
-// AUDIT EVENTS - Integrated (No Fingerprint)
+// AUDIT EVENTS - (Keep existing auditEvents here)
 // =====================================================
 
 const auditEvents = {
@@ -919,13 +821,9 @@ app.get('/api/audit/summary', async (req, res) => {
   try {
     const { hostel_id } = req.query;
     
-    // Get stats
     const statsResult = await auditService.getStats({ hostel_id });
-    
-    // Get recent activity
     const recentActivity = await auditService.getRecentActivity(hostel_id || null, 5);
     
-    // Get today's activity count
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString();
@@ -1323,8 +1221,110 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT - COMPLETE INTEGRATION
+// QR CODE MANAGEMENT - UPDATED WITH FIXES
 // =====================================================
+
+// Get active QR code for hostel
+app.get('/api/hostels/:id/qr', async (req, res) => {
+  try {
+    const hostelId = parseInt(req.params.id);
+    
+    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
+    
+    // First verify hostel exists using maybeSingle
+    const { data: hostel, error: hostelError } = await supabase
+      .from('hostels')
+      .select('id, name, code')
+      .eq('id', hostelId)
+      .maybeSingle();
+    
+    if (hostelError) {
+      console.error('❌ Hostel query error:', hostelError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database error: ' + hostelError.message 
+      });
+    }
+    
+    if (!hostel) {
+      console.log(`⚠️ Hostel with ID ${hostelId} not found`);
+      return res.json({
+        success: true,
+        data: null,
+        message: 'Hostel not found'
+      });
+    }
+    
+    console.log(`✅ Found hostel: ${hostel.name} (ID: ${hostelId})`);
+    
+    // Check if qr_codes table exists
+    const tableCheck = await ensureQRCodesTable();
+    if (!tableCheck) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'QR codes table does not exist yet. Please generate a QR code.'
+      });
+    }
+    
+    // Get active QR code
+    const { data: qrData, error: qrError } = await supabase
+      .from('qr_codes')
+      .select('*')
+      .eq('hostel_id', hostelId)
+      .eq('is_active', true)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (qrError) {
+      console.error('❌ QR fetch error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error fetching QR code: ' + qrError.message
+      });
+    }
+
+    if (!qrData) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active QR code found. Generate one first.'
+      });
+    }
+
+    // Update usage count
+    try {
+      await supabase
+        .from('qr_codes')
+        .update({
+          last_used_at: new Date().toISOString(),
+          usage_count: (qrData.usage_count || 0) + 1
+        })
+        .eq('id', qrData.id);
+    } catch (e) {
+      console.log('ℹ️ Error updating usage count:', e.message);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...qrData,
+        hostel: {
+          id: hostel.id,
+          name: hostel.name,
+          code: hostel.code
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
 
 // Generate QR code for hostel
 app.post('/api/hostels/:id/qr/generate', async (req, res) => {
@@ -1336,26 +1336,26 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
     
     console.log(`🔄 Generating QR for hostel ID: ${hostelId}`);
     
-    // First, check if hostel exists
+    // Check if hostel exists using maybeSingle
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
       .select('id, name, code')
       .eq('id', hostelId)
-      .single();
+      .maybeSingle();
     
-    if (hostelError || !hostel) {
-      console.error('❌ Hostel not found:', hostelError);
-      
-      // Let's check what hostels exist
-      const { data: allHostels, error: listError } = await supabase
-        .from('hostels')
-        .select('id, name');
-      
-      console.log('📋 Available hostels:', allHostels);
-      
+    if (hostelError) {
+      console.error('❌ Hostel query error:', hostelError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database error: ' + hostelError.message 
+      });
+    }
+    
+    if (!hostel) {
+      console.log(`❌ Hostel with ID ${hostelId} not found`);
       return res.status(404).json({ 
         success: false, 
-        message: `Hostel with ID ${hostelId} not found. Available hostels: ${allHostels?.map(h => `${h.id}: ${h.name}`).join(', ') || 'none'}` 
+        message: `Hostel with ID ${hostelId} not found` 
       });
     }
 
@@ -1364,7 +1364,6 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
     // Check if qr_codes table exists
     const tableCheck = await ensureQRCodesTable();
     if (!tableCheck) {
-      // Table doesn't exist - return helpful message
       return res.status(500).json({
         success: false,
         message: 'QR codes table does not exist. Please run the SQL migration script in your Supabase SQL editor.'
@@ -1381,8 +1380,8 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    // Inactivate old QR codes for this hostel
-    const { error: updateError } = await supabase
+    // Inactivate old QR codes
+    await supabase
       .from('qr_codes')
       .update({ 
         is_active: false,
@@ -1390,10 +1389,6 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       })
       .eq('hostel_id', hostelId)
       .eq('is_active', true);
-
-    if (updateError) {
-      console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
-    }
 
     // Insert new QR code
     const { data: qrDataInsert, error: qrError } = await supabase
@@ -1458,97 +1453,6 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
   }
 });
 
-// Get active QR code for hostel
-app.get('/api/hostels/:id/qr', async (req, res) => {
-  try {
-    const hostelId = parseInt(req.params.id);
-    
-    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
-    
-    // Check if hostel exists
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('id, name, code')
-      .eq('id', hostelId)
-      .single();
-    
-    if (hostelError || !hostel) {
-      console.error('❌ Hostel not found:', hostelError);
-      return res.status(404).json({ 
-        success: false, 
-        message: `Hostel with ID ${hostelId} not found` 
-      });
-    }
-    
-    // Check if qr_codes table exists
-    const tableCheck = await ensureQRCodesTable();
-    if (!tableCheck) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'QR codes table does not exist yet. Please generate a QR code.'
-      });
-    }
-    
-    const { data: qrData, error: qrError } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('hostel_id', hostelId)
-      .eq('is_active', true)
-      .order('generated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (qrError) {
-      console.error('❌ QR fetch error:', qrError);
-      throw qrError;
-    }
-
-    if (!qrData) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'No active QR code found. Generate one first.'
-      });
-    }
-
-    // Update usage count when viewed
-    try {
-      const { error: updateError } = await supabase
-        .from('qr_codes')
-        .update({
-          last_used_at: new Date().toISOString(),
-          usage_count: (qrData.usage_count || 0) + 1
-        })
-        .eq('id', qrData.id);
-
-      if (updateError) {
-        console.log('ℹ️ Error updating usage count:', updateError.message);
-      }
-    } catch (e) {
-      console.log('ℹ️ Error updating usage count:', e.message);
-    }
-
-    res.json({
-      success: true,
-      data: {
-        ...qrData,
-        hostel: {
-          id: hostel.id,
-          name: hostel.name,
-          code: hostel.code
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching QR code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
 // Verify QR code scan
 app.post('/api/qr/verify', async (req, res) => {
   try {
@@ -1578,7 +1482,7 @@ app.post('/api/qr/verify', async (req, res) => {
       .select('*, hostels(id, name)')
       .eq('code', qr_code)
       .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     if (qrError || !qrRecord) {
       return res.status(404).json({
@@ -1597,17 +1501,13 @@ app.post('/api/qr/verify', async (req, res) => {
 
     // Update usage
     try {
-      const { error: updateError } = await supabase
+      await supabase
         .from('qr_codes')
         .update({
           last_used_at: new Date().toISOString(),
           usage_count: (qrRecord.usage_count || 0) + 1
         })
         .eq('id', qrRecord.id);
-
-      if (updateError) {
-        console.log('ℹ️ Error updating usage count:', updateError.message);
-      }
     } catch (e) {
       console.log('ℹ️ Error updating usage count:', e.message);
     }
@@ -1652,7 +1552,6 @@ app.get('/api/hostels/:id/qr/history', async (req, res) => {
     const hostelId = parseInt(req.params.id);
     const { limit = 10 } = req.query;
 
-    // Check if qr_codes table exists
     const tableCheck = await ensureQRCodesTable();
     if (!tableCheck) {
       return res.json({
@@ -2190,7 +2089,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
   const id = parseInt(req.params.id);
   
   try {
-    // Check if hostel exists
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
       .select('id, name')
@@ -2206,7 +2104,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
     
     const alerts = [];
     
-    // 1. Check for students marked absent
     const { data: absentStudents, error: absentError } = await supabase
       .from('students')
       .select('id, name, matric, status, room_code')
@@ -2247,7 +2144,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
       }
     }
     
-    // 2. Check for pending RA submissions
     const { data: pendingRA, error: raError } = await supabase
       .from('staff')
       .select('id, name, submission_status')
@@ -2265,7 +2161,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
       });
     }
     
-    // 3. Check for low bed availability
     const { data: bedSpaces, error: bedError } = await supabase
       .from('bed_spaces')
       .select('id, status')
@@ -2289,7 +2184,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
       }
     }
     
-    // 4. Check for recent session activity (last 24 hours)
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     
