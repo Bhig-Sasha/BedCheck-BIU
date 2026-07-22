@@ -121,9 +121,6 @@
         .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
         .header-right { display: flex; align-items: center; gap: 0.5rem; }
         @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
-        .notif-btn { position: relative; background: transparent; border: none; padding: 0.5rem; border-radius: 0.5rem; color: #43516a; cursor: pointer; font-size: 1.1rem; text-decoration: none; }
-        .notif-btn:hover { background: rgba(0,0,0,0.05); }
-        .notif-badge { position: absolute; top: 0.25rem; right: 0.25rem; width: 0.5rem; height: 0.5rem; background: #b34a3b; border-radius: 50%; }
         .profile-btn {
             display: flex; align-items: center; gap: 0.5rem;
             border: 1px solid #d8d0c2; border-radius: 0.5rem;
@@ -305,7 +302,7 @@
         .status-indicator.active { background: #e1f0e5; color: #2d6545; }
         .status-indicator.inactive { background: #f9e2de; color: #9c3e32; }
 
-        /* ----- EDIT PROFILE MODAL ----- */
+        /* ----- MODAL OVERLAY ----- */
         .modal-overlay {
             position: fixed; inset: 0;
             background: rgba(16,35,63,0.5);
@@ -435,6 +432,11 @@
             flex-wrap: wrap;
         }
 
+        /* Password Modal specific */
+        #passwordModal .modal-box {
+            max-width: 500px;
+        }
+
         .toast {
             position: fixed; bottom: 2rem; right: 2rem;
             padding: 1rem 1.5rem;
@@ -461,7 +463,6 @@
         .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Badge */
         .badge {
             display: inline-block;
             padding: 0.15rem 0.6rem;
@@ -480,6 +481,42 @@
 
     <!-- ===== TOAST ===== -->
     <div id="toast" class="toast"></div>
+
+    <!-- ===== CHANGE PASSWORD MODAL ===== -->
+    <div class="modal-overlay" id="passwordModal">
+        <div class="modal-box">
+            <button class="modal-close" onclick="closePasswordModal()">
+                <i class="fas fa-times"></i>
+            </button>
+
+            <div class="modal-header">
+                <h2><i class="fas fa-lock text-gold"></i> Change Password</h2>
+                <p>Update your account password securely</p>
+            </div>
+
+            <div class="form-group">
+                <label>Current Password <span class="required">*</span></label>
+                <input type="password" id="currentPassword" placeholder="Enter current password">
+            </div>
+
+            <div class="form-group">
+                <label>New Password <span class="required">*</span></label>
+                <input type="password" id="newPassword" placeholder="Enter new password (min. 6 characters)">
+            </div>
+
+            <div class="form-group">
+                <label>Confirm New Password <span class="required">*</span></label>
+                <input type="password" id="confirmNewPassword" placeholder="Confirm new password">
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="changePassword()">
+                    <i class="fas fa-save"></i> Update Password
+                </button>
+                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== EDIT PROFILE MODAL ===== -->
     <div class="modal-overlay" id="editProfileModal">
@@ -579,37 +616,6 @@
                 <div class="form-group">
                     <label>Assigned Room</label>
                     <input id="editRoom" placeholder="e.g. A1" />
-                </div>
-            </div>
-
-            <!-- Security -->
-            <h4 class="font-bold text-sm text-gold mt-4 mb-2"><i class="fas fa-lock"></i> Security</h4>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>New Password</label>
-                    <input id="editPassword" type="password" placeholder="Enter new password" />
-                    <p class="text-xs text-muted mt-1">Leave blank to keep current password</p>
-                </div>
-                <div class="form-group">
-                    <label>Confirm Password</label>
-                    <input id="editConfirmPassword" type="password" placeholder="Confirm new password" />
-                </div>
-            </div>
-
-            <!-- Notification Preferences -->
-            <h4 class="font-bold text-sm text-gold mt-4 mb-2"><i class="fas fa-bell"></i> Notification Preferences</h4>
-            <div class="form-row">
-                <div class="form-group">
-                    <label><input type="checkbox" checked /> Email Notifications</label>
-                </div>
-                <div class="form-group">
-                    <label><input type="checkbox" /> SMS Notifications</label>
-                </div>
-                <div class="form-group">
-                    <label><input type="checkbox" checked /> In-App Notifications</label>
-                </div>
-                <div class="form-group">
-                    <label><input type="checkbox" checked /> BedCheck Alerts</label>
                 </div>
             </div>
 
@@ -723,7 +729,6 @@
             // ---------- DOM REFS ----------
             const profileContent = document.getElementById('profileContent');
             const noticeText = document.getElementById('noticeText');
-            const notifBadge = document.getElementById('notifBadge');
             const roleLabel = document.getElementById('roleLabel');
             const roleScope = document.getElementById('roleScope');
             const mobileRoleFooter = document.getElementById('mobileRoleFooter');
@@ -873,21 +878,6 @@
                     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                     const dateEl = document.getElementById('currentDate');
                     if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
-
-                    // Get unread notification count for badge
-                    try {
-                        const notifRes = await apiCall(`/hostels/${hostelData?.id}/notifications`).catch(() => ({ data: [] }));
-                        const notifications = notifRes.data || [];
-                        const unreadCount = notifications.filter(n => !n.read).length;
-                        if (notifBadge) {
-                            if (unreadCount > 0) {
-                                notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
-                                notifBadge.style.display = 'block';
-                            } else {
-                                notifBadge.style.display = 'none';
-                            }
-                        }
-                    } catch (e) {}
 
                     setNotice(`Welcome, ${currentUser?.name || 'User'} · ${hostelData?.name || 'Your'} Hostel`);
                     isLoading = false;
@@ -1047,8 +1037,8 @@
                             <div class="card mt-4">
                                 <h3 class="font-bold" style="color:#17233c;"><i class="fas fa-cog text-gold"></i> Account Actions</h3>
                                 <div class="mt-3 flex-center gap-2 flex-wrap">
-                                    <button class="btn-primary" onclick="window.showToast('Password reset link sent to your email', 'success')">
-                                        <i class="fas fa-key"></i> Reset Password
+                                    <button class="btn-primary" onclick="openPasswordModal()">
+                                        <i class="fas fa-key"></i> Change Password
                                     </button>
                                     <button class="btn-outline" onclick="openEditProfile()">
                                         <i class="fas fa-edit"></i> Edit Profile
@@ -1102,6 +1092,57 @@
                 window.closeEditProfile = closeEditProfile;
             }
 
+            // ---------- PASSWORD MODAL ----------
+            function openPasswordModal() {
+                document.getElementById('passwordModal').classList.add('show');
+                // Clear fields
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmNewPassword').value = '';
+            }
+
+            function closePasswordModal() {
+                document.getElementById('passwordModal').classList.remove('show');
+            }
+
+            async function changePassword() {
+                const currentPassword = document.getElementById('currentPassword').value.trim();
+                const newPassword = document.getElementById('newPassword').value.trim();
+                const confirmPassword = document.getElementById('confirmNewPassword').value.trim();
+
+                // Validation
+                if (!currentPassword || !newPassword || !confirmPassword) {
+                    showToast('Please fill all password fields', 'error');
+                    return;
+                }
+
+                if (newPassword.length < 6) {
+                    showToast('New password must be at least 6 characters', 'error');
+                    return;
+                }
+
+                if (newPassword !== confirmPassword) {
+                    showToast('New passwords do not match', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await apiCall(`/staff/${currentUser.id}/change-password`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            currentPassword,
+                            newPassword
+                        })
+                    });
+
+                    showToast('Password changed successfully!', 'success');
+                    closePasswordModal();
+
+                } catch (error) {
+                    showToast(error.message || 'Failed to change password', 'error');
+                }
+            }
+
             // ---------- EDIT PROFILE MODAL ----------
             function openEditProfile() {
                 const user = currentUser || {};
@@ -1118,8 +1159,6 @@
                 document.getElementById('editHostel').value = hostelData?.name || 'Champions';
                 document.getElementById('editFloor').value = user.assigned_floor || '';
                 document.getElementById('editRoom').value = user.assigned_room || '';
-                document.getElementById('editPassword').value = '';
-                document.getElementById('editConfirmPassword').value = '';
                 
                 // Update photo preview
                 const preview = document.getElementById('photoPreview');
@@ -1158,17 +1197,10 @@
                 const hostel = document.getElementById('editHostel').value;
                 const floor = document.getElementById('editFloor').value.trim();
                 const room = document.getElementById('editRoom').value.trim();
-                const password = document.getElementById('editPassword').value;
-                const confirmPassword = document.getElementById('editConfirmPassword').value;
 
                 // Validation
                 if (!name) { showToast('Please enter your full name', 'error'); return; }
                 if (!email) { showToast('Please enter your email', 'error'); return; }
-                
-                if (password && password !== confirmPassword) {
-                    showToast('Passwords do not match', 'error');
-                    return;
-                }
 
                 // Build update payload
                 const payload = {
@@ -1182,10 +1214,6 @@
                     assigned_floor: floor,
                     assigned_room: room
                 };
-
-                if (password) {
-                    payload.password = password;
-                }
 
                 // Send to API
                 apiCall(`/staff/${currentUser.id}`, {
@@ -1224,8 +1252,6 @@
                     document.getElementById('editHostel').value = hostelData?.name || 'Champions';
                     document.getElementById('editFloor').value = user.assigned_floor || '';
                     document.getElementById('editRoom').value = user.assigned_room || '';
-                    document.getElementById('editPassword').value = '';
-                    document.getElementById('editConfirmPassword').value = '';
                     showToast('Form reset', 'success');
                 }
             }
@@ -1234,6 +1260,12 @@
             document.getElementById('editProfileModal').addEventListener('click', function(e) {
                 if (e.target === this) {
                     closeEditProfile();
+                }
+            });
+
+            document.getElementById('passwordModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closePasswordModal();
                 }
             });
 
@@ -1308,6 +1340,9 @@
             window.saveProfile = saveProfile;
             window.resetForm = resetForm;
             window.previewPhoto = previewPhoto;
+            window.openPasswordModal = openPasswordModal;
+            window.closePasswordModal = closePasswordModal;
+            window.changePassword = changePassword;
 
             // start
             if (document.readyState === 'loading') {

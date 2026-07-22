@@ -4,10 +4,12 @@
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SALT_ROUNDS = 10;
 
 // =====================================================
 // SUPABASE CONNECTION
@@ -823,11 +825,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
   
   try {
+    // First get the user with their password
     const { data, error } = await supabase
       .from('staff')
-      .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, submission_status, level')
-      .eq('username', username)
-      .eq('password', password);
+      .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, submission_status, level, password')
+      .eq('username', username);
     
     if (error) {
       await auditEvents.loginFailed(username, req);
@@ -840,6 +842,23 @@ app.post('/api/auth/login', async (req, res) => {
     
     if (data && data.length > 0) {
       const user = data[0];
+      
+      // Verify password with bcrypt
+      let validPassword = false;
+      try {
+        validPassword = await bcrypt.compare(password, user.password);
+      } catch (e) {
+        // If bcrypt fails, fallback to plain text comparison (for backward compatibility)
+        validPassword = password === user.password;
+      }
+      
+      if (!validPassword) {
+        await auditEvents.loginFailed(username, req);
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid username or password' 
+        });
+      }
       
       if (user.status !== 'Active') {
         await auditEvents.loginFailed(username, req);
@@ -909,6 +928,104 @@ app.get('/api/me', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Database error: ' + error.message
+    });
+  }
+});
+
+// =====================================================
+// CHANGE PASSWORD - NEW ENDPOINT
+// =====================================================
+
+app.put('/api/staff/:id/change-password', async (req, res) => {
+  try {
+    const staffId = parseInt(req.params.id);
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters'
+      });
+    }
+
+    // Get staff with password
+    const { data: staff, error: staffError } = await supabase
+      .from('staff')
+      .select('id, password, name')
+      .eq('id', staffId)
+      .maybeSingle();
+
+    if (staffError || !staff) {
+      return res.status(404).json({
+        success: false,
+        message: 'Staff not found'
+      });
+    }
+
+    // Verify current password
+    let validPassword = false;
+    try {
+      validPassword = await bcrypt.compare(currentPassword, staff.password);
+    } catch (e) {
+      // Fallback for plain text passwords (for backward compatibility)
+      validPassword = currentPassword === staff.password;
+    }
+
+    if (!validPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+    // Update password in DB
+    const { error: updateError } = await supabase
+      .from('staff')
+      .update({
+        password: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', staffId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Audit log
+    await auditService.log({
+      actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
+      actor_id: staffId,
+      actor_role: req.headers['x-staff-role'] || 'HRA',
+      action: 'Password Changed',
+      module: 'security',
+      details: 'Account password updated successfully',
+      result: 'success',
+      category: 'security',
+      tone: 'blue',
+      ip_address: req.clientIp,
+      user_agent: req.userAgent
+    });
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error: ' + error.message
     });
   }
 });
@@ -1616,8 +1733,28 @@ app.post('/api/staff', async (req, res) => {
     const { data: existingStaff, error: checkError } = await supabase.from('staff').select('id').eq('username', username).single();
     if (checkError && checkError.code !== 'PGRST116') throw checkError;
     if (existingStaff) return res.status(400).json({ success: false, message: 'Username already exists' });
+    
     const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-    const newStaff = { name, username, password: password || 'password1', role, hostel_id: hostel_id || null, assigned_floor: assigned_floor || null, assigned_room: assigned_room || null, status: 'Active', initials, email: email || null, phone: phone || null, department: department || null, submission_status: 'Not Started', level: level || null, joined: new Date().toISOString().split('T')[0] };
+    // Hash the password before storing
+    const hashedPassword = password ? await bcrypt.hash(password, SALT_ROUNDS) : await bcrypt.hash('password1', SALT_ROUNDS);
+    
+    const newStaff = { 
+      name, 
+      username, 
+      password: hashedPassword, 
+      role, 
+      hostel_id: hostel_id || null, 
+      assigned_floor: assigned_floor || null, 
+      assigned_room: assigned_room || null, 
+      status: 'Active', 
+      initials, 
+      email: email || null, 
+      phone: phone || null, 
+      department: department || null, 
+      submission_status: 'Not Started', 
+      level: level || null, 
+      joined: new Date().toISOString().split('T')[0] 
+    };
     const { data, error } = await supabase.from('staff').insert(newStaff).select().single();
     if (error) throw error;
     await auditEvents.userCreated(data, { name: 'System', role: 'System' });
@@ -1665,13 +1802,109 @@ app.put('/api/staff/:id/password', async (req, res) => {
   if (!password || password.length < 8) return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
   try {
     const { data: user } = await supabase.from('staff').select('name').eq('id', id).single();
-    const { error } = await supabase.from('staff').update({ password: password }).eq('id', id);
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    const { error } = await supabase.from('staff').update({ password: hashedPassword }).eq('id', id);
     if (error) throw error;
     await auditEvents.passwordChanged({ id, name: user?.name || 'User' }, { name: req.headers['x-staff-name'] || 'User', role: 'User' });
     res.json({ success: true, message: 'Password updated successfully' });
   } catch (error) {
     console.error('Error updating password:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+// CHANGE PASSWORD - New endpoint with current password verification
+app.put('/api/staff/:id/change-password', async (req, res) => {
+  try {
+    const staffId = parseInt(req.params.id);
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters'
+      });
+    }
+
+    // Get staff with password
+    const { data: staff, error: staffError } = await supabase
+      .from('staff')
+      .select('id, password, name')
+      .eq('id', staffId)
+      .maybeSingle();
+
+    if (staffError || !staff) {
+      return res.status(404).json({
+        success: false,
+        message: 'Staff not found'
+      });
+    }
+
+    // Verify current password
+    let validPassword = false;
+    try {
+      validPassword = await bcrypt.compare(currentPassword, staff.password);
+    } catch (e) {
+      // Fallback for plain text passwords (for backward compatibility)
+      validPassword = currentPassword === staff.password;
+    }
+
+    if (!validPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+    // Update password in DB
+    const { error: updateError } = await supabase
+      .from('staff')
+      .update({
+        password: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', staffId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Audit log
+    await auditService.log({
+      actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
+      actor_id: staffId,
+      actor_role: req.headers['x-staff-role'] || 'HRA',
+      action: 'Password Changed',
+      module: 'security',
+      details: 'Account password updated successfully',
+      result: 'success',
+      category: 'security',
+      tone: 'blue',
+      ip_address: req.clientIp,
+      user_agent: req.userAgent
+    });
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error: ' + error.message
+    });
   }
 });
 
