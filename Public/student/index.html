@@ -456,6 +456,7 @@
 
             // =============================================
             // STUDENT REGISTRATION - Public (No Login Required)
+            // Saves directly to student table with QR code generation
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -552,6 +553,23 @@
                 try {
                     isLoading = true;
                     renderLoading();
+
+                    // Check for saved draft
+                    const savedDraft = localStorage.getItem('studentRegistrationDraft');
+                    if (savedDraft) {
+                        try {
+                            const parsed = JSON.parse(savedDraft);
+                            if (Object.values(parsed).some(v => v !== '' && v !== false && v !== null)) {
+                                studentData = parsed;
+                                if (studentData._step) {
+                                    currentStep = studentData._step;
+                                }
+                                showToast('Draft loaded. Continue where you left off.', 'info');
+                            }
+                        } catch (e) {
+                            console.warn('Could not parse draft:', e);
+                        }
+                    }
 
                     const [hostelsRes, floorsRes, roomsRes, bedRes] = await Promise.all([
                         apiCall('/hostels'),
@@ -980,6 +998,11 @@
             // ---------- FORM INTERACTIONS ----------
             function updateField(field, value) {
                 studentData[field] = value;
+                // Auto-save draft on field change (debounced)
+                clearTimeout(window._draftTimeout);
+                window._draftTimeout = setTimeout(() => {
+                    saveDraft(true);
+                }, 2000);
             }
 
             function updateFacultyDepartments() {
@@ -1284,7 +1307,8 @@
             }
 
             // ---------- SAVE DRAFT ----------
-            function saveDraft() {
+            function saveDraft(silent = false) {
+                // Get current form values
                 const fields = ['surname', 'firstName', 'middleName', 'gender', 'dob', 'phone', 'email', 
                                'matric', 'faculty', 'department', 'level', 'session', 'notes',
                                'emergency_name', 'emergency_relation', 'emergency_phone'];
@@ -1300,13 +1324,19 @@
                 if (roomSelect) studentData.room_id = roomSelect.value;
                 const bedSelect = document.getElementById('bedSelect');
                 if (bedSelect) studentData.bed_space_id = bedSelect.value;
+                
+                // Save current step
+                studentData._step = currentStep;
 
                 localStorage.setItem('studentRegistrationDraft', JSON.stringify(studentData));
-                showToast('Draft saved successfully!', 'success');
+                if (!silent) {
+                    showToast('Draft saved successfully!', 'success');
+                }
             }
 
             // ---------- SUBMIT REGISTRATION ----------
             async function submitRegistration() {
+                // Validate all steps
                 for (let i = 1; i <= 5; i++) {
                     if (!validateStep(i)) {
                         currentStep = i;
@@ -1320,11 +1350,7 @@
                     return;
                 }
 
-                const hostel = hostels.find(h => h.id == parseInt(studentData.hostel_id));
-                const floor = floorsFlats.find(f => f.id == parseInt(studentData.floor_flat_id));
-                const room = rooms.find(r => r.id == parseInt(studentData.room_id));
-                const bed = bedSpaces.find(b => b.id == parseInt(studentData.bed_space_id));
-
+                // Check if matric already exists
                 try {
                     const existing = await apiCall(`/students?search=${studentData.matric}`);
                     if (existing.data && existing.data.length > 0) {
@@ -1333,8 +1359,15 @@
                     }
                 } catch (e) {}
 
-                // Generate QR code ID
-                const qrId = `BIU-${studentData.matric.replace(/[^A-Z0-9]/g, '')}`;
+                // Get hostel details
+                const hostel = hostels.find(h => h.id == parseInt(studentData.hostel_id));
+                const floor = floorsFlats.find(f => f.id == parseInt(studentData.floor_flat_id));
+                const room = rooms.find(r => r.id == parseInt(studentData.room_id));
+                const bed = bedSpaces.find(b => b.id == parseInt(studentData.bed_space_id));
+
+                // Generate QR code ID (unique identifier)
+                const timestamp = Date.now().toString(36).toUpperCase();
+                const qrId = `BIU-${studentData.matric.replace(/[^A-Z0-9]/g, '').substring(0, 10)}-${timestamp.substring(timestamp.length - 6)}`;
 
                 const newStudent = {
                     name: `${studentData.surname} ${studentData.firstName} ${studentData.middleName}`.trim(),
@@ -1360,7 +1393,8 @@
                     emergency_relation: studentData.emergency_relation,
                     emergency_phone: studentData.emergency_phone,
                     qr_code: qrId,
-                    qr_generated: true
+                    qr_generated: true,
+                    registration_date: new Date().toISOString()
                 };
 
                 try {
@@ -1380,9 +1414,10 @@
                     }
 
                     submitted = true;
+                    // Clear draft after successful submission
+                    localStorage.removeItem('studentRegistrationDraft');
                     renderSuccessScreen(result.data);
                     showToast('Registration submitted successfully! QR Code generated.', 'success');
-                    localStorage.removeItem('studentRegistrationDraft');
 
                 } catch (error) {
                     showToast('Error submitting registration: ' + error.message, 'error');
@@ -1392,7 +1427,7 @@
             // ---------- SUCCESS SCREEN ----------
             function renderSuccessScreen(data) {
                 const refNumber = data?.id ? `BC-2026-${String(data.id).padStart(6, '0')}` : 'BC-2026-000245';
-                const qrId = data?.qr_code || `BIU-${data?.matric?.replace(/[^A-Z0-9]/g, '') || 'UNKNOWN'}`;
+                const qrId = data?.qr_code || `BIU-${data?.matric?.replace(/[^A-Z0-9]/g, '').substring(0, 10)}` || 'UNKNOWN';
                 const studentName = data?.name || `${studentData.surname} ${studentData.firstName}`.trim();
                 const hostelName = data?.hostel_name || hostels.find(h => h.id == parseInt(studentData.hostel_id))?.name || '—';
                 const roomCode = data?.room_code || studentData.room_code || '—';
@@ -1433,6 +1468,10 @@
                                         <span class="detail-label">Reference</span>
                                         <span class="detail-value" style="font-size:0.8rem;">${refNumber}</span>
                                     </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">QR Code</span>
+                                        <span class="detail-value" style="font-size:0.7rem;font-family:monospace;">${qrId}</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1467,7 +1506,8 @@
                     hostel_name: '', floor_name: '', room_code: '', bed_code: '',
                     status: 'Present', notes: '',
                     emergency_name: '', emergency_relation: '', emergency_phone: '',
-                    declaration: false
+                    declaration: false,
+                    _step: 1
                 };
                 submitted = false;
                 currentStep = 1;
