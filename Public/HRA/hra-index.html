@@ -709,6 +709,31 @@
             font-size: 3rem;
             color: #10233f;
         }
+        #qrContainer .qr-status-display .qr-code-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .qr-container-loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+        .qr-container-loading i {
+            font-size: 1.5rem;
+            color: #a77915;
+            animation: spin 1s linear infinite;
+        }
+        .qr-container-error {
+            text-align: center;
+            padding: 1rem;
+            color: #a84134;
+        }
+        .qr-container-empty {
+            text-align: center;
+            padding: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -802,7 +827,7 @@
             let pendingCases = [];
             let qrData = null;
 
-            // Make hostelData globally accessible for QR functions
+            // Make hostelData globally accessible
             window._hostelData = hostelData;
 
             // ---------- DOM REFS ----------
@@ -906,144 +931,18 @@
             }
 
             // =============================================
-            // QR CODE FUNCTIONS - FIXED WITH GLOBAL ACCESS
+            // QR CODE FUNCTIONS - UPDATED
             // =============================================
 
-            // Helper to get current hostel ID from the global variable
+            // Helper to get current hostel ID
             function getCurrentHostelId() {
-                // Try both the local and global reference
                 const id = hostelData?.id || window._hostelData?.id;
                 if (id) {
-                    console.log('Found hostel ID:', id);
+                    console.log('✅ Found hostel ID:', id);
                     return id;
                 }
-                console.warn('No hostel ID found in hostelData or window._hostelData');
+                console.warn('❌ No hostel ID found');
                 return null;
-            }
-
-            async function loadHostelQR() {
-                try {
-                    // Use the helper to get hostel ID
-                    const hostelId = getCurrentHostelId();
-                    if (!hostelId) {
-                        console.warn('No hostel ID available for QR loading');
-                        const qrContainer = document.getElementById('qrContainer');
-                        if (qrContainer) {
-                            qrContainer.innerHTML = `
-                                <div class="text-center text-muted text-sm" style="padding:1rem;">
-                                    <i class="fas fa-exclamation-triangle" style="color:#d6ad4b;"></i>
-                                    <span>No hostel assigned. Please contact administrator.</span>
-                                </div>
-                            `;
-                        }
-                        return;
-                    }
-
-                    console.log('Loading QR for hostel ID:', hostelId);
-
-                    const qrContainer = document.getElementById('qrContainer');
-                    if (!qrContainer) return;
-
-                    // Show loading state
-                    qrContainer.innerHTML = `
-                        <div class="loading-spinner" style="padding:1rem;">
-                            <i class="fas fa-spinner"></i> Loading QR...
-                        </div>
-                    `;
-
-                    try {
-                        const response = await apiCall(`/hostels/${hostelId}/qr`);
-                        const qrDataResult = response.data;
-
-                        if (qrDataResult) {
-                            // QR exists and is active
-                            const qrCode = qrDataResult.code;
-                            const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
-                            const usageCount = qrDataResult.usage_count || 0;
-                            const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
-                            const hostelName = hostelData?.name || 'Hostel';
-
-                            qrContainer.innerHTML = `
-                                <div class="qr-status-display">
-                                    <div class="qr-code-image">
-                                        <i class="fas fa-qrcode"></i>
-                                    </div>
-                                    <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelData?.code || hostelName.toUpperCase().replace(/\s/g, '-')}</div>
-                                    <div class="text-xs text-muted text-center">QR Code: ${qrCode}</div>
-                                    <div class="text-xs text-muted text-center">Generated: ${generatedAt}</div>
-                                    <div class="text-xs text-muted text-center">Expires: ${expiresAt}</div>
-                                    <div class="text-xs text-muted text-center">Scans: ${usageCount}</div>
-                                    <div class="mt-2 flex gap-2" style="justify-content:center;flex-wrap:wrap;">
-                                        <button class="btn-primary" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.showQRCodeModal()"><i class="fas fa-qrcode"></i> View QR</button>
-                                        <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.downloadQRCode('${qrCode}')"><i class="fas fa-download"></i> Download</button>
-                                        <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.regenerateQRCode()"><i class="fas fa-sync"></i> Regenerate</button>
-                                    </div>
-                                </div>
-                            `;
-                            qrData = qrDataResult;
-                            window._qrData = qrDataResult;
-                            
-                            // Update status badge
-                            const statusBadge = document.getElementById('qrStatusBadge');
-                            if (statusBadge) {
-                                statusBadge.className = 'badge badge-approved';
-                                statusBadge.textContent = '✅ ACTIVE';
-                            }
-                        } else {
-                            // No QR code exists yet
-                            qrContainer.innerHTML = `
-                                <div class="qr-status-display text-center">
-                                    <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                        <i class="fas fa-qrcode"></i>
-                                    </div>
-                                    <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                    <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
-                                </div>
-                            `;
-                            qrData = null;
-                            window._qrData = null;
-                            
-                            // Update status badge
-                            const statusBadge = document.getElementById('qrStatusBadge');
-                            if (statusBadge) {
-                                statusBadge.className = 'badge badge-draft';
-                                statusBadge.textContent = '⏳ NOT GENERATED';
-                            }
-                        }
-                    } catch (error) {
-                        // If the API returns 404, show generate button
-                        console.warn('QR API error:', error.message);
-                        qrContainer.innerHTML = `
-                            <div class="qr-status-display text-center">
-                                <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
-                                    <i class="fas fa-qrcode"></i>
-                                </div>
-                                <div class="text-sm text-muted mt-2">No QR code generated yet</div>
-                                <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()"><i class="fas fa-plus"></i> Generate QR Code</button>
-                            </div>
-                        `;
-                        qrData = null;
-                        window._qrData = null;
-                        
-                        const statusBadge = document.getElementById('qrStatusBadge');
-                        if (statusBadge) {
-                            statusBadge.className = 'badge badge-draft';
-                            statusBadge.textContent = '⏳ NOT GENERATED';
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error loading QR code:', error);
-                    const qrContainer = document.getElementById('qrContainer');
-                    if (qrContainer) {
-                        qrContainer.innerHTML = `
-                            <div class="text-center text-muted text-sm" style="padding:1rem;">
-                                <i class="fas fa-exclamation-triangle" style="color:#a84134;"></i>
-                                <span>Error loading QR. </span>
-                                <button class="btn-ghost" style="font-size:0.7rem;display:inline;" onclick="window.loadHostelQR()">Retry</button>
-                            </div>
-                        `;
-                    }
-                }
             }
 
             // Generate QR code for hostel
@@ -1055,9 +954,9 @@
                         return;
                     }
 
-                    console.log('Generating QR for hostel ID:', hostelId);
-
+                    console.log('🔄 Generating QR for hostel ID:', hostelId);
                     showToast('Generating QR code...', 'info');
+
                     const response = await apiCall(`/hostels/${hostelId}/qr/generate`, {
                         method: 'POST',
                         headers: {
@@ -1068,16 +967,19 @@
 
                     if (response.success) {
                         showToast('QR code generated successfully!', 'success');
-                        await loadHostelQR(); // Reload QR display
+                        // Update the QR data and refresh display
+                        qrData = response.data;
+                        window._qrData = qrData;
+                        displayQRCode(qrData);
                     }
                 } catch (error) {
-                    console.error('Error generating QR code:', error);
+                    console.error('❌ Error generating QR code:', error);
                     showToast('Error generating QR code: ' + error.message, 'error');
                 }
             }
             window.generateQRCode = generateQRCode;
 
-            // Regenerate QR code (deletes old, creates new)
+            // Regenerate QR code
             async function regenerateQRCode() {
                 try {
                     const hostelId = getCurrentHostelId();
@@ -1100,24 +1002,152 @@
                     });
 
                     if (response.success) {
-                        showToast('QR code regenerated successfully! Old QR code is now invalid.', 'success');
-                        await loadHostelQR(); // Reload QR display
+                        showToast('QR code regenerated successfully!', 'success');
+                        qrData = response.data;
+                        window._qrData = qrData;
+                        displayQRCode(qrData);
                     }
                 } catch (error) {
-                    console.error('Error regenerating QR code:', error);
+                    console.error('❌ Error regenerating QR code:', error);
                     showToast('Error regenerating QR code: ' + error.message, 'error');
                 }
             }
             window.regenerateQRCode = regenerateQRCode;
 
-            // Show QR code in a modal/dialog
+            // Display QR code in the container
+            function displayQRCode(qrDataResult) {
+                const qrContainer = document.getElementById('qrContainer');
+                if (!qrContainer) return;
+
+                if (!qrDataResult) {
+                    // No QR code exists - show generate button
+                    qrContainer.innerHTML = `
+                        <div class="qr-container-empty">
+                            <div style="width:6rem;height:6rem;margin:0 auto;background:#f5f1e8;border:2px dashed #ded6c9;border-radius:0.5rem;display:grid;place-items:center;font-size:3rem;color:#68768a;">
+                                <i class="fas fa-qrcode"></i>
+                            </div>
+                            <div class="text-sm text-muted mt-2">No QR code generated yet</div>
+                            <button class="btn-primary mt-2" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.generateQRCode()">
+                                <i class="fas fa-plus"></i> Generate QR Code
+                            </button>
+                        </div>
+                    `;
+                    
+                    const statusBadge = document.getElementById('qrStatusBadge');
+                    if (statusBadge) {
+                        statusBadge.className = 'badge badge-draft';
+                        statusBadge.textContent = '⏳ NOT GENERATED';
+                    }
+                    return;
+                }
+
+                // QR code exists - show it
+                const qrCode = qrDataResult.code;
+                const generatedAt = new Date(qrDataResult.generated_at).toLocaleString();
+                const usageCount = qrDataResult.usage_count || 0;
+                const expiresAt = qrDataResult.expires_at ? new Date(qrDataResult.expires_at).toLocaleDateString() : 'Never';
+                const hostelName = hostelData?.name || 'Hostel';
+
+                qrContainer.innerHTML = `
+                    <div class="qr-status-display">
+                        <div class="qr-code-image">
+                            <i class="fas fa-qrcode"></i>
+                        </div>
+                        <div class="font-bold mt-1 text-center" style="font-size:0.8rem;">${hostelName}</div>
+                        <div class="text-xs text-muted text-center">QR Code: ${qrCode}</div>
+                        <div class="text-xs text-muted text-center">Generated: ${generatedAt}</div>
+                        <div class="text-xs text-muted text-center">Expires: ${expiresAt}</div>
+                        <div class="text-xs text-muted text-center">Scans: ${usageCount}</div>
+                        <div class="mt-2 flex gap-2" style="justify-content:center;flex-wrap:wrap;">
+                            <button class="btn-primary" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.showQRCodeModal()">
+                                <i class="fas fa-qrcode"></i> View QR
+                            </button>
+                            <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.downloadQRCode('${qrCode}')">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                            <button class="btn-outline" style="font-size:0.7rem;padding:0.3rem 0.8rem;" onclick="window.regenerateQRCode()">
+                                <i class="fas fa-sync"></i> Regenerate
+                            </button>
+                        </div>
+                    </div>
+                `;
+                qrData = qrDataResult;
+                window._qrData = qrDataResult;
+
+                const statusBadge = document.getElementById('qrStatusBadge');
+                if (statusBadge) {
+                    statusBadge.className = 'badge badge-approved';
+                    statusBadge.textContent = '✅ ACTIVE';
+                }
+            }
+
+            // Load QR code for the hostel
+            async function loadHostelQR() {
+                try {
+                    const hostelId = getCurrentHostelId();
+                    if (!hostelId) {
+                        const qrContainer = document.getElementById('qrContainer');
+                        if (qrContainer) {
+                            qrContainer.innerHTML = `
+                                <div class="qr-container-error">
+                                    <i class="fas fa-exclamation-triangle" style="color:#d6ad4b;"></i>
+                                    <span>No hostel assigned</span>
+                                </div>
+                            `;
+                        }
+                        return;
+                    }
+
+                    console.log('🔍 Loading QR for hostel ID:', hostelId);
+
+                    const qrContainer = document.getElementById('qrContainer');
+                    if (!qrContainer) return;
+
+                    // Show loading
+                    qrContainer.innerHTML = `
+                        <div class="qr-container-loading">
+                            <i class="fas fa-spinner"></i> Loading QR...
+                        </div>
+                    `;
+
+                    try {
+                        const response = await apiCall(`/hostels/${hostelId}/qr`);
+                        const qrDataResult = response.data;
+
+                        if (qrDataResult) {
+                            displayQRCode(qrDataResult);
+                        } else {
+                            displayQRCode(null);
+                        }
+                    } catch (error) {
+                        console.warn('QR API error:', error.message);
+                        // If 404 or no QR found, show generate button
+                        displayQRCode(null);
+                    }
+                } catch (error) {
+                    console.error('❌ Error loading QR code:', error);
+                    const qrContainer = document.getElementById('qrContainer');
+                    if (qrContainer) {
+                        qrContainer.innerHTML = `
+                            <div class="qr-container-error">
+                                <i class="fas fa-exclamation-triangle" style="color:#a84134;"></i>
+                                <span>Error loading QR. </span>
+                                <button class="btn-ghost" style="font-size:0.7rem;display:inline;" onclick="window.loadHostelQR()">Retry</button>
+                            </div>
+                        `;
+                    }
+                }
+            }
+            window.loadHostelQR = loadHostelQR;
+
+            // Show QR code in a modal
             function showQRCodeModal() {
                 const currentQrData = qrData || window._qrData;
                 if (!currentQrData) {
                     showToast('No QR code available. Generate one first.', 'error');
                     return;
                 }
-                // Create a simple modal overlay
+
                 const overlay = document.createElement('div');
                 overlay.style.cssText = `
                     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -1159,8 +1189,6 @@
                     return;
                 }
                 showToast(`Downloading QR Code: ${qrCode}`, 'success');
-                // In a real implementation, you'd generate an actual QR image
-                // For now, we'll just show a toast
             }
             window.downloadQRCode = downloadQRCode;
 
@@ -1190,8 +1218,6 @@
                     // Load HRA's hostel
                     const hostelRes = await apiCall(`/hra/hostel`);
                     hostelData = hostelRes.data;
-                    
-                    // Update the global reference
                     window._hostelData = hostelData;
                     
                     if (!hostelData) {
@@ -1227,7 +1253,7 @@
                     alerts = alertRes.data || [];
                     scans = scanRes.data || [];
 
-                    // Generate pending cases from students
+                    // Generate pending cases
                     pendingCases = students
                         .filter(s => s.status === 'Absent' || s.status === 'Late' || (s.room_id === null || s.room_id === 0))
                         .slice(0, 4)
@@ -1283,23 +1309,6 @@
                 return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
             }
 
-            function getStatusDot(status) {
-                const map = {
-                    'Online': 'green',
-                    'Active': 'green',
-                    'Working': 'gold',
-                    'In Progress': 'gold',
-                    'Idle': 'gray',
-                    'Offline': 'red',
-                    'Completed': 'green',
-                    'Not Started': 'gray',
-                    'Present': 'green',
-                    'Absent': 'red',
-                    'Late': 'gold'
-                };
-                return map[status] || 'gray';
-            }
-
             // ---------- RENDER COMMAND CENTER ----------
             function renderScreen() {
                 if (!hostelData) {
@@ -1325,8 +1334,6 @@
                 const onlineReg = totalStudents;
                 const verified = present;
                 const completion = totalStudents > 0 ? Math.round((verified / totalStudents) * 100) : 0;
-                const totalRAs = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor').length;
-                const activeRAs = staff.filter(s => (s.role === 'RA' || s.role === 'Resident Advisor') && s.status === 'Active').length;
                 
                 const roomsTotal = hostelData.total_rooms || 42;
 
@@ -1351,7 +1358,7 @@
                 if (hour < 12) greeting = 'Good Morning';
                 else if (hour < 17) greeting = 'Good Afternoon';
 
-                // Floor status from DB
+                // Floor status
                 const floorData = floors.map(f => {
                     const floorStudents = students.filter(s => s.floor_flat_id === f.id);
                     const total = floorStudents.length;
@@ -1386,7 +1393,7 @@
                     };
                 });
 
-                // Recent activity from scans
+                // Recent activity
                 const recentActivity = scans.slice(0, 5).map(s => {
                     const student = students.find(st => st.id === s.student_id);
                     const time = new Date(s.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -1395,7 +1402,6 @@
                     return { time, text, detail, status: s.status };
                 });
 
-                // If no scans, use staff submissions
                 if (recentActivity.length === 0) {
                     staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor').forEach(ra => {
                         if (ra.submission_status && ra.submission_status !== 'Not Started') {
@@ -1635,7 +1641,7 @@
                 // Load QR code after rendering
                 setTimeout(() => {
                     loadHostelQR();
-                }, 100);
+                }, 500);
                 
                 startClock();
             }
@@ -1704,7 +1710,6 @@
 
                 logoutBtn.addEventListener('click', handleLogout);
                 
-                // Mobile menu toggle
                 document.getElementById('menuToggle').addEventListener('click', () => {
                     showToast('Sidebar toggle (responsive view)', 'info');
                 });
@@ -1719,6 +1724,7 @@
             window.showToast = showToast;
             window.loadAllData = loadAllData;
             window.getCurrentHostelId = getCurrentHostelId;
+            window.displayQRCode = displayQRCode;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
