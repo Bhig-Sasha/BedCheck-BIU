@@ -1275,6 +1275,8 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
     const staffName = req.headers['x-staff-name'] || 'System';
     const staffRole = req.headers['x-staff-role'] || 'System';
     
+    console.log(`Generating QR for hostel ID: ${hostelId}`);
+    
     // Check if hostel exists
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
@@ -1283,11 +1285,14 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       .single();
     
     if (hostelError || !hostel) {
+      console.error('Hostel not found:', hostelError);
       return res.status(404).json({ 
         success: false, 
         message: 'Hostel not found' 
       });
     }
+
+    console.log('Found hostel:', hostel.name);
 
     // Generate unique QR code
     const qrCode = `BIU-${hostel.code || hostel.name.toUpperCase().replace(/\s/g, '-')}-${Date.now().toString(36).toUpperCase()}`;
@@ -1300,7 +1305,7 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
     });
 
     // Inactivate old QR codes for this hostel
-    await supabase
+    const { error: updateError } = await supabase
       .from('qr_codes')
       .update({ 
         is_active: false,
@@ -1308,6 +1313,10 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       })
       .eq('hostel_id', hostelId)
       .eq('is_active', true);
+
+    if (updateError) {
+      console.log('No existing QR codes to deactivate or error:', updateError.message);
+    }
 
     // Insert new QR code
     const { data: qrDataInsert, error: qrError } = await supabase
@@ -1317,14 +1326,20 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
         code: qrCode,
         qr_data: qrData,
         generated_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         is_active: true,
-        created_by: staffId
+        created_by: staffId,
+        usage_count: 0
       })
       .select()
       .single();
 
-    if (qrError) throw qrError;
+    if (qrError) {
+      console.error('QR insert error:', qrError);
+      throw qrError;
+    }
+
+    console.log('QR generated successfully:', qrCode);
 
     // Log the QR generation
     await auditService.log({
@@ -1352,7 +1367,8 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
         is_active: qrDataInsert.is_active,
         hostel: {
           id: hostel.id,
-          name: hostel.name
+          name: hostel.name,
+          code: hostel.code
         }
       }
     });
@@ -1370,6 +1386,8 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
   try {
     const hostelId = parseInt(req.params.id);
     
+    console.log(`Fetching QR for hostel ID: ${hostelId}`);
+    
     // Check if hostel exists
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
@@ -1378,6 +1396,7 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
       .single();
     
     if (hostelError || !hostel) {
+      console.error('Hostel not found:', hostelError);
       return res.status(404).json({ 
         success: false, 
         message: 'Hostel not found' 
@@ -1391,9 +1410,10 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
       .eq('is_active', true)
       .order('generated_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (qrError && qrError.code !== 'PGRST116') {
+    if (qrError) {
+      console.error('QR fetch error:', qrError);
       throw qrError;
     }
 
@@ -1406,13 +1426,21 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
     }
 
     // Update usage count when viewed
-    await supabase
-      .from('qr_codes')
-      .update({
-        last_used_at: new Date().toISOString(),
-        usage_count: supabase.rpc('increment_usage_count', { row_id: qrData.id })
-      })
-      .eq('id', qrData.id);
+    try {
+      const { error: updateError } = await supabase
+        .from('qr_codes')
+        .update({
+          last_used_at: new Date().toISOString(),
+          usage_count: (qrData.usage_count || 0) + 1
+        })
+        .eq('id', qrData.id);
+
+      if (updateError) {
+        console.log('Error updating usage count:', updateError.message);
+      }
+    } catch (e) {
+      console.log('Error updating usage count:', e.message);
+    }
 
     res.json({
       success: true,
@@ -1472,13 +1500,21 @@ app.post('/api/qr/verify', async (req, res) => {
     }
 
     // Update usage
-    await supabase
-      .from('qr_codes')
-      .update({
-        last_used_at: new Date().toISOString(),
-        usage_count: supabase.rpc('increment_usage_count', { row_id: qrRecord.id })
-      })
-      .eq('id', qrRecord.id);
+    try {
+      const { error: updateError } = await supabase
+        .from('qr_codes')
+        .update({
+          last_used_at: new Date().toISOString(),
+          usage_count: (qrRecord.usage_count || 0) + 1
+        })
+        .eq('id', qrRecord.id);
+
+      if (updateError) {
+        console.log('Error updating usage count:', updateError.message);
+      }
+    } catch (e) {
+      console.log('Error updating usage count:', e.message);
+    }
 
     // Log the scan
     await auditService.log({
@@ -1502,7 +1538,7 @@ app.post('/api/qr/verify', async (req, res) => {
         hostel_name: qrRecord.hostels?.name,
         verified: true,
         timestamp: new Date().toISOString(),
-        scan_count: qrRecord.usage_count + 1
+        scan_count: (qrRecord.usage_count || 0) + 1
       }
     });
   } catch (error) {
@@ -1522,7 +1558,7 @@ app.get('/api/hostels/:id/qr/history', async (req, res) => {
 
     const { data: qrHistory, error: historyError } = await supabase
       .from('qr_codes')
-      .select('*, created_by_staff:staff(id, name)')
+      .select('*')
       .eq('hostel_id', hostelId)
       .order('generated_at', { ascending: false })
       .limit(parseInt(limit));
