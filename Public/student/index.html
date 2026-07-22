@@ -740,15 +740,15 @@
                             <div class="grid-2 mt-4">
                                 <div class="field">
                                     <label>Surname ${required}</label>
-                                    <input id="surname" value="${studentData.surname}" placeholder="e.g. Okafor" oninput="window.updateField('surname', this.value)" />
+                                    <input id="surname" value="${studentData.surname || ''}" placeholder="e.g. Okafor" oninput="window.updateField('surname', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>First Name ${required}</label>
-                                    <input id="firstName" value="${studentData.firstName}" placeholder="e.g. Daniel" oninput="window.updateField('firstName', this.value)" />
+                                    <input id="firstName" value="${studentData.firstName || ''}" placeholder="e.g. Daniel" oninput="window.updateField('firstName', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>Middle Name</label>
-                                    <input id="middleName" value="${studentData.middleName}" placeholder="e.g. Chibueze" oninput="window.updateField('middleName', this.value)" />
+                                    <input id="middleName" value="${studentData.middleName || ''}" placeholder="e.g. Chibueze" oninput="window.updateField('middleName', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>Gender ${required}</label>
@@ -760,15 +760,15 @@
                                 </div>
                                 <div class="field">
                                     <label>Date of Birth ${required}</label>
-                                    <input id="dob" type="date" value="${studentData.dob}" onchange="window.updateField('dob', this.value)" />
+                                    <input id="dob" type="date" value="${studentData.dob || ''}" onchange="window.updateField('dob', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>Phone Number ${required}</label>
-                                    <input id="phone" value="${studentData.phone}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('phone', this.value)" />
+                                    <input id="phone" value="${studentData.phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('phone', this.value)" />
                                 </div>
                                 <div class="field" style="grid-column: span 2;">
                                     <label>Email Address <span class="text-muted">(Optional)</span></label>
-                                    <input id="email" value="${studentData.email}" type="email" placeholder="student@biu.edu.ng" oninput="window.updateField('email', this.value)" />
+                                    <input id="email" value="${studentData.email || ''}" type="email" placeholder="student@biu.edu.ng" oninput="window.updateField('email', this.value)" />
                                 </div>
                             </div>
                         `;
@@ -781,7 +781,7 @@
                             <div class="grid-2 mt-3">
                                 <div class="field">
                                     <label>Matric Number ${required}</label>
-                                    <input id="matric" value="${studentData.matric}" placeholder="e.g. SCN/CSC/230586" oninput="window.updateField('matric', this.value)" />
+                                    <input id="matric" value="${studentData.matric || ''}" placeholder="e.g. SCN/CSC/230586" oninput="window.updateField('matric', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>Faculty ${required}</label>
@@ -883,7 +883,7 @@
                             <div class="grid-2 mt-3">
                                 <div class="field">
                                     <label>Emergency Contact Name ${required}</label>
-                                    <input id="emergencyName" value="${studentData.emergency_name}" placeholder="e.g. Mrs. Jane Okafor" oninput="window.updateField('emergency_name', this.value)" />
+                                    <input id="emergencyName" value="${studentData.emergency_name || ''}" placeholder="e.g. Mrs. Jane Okafor" oninput="window.updateField('emergency_name', this.value)" />
                                 </div>
                                 <div class="field">
                                     <label>Relationship ${required}</label>
@@ -898,7 +898,7 @@
                                 </div>
                                 <div class="field" style="grid-column: span 2;">
                                     <label>Emergency Contact Phone ${required}</label>
-                                    <input id="emergencyPhone" value="${studentData.emergency_phone}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('emergency_phone', this.value)" />
+                                    <input id="emergencyPhone" value="${studentData.emergency_phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('emergency_phone', this.value)" />
                                 </div>
                             </div>
                         `;
@@ -1024,8 +1024,13 @@
             }
 
             function goToStep(step) {
+                // If going to a later step, validate current step
                 if (step > currentStep) {
                     if (!validateStep(currentStep)) {
+                        const formSection = document.getElementById('formSection');
+                        if (formSection) {
+                            formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
                         return;
                     }
                 }
@@ -1033,42 +1038,82 @@
                 renderRegistrationForm();
             }
 
+            // ---------- IMPROVED VALIDATION WITH SPECIFIC MESSAGES ----------
             function validateStep(step) {
-                const required = (id) => {
+                const getValue = (id) => {
                     const el = document.getElementById(id);
-                    return el && el.value && el.value.trim() !== '';
+                    if (!el) return '';
+                    return el.value ? el.value.trim() : '';
                 };
+                
+                const isFilled = (id, label) => {
+                    const value = getValue(id);
+                    if (!value) {
+                        showToast(`Please fill in your ${label}`, 'error');
+                        return false;
+                    }
+                    return true;
+                };
+                
+                const isSelected = (id, label) => {
+                    const value = getValue(id);
+                    if (!value || value === '') {
+                        showToast(`Please select your ${label}`, 'error');
+                        return false;
+                    }
+                    return true;
+                };
+                
                 switch(step) {
                     case 1:
-                        if (!required('surname') || !required('firstName') || !required('gender') || !required('dob') || !required('phone')) {
-                            showToast('Please fill in all required personal information fields', 'error');
-                            return false;
-                        }
-                        break;
+                        if (!isFilled('surname', 'surname')) return false;
+                        if (!isFilled('firstName', 'first name')) return false;
+                        if (!isSelected('gender', 'gender')) return false;
+                        if (!isFilled('dob', 'date of birth')) return false;
+                        if (!isFilled('phone', 'phone number')) return false;
+                        return true;
+                        
                     case 2:
-                        if (!required('matric') || !required('faculty') || !required('department') || !required('level') || !required('session')) {
-                            showToast('Please fill in all required academic information fields', 'error');
-                            return false;
-                        }
-                        break;
+                        if (!isFilled('matric', 'matric number')) return false;
+                        if (!isSelected('faculty', 'faculty')) return false;
+                        if (!isSelected('department', 'department')) return false;
+                        if (!isSelected('level', 'level')) return false;
+                        if (!isSelected('session', 'academic session')) return false;
+                        return true;
+                        
                     case 3:
-                        const hostel = document.getElementById('hostelSelect')?.value;
-                        const floor = document.getElementById('floorSelect')?.value;
-                        const room = document.getElementById('roomSelect')?.value;
-                        const bed = document.getElementById('bedSelect')?.value;
-                        if (!hostel || !floor || !room || !bed) {
-                            showToast('Please select hostel, floor, room and bed space', 'error');
+                        const hostel = getValue('hostelSelect');
+                        const floor = getValue('floorSelect');
+                        const room = getValue('roomSelect');
+                        const bed = getValue('bedSelect');
+                        
+                        if (!hostel) {
+                            showToast('Please select your hostel', 'error');
                             return false;
                         }
-                        break;
+                        if (!floor) {
+                            showToast('Please select your floor or flat', 'error');
+                            return false;
+                        }
+                        if (!room) {
+                            showToast('Please select your room number', 'error');
+                            return false;
+                        }
+                        if (!bed) {
+                            showToast('Please select your bed space', 'error');
+                            return false;
+                        }
+                        return true;
+                        
                     case 4:
-                        if (!required('emergencyName') || !required('emergencyRelation') || !required('emergencyPhone')) {
-                            showToast('Please fill in all emergency contact fields', 'error');
-                            return false;
-                        }
-                        break;
+                        if (!isFilled('emergencyName', 'emergency contact name')) return false;
+                        if (!isSelected('emergencyRelation', 'emergency relationship')) return false;
+                        if (!isFilled('emergencyPhone', 'emergency phone number')) return false;
+                        return true;
+                        
+                    default:
+                        return true;
                 }
-                return true;
             }
 
             // ---------- HOSTEL DEPENDENT DROPDOWNS ----------
