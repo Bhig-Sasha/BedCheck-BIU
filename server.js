@@ -1168,7 +1168,7 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT - FIXED (removed hostels.code reference)
+// QR CODE MANAGEMENT - COMPLETELY FIXED (no hostels.code reference)
 // =====================================================
 
 // GET QR code by hostel ID
@@ -1185,22 +1185,7 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
 
     console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
     
-    // First get the hostel info
-    const { data: hostelInfo, error: hostelError } = await supabase
-      .from('hostels')
-      .select('id, name')
-      .eq('id', hostelId)
-      .maybeSingle();
-    
-    if (hostelError) {
-      console.error('❌ Hostel fetch error:', hostelError);
-      return res.status(500).json({
-        success: false,
-        message: 'Error fetching hostel: ' + hostelError.message
-      });
-    }
-    
-    // Get QR code for this hostel that is active
+    // Get QR code for this hostel that is active - NO JOIN
     const { data: qrData, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1224,6 +1209,18 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
         data: null,
         message: 'No active QR code found for this hostel'
       });
+    }
+
+    // Get hostel name separately (no code column needed)
+    let hostelName = null;
+    const { data: hostelInfo, error: hostelInfoError } = await supabase
+      .from('hostels')
+      .select('name')
+      .eq('id', hostelId)
+      .maybeSingle();
+    
+    if (!hostelInfoError && hostelInfo) {
+      hostelName = hostelInfo.name;
     }
 
     // Get creator name
@@ -1255,7 +1252,7 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
         created_by_name: creatorName,
         created_at: qrData.created_at,
         updated_at: qrData.updated_at,
-        hostel: hostelInfo || null
+        hostel: hostelName ? { id: hostelId, name: hostelName } : null
       }
     });
   } catch (error) {
@@ -1313,30 +1310,19 @@ app.get('/api/qr/my-hostel', async (req, res) => {
     
     console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
     
-    // Get hostel details (no code column)
+    // Get hostel name separately (no code column)
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
-      .select('id, name')
+      .select('name')
       .eq('id', staff.hostel_id)
       .maybeSingle();
     
     if (hostelError) {
       console.error('❌ Hostel query error:', hostelError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database error: ' + hostelError.message 
-      });
+      // Continue anyway - we'll use the hostel_id
     }
     
-    if (!hostel) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'Hostel not found'
-      });
-    }
-    
-    // Get active QR code from qr_codes table
+    // Get active QR code from qr_codes table - NO JOIN
     const { data: qrData, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1355,7 +1341,7 @@ app.get('/api/qr/my-hostel', async (req, res) => {
     }
 
     if (!qrData) {
-      console.log(`ℹ️ No active QR code found for hostel ${hostel.name}`);
+      console.log(`ℹ️ No active QR code found for hostel ID ${staff.hostel_id}`);
       return res.json({
         success: true,
         data: null,
@@ -1363,7 +1349,7 @@ app.get('/api/qr/my-hostel', async (req, res) => {
       });
     }
 
-    console.log(`✅ QR found: ${qrData.code} for hostel ${hostel.name}`);
+    console.log(`✅ QR found: ${qrData.code}`);
 
     // Get the creator's name
     let creatorName = 'Unknown';
@@ -1406,10 +1392,7 @@ app.get('/api/qr/my-hostel', async (req, res) => {
         created_by_name: creatorName,
         created_at: qrData.created_at,
         updated_at: qrData.updated_at,
-        hostel: {
-          id: hostel.id,
-          name: hostel.name
-        },
+        hostel: hostel ? { id: staff.hostel_id, name: hostel.name } : null,
         staff: {
           id: staff.id,
           name: staff.name,
@@ -1473,10 +1456,10 @@ app.post('/api/qr/generate', async (req, res) => {
     
     console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
     
-    // Get hostel details (no code column)
+    // Get hostel name (no code column needed)
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
-      .select('id, name')
+      .select('name')
       .eq('id', staff.hostel_id)
       .maybeSingle();
     
@@ -1495,7 +1478,7 @@ app.post('/api/qr/generate', async (req, res) => {
       });
     }
 
-    console.log(`✅ Found hostel: ${hostel.name} (ID: ${hostel.id})`);
+    console.log(`✅ Found hostel: ${hostel.name} (ID: ${staff.hostel_id})`);
 
     // Generate unique QR code with timestamp - use hostel name for code
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -1503,7 +1486,7 @@ app.post('/api/qr/generate', async (req, res) => {
     
     const qrData = JSON.stringify({
       type: 'hostel_verification',
-      hostel_id: hostel.id,
+      hostel_id: staff.hostel_id,
       hostel_name: hostel.name,
       code: qrCode,
       created_by: staffId,
@@ -1518,7 +1501,7 @@ app.post('/api/qr/generate', async (req, res) => {
         is_active: false,
         updated_at: new Date().toISOString()
       })
-      .eq('hostel_id', hostel.id)
+      .eq('hostel_id', staff.hostel_id)
       .eq('is_active', true);
 
     if (updateError) {
@@ -1529,7 +1512,7 @@ app.post('/api/qr/generate', async (req, res) => {
     const { data: qrDataInsert, error: qrError } = await supabase
       .from('qr_codes')
       .insert({
-        hostel_id: hostel.id,
+        hostel_id: staff.hostel_id,
         code: qrCode,
         qr_data: qrData,
         generated_at: new Date().toISOString(),
@@ -1559,11 +1542,11 @@ app.post('/api/qr/generate', async (req, res) => {
       action: 'QR Code Generated',
       module: 'qr_codes',
       details: `QR code generated for ${hostel.name} by ${staff.name}`,
-      context: `Hostel ID: ${hostel.id}`,
+      context: `Hostel ID: ${staff.hostel_id}`,
       result: 'success',
       category: 'qr',
       tone: 'blue',
-      hostel_id: hostel.id
+      hostel_id: staff.hostel_id
     });
 
     res.json({
@@ -1581,7 +1564,7 @@ app.post('/api/qr/generate', async (req, res) => {
         created_at: qrDataInsert.created_at,
         updated_at: qrDataInsert.updated_at,
         hostel: {
-          id: hostel.id,
+          id: staff.hostel_id,
           name: hostel.name
         },
         staff: {
@@ -1600,7 +1583,7 @@ app.post('/api/qr/generate', async (req, res) => {
   }
 });
 
-// Verify QR code scan - FIXED (removed hostels.code reference)
+// Verify QR code scan - FIXED (no join)
 app.post('/api/qr/verify', async (req, res) => {
   try {
     const { qr_code, scanner_id } = req.body;
@@ -1616,7 +1599,7 @@ app.post('/api/qr/verify', async (req, res) => {
 
     console.log(`🔍 Verifying QR code: ${qr_code}`);
 
-    // Find QR code in qr_codes table
+    // Find QR code in qr_codes table - NO JOIN
     const { data: qrRecord, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1639,12 +1622,16 @@ app.post('/api/qr/verify', async (req, res) => {
       });
     }
 
-    // Get hostel info
-    const { data: hostelInfo } = await supabase
-      .from('hostels')
-      .select('id, name')
-      .eq('id', qrRecord.hostel_id)
-      .maybeSingle();
+    // Get hostel name separately
+    let hostelName = 'Unknown Hostel';
+    if (qrRecord.hostel_id) {
+      const { data: hostelInfo } = await supabase
+        .from('hostels')
+        .select('name')
+        .eq('id', qrRecord.hostel_id)
+        .maybeSingle();
+      if (hostelInfo) hostelName = hostelInfo.name;
+    }
 
     // Check if expired
     if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
@@ -1675,7 +1662,7 @@ app.post('/api/qr/verify', async (req, res) => {
       actor_role: req.headers['x-staff-role'] || 'Staff',
       action: 'QR Code Scanned',
       module: 'qr_codes',
-      details: `QR code scanned for ${hostelInfo?.name || 'Unknown Hostel'}`,
+      details: `QR code scanned for ${hostelName}`,
       context: `Scanner ID: ${scanner_id || 'Unknown'}`,
       result: 'success',
       category: 'qr',
@@ -1687,7 +1674,7 @@ app.post('/api/qr/verify', async (req, res) => {
       success: true,
       data: {
         hostel_id: qrRecord.hostel_id,
-        hostel_name: hostelInfo?.name || 'Unknown Hostel',
+        hostel_name: hostelName,
         verified: true,
         timestamp: new Date().toISOString(),
         scan_count: (qrRecord.usage_count || 0) + 1
