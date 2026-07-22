@@ -1849,10 +1849,38 @@ app.delete('/api/floors-flats/:id', async (req, res) => {
 
 // Rooms
 app.get('/api/rooms', async (req, res) => {
-  const { floor_flat_id } = req.query;
+  const { floor_flat_id, hostel_id } = req.query;
   try {
     let query = supabase.from('rooms').select('*');
-    if (floor_flat_id) query = query.eq('floor_flat_id', parseInt(floor_flat_id));
+    
+    if (floor_flat_id) {
+      query = query.eq('floor_flat_id', parseInt(floor_flat_id));
+    }
+    
+    if (hostel_id) {
+      // First get all floor IDs for this hostel
+      const { data: hostelFloors, error: floorsError } = await supabase
+        .from('floors_flats')
+        .select('id')
+        .eq('hostel_id', parseInt(hostel_id));
+      
+      if (floorsError) {
+        console.error('Error fetching hostel floors:', floorsError);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Database error: ' + floorsError.message 
+        });
+      }
+      
+      if (hostelFloors && hostelFloors.length > 0) {
+        const floorIds = hostelFloors.map(f => f.id);
+        query = query.in('floor_flat_id', floorIds);
+      } else {
+        // No floors found for this hostel, return empty
+        return res.json({ success: true, data: [] });
+      }
+    }
+    
     const { data, error } = await query.order('room_code', { ascending: true });
     if (error) throw error;
     res.json({ success: true, data: data });
@@ -1917,13 +1945,42 @@ app.delete('/api/rooms/:id', async (req, res) => {
   }
 });
 
-// Bed Spaces
+// Bed Spaces - FIXED to filter by hostel_id
 app.get('/api/bed-spaces', async (req, res) => {
-  const { room_id } = req.query;
+  const { room_id, hostel_id } = req.query;
   try {
     let query = supabase.from('bed_spaces').select('*');
-    if (room_id) query = query.eq('room_id', parseInt(room_id));
+    
+    if (room_id) {
+      query = query.eq('room_id', parseInt(room_id));
+    }
+    
+    if (hostel_id) {
+      // First get all room IDs for this hostel
+      const { data: hostelRooms, error: roomsError } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('hostel_id', parseInt(hostel_id));
+      
+      if (roomsError) {
+        console.error('Error fetching hostel rooms:', roomsError);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Database error: ' + roomsError.message 
+        });
+      }
+      
+      if (hostelRooms && hostelRooms.length > 0) {
+        const roomIds = hostelRooms.map(r => r.id);
+        query = query.in('room_id', roomIds);
+      } else {
+        // No rooms found for this hostel, return empty
+        return res.json({ success: true, data: [] });
+      }
+    }
+    
     const { data, error } = await query.order('bed_code', { ascending: true });
+    
     if (error) throw error;
     res.json({ success: true, data: data });
   } catch (error) {
