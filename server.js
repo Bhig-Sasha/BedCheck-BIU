@@ -339,7 +339,7 @@ const auditService = {
 };
 
 // =====================================================
-// AUDIT EVENTS - (Keep existing auditEvents here)
+// AUDIT EVENTS
 // =====================================================
 
 const auditEvents = {
@@ -1221,7 +1221,7 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT - UPDATED WITH FIXES
+// QR CODE MANAGEMENT - COMPLETE FIX
 // =====================================================
 
 // Get active QR code for hostel
@@ -1257,17 +1257,7 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
     
     console.log(`✅ Found hostel: ${hostel.name} (ID: ${hostelId})`);
     
-    // Check if qr_codes table exists
-    const tableCheck = await ensureQRCodesTable();
-    if (!tableCheck) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'QR codes table does not exist yet. Please generate a QR code.'
-      });
-    }
-    
-    // Get active QR code
+    // Get active QR code - use maybeSingle to avoid errors
     const { data: qrData, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1286,12 +1276,15 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
     }
 
     if (!qrData) {
+      console.log(`ℹ️ No active QR code found for hostel ${hostelId}`);
       return res.json({
         success: true,
         data: null,
         message: 'No active QR code found. Generate one first.'
       });
     }
+
+    console.log(`✅ QR found: ${qrData.code} for hostel ${hostel.name}`);
 
     // Update usage count
     try {
@@ -1302,6 +1295,7 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
           usage_count: (qrData.usage_count || 0) + 1
         })
         .eq('id', qrData.id);
+      console.log(`📊 Updated usage count for QR ${qrData.code} to ${(qrData.usage_count || 0) + 1}`);
     } catch (e) {
       console.log('ℹ️ Error updating usage count:', e.message);
     }
@@ -1309,7 +1303,18 @@ app.get('/api/hostels/:id/qr', async (req, res) => {
     res.json({
       success: true,
       data: {
-        ...qrData,
+        id: qrData.id,
+        hostel_id: qrData.hostel_id,
+        code: qrData.code,
+        qr_data: qrData.qr_data,
+        generated_at: qrData.generated_at,
+        expires_at: qrData.expires_at,
+        is_active: qrData.is_active,
+        last_used_at: qrData.last_used_at,
+        usage_count: qrData.usage_count,
+        created_by: qrData.created_by,
+        created_at: qrData.created_at,
+        updated_at: qrData.updated_at,
         hostel: {
           id: hostel.id,
           name: hostel.name,
@@ -1361,17 +1366,10 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
 
     console.log(`✅ Found hostel: ${hostel.name} (ID: ${hostelId})`);
 
-    // Check if qr_codes table exists
-    const tableCheck = await ensureQRCodesTable();
-    if (!tableCheck) {
-      return res.status(500).json({
-        success: false,
-        message: 'QR codes table does not exist. Please run the SQL migration script in your Supabase SQL editor.'
-      });
-    }
-
-    // Generate unique QR code
-    const qrCode = `BIU-${hostel.code || hostel.name.toUpperCase().replace(/\s/g, '-')}-${Date.now().toString(36).toUpperCase()}`;
+    // Generate unique QR code with timestamp
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const qrCode = `BIU-${hostel.code || hostel.name.toUpperCase().replace(/\s/g, '-')}-${timestamp}`;
+    
     const qrData = JSON.stringify({
       type: 'hostel_verification',
       hostel_id: hostelId,
@@ -1380,8 +1378,8 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    // Inactivate old QR codes
-    await supabase
+    // Inactivate old QR codes for this hostel
+    const { error: updateError } = await supabase
       .from('qr_codes')
       .update({ 
         is_active: false,
@@ -1389,6 +1387,10 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       })
       .eq('hostel_id', hostelId)
       .eq('is_active', true);
+
+    if (updateError) {
+      console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
+    }
 
     // Insert new QR code
     const { data: qrDataInsert, error: qrError } = await supabase
@@ -1400,7 +1402,7 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
         generated_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         is_active: true,
-        created_by: staffId,
+        created_by: staffId || 1,
         usage_count: 0
       })
       .select()
@@ -1408,7 +1410,10 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
 
     if (qrError) {
       console.error('❌ QR insert error:', qrError);
-      throw qrError;
+      return res.status(500).json({
+        success: false,
+        message: 'Error inserting QR code: ' + qrError.message
+      });
     }
 
     console.log(`✅ QR generated successfully: ${qrCode}`);
@@ -1432,11 +1437,16 @@ app.post('/api/hostels/:id/qr/generate', async (req, res) => {
       success: true,
       data: {
         id: qrDataInsert.id,
-        code: qrCode,
-        qr_data: qrData,
+        hostel_id: qrDataInsert.hostel_id,
+        code: qrDataInsert.code,
+        qr_data: qrDataInsert.qr_data,
         generated_at: qrDataInsert.generated_at,
         expires_at: qrDataInsert.expires_at,
         is_active: qrDataInsert.is_active,
+        usage_count: qrDataInsert.usage_count,
+        created_by: qrDataInsert.created_by,
+        created_at: qrDataInsert.created_at,
+        updated_at: qrDataInsert.updated_at,
         hostel: {
           id: hostel.id,
           name: hostel.name,
@@ -1467,24 +1477,32 @@ app.post('/api/qr/verify', async (req, res) => {
       });
     }
 
-    // Check if qr_codes table exists
-    const tableCheck = await ensureQRCodesTable();
-    if (!tableCheck) {
-      return res.status(500).json({
-        success: false,
-        message: 'QR codes table does not exist. Please run the migration.'
-      });
-    }
+    console.log(`🔍 Verifying QR code: ${qr_code}`);
 
-    // Find QR code in database
+    // Find QR code in database with hostel info
     const { data: qrRecord, error: qrError } = await supabase
       .from('qr_codes')
-      .select('*, hostels(id, name)')
+      .select(`
+        *,
+        hostels!inner (
+          id,
+          name,
+          code
+        )
+      `)
       .eq('code', qr_code)
       .eq('is_active', true)
       .maybeSingle();
 
-    if (qrError || !qrRecord) {
+    if (qrError) {
+      console.error('❌ QR verification error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error: ' + qrError.message
+      });
+    }
+
+    if (!qrRecord) {
       return res.status(404).json({
         success: false,
         message: 'Invalid or inactive QR code'
@@ -1508,6 +1526,7 @@ app.post('/api/qr/verify', async (req, res) => {
           usage_count: (qrRecord.usage_count || 0) + 1
         })
         .eq('id', qrRecord.id);
+      console.log(`📊 Updated usage count for QR ${qrRecord.code}`);
     } catch (e) {
       console.log('ℹ️ Error updating usage count:', e.message);
     }
@@ -1532,6 +1551,7 @@ app.post('/api/qr/verify', async (req, res) => {
       data: {
         hostel_id: qrRecord.hostel_id,
         hostel_name: qrRecord.hostels?.name,
+        hostel_code: qrRecord.hostels?.code,
         verified: true,
         timestamp: new Date().toISOString(),
         scan_count: (qrRecord.usage_count || 0) + 1
@@ -1552,14 +1572,7 @@ app.get('/api/hostels/:id/qr/history', async (req, res) => {
     const hostelId = parseInt(req.params.id);
     const { limit = 10 } = req.query;
 
-    const tableCheck = await ensureQRCodesTable();
-    if (!tableCheck) {
-      return res.json({
-        success: true,
-        data: [],
-        message: 'QR codes table does not exist yet.'
-      });
-    }
+    console.log(`📜 Fetching QR history for hostel ${hostelId}`);
 
     const { data: qrHistory, error: historyError } = await supabase
       .from('qr_codes')
@@ -1576,6 +1589,36 @@ app.get('/api/hostels/:id/qr/history', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error fetching QR history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+// Get all QR codes (admin)
+app.get('/api/qr/all', async (req, res) => {
+  try {
+    const { data: qrCodes, error } = await supabase
+      .from('qr_codes')
+      .select(`
+        *,
+        hostels (
+          id,
+          name,
+          code
+        )
+      `)
+      .order('generated_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: qrCodes
+    });
+  } catch (error) {
+    console.error('❌ Error fetching all QR codes:', error);
     res.status(500).json({
       success: false,
       message: 'Database error: ' + error.message
