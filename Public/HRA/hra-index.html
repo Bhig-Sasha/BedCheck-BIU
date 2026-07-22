@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HRA Hostel Command Center · BIU BedCheck</title>
+    <title>HRA · BIU BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -1416,25 +1416,31 @@
 
                 // Group rooms by floor for the room table - ONLY for this hostel
                 const roomsByFloor = {};
+                const floorIds = floors.map(f => f.id);
+                
                 rooms.forEach(room => {
                     const floorId = room.floor_flat_id;
                     // Check if this floor belongs to the current hostel
-                    const floor = floors.find(f => f.id === floorId);
-                    if (!floor) return; // Skip rooms whose floor is not in this hostel
+                    if (!floorIds.includes(floorId)) return; // Skip rooms whose floor is not in this hostel
                     
                     if (!roomsByFloor[floorId]) {
+                        const floor = floors.find(f => f.id === floorId);
                         roomsByFloor[floorId] = {
-                            floorName: floor.name || 'Unknown Floor',
+                            floorName: floor?.name || 'Unknown Floor',
                             rooms: []
                         };
                     }
-                    const roomStudents = students.filter(s => s.room_id === room.id);
-                    const occupied = roomStudents.length;
-                    const capacity = 4;
+                    
+                    // Calculate occupancy from bed spaces, not students
+                    const roomBedSpaces = bedSpaces.filter(b => b.room_id === room.id);
+                    const occupied = roomBedSpaces.filter(b => b.status === 'occupied' || b.status === 'Occupied').length;
+                    const capacity = roomBedSpaces.length || 4;
                     const available = capacity - occupied;
+                    
                     let status = 'Available';
-                    if (occupied === capacity) status = 'Full';
-                    else if (available > 0) status = 'Available';
+                    if (occupied === capacity && capacity > 0) status = 'Full';
+                    else if (available > 0 && occupied > 0) status = 'Available';
+                    else if (available === capacity && capacity > 0) status = 'Available';
                     
                     roomsByFloor[floorId].rooms.push({
                         code: room.room_code || 'Room ' + room.id,
@@ -1466,6 +1472,21 @@
                         }
                     });
                 }
+
+                // Calculate room and bed counts for this hostel only from bed_spaces
+                let hostelRoomCount = 0;
+                let hostelBedCount = 0;
+                let hostelOccupiedBeds = 0;
+                let hostelAvailableBeds = 0;
+                
+                Object.values(roomsByFloor).forEach(floor => {
+                    hostelRoomCount += floor.rooms.length;
+                    floor.rooms.forEach(room => {
+                        hostelBedCount += room.capacity;
+                        hostelOccupiedBeds += room.occupied;
+                        hostelAvailableBeds += room.available;
+                    });
+                });
 
                 // Build room table HTML grouped by floor
                 let roomTableHtml = '';
@@ -1632,7 +1653,7 @@
                     <div class="card mt-6">
                         <div class="flex-between">
                             <div class="card-title" style="font-size:1rem;">Room Occupancy & Bed Availability</div>
-                            <span class="text-xs text-muted">${rooms.length} rooms · ${bedSpaces.length} beds</span>
+                            <span class="text-xs text-muted">${hostelRoomCount} rooms · ${hostelBedCount} beds (${hostelOccupiedBeds} occupied · ${hostelAvailableBeds} available)</span>
                         </div>
                         <div class="room-table-wrap mt-2">
                             <div style="display:grid;grid-template-columns:1fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr;padding:0.4rem 0.75rem;font-weight:700;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.05em;color:#68768a;border-bottom:2px solid #ded6c9;background:#fbf7ef;border-radius:0.4rem 0.4rem 0 0;">
