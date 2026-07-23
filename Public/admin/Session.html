@@ -322,9 +322,6 @@
                         <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;cursor:pointer;">
                             <input type="checkbox" checked /> Auto-close at end time
                         </label>
-                        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;cursor:pointer;">
-                            <input type="checkbox" checked /> Notify all RAs
-                        </label>
                     </div>
                 </div>
             </div>
@@ -452,6 +449,7 @@
             let sessionStatus = 'Scheduled';
             let hostels = [];
             let bedcheckSessions = [];
+            let sessionCheckerInterval = null;
 
             // =============================================
             // HOSTEL ORDER
@@ -566,6 +564,61 @@
             }
 
             // =============================================
+            // AUTO SESSION CHECKER
+            // =============================================
+            function startSessionChecker() {
+                if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
+                
+                sessionCheckerInterval = setInterval(async () => {
+                    try {
+                        const now = new Date();
+                        const currentHour = now.getHours();
+                        const currentMinute = now.getMinutes();
+                        const currentTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+                        
+                        // Check if there's an upcoming session that should start
+                        const sessions = bedcheckSessions.filter(s => s.status === 'Scheduled' || s.status === 'Pending');
+                        
+                        for (const session of sessions) {
+                            if (session.start_time && session.start_time <= currentTime) {
+                                // Session should start - update status to Open
+                                await apiCall(`/bedcheck/sessions/${session.id}`, {
+                                    method: 'PUT',
+                                    body: JSON.stringify({ status: 'Open' })
+                                });
+                                
+                                // Also update global session status
+                                await apiCall('/submission', {
+                                    method: 'PUT',
+                                    body: JSON.stringify({ state: 'Open' })
+                                });
+                                
+                                showToast(`Session "${session.name}" has started automatically!`, 'success');
+                                await loadBedCheckSessions();
+                                await loadSessionStatus();
+                                renderScreen();
+                            }
+                            
+                            // Check if session should close
+                            if (session.status === 'Open' && session.end_time && session.end_time <= currentTime) {
+                                await apiCall(`/bedcheck/sessions/${session.id}`, {
+                                    method: 'PUT',
+                                    body: JSON.stringify({ status: 'Closed' })
+                                });
+                                
+                                showToast(`Session "${session.name}" has closed automatically.`, 'info');
+                                await loadBedCheckSessions();
+                                await loadSessionStatus();
+                                renderScreen();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Session checker error:', error);
+                    }
+                }, 60000); // Check every minute
+            }
+
+            // =============================================
             // MODAL FUNCTIONS
             // =============================================
             function openCreateSession() {
@@ -609,16 +662,18 @@
                     return;
                 }
 
+                // Create session in sessions table
                 const payload = {
                     name,
                     date,
                     start_time: startTime,
                     end_time: endTime,
                     repeat,
-                    hostel_ids: selectedHostels
+                    hostel_ids: selectedHostels,
+                    status: 'Scheduled'
                 };
 
-                apiCall('/bedcheck/sessions', {
+                apiCall('/sessions', {
                     method: 'POST',
                     body: JSON.stringify(payload)
                 }).then(() => {
@@ -753,7 +808,7 @@
                                 <span style="padding:0.1rem 0.4rem;border-radius:9999px;font-size:0.5rem;font-weight:700;text-transform:uppercase;${statusStyle[sessionStatus] || ''}">${sessionStatus}</span>
                             </div>
                             <p class="text-sm mt-1" style="color:#675121;">
-                                ${sessionStatus === 'Scheduled' ? 'Waiting for start time.' :
+                                ${sessionStatus === 'Scheduled' ? 'Waiting for start time. Session will auto-start.' :
                                   sessionStatus === 'Open' ? 'Attendance entry is enabled.' :
                                   sessionStatus === 'Running' ? 'RAs are actively taking BedCheck.' :
                                   sessionStatus === 'Closed' ? 'Session has ended.' :
@@ -803,10 +858,11 @@
                         </div>
                     </div>
 
+                    <!-- Session History - Only archived sessions -->
                     <div class="card mt-4">
                         <div class="flex-between">
-                            <div class="card-title">📅 Upcoming Sessions</div>
-                            <span class="text-xs text-muted">${bedcheckSessions.filter(s => s.status === 'Scheduled' || s.status === 'Open').length} upcoming</span>
+                            <div class="card-title">📜 Session History</div>
+                            <span class="text-xs text-muted">${bedcheckSessions.filter(s => s.status === 'Archived').length} archived</span>
                         </div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -819,57 +875,19 @@
                                     <th>Action</th>
                                 </tr></thead>
                                 <tbody>
-                                    ${bedcheckSessions.length > 0 ? bedcheckSessions.filter(s => s.status !== 'Archived').slice(0, 5).map(s => {
-                                        const statusClass = s.status === 'Scheduled' ? 'badge-scheduled' : 
-                                                          s.status === 'Open' ? 'badge-open' : 
-                                                          s.status === 'Running' ? 'badge-running' : 
-                                                          s.status === 'Closed' ? 'badge-draft' : 
-                                                          s.status === 'Submitted' ? 'badge-submitted' :
-                                                          s.status === 'Review' ? 'badge-review' :
-                                                          s.status === 'Approved' ? 'badge-approved' : 'badge-draft';
+                                    ${bedcheckSessions.filter(s => s.status === 'Archived').length > 0 ? bedcheckSessions.filter(s => s.status === 'Archived').slice(0, 10).map(s => {
                                         return `
                                             <tr>
                                                 <td style="font-weight:600;">${formatDate(s.date)}</td>
                                                 <td>${s.name || 'Night BedCheck'}</td>
                                                 <td>${formatTime(s.start_time) || '10:00 PM'}</td>
                                                 <td>${formatTime(s.end_time) || '11:30 PM'}</td>
-                                                <td><span class="badge ${statusClass}">${statusDot[s.status] || '🟡'} ${s.status || 'Scheduled'}</span></td>
-                                                <td><button class="btn-ghost" onclick="showToast('Viewing session details', 'info')" style="font-size:0.6rem;">View</button></td>
-                                            </tr>
-                                        `;
-                                    }).join('') : `
-                                        <tr><td colspan="6" class="text-center text-muted" style="padding:1rem;">No upcoming sessions</td></tr>
-                                    `}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="card mt-4">
-                        <div class="flex-between">
-                            <div class="card-title">📜 Session History</div>
-                            <span class="text-xs text-muted">${bedcheckSessions.filter(s => s.status === 'Archived').length} archived</span>
-                        </div>
-                        <div class="table-wrap mt-2">
-                            <table>
-                                <thead><tr>
-                                    <th>Date</th>
-                                    <th>Session</th>
-                                    <th>Status</th>
-                                    <th>Action</th>
-                                </tr></thead>
-                                <tbody>
-                                    ${bedcheckSessions.filter(s => s.status === 'Archived').length > 0 ? bedcheckSessions.filter(s => s.status === 'Archived').slice(0, 5).map(s => {
-                                        return `
-                                            <tr>
-                                                <td style="font-weight:600;">${formatDate(s.date)}</td>
-                                                <td>${s.name || 'Night BedCheck'}</td>
                                                 <td><span class="badge badge-archived">${statusDot[s.status] || '⚪'} ${s.status || 'Archived'}</span></td>
                                                 <td><button class="btn-ghost" onclick="showToast('Viewing archived session', 'info')" style="font-size:0.6rem;">View</button></td>
                                             </tr>
                                         `;
                                     }).join('') : `
-                                        <tr><td colspan="4" class="text-center text-muted" style="padding:1rem;">No archived sessions</td></tr>
+                                        <tr><td colspan="6" class="text-center text-muted" style="padding:1rem;">No archived sessions</td></tr>
                                     `}
                                 </tbody>
                             </table>
@@ -885,6 +903,7 @@
                 `;
 
                 updateLiveTime();
+                startSessionChecker();
             }
 
             // =============================================
