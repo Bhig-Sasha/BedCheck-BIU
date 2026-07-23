@@ -320,22 +320,21 @@
             </div>
             <div class="grid-2 mt-3">
                 <div class="field">
-                    <label>Floor <span class="text-gold">*</span></label>
-                    <select id="roomFloor">
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
+                    <label>Floor/Flat <span class="text-gold">*</span></label>
+                    <select id="roomFloorFlat">
+                        <option value="">Select Floor/Flat</option>
                     </select>
                 </div>
                 <div class="field">
-                    <label>Room Number <span class="text-gold">*</span></label>
-                    <input id="roomNumber" placeholder="e.g. 101" />
+                    <label>Room Code <span class="text-gold">*</span></label>
+                    <input id="roomCode" placeholder="e.g. A101 or F1R1" />
                 </div>
                 <div class="field">
                     <label>Capacity <span class="text-gold">*</span></label>
                     <select id="roomCapacity">
-                        <option value="4">4 (Boys)</option>
-                        <option value="6">6 (Girls)</option>
+                        <option value="4">4</option>
+                        <option value="6">6</option>
+                        <option value="8">8</option>
                     </select>
                 </div>
                 <div class="field">
@@ -449,6 +448,7 @@
                         </div>
                     </div>
                     <div class="header-right">
+                        <!-- Notification removed -->
                         <a href="Profile.html" class="profile-btn">
                             <span class="profile-avatar" id="profileAvatar">IM</span>
                             <span class="profile-name" id="profileName">Ibrahim Musa</span>
@@ -499,9 +499,9 @@
             let currentRole = 'Administrator';
             let hostels = [];
             let students = [];
-            let allFloors = [];
+            let allFloorsFlats = [];
             let allRooms = [];
-            let allBeds = [];
+            let allBedSpaces = [];
             let editingHostelId = null;
             let selectedHostelForRoom = null;
             let selectedFloor = null;
@@ -613,7 +613,7 @@
                 }
             }
 
-            async function loadFloorsForHostel(hostelId) {
+            async function loadFloorsFlatsForHostel(hostelId) {
                 try {
                     const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
                     return data.data || [];
@@ -624,7 +624,6 @@
 
             async function loadRoomsForHostel(hostelId) {
                 try {
-                    // Use the rooms endpoint with hostel_id filter
                     const data = await apiCall(`/rooms?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
@@ -633,18 +632,17 @@
                 }
             }
 
-            async function loadBedsForHostel(hostelId) {
+            async function loadBedSpacesForHostel(hostelId) {
                 try {
-                    // Use the bed-spaces endpoint with hostel_id filter
                     const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
-                    console.error('Error loading beds:', error);
+                    console.error('Error loading bed spaces:', error);
                     return [];
                 }
             }
 
-            async function loadBedsForRoom(roomId) {
+            async function loadBedSpacesForRoom(roomId) {
                 try {
                     const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
                     return data.data || [];
@@ -663,7 +661,6 @@
                 const boys = hostels.filter(h => h.gender === 'male').length;
                 const girls = hostels.filter(h => h.gender === 'female').length;
                 
-                // Calculate total beds from all hostels
                 let totalBeds = 0;
                 hostels.forEach(h => {
                     const bedsPerRoom = h.beds_per_room || 4;
@@ -755,7 +752,7 @@
             }
 
             // =============================================
-            // SHOW HOSTEL DETAIL WITH FLOOR/SECTION SELECTOR
+            // SHOW HOSTEL DETAIL
             // =============================================
             async function showHostelDetail(hostelId) {
                 const hostel = hostels.find(h => h.id === hostelId);
@@ -770,12 +767,11 @@
                 
                 detailContainer.style.display = 'block';
                 
-                // Load data from correct endpoints
                 try {
-                    const floorsData = await loadFloorsForHostel(hostelId);
-                    allFloors = floorsData;
+                    const floorsData = await loadFloorsFlatsForHostel(hostelId);
+                    allFloorsFlats = floorsData;
                 } catch (error) {
-                    allFloors = [];
+                    allFloorsFlats = [];
                 }
                 
                 try {
@@ -786,10 +782,10 @@
                 }
                 
                 try {
-                    const bedsData = await loadBedsForHostel(hostelId);
-                    allBeds = bedsData;
+                    const bedsData = await loadBedSpacesForHostel(hostelId);
+                    allBedSpaces = bedsData;
                 } catch (error) {
-                    allBeds = [];
+                    allBedSpaces = [];
                 }
                 
                 const type = getHostelType(hostel);
@@ -797,14 +793,29 @@
                 const bedsPerRoom = hostel.beds_per_room || 4;
                 const isGirls = hostel.gender === 'female';
                 
-                // Calculate stats from actual rooms
                 const totalRooms = allRooms.length || 0;
                 const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
-                const occupiedBeds = allBeds.filter(b => b.status === 'occupied').length || 0;
+                const occupiedBeds = allBedSpaces.filter(b => b.status === 'occupied').length || 0;
                 const availableBeds = totalBeds - occupiedBeds;
                 
                 const floors = hostel.floors || hostel.total_floors || 3;
                 const roomsPerFloor = hostel.rooms_per_floor || (isGirls ? 24 : 18);
+                
+                // Build floor/flat options for dropdown
+                let floorOptions = '';
+                if (isFlat) {
+                    const totalFlats = hostel.total_flats || 9;
+                    for (let i = 1; i <= totalFlats; i++) {
+                        const roomCount = (i === 1 || i === 4 || i === 7) ? 3 : (hostel.rooms_per_flat || 4);
+                        floorOptions += `<option value="F${i}">Flat ${i} (${roomCount} rooms)</option>`;
+                    }
+                } else {
+                    const letters = ['A', 'B', 'C'];
+                    const totalFloors = hostel.floors || hostel.total_floors || 3;
+                    for (let i = 0; i < totalFloors; i++) {
+                        floorOptions += `<option value="${letters[i]}">Floor ${letters[i]} (${hostel.rooms_per_floor || 18} rooms)</option>`;
+                    }
+                }
                 
                 detailContainer.innerHTML = `
                     <div class="flex-between">
@@ -818,17 +829,6 @@
                             <button class="btn-outline" onclick="closeHostelConfig()"><i class="fas fa-times"></i> Close</button>
                             <button class="btn-primary" onclick="saveHostelConfig()" id="saveHostelBtn"><i class="fas fa-save"></i> Save</button>
                         </div>
-                    </div>
-                    
-                    <div class="hostel-type-selector mt-3">
-                        <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-right:1rem;">
-                            <input type="radio" name="hostelType" value="floor" ${!isFlat ? 'checked' : ''} onchange="updateHostelType('floor')">
-                            Floor-based
-                        </label>
-                        <label style="display:inline-flex;align-items:center;gap:0.4rem;">
-                            <input type="radio" name="hostelType" value="flat" ${isFlat ? 'checked' : ''} onchange="updateHostelType('flat')">
-                            Flat-based
-                        </label>
                     </div>
                     
                     <div class="grid-3 mt-3">
@@ -850,43 +850,22 @@
                         </div>
                     </div>
                     
-                    <div id="floorFields" style="${isFlat ? 'display:none;' : 'display:block;'}">
-                        <div class="grid-3 mt-3">
-                            <div class="field">
-                                <label>Number of Floors</label>
-                                <input type="number" id="hostelFloors" value="${hostel.floors || hostel.total_floors || 3}" />
-                            </div>
-                            <div class="field">
-                                <label>Rooms per Floor</label>
-                                <input type="number" id="hostelRoomsPerFloor" value="${hostel.rooms_per_floor || roomsPerFloor}" />
-                            </div>
-                            <div class="field">
-                                <label>Total Rooms</label>
-                                <input type="number" id="hostelTotalRooms" value="${totalRooms}" disabled style="background:#f5f1e8;" />
-                            </div>
+                    <div class="grid-3 mt-3" style="${isFlat ? 'display:none;' : ''}">
+                        <div class="field">
+                            <label>Number of Floors</label>
+                            <input type="number" id="hostelFloors" value="${hostel.floors || hostel.total_floors || 3}" />
                         </div>
-                        <div class="info-box mt-2">
-                            <i class="fas fa-info-circle"></i> ${isGirls ? 'Girls hostels have 24 rooms per floor with 6 beds per room' : 'Boys hostels have 18 rooms per floor with 4 beds per room'}
+                        <div class="field">
+                            <label>Rooms per Floor</label>
+                            <input type="number" id="hostelRoomsPerFloor" value="${hostel.rooms_per_floor || (isGirls ? 24 : 18)}" />
                         </div>
-                    </div>
-                    
-                    <div id="flatFields" style="${isFlat ? 'display:block;' : 'display:none;'}">
-                        <div class="grid-3 mt-3">
-                            <div class="field">
-                                <label>Number of Flats</label>
-                                <input type="number" id="hostelTotalFlats" value="${hostel.total_flats || 9}" />
-                            </div>
-                            <div class="field">
-                                <label>Rooms per Flat</label>
-                                <input type="number" id="hostelRoomsPerFlat" value="${hostel.rooms_per_flat || 4}" />
-                            </div>
-                            <div class="field">
-                                <label>Total Rooms</label>
-                                <input type="number" id="hostelTotalRoomsFlat" value="${totalRooms}" disabled style="background:#f5f1e8;" />
-                            </div>
+                        <div class="field" style="${!isFlat ? 'display:none;' : ''}">
+                            <label>Number of Flats</label>
+                            <input type="number" id="hostelTotalFlats" value="${hostel.total_flats || 9}" />
                         </div>
-                        <div class="info-box mt-2">
-                            <i class="fas fa-info-circle"></i> Flats 1, 4, 7 have 3 rooms each (special configuration)
+                        <div class="field" style="${!isFlat ? 'display:none;' : ''}">
+                            <label>Rooms per Flat</label>
+                            <input type="number" id="hostelRoomsPerFlat" value="${hostel.rooms_per_flat || 4}" />
                         </div>
                     </div>
                     
@@ -968,19 +947,17 @@
                 const isFlat = getHostelType(hostel) === 'flat';
                 const bedsPerRoom = hostel.beds_per_room || 4;
                 
-                // Get unique floors from rooms
                 const floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor || 'A'))].sort();
                 
                 let floorData = [];
                 
                 if (floorLabels.length === 0) {
-                    // Generate default floors based on hostel config
                     const count = isFlat ? (hostel.total_flats || 9) : (hostel.floors || hostel.total_floors || 3);
                     for (let i = 1; i <= count; i++) {
                         const label = isFlat ? `F${i}` : String.fromCharCode(64 + i);
                         const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
                         const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
-                        const occupied = allBeds.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
+                        const occupied = allBedSpaces.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
                         const available = totalBeds - occupied;
                         const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
                         floorData.push({
@@ -997,7 +974,7 @@
                     floorLabels.forEach(label => {
                         const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
                         const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
-                        const occupied = allBeds.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
+                        const occupied = allBedSpaces.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
                         const available = totalBeds - occupied;
                         const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
                         floorData.push({
@@ -1071,7 +1048,7 @@
             }
 
             // =============================================
-            // RENDER ROOM TABLE FOR SELECTED FLOOR
+            // RENDER ROOM TABLE
             // =============================================
             function renderRoomTable(floorValue) {
                 const tbody = document.getElementById('roomTableBody');
@@ -1081,7 +1058,7 @@
                 const bedsPerRoom = selectedHostelForRoom?.beds_per_room || 4;
                 
                 const roomsWithData = floorRooms.map(r => {
-                    const roomBeds = allBeds.filter(b => b.room_id === r.id);
+                    const roomBeds = allBedSpaces.filter(b => b.room_id === r.id);
                     const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
                     const capacity = r.capacity || bedsPerRoom;
                     const availableCount = capacity - occupiedCount;
@@ -1121,35 +1098,40 @@
                 const subtitle = document.getElementById('roomDrawerSubtitle');
                 const body = document.getElementById('roomDrawerBody');
                 
-                // Load beds for this room
-                let roomBeds = allBeds.filter(b => b.room_id === roomId);
+                let roomBeds = allBedSpaces.filter(b => b.room_id === roomId);
                 if (roomBeds.length === 0) {
                     try {
-                        roomBeds = await loadBedsForRoom(roomId);
-                        allBeds = [...allBeds, ...roomBeds];
+                        roomBeds = await loadBedSpacesForRoom(roomId);
+                        allBedSpaces = [...allBedSpaces, ...roomBeds];
                     } catch (e) {
                         roomBeds = [];
                     }
                 }
                 
                 if (roomBeds.length === 0) {
-                    // Generate default beds if none exist
                     const capacity = room.capacity || 4;
                     const bedLabels = getBedLabels(capacity);
                     roomBeds = bedLabels.slice(0, capacity).map(label => ({
                         id: `bed_${roomId}_${label}`,
                         room_id: roomId,
-                        bed_label: label,
+                        bed_code: label,
                         status: 'available',
-                        student_id: null,
-                        student_name: null,
-                        student_matric: null
+                        student_id: null
                     }));
                 }
                 
                 const totalBeds = roomBeds.length || room.capacity || 4;
                 const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
                 const availableCount = totalBeds - occupiedCount;
+                
+                // Fetch student names for occupied beds
+                const bedWithStudents = await Promise.all(roomBeds.map(async (bed) => {
+                    if (bed.student_id) {
+                        const student = students.find(s => s.id === bed.student_id);
+                        return { ...bed, student_name: student?.name || 'Unknown', student_matric: student?.matric || '—' };
+                    }
+                    return { ...bed, student_name: null, student_matric: null };
+                }));
                 
                 title.textContent = room.room_code || room.name || 'Room';
                 subtitle.textContent = `${availableCount} bed${availableCount !== 1 ? 's' : ''} available · ${totalBeds} capacity`;
@@ -1161,9 +1143,9 @@
                     
                     <div class="mt-3">
                         <p class="font-bold text-sm">Bed spaces</p>
-                        ${roomBeds.map(bed => `
+                        ${bedWithStudents.map(bed => `
                             <div class="bed-item">
-                                <span class="bed-label">Bed ${bed.bed_label}</span>
+                                <span class="bed-label">Bed ${bed.bed_code || '—'}</span>
                                 <div class="bed-student">
                                     ${bed.status === 'occupied' && bed.student_name ? `
                                         <div class="name">${bed.student_name}</div>
@@ -1175,16 +1157,16 @@
                                 ${bedStatusBadge(bed.status)}
                                 <div class="bed-actions">
                                     ${bed.status === 'available' ? `
-                                        <button onclick="openAssignStudentModal('${roomId}', '${bed.bed_label}')" title="Assign student">
+                                        <button onclick="openAssignStudentModal('${roomId}', '${bed.bed_code}')" title="Assign student">
                                             <i class="fas fa-user-plus"></i>
                                         </button>
                                     ` : ''}
                                     ${bed.status === 'occupied' ? `
-                                        <button onclick="removeStudentFromBed('${roomId}', '${bed.bed_label}')" title="Remove student">
+                                        <button onclick="removeStudentFromBed('${roomId}', '${bed.bed_code}')" title="Remove student">
                                             <i class="fas fa-user-minus"></i>
                                         </button>
                                     ` : ''}
-                                    <button onclick="markBedMaintenance('${roomId}', '${bed.bed_label}')" title="Mark maintenance">
+                                    <button onclick="markBedMaintenance('${roomId}', '${bed.bed_code}')" title="Mark maintenance">
                                         <i class="fas fa-tools"></i>
                                     </button>
                                 </div>
@@ -1210,13 +1192,44 @@
             // ADD ROOM MODAL
             // =============================================
             function openAddRoomModal() {
-                document.getElementById('addRoomModal').classList.add('show');
-                document.getElementById('roomNumber').value = '';
-                document.getElementById('roomFloor').value = selectedFloor || 'A';
-                const isGirls = selectedHostelForRoom?.gender === 'female';
+                const modal = document.getElementById('addRoomModal');
+                const floorSelect = document.getElementById('roomFloorFlat');
+                floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
+                
+                const hostel = selectedHostelForRoom;
+                if (hostel) {
+                    const isFlat = getHostelType(hostel) === 'flat';
+                    if (isFlat) {
+                        const totalFlats = hostel.total_flats || 9;
+                        for (let i = 1; i <= totalFlats; i++) {
+                            const opt = document.createElement('option');
+                            opt.value = `F${i}`;
+                            opt.textContent = `Flat ${i}`;
+                            floorSelect.appendChild(opt);
+                        }
+                    } else {
+                        const letters = ['A', 'B', 'C'];
+                        const totalFloors = hostel.floors || hostel.total_floors || 3;
+                        for (let i = 0; i < totalFloors; i++) {
+                            const opt = document.createElement('option');
+                            opt.value = letters[i];
+                            opt.textContent = `Floor ${letters[i]}`;
+                            floorSelect.appendChild(opt);
+                        }
+                    }
+                }
+                
+                if (selectedFloor) {
+                    floorSelect.value = selectedFloor;
+                }
+                
+                document.getElementById('roomCode').value = '';
+                const isGirls = hostel?.gender === 'female';
                 document.getElementById('roomCapacity').value = isGirls ? '6' : '4';
                 document.getElementById('roomStatus').value = 'available';
                 document.getElementById('autoCreateBeds').checked = true;
+                
+                modal.classList.add('show');
             }
 
             function closeAddRoomModal() {
@@ -1224,38 +1237,53 @@
             }
 
             async function saveRoom() {
-                const floor = document.getElementById('roomFloor').value;
-                const roomNumber = document.getElementById('roomNumber').value.trim();
+                const floorFlat = document.getElementById('roomFloorFlat').value;
+                const roomCode = document.getElementById('roomCode').value.trim();
                 const capacity = parseInt(document.getElementById('roomCapacity').value);
                 const status = document.getElementById('roomStatus').value;
                 const autoCreateBeds = document.getElementById('autoCreateBeds').checked;
                 
-                if (!roomNumber) {
-                    showToast('Please enter a room number', 'error');
+                if (!floorFlat) {
+                    showToast('Please select a floor/flat', 'error');
+                    return;
+                }
+                if (!roomCode) {
+                    showToast('Please enter a room code', 'error');
                     return;
                 }
                 
-                const roomCode = `${floor}${String(roomNumber).padStart(3, '0')}`;
-                
                 try {
-                    // Use the rooms endpoint to create a room
+                    // First, get or create floor_flat_id
+                    const floorData = allFloorsFlats.find(f => f.name === floorFlat);
+                    let floorFlatId = floorData?.id;
+                    
+                    if (!floorData) {
+                        // Create floor/flat if it doesn't exist
+                        const newFloor = await apiCall('/floors-flats', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                hostel_id: editingHostelId,
+                                name: floorFlat,
+                                type: getHostelType(selectedHostelForRoom)
+                            })
+                        });
+                        floorFlatId = newFloor.data.id;
+                        allFloorsFlats.push(newFloor.data);
+                    }
+                    
+                    // Create room
                     const response = await apiCall('/rooms', {
                         method: 'POST',
                         body: JSON.stringify({
-                            floor_flat_id: null,
-                            room_code: roomCode,
-                            capacity: capacity,
-                            status: status,
-                            hostel_id: editingHostelId,
-                            floor_label: floor,
-                            room_number: parseInt(roomNumber)
+                            floor_flat_id: floorFlatId,
+                            room_code: roomCode
                         })
                     });
                     
                     const newRoom = response.data;
                     allRooms.push(newRoom);
                     
-                    // Auto-create beds if checked
+                    // Auto-create bed spaces if checked
                     if (autoCreateBeds) {
                         const bedLabels = getBedLabels(capacity);
                         for (const label of bedLabels.slice(0, capacity)) {
@@ -1268,15 +1296,6 @@
                                     status: 'available'
                                 })
                             });
-                            allBeds.push({
-                                id: `bed_${newRoom.id}_${label}`,
-                                room_id: newRoom.id,
-                                bed_label: label,
-                                status: 'available',
-                                student_id: null,
-                                student_name: null,
-                                student_matric: null
-                            });
                         }
                     }
                     
@@ -1286,10 +1305,9 @@
                     // Refresh data
                     const refreshedRooms = await loadRoomsForHostel(editingHostelId);
                     allRooms = refreshedRooms;
-                    const refreshedBeds = await loadBedsForHostel(editingHostelId);
-                    allBeds = refreshedBeds;
+                    const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
+                    allBedSpaces = refreshedBeds;
                     
-                    // Re-render
                     renderFloorSelector();
                     if (selectedFloor) {
                         renderRoomTable(selectedFloor);
@@ -1345,25 +1363,21 @@
                 }
                 
                 try {
-                    // Find the bed in allBeds or create it
-                    let bed = allBeds.find(b => b.room_id === selectedRoom.id && b.bed_label === selectedBed);
+                    let bed = allBedSpaces.find(b => b.room_id === selectedRoom.id && b.bed_code === selectedBed);
                     
                     if (!bed) {
-                        // Create the bed if it doesn't exist
                         const bedResponse = await apiCall('/bed-spaces', {
                             method: 'POST',
                             body: JSON.stringify({
                                 room_id: selectedRoom.id,
                                 bed_code: selectedBed,
                                 full_bed_code: `${selectedRoom.room_code}-${selectedBed}`,
-                                status: 'occupied',
-                                student_id: student.id
+                                status: 'occupied'
                             })
                         });
                         bed = bedResponse.data;
-                        allBeds.push(bed);
+                        allBedSpaces.push(bed);
                     } else {
-                        // Update existing bed
                         await apiCall(`/bed-spaces/${bed.id}`, {
                             method: 'PUT',
                             body: JSON.stringify({
@@ -1373,18 +1387,14 @@
                         });
                         bed.status = 'occupied';
                         bed.student_id = student.id;
-                        bed.student_name = student.name;
-                        bed.student_matric = student.matric;
                     }
                     
                     showToast(`${student.name} assigned to Bed ${selectedBed}`, 'success');
                     closeAssignStudentModal();
                     
-                    // Refresh data
-                    const refreshedBeds = await loadBedsForHostel(editingHostelId);
-                    allBeds = refreshedBeds;
+                    const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
+                    allBedSpaces = refreshedBeds;
                     
-                    // Re-render
                     renderFloorSelector();
                     if (selectedFloor) {
                         renderRoomTable(selectedFloor);
@@ -1400,7 +1410,7 @@
                 const room = allRooms.find(r => r.id === roomId);
                 if (!room) return;
                 
-                const bed = allBeds.find(b => b.room_id === roomId && b.bed_label === bedLabel);
+                const bed = allBedSpaces.find(b => b.room_id === roomId && b.bed_code === bedLabel);
                 if (!bed) {
                     showToast('Bed not found', 'error');
                     return;
@@ -1422,13 +1432,11 @@
                     
                     bed.status = 'available';
                     bed.student_id = null;
-                    bed.student_name = null;
-                    bed.student_matric = null;
                     
                     showToast(`Student removed from Bed ${bedLabel}`, 'success');
                     
-                    const refreshedBeds = await loadBedsForHostel(editingHostelId);
-                    allBeds = refreshedBeds;
+                    const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
+                    allBedSpaces = refreshedBeds;
                     
                     renderFloorSelector();
                     if (selectedFloor) {
@@ -1445,7 +1453,7 @@
                 const room = allRooms.find(r => r.id === roomId);
                 if (!room) return;
                 
-                const bed = allBeds.find(b => b.room_id === roomId && b.bed_label === bedLabel);
+                const bed = allBedSpaces.find(b => b.room_id === roomId && b.bed_code === bedLabel);
                 if (!bed) return;
                 
                 try {
@@ -1461,14 +1469,12 @@
                     bed.status = newStatus;
                     if (newStatus === 'available') {
                         bed.student_id = null;
-                        bed.student_name = null;
-                        bed.student_matric = null;
                     }
                     
                     showToast(`Bed ${bedLabel} ${newStatus === 'maintenance' ? 'marked for maintenance' : 'made available'}`, newStatus === 'maintenance' ? 'warning' : 'success');
                     
-                    const refreshedBeds = await loadBedsForHostel(editingHostelId);
-                    allBeds = refreshedBeds;
+                    const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
+                    allBedSpaces = refreshedBeds;
                     
                     closeRoomDrawer();
                     setTimeout(() => openRoomDrawer(room.id), 300);
@@ -1487,25 +1493,6 @@
                 }
                 editingHostelId = null;
                 selectedFloor = null;
-            }
-
-            // =============================================
-            // UPDATE HOSTEL TYPE
-            // =============================================
-            function updateHostelType(type) {
-                const flatFields = document.getElementById('flatFields');
-                const floorFields = document.getElementById('floorFields');
-                const typeLabel = document.getElementById('hostelTypeLabel');
-                
-                if (type === 'flat') {
-                    if (flatFields) flatFields.style.display = 'block';
-                    if (floorFields) floorFields.style.display = 'none';
-                    if (typeLabel) typeLabel.textContent = 'Flat-based Hostel';
-                } else {
-                    if (flatFields) flatFields.style.display = 'none';
-                    if (floorFields) floorFields.style.display = 'block';
-                    if (typeLabel) typeLabel.textContent = 'Floor-based Hostel';
-                }
             }
 
             // =============================================
@@ -1529,40 +1516,22 @@
                     const progress = parseInt(document.getElementById('hostelProgress').value) || 0;
                     const status = document.getElementById('hostelStatus').value;
                     
-                    const typeRadio = document.querySelector('input[name="hostelType"]:checked');
-                    const type = typeRadio ? typeRadio.value : 'floor';
-                    
                     let payload = {
                         name: name,
                         gender: gender,
                         progress: Math.min(100, Math.max(0, progress)),
-                        state: status,
-                        type: type
+                        state: status
                     };
 
-                    if (type === 'floor') {
-                        const floors = parseInt(document.getElementById('hostelFloors').value) || 3;
-                        const roomsPerFloor = parseInt(document.getElementById('hostelRoomsPerFloor').value) || 18;
-                        payload.floors = floors;
-                        payload.total_floors = floors;
-                        payload.rooms_per_floor = roomsPerFloor;
-                        payload.total_flats = null;
-                        payload.rooms_per_flat = null;
-                    } else {
-                        const totalFlats = parseInt(document.getElementById('hostelTotalFlats').value) || 9;
-                        const roomsPerFlat = parseInt(document.getElementById('hostelRoomsPerFlat').value) || 4;
-                        payload.total_flats = totalFlats;
-                        payload.rooms_per_flat = roomsPerFlat;
-                        payload.floors = null;
-                        payload.total_floors = null;
-                        payload.rooms_per_floor = null;
-                    }
+                    const floors = parseInt(document.getElementById('hostelFloors')?.value);
+                    const roomsPerFloor = parseInt(document.getElementById('hostelRoomsPerFloor')?.value);
+                    const totalFlats = parseInt(document.getElementById('hostelTotalFlats')?.value);
+                    const roomsPerFlat = parseInt(document.getElementById('hostelRoomsPerFlat')?.value);
 
-                    Object.keys(payload).forEach(key => {
-                        if (payload[key] === null || payload[key] === undefined) {
-                            delete payload[key];
-                        }
-                    });
+                    if (floors) payload.floors = floors;
+                    if (roomsPerFloor) payload.rooms_per_floor = roomsPerFloor;
+                    if (totalFlats) payload.total_flats = totalFlats;
+                    if (roomsPerFlat) payload.rooms_per_flat = roomsPerFlat;
 
                     await apiCall(`/hostels/${editingHostelId}`, {
                         method: 'PUT',
@@ -1650,7 +1619,6 @@
             window.showHostelDetail = showHostelDetail;
             window.closeHostelConfig = closeHostelConfig;
             window.saveHostelConfig = saveHostelConfig;
-            window.updateHostelType = updateHostelType;
             window.openAddHostel = openAddHostel;
             window.selectFloor = selectFloor;
             window.clearFloorSelection = clearFloorSelection;
