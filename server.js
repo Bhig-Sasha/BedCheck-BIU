@@ -34,28 +34,32 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsOptions = {
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    const allowedOrigins = process.env.ALLOWED_ORIGINS 
-      ? process.env.ALLOWED_ORIGINS.split(',') 
-      : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://localhost:3001'];
     
-    if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+    // Get allowed origins from environment variable
+    const allowedOrigins = process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+      : [];
+    
+    // In production, if ALLOWED_ORIGINS is not set, allow all (not recommended)
+    if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+      console.warn('⚠️ ALLOWED_ORIGINS not set in production - allowing all origins');
       return callback(null, true);
     }
     
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+    // Check if the origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      if (process.env.NODE_ENV === 'production') {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
+      console.warn(`❌ CORS blocked: ${origin} not in allowed list`);
+      callback(new Error('Not allowed by CORS'));
     }
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Staff-ID'],
   credentials: true,
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
