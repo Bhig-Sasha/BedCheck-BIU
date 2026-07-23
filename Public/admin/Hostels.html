@@ -448,7 +448,6 @@
                         </div>
                     </div>
                     <div class="header-right">
-                        <!-- Notification removed -->
                         <a href="Profile.html" class="profile-btn">
                             <span class="profile-avatar" id="profileAvatar">IM</span>
                             <span class="profile-name" id="profileName">Ibrahim Musa</span>
@@ -507,6 +506,7 @@
             let selectedFloor = null;
             let selectedRoom = null;
             let selectedBed = null;
+            let isLoading = true;
 
             // =============================================
             // API HELPER
@@ -627,7 +627,6 @@
                     const data = await apiCall(`/rooms?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
-                    console.error('Error loading rooms:', error);
                     return [];
                 }
             }
@@ -637,7 +636,6 @@
                     const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
-                    console.error('Error loading bed spaces:', error);
                     return [];
                 }
             }
@@ -667,6 +665,29 @@
                     const roomCount = h.room_count || 0;
                     totalBeds += roomCount * bedsPerRoom;
                 });
+
+                // If no hostels, show message
+                if (hostels.length === 0 && !isLoading) {
+                    container.innerHTML = `
+                        <div class="page-heading">
+                            <div>
+                                <p class="eyebrow"><i class="fas fa-building"></i> Accommodation Structure</p>
+                                <h1>Hostel Configuration</h1>
+                                <p class="desc">Manage floors, flats, rooms and bed capacity across all hostels.</p>
+                            </div>
+                            <div class="action-group">
+                                <button class="btn-primary" onclick="openAddHostel()"><i class="fas fa-plus"></i> Add Hostel</button>
+                            </div>
+                        </div>
+                        <div class="card mt-4">
+                            <div class="text-center p-4">
+                                <i class="fas fa-building" style="font-size:3rem;color:#b9c7db;"></i>
+                                <p class="text-muted mt-3">No hostels found. Click "Add Hostel" to create one.</p>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -722,6 +743,11 @@
                 const grid = document.getElementById('hostelsGrid');
                 if (!grid) return;
                 
+                if (hostels.length === 0) {
+                    grid.innerHTML = '<p class="text-center text-muted">No hostels found</p>';
+                    return;
+                }
+                
                 grid.innerHTML = hostels.map(h => {
                     const type = getHostelType(h);
                     const bedsPerRoom = h.beds_per_room || 4;
@@ -748,7 +774,7 @@
                             <p class="text-xs text-gold mt-2"><i class="fas fa-chevron-right"></i> Configure</p>
                         </div>
                     `;
-                }).join('') || '<p class="text-center text-muted">No hostels found</p>';
+                }).join('');
             }
 
             // =============================================
@@ -797,9 +823,6 @@
                 const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
                 const occupiedBeds = allBedSpaces.filter(b => b.status === 'occupied').length || 0;
                 const availableBeds = totalBeds - occupiedBeds;
-                
-                const floors = hostel.floors || hostel.total_floors || 3;
-                const roomsPerFloor = hostel.rooms_per_floor || (isGirls ? 24 : 18);
                 
                 // Build floor/flat options for dropdown
                 let floorOptions = '';
@@ -1124,7 +1147,6 @@
                 const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
                 const availableCount = totalBeds - occupiedCount;
                 
-                // Fetch student names for occupied beds
                 const bedWithStudents = await Promise.all(roomBeds.map(async (bed) => {
                     if (bed.student_id) {
                         const student = students.find(s => s.id === bed.student_id);
@@ -1253,12 +1275,10 @@
                 }
                 
                 try {
-                    // First, get or create floor_flat_id
                     const floorData = allFloorsFlats.find(f => f.name === floorFlat);
                     let floorFlatId = floorData?.id;
                     
                     if (!floorData) {
-                        // Create floor/flat if it doesn't exist
                         const newFloor = await apiCall('/floors-flats', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1271,7 +1291,6 @@
                         allFloorsFlats.push(newFloor.data);
                     }
                     
-                    // Create room
                     const response = await apiCall('/rooms', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -1283,7 +1302,6 @@
                     const newRoom = response.data;
                     allRooms.push(newRoom);
                     
-                    // Auto-create bed spaces if checked
                     if (autoCreateBeds) {
                         const bedLabels = getBedLabels(capacity);
                         for (const label of bedLabels.slice(0, capacity)) {
@@ -1302,7 +1320,6 @@
                     showToast(`Room ${roomCode} created successfully!`);
                     closeAddRoomModal();
                     
-                    // Refresh data
                     const refreshedRooms = await loadRoomsForHostel(editingHostelId);
                     allRooms = refreshedRooms;
                     const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
@@ -1646,13 +1663,20 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
+                    isLoading = true;
                     document.getElementById('noticeText').textContent = 'Loading hostels...';
-                    await Promise.all([loadHostels(), loadStudents()]);
+                    
+                    await loadHostels();
+                    await loadStudents();
+                    
+                    isLoading = false;
                     renderScreen();
                     document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels and ${students.length} students.`;
                 } catch (error) {
+                    isLoading = false;
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     showToast('Error loading data: ' + error.message, 'error');
+                    renderScreen();
                 }
 
                 document.addEventListener('keydown', (e) => {
