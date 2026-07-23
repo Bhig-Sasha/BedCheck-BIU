@@ -513,7 +513,10 @@
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    const url = `${API_BASE_URL}${endpoint}`;
+                    console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
+                    
+                    const response = await fetch(url, {
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
@@ -532,6 +535,7 @@
                     }
                     return data;
                 } catch (error) {
+                    console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
                     throw error;
                 }
@@ -618,6 +622,7 @@
                     const data = await apiCall(`/floors_flats?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
+                    console.warn('Could not load floors/flats:', error);
                     return [];
                 }
             }
@@ -627,6 +632,7 @@
                     const data = await apiCall(`/rooms?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
+                    console.warn('Could not load rooms:', error);
                     return [];
                 }
             }
@@ -636,6 +642,7 @@
                     const data = await apiCall(`/bed_spaces?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
+                    console.warn('Could not load bed spaces:', error);
                     return [];
                 }
             }
@@ -645,6 +652,7 @@
                     const data = await apiCall(`/bed_spaces?room_id=${roomId}`);
                     return data.data || [];
                 } catch (error) {
+                    console.warn('Could not load bed spaces for room:', error);
                     return [];
                 }
             }
@@ -973,27 +981,24 @@
                 const isFlat = getHostelType(hostel) === 'flat';
                 const bedsPerRoom = hostel.beds_per_room || 4;
                 
+                // Get unique floor labels from rooms
                 const floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor || 'A'))].sort();
                 
                 let floorData = [];
                 
                 if (floorLabels.length === 0) {
+                    // If no rooms exist yet, show all floors/flats as empty
                     const count = isFlat ? (hostel.total_flats || 9) : (hostel.floors || hostel.total_floors || 3);
                     for (let i = 1; i <= count; i++) {
                         const label = isFlat ? `F${i}` : String.fromCharCode(64 + i);
-                        const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
-                        const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
-                        const occupied = allBedSpaces.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
-                        const available = totalBeds - occupied;
-                        const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
                         floorData.push({
                             label: isFlat ? `Flat ${i}` : `Floor ${label}`,
                             value: label,
-                            rooms: floorRooms.length,
-                            totalBeds: totalBeds,
-                            occupied: occupied,
-                            available: available,
-                            pct: pct
+                            rooms: 0,
+                            totalBeds: 0,
+                            occupied: 0,
+                            available: 0,
+                            pct: 0
                         });
                     }
                 } else {
@@ -1278,10 +1283,12 @@
                 }
                 
                 try {
+                    // Find if floor/flat already exists
                     const floorData = allFloorsFlats.find(f => f.name === floorFlat);
                     let floorFlatId = floorData?.id;
                     
                     if (!floorData) {
+                        // Create new floor/flat
                         const newFloor = await apiCall('/floors_flats', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1294,6 +1301,7 @@
                         allFloorsFlats.push(newFloor.data);
                     }
                     
+                    // Create room
                     const response = await apiCall('/rooms', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -1303,6 +1311,8 @@
                     });
                     
                     const newRoom = response.data;
+                    // Add floor label to room for display
+                    newRoom.floor_label = floorFlat;
                     allRooms.push(newRoom);
                     
                     if (autoCreateBeds) {
@@ -1323,6 +1333,7 @@
                     showToast(`Room ${roomCode} created successfully!`);
                     closeAddRoomModal();
                     
+                    // Refresh data
                     const refreshedRooms = await loadRoomsForHostel(editingHostelId);
                     allRooms = refreshedRooms;
                     const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);

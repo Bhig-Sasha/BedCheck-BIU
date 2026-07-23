@@ -1191,7 +1191,7 @@ app.delete('/api/students/:id', async (req, res) => {
 });
 
 // =====================================================
-// FLOORS_FLATS (corrected from floors-flats)
+// FLOORS_FLATS
 // =====================================================
 
 app.get('/api/floors_flats', async (req, res) => {
@@ -1479,7 +1479,7 @@ app.delete('/api/bed_spaces/:id', async (req, res) => {
   }
 });
 
-// BED_OCCUPANCY - New endpoint for bed occupancy tracking
+// BED_OCCUPANCY
 app.get('/api/bed_occupancy', async (req, res) => {
   const { bed_space_id, student_id, hostel_id } = req.query;
   try {
