@@ -101,36 +101,8 @@ function getStaffId(req) {
   return null;
 }
 
-async function tableExists(tableName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_name', tableName)
-      .eq('table_schema', 'public')
-      .maybeSingle();
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function columnExists(tableName, columnName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.columns')
-      .select('column_name')
-      .eq('table_name', tableName)
-      .eq('column_name', columnName)
-      .maybeSingle();
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
 // =====================================================
-// AUDIT SERVICE - Integrated
+// AUDIT SERVICE
 // =====================================================
 
 const auditService = {
@@ -557,7 +529,6 @@ const auditEvents = {
 // AUDIT ENDPOINTS
 // =====================================================
 
-// GET audit logs with filtering
 app.get('/api/audit', async (req, res) => {
   try {
     const { 
@@ -601,7 +572,6 @@ app.get('/api/audit', async (req, res) => {
   }
 });
 
-// GET audit stats
 app.get('/api/audit/stats', async (req, res) => {
   try {
     const { hostel_id, from_date, to_date } = req.query;
@@ -617,7 +587,6 @@ app.get('/api/audit/stats', async (req, res) => {
   }
 });
 
-// GET recent activity
 app.get('/api/audit/recent', async (req, res) => {
   try {
     const { hostel_id, limit = 10 } = req.query;
@@ -635,7 +604,6 @@ app.get('/api/audit/recent', async (req, res) => {
   }
 });
 
-// GET audit log by ID
 app.get('/api/audit/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -663,7 +631,6 @@ app.get('/api/audit/:id', async (req, res) => {
   }
 });
 
-// GET audit logs for a specific hostel
 app.get('/api/audit/hostel/:hostelId', async (req, res) => {
   try {
     const hostelId = parseInt(req.params.hostelId);
@@ -687,7 +654,6 @@ app.get('/api/audit/hostel/:hostelId', async (req, res) => {
   }
 });
 
-// GET audit logs by module
 app.get('/api/audit/module/:module', async (req, res) => {
   try {
     const { module } = req.params;
@@ -709,7 +675,6 @@ app.get('/api/audit/module/:module', async (req, res) => {
   }
 });
 
-// GET audit logs by category
 app.get('/api/audit/category/:category', async (req, res) => {
   try {
     const { category } = req.params;
@@ -731,7 +696,6 @@ app.get('/api/audit/category/:category', async (req, res) => {
   }
 });
 
-// GET audit logs by actor
 app.get('/api/audit/actor/:actor', async (req, res) => {
   try {
     const { actor } = req.params;
@@ -753,7 +717,6 @@ app.get('/api/audit/actor/:actor', async (req, res) => {
   }
 });
 
-// GET audit logs by result type
 app.get('/api/audit/result/:result', async (req, res) => {
   try {
     const { result } = req.params;
@@ -775,7 +738,6 @@ app.get('/api/audit/result/:result', async (req, res) => {
   }
 });
 
-// GET audit summary for dashboard
 app.get('/api/audit/summary', async (req, res) => {
   try {
     const { hostel_id } = req.query;
@@ -825,7 +787,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
   
   try {
-    // First get the user with their password
     const { data, error } = await supabase
       .from('staff')
       .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, submission_status, level, password')
@@ -843,12 +804,10 @@ app.post('/api/auth/login', async (req, res) => {
     if (data && data.length > 0) {
       const user = data[0];
       
-      // Verify password with bcrypt
       let validPassword = false;
       try {
         validPassword = await bcrypt.compare(password, user.password);
       } catch (e) {
-        // If bcrypt fails, fallback to plain text comparison (for backward compatibility)
         validPassword = password === user.password;
       }
       
@@ -932,10 +891,6 @@ app.get('/api/me', async (req, res) => {
   }
 });
 
-// =====================================================
-// CHANGE PASSWORD - NEW ENDPOINT
-// =====================================================
-
 app.put('/api/staff/:id/change-password', async (req, res) => {
   try {
     const staffId = parseInt(req.params.id);
@@ -955,7 +910,6 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Get staff with password
     const { data: staff, error: staffError } = await supabase
       .from('staff')
       .select('id, password, name')
@@ -969,12 +923,10 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Verify current password
     let validPassword = false;
     try {
       validPassword = await bcrypt.compare(currentPassword, staff.password);
     } catch (e) {
-      // Fallback for plain text passwords (for backward compatibility)
       validPassword = currentPassword === staff.password;
     }
 
@@ -985,10 +937,8 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-    // Update password in DB
     const { error: updateError } = await supabase
       .from('staff')
       .update({
@@ -1001,7 +951,6 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       throw updateError;
     }
 
-    // Audit log
     await auditService.log({
       actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
       actor_id: staffId,
@@ -1031,675 +980,7 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
 });
 
 // =====================================================
-// REGISTRATION MANAGEMENT - RASD ENDPOINTS
-// =====================================================
-
-app.get('/api/registration/stats', async (req, res) => {
-  try {
-    const { data: students, error: studentsError } = await supabase
-      .from('students')
-      .select('id, room_id, name, matric, hostel_id, hostel_name, room_code, status, created_at');
-    
-    if (studentsError) throw studentsError;
-
-    const { data: bedSpaces, error: bedError } = await supabase
-      .from('bed_spaces')
-      .select('id, room_id, status');
-    
-    if (bedError) throw bedError;
-
-    const { data: hostels, error: hostelsError } = await supabase
-      .from('hostels')
-      .select('id, name, type, total_floors, rooms_per_floor, total_flats, rooms_per_flat');
-    
-    if (hostelsError) throw hostelsError;
-
-    const totalRegistered = students.length || 0;
-    const hostelAssigned = students.filter(s => s.room_id !== null && s.room_id > 0).length || 0;
-    const completed = students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete').length || 0;
-    const issues = students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)).length || 0;
-    const totalBedSpaces = bedSpaces.length || 0;
-    const availableBeds = bedSpaces.filter(b => b.status === 'available').length || 0;
-
-    const pipeline = [
-      { label: 'Online Registration', count: totalRegistered, icon: 'fa-globe', color: 'blue', students: students },
-      { label: 'Hostel Assignment', count: hostelAssigned, icon: 'fa-building', color: 'purple', students: students.filter(s => s.room_id !== null && s.room_id > 0) },
-      { label: 'Registration Completed', count: completed, icon: 'fa-check-circle', color: 'green', students: students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete') },
-      { label: 'Registration Issues', count: issues, icon: 'fa-exclamation-triangle', color: 'red', students: students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)) }
-    ];
-
-    const hostelProgress = hostels.map(h => {
-      const hostelStudents = students.filter(s => s.hostel_id === h.id || s.hostel_name === h.name);
-      const total = hostelStudents.length;
-      const assigned = hostelStudents.filter(s => s.room_id !== null && s.room_id > 0).length;
-      const progress = total > 0 ? Math.round((assigned / total) * 100) : 0;
-      return { id: h.id, name: h.name || 'Unknown', registered: total, assigned: assigned, progress: progress, type: h.type || 'floor' };
-    });
-
-    const issueTypes = [
-      { label: 'No Hostel Assigned', count: students.filter(s => s.room_id === null || s.room_id === 0).length },
-      { label: 'Missing Phone Number', count: students.filter(s => !s.phone || s.phone === '').length },
-      { label: 'Missing Name', count: students.filter(s => !s.name || s.name === '').length }
-    ];
-
-    res.json({ success: true, data: { overview: { totalRegistered, hostelAssigned, completed, issues, totalBedSpaces, availableBeds }, pipeline, hostelProgress, issueTypes } });
-  } catch (error) {
-    console.error('Error fetching registration stats:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// =====================================================
-// HRA DASHBOARD ENDPOINTS
-// =====================================================
-
-app.get('/api/hra/hostel', async (req, res) => {
-  const staffId = getStaffId(req);
-  
-  if (!staffId) {
-    return res.status(400).json({ success: false, message: 'staff_id is required. Please provide it in headers (X-Staff-ID) or query parameters.' });
-  }
-  
-  try {
-    const { data: staffData, error: staffError } = await supabase
-      .from('staff')
-      .select('hostel_id, role, name, username, email, phone, assigned_floor, assigned_room')
-      .eq('id', staffId)
-      .single();
-    
-    if (staffError || !staffData) {
-      return res.status(404).json({ success: false, message: 'Staff member not found' });
-    }
-    
-    if (staffData.role !== 'HRA') {
-      return res.status(403).json({ success: false, message: 'User is not an HRA' });
-    }
-    
-    if (!staffData.hostel_id) {
-      return res.status(404).json({ success: false, message: 'HRA not assigned to a hostel' });
-    }
-    
-    const { data: hostelData, error: hostelError } = await supabase
-      .from('hostels')
-      .select('*')
-      .eq('id', staffData.hostel_id)
-      .single();
-    
-    if (hostelError || !hostelData) {
-      return res.status(404).json({ success: false, message: 'Hostel not found' });
-    }
-    
-    const { data: hostelStaff, error: staffListError } = await supabase
-      .from('staff')
-      .select('id, name, role, username, email, phone, status, assigned_floor, assigned_room, submission_status, level')
-      .eq('hostel_id', hostelData.id)
-      .eq('status', 'Active');
-    
-    if (staffListError) throw staffListError;
-    
-    const hraStaff = hostelStaff?.find(s => s.role === 'HRA');
-    const raStaff = hostelStaff?.filter(s => s.role === 'RA') || [];
-    
-    const { count: totalStudents, error: countError } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('hostel_id', hostelData.id);
-    
-    if (countError) throw countError;
-    
-    const { data: studentStatuses, error: statusError } = await supabase
-      .from('students')
-      .select('status')
-      .eq('hostel_id', hostelData.id);
-    
-    let presentCount = 0, absentCount = 0, lateCount = 0;
-    if (!statusError && studentStatuses) {
-      presentCount = studentStatuses.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-      absentCount = studentStatuses.filter(s => s.status === 'Absent').length;
-      lateCount = studentStatuses.filter(s => s.status === 'Late').length;
-    }
-    
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('bedcheck_sessions')
-      .select('*')
-      .eq('hostel_id', hostelData.id)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    
-    let currentSession = null;
-    if (!sessionError && sessionData && sessionData.length > 0) {
-      currentSession = sessionData[0];
-    }
-    
-    let totalRooms = 0;
-    if (hostelData.type === 'floor') {
-      totalRooms = (hostelData.total_floors || 0) * (hostelData.rooms_per_floor || 0);
-    } else if (hostelData.type === 'flat') {
-      totalRooms = (hostelData.total_flats || 0) * (hostelData.rooms_per_flat || 0);
-    }
-    
-    res.json({ 
-      success: true, 
-      data: {
-        ...hostelData,
-        total_rooms: totalRooms || hostelData.total_rooms || 0,
-        hra_name: hraStaff?.name || staffData.name,
-        hra_id: hraStaff?.id || staffId,
-        ra_count: raStaff.length,
-        ra_list: raStaff.map(ra => ({
-          id: ra.id,
-          name: ra.name,
-          role: ra.role,
-          username: ra.username,
-          email: ra.email,
-          phone: ra.phone,
-          status: ra.status,
-          assigned_floor: ra.assigned_floor || null,
-          assigned_room: ra.assigned_room || null,
-          submission_status: ra.submission_status || 'Not Started',
-          level: ra.level || null
-        })),
-        total_students: totalStudents || 0,
-        present_count: presentCount,
-        absent_count: absentCount,
-        late_count: lateCount,
-        current_session: currentSession
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching HRA hostel:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/students', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('students').select('*').eq('hostel_id', id).order('name', { ascending: true });
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching hostel students:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/staff', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('staff').select('id, name, role, username, email, phone, status, assigned_floor, assigned_room, submission_status, level').eq('hostel_id', id).order('name', { ascending: true });
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching hostel staff:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/audit', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { limit, offset, from_date, to_date } = req.query;
-  try {
-    const auditResult = await auditService.getLogs({ hostel_id: id, limit: limit || 50, offset: offset || 0, from_date, to_date });
-    res.json(auditResult);
-  } catch (error) {
-    console.error('Error fetching hostel audit logs:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/session', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('bedcheck_sessions').select('*').eq('hostel_id', id).order('created_at', { ascending: false }).limit(1);
-    if (error) throw error;
-    if (data && data.length > 0) {
-      const session = data[0];
-      const { count: totalStudents, error: countError } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('hostel_id', id);
-      if (countError) throw countError;
-      const { data: scanData, error: scanError } = await supabase.from('bedcheck_scans').select('status').eq('session_id', session.id);
-      let verifiedCount = 0;
-      if (!scanError && scanData) {
-        verifiedCount = scanData.filter(s => s.status === 'Verified' || s.status === 'Present').length;
-      }
-      const completion = totalStudents > 0 ? Math.round((verifiedCount / totalStudents) * 100) : 0;
-      res.json({ success: true, data: { ...session, total_students: totalStudents || 0, verified_count: verifiedCount, completion: completion } });
-    } else {
-      res.json({ success: true, data: null });
-    }
-  } catch (error) {
-    console.error('Error fetching session:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/recent-activity', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const activity = await auditService.getRecentActivity(id, 10);
-    res.json({ success: true, data: activity });
-  } catch (error) {
-    console.error('Error fetching recent activity:', error);
-    res.json({ success: true, data: [] });
-  }
-});
-
-// =====================================================
-// QR CODE MANAGEMENT - COMPLETELY FIXED (no hostels.code reference)
-// =====================================================
-
-// GET QR code by hostel ID
-app.get('/api/qr/hostel/:hostelId', async (req, res) => {
-  try {
-    const hostelId = parseInt(req.params.hostelId);
-    
-    if (!hostelId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Hostel ID is required'
-      });
-    }
-
-    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
-    
-    // Get QR code for this hostel that is active - NO JOIN
-    const { data: qrData, error: qrError } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('hostel_id', hostelId)
-      .eq('is_active', true)
-      .order('generated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (qrError) {
-      console.error('❌ QR fetch error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Error fetching QR code: ' + qrError.message
-      });
-    }
-
-    if (!qrData) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'No active QR code found for this hostel'
-      });
-    }
-
-    // Get hostel name separately (no code column needed)
-    let hostelName = null;
-    const { data: hostelInfo, error: hostelInfoError } = await supabase
-      .from('hostels')
-      .select('name')
-      .eq('id', hostelId)
-      .maybeSingle();
-    
-    if (!hostelInfoError && hostelInfo) {
-      hostelName = hostelInfo.name;
-    }
-
-    // Get creator name
-    let creatorName = 'Unknown';
-    if (qrData.created_by) {
-      const { data: creator } = await supabase
-        .from('staff')
-        .select('name')
-        .eq('id', qrData.created_by)
-        .maybeSingle();
-      if (creator) creatorName = creator.name;
-    }
-
-    console.log(`✅ QR found: ${qrData.code} for hostel ID ${hostelId}`);
-
-    res.json({
-      success: true,
-      data: {
-        id: qrData.id,
-        hostel_id: qrData.hostel_id,
-        code: qrData.code,
-        qr_data: qrData.qr_data,
-        generated_at: qrData.generated_at,
-        expires_at: qrData.expires_at,
-        is_active: qrData.is_active,
-        last_used_at: qrData.last_used_at,
-        usage_count: qrData.usage_count || 0,
-        created_by: qrData.created_by,
-        created_by_name: creatorName,
-        created_at: qrData.created_at,
-        updated_at: qrData.updated_at,
-        hostel: hostelName ? { id: hostelId, name: hostelName } : null
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching QR by hostel:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-// Generate QR code for the staff member's hostel
-app.post('/api/qr/generate', async (req, res) => {
-  try {
-    const staffId = getStaffId(req);
-    const staffName = req.headers['x-staff-name'] || 'System';
-    const staffRole = req.headers['x-staff-role'] || 'System';
-    
-    if (!staffId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required. Please provide X-Staff-ID header.'
-      });
-    }
-
-    console.log(`🔄 Generating QR for staff ID: ${staffId}`);
-    
-    // Get staff member with their hostel
-    const { data: staff, error: staffError } = await supabase
-      .from('staff')
-      .select('id, name, role, hostel_id')
-      .eq('id', staffId)
-      .maybeSingle();
-    
-    if (staffError) {
-      console.error('❌ Staff query error:', staffError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database error: ' + staffError.message 
-      });
-    }
-    
-    if (!staff) {
-      return res.status(404).json({
-        success: false,
-        message: 'Staff member not found'
-      });
-    }
-    
-    if (!staff.hostel_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'No hostel assigned to this staff member'
-      });
-    }
-    
-    console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
-    
-    // Get hostel name (no code column needed)
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('name')
-      .eq('id', staff.hostel_id)
-      .maybeSingle();
-    
-    if (hostelError) {
-      console.error('❌ Hostel query error:', hostelError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database error: ' + hostelError.message 
-      });
-    }
-    
-    if (!hostel) {
-      return res.status(404).json({
-        success: false,
-        message: 'Hostel not found'
-      });
-    }
-
-    console.log(`✅ Found hostel: ${hostel.name} (ID: ${staff.hostel_id})`);
-
-    // Generate unique QR code with timestamp - use hostel name for code
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const qrCode = `BIU-${hostel.name.toUpperCase().replace(/\s/g, '-')}-${timestamp}`;
-    
-    const qrData = JSON.stringify({
-      type: 'hostel_verification',
-      hostel_id: staff.hostel_id,
-      hostel_name: hostel.name,
-      code: qrCode,
-      created_by: staffId,
-      created_by_name: staff.name,
-      timestamp: new Date().toISOString()
-    });
-
-    // Inactivate old QR codes for this hostel
-    const { error: updateError } = await supabase
-      .from('qr_codes')
-      .update({ 
-        is_active: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq('hostel_id', staff.hostel_id)
-      .eq('is_active', true);
-
-    if (updateError) {
-      console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
-    }
-
-    // Insert new QR code into qr_codes table
-    const { data: qrDataInsert, error: qrError } = await supabase
-      .from('qr_codes')
-      .insert({
-        hostel_id: staff.hostel_id,
-        code: qrCode,
-        qr_data: qrData,
-        generated_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        is_active: true,
-        created_by: staffId,
-        usage_count: 0
-      })
-      .select()
-      .single();
-
-    if (qrError) {
-      console.error('❌ QR insert error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Error inserting QR code: ' + qrError.message
-      });
-    }
-
-    console.log(`✅ QR generated successfully: ${qrCode}`);
-
-    // Log the QR generation
-    await auditService.log({
-      actor: staffName,
-      actor_id: staffId,
-      actor_role: staffRole,
-      action: 'QR Code Generated',
-      module: 'qr_codes',
-      details: `QR code generated for ${hostel.name} by ${staff.name}`,
-      context: `Hostel ID: ${staff.hostel_id}`,
-      result: 'success',
-      category: 'qr',
-      tone: 'blue',
-      hostel_id: staff.hostel_id
-    });
-
-    res.json({
-      success: true,
-      data: {
-        id: qrDataInsert.id,
-        hostel_id: qrDataInsert.hostel_id,
-        code: qrDataInsert.code,
-        qr_data: qrDataInsert.qr_data,
-        generated_at: qrDataInsert.generated_at,
-        expires_at: qrDataInsert.expires_at,
-        is_active: qrDataInsert.is_active,
-        usage_count: qrDataInsert.usage_count,
-        created_by: qrDataInsert.created_by,
-        created_at: qrDataInsert.created_at,
-        updated_at: qrDataInsert.updated_at,
-        hostel: {
-          id: staff.hostel_id,
-          name: hostel.name
-        },
-        staff: {
-          id: staff.id,
-          name: staff.name,
-          role: staff.role
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error generating QR code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-// Verify QR code scan - FIXED (no join)
-app.post('/api/qr/verify', async (req, res) => {
-  try {
-    const { qr_code, scanner_id } = req.body;
-    const staffId = getStaffId(req);
-    const staffName = req.headers['x-staff-name'] || 'Scanner';
-
-    if (!qr_code) {
-      return res.status(400).json({
-        success: false,
-        message: 'QR code is required'
-      });
-    }
-
-    console.log(`🔍 Verifying QR code: ${qr_code}`);
-
-    // Find QR code in qr_codes table - NO JOIN
-    const { data: qrRecord, error: qrError } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('code', qr_code)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (qrError) {
-      console.error('❌ QR verification error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + qrError.message
-      });
-    }
-
-    if (!qrRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invalid or inactive QR code'
-      });
-    }
-
-    // Get hostel name separately
-    let hostelName = 'Unknown Hostel';
-    if (qrRecord.hostel_id) {
-      const { data: hostelInfo } = await supabase
-        .from('hostels')
-        .select('name')
-        .eq('id', qrRecord.hostel_id)
-        .maybeSingle();
-      if (hostelInfo) hostelName = hostelInfo.name;
-    }
-
-    // Check if expired
-    if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: 'QR code has expired'
-      });
-    }
-
-    // Update usage
-    try {
-      await supabase
-        .from('qr_codes')
-        .update({
-          last_used_at: new Date().toISOString(),
-          usage_count: (qrRecord.usage_count || 0) + 1
-        })
-        .eq('id', qrRecord.id);
-      console.log(`📊 Updated usage count for QR ${qrRecord.code}`);
-    } catch (e) {
-      console.log('ℹ️ Error updating usage count:', e.message);
-    }
-
-    // Log the scan
-    await auditService.log({
-      actor: staffName,
-      actor_id: staffId,
-      actor_role: req.headers['x-staff-role'] || 'Staff',
-      action: 'QR Code Scanned',
-      module: 'qr_codes',
-      details: `QR code scanned for ${hostelName}`,
-      context: `Scanner ID: ${scanner_id || 'Unknown'}`,
-      result: 'success',
-      category: 'qr',
-      tone: 'green',
-      hostel_id: qrRecord.hostel_id
-    });
-
-    res.json({
-      success: true,
-      data: {
-        hostel_id: qrRecord.hostel_id,
-        hostel_name: hostelName,
-        verified: true,
-        timestamp: new Date().toISOString(),
-        scan_count: (qrRecord.usage_count || 0) + 1
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error verifying QR code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-// Get all QR codes (admin only) - FIXED
-app.get('/api/qr/all', async (req, res) => {
-  try {
-    const { data: qrCodes, error } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .order('generated_at', { ascending: false });
-
-    if (error) throw error;
-
-    // Enrich with hostel names
-    const enriched = await Promise.all(qrCodes.map(async (qr) => {
-      let hostelName = null;
-      if (qr.hostel_id) {
-        const { data: hostel } = await supabase
-          .from('hostels')
-          .select('name')
-          .eq('id', qr.hostel_id)
-          .maybeSingle();
-        if (hostel) hostelName = hostel.name;
-      }
-      return { ...qr, hostel_name: hostelName };
-    }));
-
-    res.json({
-      success: true,
-      data: enriched
-    });
-  } catch (error) {
-    console.error('❌ Error fetching all QR codes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-// =====================================================
-// STAFF - Unified CRUD
+// STAFF
 // =====================================================
 
 app.get('/api/staff', async (req, res) => {
@@ -1735,7 +1016,6 @@ app.post('/api/staff', async (req, res) => {
     if (existingStaff) return res.status(400).json({ success: false, message: 'Username already exists' });
     
     const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-    // Hash the password before storing
     const hashedPassword = password ? await bcrypt.hash(password, SALT_ROUNDS) : await bcrypt.hash('password1', SALT_ROUNDS);
     
     const newStaff = { 
@@ -1813,101 +1093,6 @@ app.put('/api/staff/:id/password', async (req, res) => {
   }
 });
 
-// CHANGE PASSWORD - New endpoint with current password verification
-app.put('/api/staff/:id/change-password', async (req, res) => {
-  try {
-    const staffId = parseInt(req.params.id);
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password and new password are required'
-      });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'New password must be at least 6 characters'
-      });
-    }
-
-    // Get staff with password
-    const { data: staff, error: staffError } = await supabase
-      .from('staff')
-      .select('id, password, name')
-      .eq('id', staffId)
-      .maybeSingle();
-
-    if (staffError || !staff) {
-      return res.status(404).json({
-        success: false,
-        message: 'Staff not found'
-      });
-    }
-
-    // Verify current password
-    let validPassword = false;
-    try {
-      validPassword = await bcrypt.compare(currentPassword, staff.password);
-    } catch (e) {
-      // Fallback for plain text passwords (for backward compatibility)
-      validPassword = currentPassword === staff.password;
-    }
-
-    if (!validPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password is incorrect'
-      });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-
-    // Update password in DB
-    const { error: updateError } = await supabase
-      .from('staff')
-      .update({
-        password: hashedPassword,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', staffId);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    // Audit log
-    await auditService.log({
-      actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
-      actor_id: staffId,
-      actor_role: req.headers['x-staff-role'] || 'HRA',
-      action: 'Password Changed',
-      module: 'security',
-      details: 'Account password updated successfully',
-      result: 'success',
-      category: 'security',
-      tone: 'blue',
-      ip_address: req.clientIp,
-      user_agent: req.userAgent
-    });
-
-    res.json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error: ' + error.message
-    });
-  }
-});
-
 app.delete('/api/staff/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
@@ -1923,7 +1108,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD
+// STUDENTS
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -2006,11 +1191,10 @@ app.delete('/api/students/:id', async (req, res) => {
 });
 
 // =====================================================
-// FLOORS_FLATS, ROOMS, BED_SPACES, HOSTELS, BEDCHECK SESSIONS, ETC.
+// FLOORS_FLATS (corrected from floors-flats)
 // =====================================================
 
-// Floors/Flats
-app.get('/api/floors-flats', async (req, res) => {
+app.get('/api/floors_flats', async (req, res) => {
   const { hostel_id } = req.query;
   try {
     let query = supabase.from('floors_flats').select('*');
@@ -2024,7 +1208,7 @@ app.get('/api/floors-flats', async (req, res) => {
   }
 });
 
-app.get('/api/floors-flats/:id', async (req, res) => {
+app.get('/api/floors_flats/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const { data, error } = await supabase.from('floors_flats').select('*').eq('id', id).single();
@@ -2036,7 +1220,7 @@ app.get('/api/floors-flats/:id', async (req, res) => {
   }
 });
 
-app.post('/api/floors-flats', async (req, res) => {
+app.post('/api/floors_flats', async (req, res) => {
   const { hostel_id, name, type } = req.body;
   if (!hostel_id || !name) return res.status(400).json({ success: false, message: 'hostel_id and name are required' });
   try {
@@ -2050,7 +1234,7 @@ app.post('/api/floors-flats', async (req, res) => {
   }
 });
 
-app.put('/api/floors-flats/:id', async (req, res) => {
+app.put('/api/floors_flats/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const { hostel_id, name, type } = req.body;
   try {
@@ -2068,7 +1252,7 @@ app.put('/api/floors-flats/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/floors-flats/:id', async (req, res) => {
+app.delete('/api/floors_flats/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const { error } = await supabase.from('floors_flats').delete().eq('id', id);
@@ -2091,7 +1275,6 @@ app.get('/api/rooms', async (req, res) => {
     }
     
     if (hostel_id) {
-      // First get all floor IDs for this hostel
       const { data: hostelFloors, error: floorsError } = await supabase
         .from('floors_flats')
         .select('id')
@@ -2109,7 +1292,6 @@ app.get('/api/rooms', async (req, res) => {
         const floorIds = hostelFloors.map(f => f.id);
         query = query.in('floor_flat_id', floorIds);
       } else {
-        // No floors found for this hostel, return empty
         return res.json({ success: true, data: [] });
       }
     }
@@ -2178,8 +1360,8 @@ app.delete('/api/rooms/:id', async (req, res) => {
   }
 });
 
-// Bed Spaces - FIXED to filter by hostel_id
-app.get('/api/bed-spaces', async (req, res) => {
+// BED_SPACES (corrected from bed-spaces)
+app.get('/api/bed_spaces', async (req, res) => {
   const { room_id, hostel_id } = req.query;
   try {
     let query = supabase.from('bed_spaces').select('*');
@@ -2189,7 +1371,6 @@ app.get('/api/bed-spaces', async (req, res) => {
     }
     
     if (hostel_id) {
-      // First get all room IDs for this hostel
       const { data: hostelRooms, error: roomsError } = await supabase
         .from('rooms')
         .select('id')
@@ -2207,7 +1388,6 @@ app.get('/api/bed-spaces', async (req, res) => {
         const roomIds = hostelRooms.map(r => r.id);
         query = query.in('room_id', roomIds);
       } else {
-        // No rooms found for this hostel, return empty
         return res.json({ success: true, data: [] });
       }
     }
@@ -2222,7 +1402,7 @@ app.get('/api/bed-spaces', async (req, res) => {
   }
 });
 
-app.get('/api/bed-spaces/:id', async (req, res) => {
+app.get('/api/bed_spaces/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const { data, error } = await supabase.from('bed_spaces').select('*').eq('id', id).single();
@@ -2234,7 +1414,7 @@ app.get('/api/bed-spaces/:id', async (req, res) => {
   }
 });
 
-app.post('/api/bed-spaces', async (req, res) => {
+app.post('/api/bed_spaces', async (req, res) => {
   const { room_id, bed_code, full_bed_code, status } = req.body;
   if (!room_id || !bed_code) return res.status(400).json({ success: false, message: 'room_id and bed_code are required' });
   try {
@@ -2248,7 +1428,7 @@ app.post('/api/bed-spaces', async (req, res) => {
   }
 });
 
-app.put('/api/bed-spaces/:id', async (req, res) => {
+app.put('/api/bed_spaces/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const { room_id, bed_code, full_bed_code, status, student_id } = req.body;
   try {
@@ -2269,7 +1449,7 @@ app.put('/api/bed-spaces/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/bed-spaces/:id', async (req, res) => {
+app.patch('/api/bed_spaces/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const { status, student_id } = req.body;
   try {
@@ -2287,7 +1467,7 @@ app.patch('/api/bed-spaces/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/bed-spaces/:id', async (req, res) => {
+app.delete('/api/bed_spaces/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const { error } = await supabase.from('bed_spaces').delete().eq('id', id);
@@ -2299,7 +1479,150 @@ app.delete('/api/bed-spaces/:id', async (req, res) => {
   }
 });
 
-// Hostels
+// BED_OCCUPANCY - New endpoint for bed occupancy tracking
+app.get('/api/bed_occupancy', async (req, res) => {
+  const { bed_space_id, student_id, hostel_id } = req.query;
+  try {
+    let query = supabase.from('bed_occupancy').select('*, bed_spaces(*), students(name, matric)');
+    
+    if (bed_space_id) {
+      query = query.eq('bed_space_id', parseInt(bed_space_id));
+    }
+    if (student_id) {
+      query = query.eq('student_id', parseInt(student_id));
+    }
+    if (hostel_id) {
+      // Get bed spaces for this hostel first
+      const { data: bedSpaces, error: bedError } = await supabase
+        .from('bed_spaces')
+        .select('id')
+        .eq('hostel_id', parseInt(hostel_id));
+      
+      if (bedError) {
+        console.error('Error fetching bed spaces:', bedError);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Database error: ' + bedError.message 
+        });
+      }
+      
+      if (bedSpaces && bedSpaces.length > 0) {
+        const bedIds = bedSpaces.map(b => b.id);
+        query = query.in('bed_space_id', bedIds);
+      } else {
+        return res.json({ success: true, data: [] });
+      }
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error fetching bed occupancy:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+app.post('/api/bed_occupancy', async (req, res) => {
+  const { bed_space_id, student_id } = req.body;
+  if (!bed_space_id) return res.status(400).json({ success: false, message: 'bed_space_id is required' });
+  
+  try {
+    // Check if bed is already occupied
+    const { data: existing, error: checkError } = await supabase
+      .from('bed_occupancy')
+      .select('id')
+      .eq('bed_space_id', parseInt(bed_space_id))
+      .eq('is_active', true)
+      .maybeSingle();
+    
+    if (checkError) throw checkError;
+    if (existing) {
+      // End current occupancy
+      await supabase
+        .from('bed_occupancy')
+        .update({ 
+          is_active: false, 
+          ended_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+    }
+    
+    // Create new occupancy
+    const newOccupancy = {
+      bed_space_id: parseInt(bed_space_id),
+      student_id: student_id ? parseInt(student_id) : null,
+      is_active: true,
+      started_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    const { data, error } = await supabase.from('bed_occupancy').insert(newOccupancy).select().single();
+    if (error) throw error;
+    
+    // Update bed space status
+    if (student_id) {
+      await supabase
+        .from('bed_spaces')
+        .update({ 
+          status: 'occupied', 
+          student_id: parseInt(student_id),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', parseInt(bed_space_id));
+    } else {
+      await supabase
+        .from('bed_spaces')
+        .update({ 
+          status: 'available', 
+          student_id: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', parseInt(bed_space_id));
+    }
+    
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error creating bed occupancy:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+app.put('/api/bed_occupancy/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { is_active, ended_at } = req.body;
+  
+  try {
+    const updateData = {};
+    if (is_active !== undefined) updateData.is_active = is_active;
+    if (ended_at !== undefined) updateData.ended_at = ended_at;
+    updateData.updated_at = new Date().toISOString();
+    
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields to update' });
+    }
+    
+    const { data, error } = await supabase
+      .from('bed_occupancy')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error updating bed occupancy:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+// =====================================================
+// HOSTELS
+// =====================================================
+
 app.get('/api/hostels', async (req, res) => {
   try {
     const { data: hostelsData, error: hostelsError } = await supabase.from('hostels').select('*').order('name', { ascending: true });
@@ -2369,307 +1692,6 @@ app.put('/api/hostels/:id', async (req, res) => {
 });
 
 // =====================================================
-// HOSTEL ALERTS & EXTRA ENDPOINTS
-// =====================================================
-
-// GET hostel alerts
-app.get('/api/hostels/:id/alerts', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
-  try {
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('id, name')
-      .eq('id', id)
-      .single();
-    
-    if (hostelError || !hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Hostel not found' 
-      });
-    }
-    
-    const alerts = [];
-    
-    const { data: absentStudents, error: absentError } = await supabase
-      .from('students')
-      .select('id, name, matric, status, room_code')
-      .eq('hostel_id', id)
-      .eq('status', 'Absent');
-    
-    if (!absentError && absentStudents && absentStudents.length > 0) {
-      const roomGroups = {};
-      absentStudents.forEach(s => {
-        const room = s.room_code || 'Unknown';
-        if (!roomGroups[room]) roomGroups[room] = [];
-        roomGroups[room].push(s);
-      });
-      
-      Object.keys(roomGroups).forEach(room => {
-        const students = roomGroups[room];
-        if (students.length >= 3) {
-          alerts.push({
-            type: 'warning',
-            severity: 'high',
-            title: `${students.length} students absent in ${room}`,
-            description: `Students in ${room} have been marked absent.`,
-            room: room,
-            studentCount: students.length,
-            students: students.map(s => ({ name: s.name, matric: s.matric }))
-          });
-        }
-      });
-      
-      if (absentStudents.length > 10) {
-        alerts.push({
-          type: 'warning',
-          severity: 'high',
-          title: `${absentStudents.length} students marked absent`,
-          description: `High number of absent students in this hostel.`,
-          studentCount: absentStudents.length
-        });
-      }
-    }
-    
-    const { data: pendingRA, error: raError } = await supabase
-      .from('staff')
-      .select('id, name, submission_status')
-      .eq('hostel_id', id)
-      .eq('role', 'RA')
-      .eq('submission_status', 'Not Started');
-    
-    if (!raError && pendingRA && pendingRA.length > 0) {
-      alerts.push({
-        type: 'warning',
-        severity: 'medium',
-        title: `${pendingRA.length} RA submission${pendingRA.length > 1 ? 's' : ''} pending`,
-        description: `${pendingRA.map(s => s.name).join(', ')} have not started submission.`,
-        staff: pendingRA.map(s => ({ name: s.name, status: s.submission_status }))
-      });
-    }
-    
-    const { data: bedSpaces, error: bedError } = await supabase
-      .from('bed_spaces')
-      .select('id, status')
-      .eq('hostel_id', id);
-    
-    if (!bedError && bedSpaces && bedSpaces.length > 0) {
-      const total = bedSpaces.length;
-      const available = bedSpaces.filter(b => b.status === 'available').length;
-      const occupancyRate = total > 0 ? Math.round(((total - available) / total) * 100) : 0;
-      
-      if (occupancyRate > 90) {
-        alerts.push({
-          type: 'info',
-          severity: 'medium',
-          title: `High occupancy rate: ${occupancyRate}%`,
-          description: `${total - available} of ${total} beds occupied. Only ${available} beds available.`,
-          occupancyRate: occupancyRate,
-          availableBeds: available,
-          totalBeds: total
-        });
-      }
-    }
-    
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const { data: recentSessions, error: sessionError } = await supabase
-      .from('bedcheck_sessions')
-      .select('id, status, created_at')
-      .eq('hostel_id', id)
-      .gte('created_at', yesterday.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1);
-    
-    if (!sessionError && (!recentSessions || recentSessions.length === 0)) {
-      alerts.push({
-        type: 'warning',
-        severity: 'low',
-        title: 'No recent BedCheck session',
-        description: 'No BedCheck session has been started in the last 24 hours.'
-      });
-    }
-    
-    if (alerts.length === 0) {
-      alerts.push({
-        type: 'success',
-        severity: 'low',
-        title: 'All systems normal',
-        description: 'No alerts for this hostel.'
-      });
-    }
-    
-    res.json({ 
-      success: true, 
-      data: alerts,
-      hostel: hostel.name
-    });
-    
-  } catch (error) {
-    console.error('Error fetching hostel alerts:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Database error: ' + error.message 
-    });
-  }
-});
-
-// GET hostel occupancy
-app.get('/api/hostels/:id/occupancy', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
-  try {
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('id, name, total_floors, rooms_per_floor, total_flats, rooms_per_flat, type')
-      .eq('id', id)
-      .single();
-    
-    if (hostelError || !hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Hostel not found' 
-      });
-    }
-    
-    const { data: bedSpaces, error: bedError } = await supabase
-      .from('bed_spaces')
-      .select('id, status, room_id')
-      .eq('hostel_id', id);
-    
-    if (bedError) throw bedError;
-    
-    const total = bedSpaces?.length || 0;
-    const available = bedSpaces?.filter(b => b.status === 'available').length || 0;
-    const occupied = bedSpaces?.filter(b => b.status === 'occupied').length || 0;
-    const maintenance = bedSpaces?.filter(b => b.status === 'maintenance').length || 0;
-    const occupancyRate = total > 0 ? Math.round((occupied / total) * 100) : 0;
-    
-    const { count: studentCount, error: studentError } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('hostel_id', id);
-    
-    if (studentError) throw studentError;
-    
-    const { data: rooms, error: roomsError } = await supabase
-      .from('rooms')
-      .select('id, room_code, floor_flat_id')
-      .eq('hostel_id', id);
-    
-    if (roomsError) throw roomsError;
-    
-    res.json({
-      success: true,
-      data: {
-        hostel: hostel.name,
-        totalBeds: total,
-        availableBeds: available,
-        occupiedBeds: occupied,
-        maintenanceBeds: maintenance,
-        occupancyRate: occupancyRate,
-        totalRooms: rooms?.length || 0,
-        totalStudents: studentCount || 0
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error fetching hostel occupancy:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Database error: ' + error.message 
-    });
-  }
-});
-
-// GET hostel summary
-app.get('/api/hostels/:id/summary', async (req, res) => {
-  const id = parseInt(req.params.id);
-  
-  try {
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('*')
-      .eq('id', id)
-      .single();
-    
-    if (hostelError || !hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Hostel not found' 
-      });
-    }
-    
-    const { data: students, error: studentError } = await supabase
-      .from('students')
-      .select('status, room_id')
-      .eq('hostel_id', id);
-    
-    if (studentError) throw studentError;
-    
-    const totalStudents = students?.length || 0;
-    const present = students?.filter(s => s.status === 'Present').length || 0;
-    const absent = students?.filter(s => s.status === 'Absent').length || 0;
-    const late = students?.filter(s => s.status === 'Late').length || 0;
-    const assigned = students?.filter(s => s.room_id !== null && s.room_id > 0).length || 0;
-    
-    const { data: bedSpaces, error: bedError } = await supabase
-      .from('bed_spaces')
-      .select('status')
-      .eq('hostel_id', id);
-    
-    if (bedError) throw bedError;
-    
-    const totalBeds = bedSpaces?.length || 0;
-    const availableBeds = bedSpaces?.filter(b => b.status === 'available').length || 0;
-    const occupiedBeds = bedSpaces?.filter(b => b.status === 'occupied').length || 0;
-    
-    const { count: staffCount, error: staffError } = await supabase
-      .from('staff')
-      .select('*', { count: 'exact', head: true })
-      .eq('hostel_id', id)
-      .eq('status', 'Active');
-    
-    if (staffError) throw staffError;
-    
-    res.json({
-      success: true,
-      data: {
-        hostel: {
-          id: hostel.id,
-          name: hostel.name,
-          gender: hostel.gender,
-          type: hostel.type
-        },
-        students: {
-          total: totalStudents,
-          present: present,
-          absent: absent,
-          late: late,
-          assigned: assigned
-        },
-        beds: {
-          total: totalBeds,
-          available: availableBeds,
-          occupied: occupiedBeds,
-          occupancyRate: totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0
-        },
-        staff: staffCount || 0
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error fetching hostel summary:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Database error: ' + error.message 
-    });
-  }
-});
-
-// =====================================================
 // BEDCHECK SESSIONS
 // =====================================================
 
@@ -2724,7 +1746,7 @@ app.put('/api/bedcheck/sessions/:id', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SCANS (QR-based - NO FINGERPRINT)
+// BEDCHECK SCANS
 // =====================================================
 
 app.get('/api/bedcheck/scans', async (req, res) => {
@@ -2780,53 +1802,6 @@ app.post('/api/bedcheck/scans', async (req, res) => {
     res.json({ success: true, data: data });
   } catch (error) {
     console.error('Error creating bedcheck scan:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// =====================================================
-// RA - ROOM HISTORY
-// =====================================================
-
-app.get('/api/room-history', async (req, res) => {
-  const { hostel_id, room, student_id, date_from, date_to } = req.query;
-  try {
-    let query = supabase.from('bedcheck_scans').select('*, students(name, matric)');
-    if (hostel_id) {
-      const { data: studentsInHostel, error: studentError } = await supabase.from('students').select('id').eq('hostel_id', parseInt(hostel_id));
-      if (studentError) throw studentError;
-      if (studentsInHostel && studentsInHostel.length > 0) {
-        const studentIds = studentsInHostel.map(s => s.id);
-        query = query.in('student_id', studentIds);
-      } else { return res.json({ success: true, data: [] }); }
-    }
-    if (room) query = query.eq('room', room);
-    if (student_id) query = query.eq('student_id', parseInt(student_id));
-    if (date_from) query = query.gte('created_at', new Date(date_from).toISOString());
-    if (date_to) query = query.lte('created_at', new Date(date_to).toISOString());
-    const { data, error } = await query.order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching room history:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// =====================================================
-// RA - SUBMIT BEDCHECK
-// =====================================================
-
-app.post('/api/bedcheck/submit', async (req, res) => {
-  const { session_id, hostel_id, notes, actor } = req.body;
-  try {
-    const { data: sessionData, error: sessionError } = await supabase.from('bedcheck_sessions').update({ status: 'Submitted', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', session_id).select().single();
-    if (sessionError) throw sessionError;
-    const { data: hostelData } = await supabase.from('hostels').select('name').eq('id', hostel_id).single();
-    await auditEvents.sessionSubmitted(sessionData, { id: hostel_id, name: hostelData?.name || 'Unknown' }, { name: actor || req.headers['x-staff-name'] || 'RA', role: 'RA' }, null);
-    res.json({ success: true, data: sessionData });
-  } catch (error) {
-    console.error('Error submitting bedcheck:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
   }
 });
@@ -2956,7 +1931,422 @@ app.get('/api/dashboard/activity', async (req, res) => {
 });
 
 // =====================================================
-// RASD - Live BedCheck Monitor
+// REPORTS
+// =====================================================
+
+app.get('/api/reports/attendance', async (req, res) => {
+  const { type } = req.query;
+  try {
+    const { data, error } = await supabase.from('students').select('*');
+    if (error) throw error;
+    const total = data.length;
+    const present = data.filter(s => s.status === 'Present').length;
+    const absent = data.filter(s => s.status === 'Absent').length;
+    const late = data.filter(s => s.status === 'Late').length;
+    res.json({ success: true, data: { total, present, absent, late, attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0, students: data } });
+  } catch (error) {
+    console.error('Error fetching attendance report:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+// =====================================================
+// QR CODE MANAGEMENT
+// =====================================================
+
+app.get('/api/qr/hostel/:hostelId', async (req, res) => {
+  try {
+    const hostelId = parseInt(req.params.hostelId);
+    
+    if (!hostelId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hostel ID is required'
+      });
+    }
+
+    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
+    
+    const { data: qrData, error: qrError } = await supabase
+      .from('qr_codes')
+      .select('*')
+      .eq('hostel_id', hostelId)
+      .eq('is_active', true)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (qrError) {
+      console.error('❌ QR fetch error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error fetching QR code: ' + qrError.message
+      });
+    }
+
+    if (!qrData) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active QR code found for this hostel'
+      });
+    }
+
+    let hostelName = null;
+    const { data: hostelInfo, error: hostelInfoError } = await supabase
+      .from('hostels')
+      .select('name')
+      .eq('id', hostelId)
+      .maybeSingle();
+    
+    if (!hostelInfoError && hostelInfo) {
+      hostelName = hostelInfo.name;
+    }
+
+    let creatorName = 'Unknown';
+    if (qrData.created_by) {
+      const { data: creator } = await supabase
+        .from('staff')
+        .select('name')
+        .eq('id', qrData.created_by)
+        .maybeSingle();
+      if (creator) creatorName = creator.name;
+    }
+
+    console.log(`✅ QR found: ${qrData.code} for hostel ID ${hostelId}`);
+
+    res.json({
+      success: true,
+      data: {
+        id: qrData.id,
+        hostel_id: qrData.hostel_id,
+        code: qrData.code,
+        qr_data: qrData.qr_data,
+        generated_at: qrData.generated_at,
+        expires_at: qrData.expires_at,
+        is_active: qrData.is_active,
+        last_used_at: qrData.last_used_at,
+        usage_count: qrData.usage_count || 0,
+        created_by: qrData.created_by,
+        created_by_name: creatorName,
+        created_at: qrData.created_at,
+        updated_at: qrData.updated_at,
+        hostel: hostelName ? { id: hostelId, name: hostelName } : null
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching QR by hostel:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+app.post('/api/qr/generate', async (req, res) => {
+  try {
+    const staffId = getStaffId(req);
+    const staffName = req.headers['x-staff-name'] || 'System';
+    const staffRole = req.headers['x-staff-role'] || 'System';
+    
+    if (!staffId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please provide X-Staff-ID header.'
+      });
+    }
+
+    console.log(`🔄 Generating QR for staff ID: ${staffId}`);
+    
+    const { data: staff, error: staffError } = await supabase
+      .from('staff')
+      .select('id, name, role, hostel_id')
+      .eq('id', staffId)
+      .maybeSingle();
+    
+    if (staffError) {
+      console.error('❌ Staff query error:', staffError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database error: ' + staffError.message 
+      });
+    }
+    
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        message: 'Staff member not found'
+      });
+    }
+    
+    if (!staff.hostel_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'No hostel assigned to this staff member'
+      });
+    }
+    
+    console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
+    
+    const { data: hostel, error: hostelError } = await supabase
+      .from('hostels')
+      .select('name')
+      .eq('id', staff.hostel_id)
+      .maybeSingle();
+    
+    if (hostelError) {
+      console.error('❌ Hostel query error:', hostelError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database error: ' + hostelError.message 
+      });
+    }
+    
+    if (!hostel) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hostel not found'
+      });
+    }
+
+    console.log(`✅ Found hostel: ${hostel.name} (ID: ${staff.hostel_id})`);
+
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const qrCode = `BIU-${hostel.name.toUpperCase().replace(/\s/g, '-')}-${timestamp}`;
+    
+    const qrData = JSON.stringify({
+      type: 'hostel_verification',
+      hostel_id: staff.hostel_id,
+      hostel_name: hostel.name,
+      code: qrCode,
+      created_by: staffId,
+      created_by_name: staff.name,
+      timestamp: new Date().toISOString()
+    });
+
+    const { error: updateError } = await supabase
+      .from('qr_codes')
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('hostel_id', staff.hostel_id)
+      .eq('is_active', true);
+
+    if (updateError) {
+      console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
+    }
+
+    const { data: qrDataInsert, error: qrError } = await supabase
+      .from('qr_codes')
+      .insert({
+        hostel_id: staff.hostel_id,
+        code: qrCode,
+        qr_data: qrData,
+        generated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        is_active: true,
+        created_by: staffId,
+        usage_count: 0
+      })
+      .select()
+      .single();
+
+    if (qrError) {
+      console.error('❌ QR insert error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error inserting QR code: ' + qrError.message
+      });
+    }
+
+    console.log(`✅ QR generated successfully: ${qrCode}`);
+
+    await auditService.log({
+      actor: staffName,
+      actor_id: staffId,
+      actor_role: staffRole,
+      action: 'QR Code Generated',
+      module: 'qr_codes',
+      details: `QR code generated for ${hostel.name} by ${staff.name}`,
+      context: `Hostel ID: ${staff.hostel_id}`,
+      result: 'success',
+      category: 'qr',
+      tone: 'blue',
+      hostel_id: staff.hostel_id
+    });
+
+    res.json({
+      success: true,
+      data: {
+        id: qrDataInsert.id,
+        hostel_id: qrDataInsert.hostel_id,
+        code: qrDataInsert.code,
+        qr_data: qrDataInsert.qr_data,
+        generated_at: qrDataInsert.generated_at,
+        expires_at: qrDataInsert.expires_at,
+        is_active: qrDataInsert.is_active,
+        usage_count: qrDataInsert.usage_count,
+        created_by: qrDataInsert.created_by,
+        created_at: qrDataInsert.created_at,
+        updated_at: qrDataInsert.updated_at,
+        hostel: {
+          id: staff.hostel_id,
+          name: hostel.name
+        },
+        staff: {
+          id: staff.id,
+          name: staff.name,
+          role: staff.role
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error generating QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+app.post('/api/qr/verify', async (req, res) => {
+  try {
+    const { qr_code, scanner_id } = req.body;
+    const staffId = getStaffId(req);
+    const staffName = req.headers['x-staff-name'] || 'Scanner';
+
+    if (!qr_code) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code is required'
+      });
+    }
+
+    console.log(`🔍 Verifying QR code: ${qr_code}`);
+
+    const { data: qrRecord, error: qrError } = await supabase
+      .from('qr_codes')
+      .select('*')
+      .eq('code', qr_code)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (qrError) {
+      console.error('❌ QR verification error:', qrError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error: ' + qrError.message
+      });
+    }
+
+    if (!qrRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid or inactive QR code'
+      });
+    }
+
+    let hostelName = 'Unknown Hostel';
+    if (qrRecord.hostel_id) {
+      const { data: hostelInfo } = await supabase
+        .from('hostels')
+        .select('name')
+        .eq('id', qrRecord.hostel_id)
+        .maybeSingle();
+      if (hostelInfo) hostelName = hostelInfo.name;
+    }
+
+    if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code has expired'
+      });
+    }
+
+    try {
+      await supabase
+        .from('qr_codes')
+        .update({
+          last_used_at: new Date().toISOString(),
+          usage_count: (qrRecord.usage_count || 0) + 1
+        })
+        .eq('id', qrRecord.id);
+      console.log(`📊 Updated usage count for QR ${qrRecord.code}`);
+    } catch (e) {
+      console.log('ℹ️ Error updating usage count:', e.message);
+    }
+
+    await auditService.log({
+      actor: staffName,
+      actor_id: staffId,
+      actor_role: req.headers['x-staff-role'] || 'Staff',
+      action: 'QR Code Scanned',
+      module: 'qr_codes',
+      details: `QR code scanned for ${hostelName}`,
+      context: `Scanner ID: ${scanner_id || 'Unknown'}`,
+      result: 'success',
+      category: 'qr',
+      tone: 'green',
+      hostel_id: qrRecord.hostel_id
+    });
+
+    res.json({
+      success: true,
+      data: {
+        hostel_id: qrRecord.hostel_id,
+        hostel_name: hostelName,
+        verified: true,
+        timestamp: new Date().toISOString(),
+        scan_count: (qrRecord.usage_count || 0) + 1
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error verifying QR code:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+app.get('/api/qr/all', async (req, res) => {
+  try {
+    const { data: qrCodes, error } = await supabase
+      .from('qr_codes')
+      .select('*')
+      .order('generated_at', { ascending: false });
+
+    if (error) throw error;
+
+    const enriched = await Promise.all(qrCodes.map(async (qr) => {
+      let hostelName = null;
+      if (qr.hostel_id) {
+        const { data: hostel } = await supabase
+          .from('hostels')
+          .select('name')
+          .eq('id', qr.hostel_id)
+          .maybeSingle();
+        if (hostel) hostelName = hostel.name;
+      }
+      return { ...qr, hostel_name: hostelName };
+    }));
+
+    res.json({
+      success: true,
+      data: enriched
+    });
+  } catch (error) {
+    console.error('❌ Error fetching all QR codes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error: ' + error.message
+    });
+  }
+});
+
+// =====================================================
+// MONITOR
 // =====================================================
 
 app.get('/api/monitor/hostels', async (req, res) => {
@@ -2986,21 +2376,48 @@ app.get('/api/monitor/students', async (req, res) => {
 });
 
 // =====================================================
-// REPORTS
+// ROOM HISTORY
 // =====================================================
 
-app.get('/api/reports/attendance', async (req, res) => {
-  const { type } = req.query;
+app.get('/api/room-history', async (req, res) => {
+  const { hostel_id, room, student_id, date_from, date_to } = req.query;
   try {
-    const { data, error } = await supabase.from('students').select('*');
+    let query = supabase.from('bedcheck_scans').select('*, students(name, matric)');
+    if (hostel_id) {
+      const { data: studentsInHostel, error: studentError } = await supabase.from('students').select('id').eq('hostel_id', parseInt(hostel_id));
+      if (studentError) throw studentError;
+      if (studentsInHostel && studentsInHostel.length > 0) {
+        const studentIds = studentsInHostel.map(s => s.id);
+        query = query.in('student_id', studentIds);
+      } else { return res.json({ success: true, data: [] }); }
+    }
+    if (room) query = query.eq('room', room);
+    if (student_id) query = query.eq('student_id', parseInt(student_id));
+    if (date_from) query = query.gte('created_at', new Date(date_from).toISOString());
+    if (date_to) query = query.lte('created_at', new Date(date_to).toISOString());
+    const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
-    const total = data.length;
-    const present = data.filter(s => s.status === 'Present').length;
-    const absent = data.filter(s => s.status === 'Absent').length;
-    const late = data.filter(s => s.status === 'Late').length;
-    res.json({ success: true, data: { total, present, absent, late, attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0, students: data } });
+    res.json({ success: true, data: data });
   } catch (error) {
-    console.error('Error fetching attendance report:', error);
+    console.error('Error fetching room history:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+// =====================================================
+// BEDCHECK SUBMIT
+// =====================================================
+
+app.post('/api/bedcheck/submit', async (req, res) => {
+  const { session_id, hostel_id, notes, actor } = req.body;
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.from('bedcheck_sessions').update({ status: 'Submitted', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', session_id).select().single();
+    if (sessionError) throw sessionError;
+    const { data: hostelData } = await supabase.from('hostels').select('name').eq('id', hostel_id).single();
+    await auditEvents.sessionSubmitted(sessionData, { id: hostel_id, name: hostelData?.name || 'Unknown' }, { name: actor || req.headers['x-staff-name'] || 'RA', role: 'RA' }, null);
+    res.json({ success: true, data: sessionData });
+  } catch (error) {
+    console.error('Error submitting bedcheck:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
   }
 });
