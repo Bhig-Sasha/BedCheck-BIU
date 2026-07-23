@@ -35,24 +35,26 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
+    if (!origin) {
+      return callback(null, true);
+    }
+
     // Get allowed origins from environment variable
     const allowedOrigins = process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
       : [];
-    
-    // In production, if ALLOWED_ORIGINS is not set, allow all (not recommended)
-    if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-      console.warn('⚠️ ALLOWED_ORIGINS not set in production - allowing all origins');
-      return callback(null, true);
+
+    // In production, ALLOWED_ORIGINS must be set
+    if (allowedOrigins.length === 0) {
+      console.error('❌ ALLOWED_ORIGINS environment variable is not set in production');
+      return callback(new Error('CORS configuration error'));
     }
-    
+
     // Check if the origin is allowed
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`❌ CORS blocked: ${origin} not in allowed list`);
+      console.warn(`❌ CORS blocked: ${origin} - Not in allowed origins: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -815,7 +817,7 @@ app.get('/api/audit/summary', async (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION
+// AUTHENTICATION - Fixed for plain text passwords
 // =====================================================
 
 app.post('/api/auth/login', async (req, res) => {
@@ -847,13 +849,36 @@ app.post('/api/auth/login', async (req, res) => {
     if (data && data.length > 0) {
       const user = data[0];
       
-      // Verify password with bcrypt
+      // Check if password is hashed or plain text
       let validPassword = false;
-      try {
-        validPassword = await bcrypt.compare(password, user.password);
-      } catch (e) {
-        // If bcrypt fails, fallback to plain text comparison (for backward compatibility)
+      
+      // Check if stored password is a bcrypt hash
+      if (user.password && user.password.startsWith('$2b$')) {
+        // Hashed password - use bcrypt
+        try {
+          validPassword = await bcrypt.compare(password, user.password);
+        } catch (e) {
+          console.error('Bcrypt compare error:', e);
+          validPassword = false;
+        }
+      } else {
+        // Plain text password - direct comparison
         validPassword = password === user.password;
+        
+        // If valid, automatically upgrade to hashed password
+        if (validPassword && user.password && !user.password.startsWith('$2b$')) {
+          console.log(`🔄 Upgrading password for ${user.username} to bcrypt hash`);
+          try {
+            const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+            await supabase
+              .from('staff')
+              .update({ password: hashedPassword })
+              .eq('id', user.id);
+            console.log(`✅ Password upgraded for ${user.username}`);
+          } catch (e) {
+            console.error(`❌ Failed to upgrade password for ${user.username}:`, e);
+          }
+        }
       }
       
       if (!validPassword) {
