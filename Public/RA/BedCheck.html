@@ -314,6 +314,7 @@
         .badge-verified { background: #e1f0e5; color: #2d6545; }
         .badge-auto-absent { background: #f8e1dc; color: #9b3c31; }
         .badge-assigned { background: #d6ad4b; color: #10233f; }
+        .badge-floor { background: #e7edf5; color: #24466f; }
 
         .toast {
             position: fixed;
@@ -622,22 +623,25 @@
             .timeline-item .time { min-width: 3rem; font-size: 0.6rem; }
         }
 
-        /* Room buttons row */
+        /* Room buttons row - Responsive */
         .room-buttons {
             display: flex;
-            gap: 0.3rem;
+            gap: 0.4rem;
             flex-wrap: wrap;
         }
         .room-buttons .room-btn {
-            padding: 0.2rem 0.6rem;
+            padding: 0.3rem 0.7rem;
             border: 1px solid #bfc8d5;
-            border-radius: 0.3rem;
+            border-radius: 0.4rem;
             background: #f5f1e8;
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             cursor: pointer;
             transition: all 0.2s;
             font-weight: 600;
             color: #17233c;
+            text-align: center;
+            min-width: 50px;
+            flex: 0 1 auto;
         }
         .room-buttons .room-btn:hover:not(:disabled) { background: #e7edf5; border-color: #a77915; }
         .room-buttons .room-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -649,10 +653,30 @@
             display: block;
             text-align: center;
         }
+        .room-buttons .room-btn .range-label {
+            display: block;
+            font-size: 0.45rem;
+            color: #6b778b;
+            font-weight: 400;
+        }
         @media (max-width: 480px) {
             .room-buttons .room-btn {
-                padding: 0.15rem 0.4rem;
+                padding: 0.2rem 0.5rem;
+                font-size: 0.65rem;
+                min-width: 40px;
+                flex: 1 0 calc(20% - 0.4rem);
+                max-width: calc(20% - 0.4rem);
+            }
+            .room-buttons .room-btn .range-label {
+                font-size: 0.4rem;
+            }
+        }
+        @media (max-width: 380px) {
+            .room-buttons .room-btn {
+                flex: 1 0 calc(25% - 0.4rem);
+                max-width: calc(25% - 0.4rem);
                 font-size: 0.6rem;
+                padding: 0.15rem 0.3rem;
             }
         }
 
@@ -690,33 +714,6 @@
         .items-center { align-items: center; }
         .justify-between { justify-content: space-between; }
         .flex-wrap { flex-wrap: wrap; }
-
-        /* floor tabs */
-        .floor-tabs {
-            display: flex;
-            gap: 0.3rem;
-            flex-wrap: wrap;
-            margin-bottom: 0.75rem;
-            border-bottom: 1px solid #e8e4de;
-            padding-bottom: 0.5rem;
-        }
-        .floor-tabs .tab {
-            padding: 0.2rem 0.8rem;
-            border-radius: 9999px;
-            border: 1px solid #bfc8d5;
-            background: #f5f1e8;
-            font-size: 0.7rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-            color: #17233c;
-        }
-        .floor-tabs .tab.active {
-            background: #d6ad4b;
-            border-color: #10233f;
-            color: #10233f;
-        }
-        .floor-tabs .tab:hover:not(.active) { background: #e7edf5; }
 
         /* liveness prompt */
         .liveness-prompt {
@@ -857,7 +854,6 @@
             let autoAbsentQueue = [];
             let timeline = [];
             let completedRooms = [];
-            let selectedFloor = null;
             let isFaceRecognitionActive = false;
             let faceStream = null;
             let faceVideoElement = null;
@@ -916,158 +912,86 @@
             }
 
             // =============================================
-            // ROOM STRUCTURE BUILDING
+            // ROOM STRUCTURE BUILDING - ONLY THE ASSIGNED AREA
             // =============================================
             function buildRoomStructure() {
-                if (!assignedHostelId) return;
+                if (!assignedHostelId || !assignedArea) return;
                 roomStructure = { type: assignedAreaType || 'floor', areas: [] };
 
                 // Get all students in this hostel
                 const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
 
                 if (assignedAreaType === 'flat') {
-                    // Flats: Each flat is an area
-                    const flatNumbers = [];
-                    hostelStudents.forEach(s => {
-                        if (s.flat) {
-                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
-                            if (num) flatNumbers.push(num);
-                        }
-                    });
-                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
-                    roomStructure.type = 'flat';
-                    roomStructure.areas = sortedFlats.map(num => ({
-                        name: `Flat ${num}`,
-                        key: `Flat ${num}`,
-                        rooms: hostelStudents.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
-                    }));
-                } else {
-                    // Floors with room ranges
-                    const floorLetters = [];
-                    hostelStudents.forEach(s => {
-                        if (s.floor) {
-                            const letter = s.floor.replace('Floor ', '');
-                            if (letter) floorLetters.push(letter);
-                        }
-                    });
-                    const sortedLetters = [...new Set(floorLetters)].sort();
-                    roomStructure.type = 'floor';
-
-                    sortedLetters.forEach(letter => {
-                        const floorRooms = hostelStudents
-                            .filter(s => s.floor === `Floor ${letter}`)
-                            .map(s => s.room)
-                            .filter(Boolean)
-                            .sort((a, b) => {
-                                const numA = parseInt(a.replace(letter, ''));
-                                const numB = parseInt(b.replace(letter, ''));
-                                return numA - numB;
-                            });
-
-                        let roomRanges = [];
-                        // Default: 2 ranges per floor (1-9 and 10-18)
-                        const range1 = floorRooms.filter(r => {
-                            const num = parseInt(r.replace(letter, ''));
-                            return num >= 1 && num <= 9;
+                    // Flats: Only show the assigned flat
+                    const flatNum = assignedArea.replace('Flat ', '');
+                    const flatRooms = hostelStudents
+                        .filter(s => s.flat === assignedArea)
+                        .map(s => s.room)
+                        .filter(Boolean)
+                        .sort();
+                    
+                    if (flatRooms.length > 0) {
+                        roomStructure.areas.push({
+                            name: assignedArea,
+                            key: assignedArea,
+                            rooms: flatRooms,
+                            floor: assignedArea
                         });
-                        const range2 = floorRooms.filter(r => {
-                            const num = parseInt(r.replace(letter, ''));
-                            return num >= 10 && num <= 18;
-                        });
-
-                        if (range1.length > 0) {
-                            roomRanges.push({
-                                name: `${letter}1-${letter}9`,
-                                key: `${letter}1-${letter}9`,
-                                rooms: range1,
-                                prefix: letter,
-                                start: 1,
-                                end: 9
-                            });
-                        }
-                        if (range2.length > 0) {
-                            roomRanges.push({
-                                name: `${letter}10-${letter}18`,
-                                key: `${letter}10-${letter}18`,
-                                rooms: range2,
-                                prefix: letter,
-                                start: 10,
-                                end: 18
-                            });
-                        }
-
-                        // If no rooms found, create default ranges
-                        if (roomRanges.length === 0) {
-                            const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
-                            const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
-                            roomRanges.push({
-                                name: `${letter}1-${letter}9`,
-                                key: `${letter}1-${letter}9`,
-                                rooms: defaultRooms1,
-                                prefix: letter,
-                                start: 1,
-                                end: 9
-                            });
-                            roomRanges.push({
-                                name: `${letter}10-${letter}18`,
-                                key: `${letter}10-${letter}18`,
-                                rooms: defaultRooms2,
-                                prefix: letter,
-                                start: 10,
-                                end: 18
-                            });
-                        }
-
-                        roomRanges.forEach(range => {
-                            roomStructure.areas.push({
-                                name: range.name,
-                                key: range.key,
-                                rooms: range.rooms,
-                                floor: `Floor ${letter}`,
-                                prefix: range.prefix,
-                                start: range.start,
-                                end: range.end
-                            });
-                        });
-                    });
-                }
-
-                // If no areas found, create defaults
-                if (roomStructure.areas.length === 0) {
-                    if (assignedAreaType === 'flat') {
-                        for (let i = 1; i <= 9; i++) {
-                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
-                            roomStructure.areas.push({
-                                name: `Flat ${i}`,
-                                key: `Flat ${i}`,
-                                rooms: rooms
-                            });
-                        }
                     } else {
-                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-                        for (let i = 0; i < 3; i++) {
-                            const letter = letters[i];
-                            const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
-                            const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
-                            roomStructure.areas.push({
-                                name: `${letter}1-${letter}9`,
-                                key: `${letter}1-${letter}9`,
-                                rooms: range1,
-                                floor: `Floor ${letter}`,
-                                prefix: letter,
-                                start: 1,
-                                end: 9
-                            });
-                            roomStructure.areas.push({
-                                name: `${letter}10-${letter}18`,
-                                key: `${letter}10-${letter}18`,
-                                rooms: range2,
-                                floor: `Floor ${letter}`,
-                                prefix: letter,
-                                start: 10,
-                                end: 18
-                            });
-                        }
+                        // If no students, show default flat rooms
+                        const defaultRooms = Array.from({ length: 4 }, (_, i) => `F${flatNum}R${i+1}`);
+                        roomStructure.areas.push({
+                            name: assignedArea,
+                            key: assignedArea,
+                            rooms: defaultRooms,
+                            floor: assignedArea
+                        });
+                    }
+                } else {
+                    // Floors: Only show the assigned floor range
+                    // assignedArea format: "A1-A9" or "A10-A18"
+                    const prefix = assignedArea.match(/^[A-Z]/)?.[0] || '';
+                    const rangeParts = assignedArea.match(/(\d+)-(\d+)/);
+                    const startNum = rangeParts ? parseInt(rangeParts[1]) : 1;
+                    const endNum = rangeParts ? parseInt(rangeParts[2]) : 9;
+                    
+                    const floorName = `Floor ${prefix}`;
+                    const floorRooms = hostelStudents
+                        .filter(s => s.floor === floorName)
+                        .map(s => s.room)
+                        .filter(Boolean)
+                        .filter(r => {
+                            const num = parseInt(r.replace(prefix, ''));
+                            return num >= startNum && num <= endNum;
+                        })
+                        .sort((a, b) => {
+                            const numA = parseInt(a.replace(prefix, ''));
+                            const numB = parseInt(b.replace(prefix, ''));
+                            return numA - numB;
+                        });
+                    
+                    if (floorRooms.length > 0) {
+                        roomStructure.areas.push({
+                            name: assignedArea,
+                            key: assignedArea,
+                            rooms: floorRooms,
+                            floor: floorName,
+                            prefix: prefix,
+                            start: startNum,
+                            end: endNum
+                        });
+                    } else {
+                        // If no students, create default rooms for this range
+                        const defaultRooms = Array.from({ length: endNum - startNum + 1 }, (_, i) => `${prefix}${startNum + i}`);
+                        roomStructure.areas.push({
+                            name: assignedArea,
+                            key: assignedArea,
+                            rooms: defaultRooms,
+                            floor: floorName,
+                            prefix: prefix,
+                            start: startNum,
+                            end: endNum
+                        });
                     }
                 }
 
@@ -1081,15 +1005,6 @@
                 availableRooms = allRooms.sort();
             }
 
-            function getRoomsForArea(areaKey) {
-                const area = roomStructure.areas.find(a => a.key === areaKey);
-                return area ? area.rooms : [];
-            }
-
-            function getAreaForRoom(room) {
-                return roomStructure.areas.find(a => a.rooms.includes(room));
-            }
-
             function getStudentsForRoom(room) {
                 if (!assignedHostelId) return [];
                 return allStudents.filter(s => {
@@ -1101,7 +1016,24 @@
             function getTotalStats() {
                 let areaStudents = allStudents.filter(s => {
                     if (s.hostel_id !== assignedHostelId) return false;
-                    return true;
+                    // Filter by assigned area
+                    if (assignedAreaType === 'flat') {
+                        return s.flat === assignedArea;
+                    } else {
+                        // Filter by room range
+                        const prefix = assignedArea.match(/^[A-Z]/)?.[0] || '';
+                        const rangeParts = assignedArea.match(/(\d+)-(\d+)/);
+                        if (rangeParts) {
+                            const startNum = parseInt(rangeParts[1]);
+                            const endNum = parseInt(rangeParts[2]);
+                            const room = s.room || s.room_code;
+                            if (room) {
+                                const num = parseInt(room.replace(prefix, ''));
+                                return num >= startNum && num <= endNum;
+                            }
+                        }
+                        return s.floor === `Floor ${prefix}`;
+                    }
                 });
                 const total = areaStudents.length;
                 const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
@@ -1241,13 +1173,11 @@
                 }
 
                 try {
-                    // Check if camera is supported
                     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                         showToast('Camera not supported on this device.', 'error');
                         return;
                     }
 
-                    // Use environment facing camera on mobile, user facing on desktop
                     const facingMode = window.innerWidth < 768 ? 'environment' : 'user';
                     
                     const constraints = {
@@ -1305,10 +1235,8 @@
                         faceVideoElement.onloadeddata = onLoaded;
                         faceVideoElement.oncanplay = onLoaded;
                         
-                        // Start playing immediately
                         faceVideoElement.play().catch(e => {
                             console.log('Autoplay error:', e);
-                            // Still resolve after a delay
                             setTimeout(() => {
                                 if (!resolved) {
                                     resolved = true;
@@ -1321,7 +1249,6 @@
 
                     previewContainer.appendChild(faceVideoElement);
 
-                    // Add face box
                     const faceBox = document.createElement('div');
                     faceBox.className = 'face-box processing';
                     faceBox.id = 'faceBox';
@@ -1329,7 +1256,6 @@
                     faceBox.innerHTML = `<div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;">🔍 Scanning...</div>`;
                     previewContainer.appendChild(faceBox);
 
-                    // Add liveness prompt
                     const prompt = document.createElement('div');
                     prompt.className = 'liveness-prompt';
                     prompt.id = 'livenessPrompt';
@@ -1388,7 +1314,6 @@
                         return;
                     }
 
-                    // Simulate face detection and recognition
                     if (Math.random() > 0.55) {
                         processFaceDetection();
                     }
@@ -1399,7 +1324,6 @@
                 if (isProcessingFace) return;
                 isProcessingFace = true;
 
-                // Simulate liveness check
                 livenessCheckActive = true;
                 const livenessPrompt = document.getElementById('livenessPrompt');
                 if (livenessPrompt) {
@@ -1407,21 +1331,18 @@
                     livenessPrompt.style.display = 'block';
                 }
 
-                // Update face box
                 const faceBox = document.getElementById('faceBox');
                 if (faceBox) {
                     faceBox.className = 'face-box processing';
                     faceBox.querySelector('.label').textContent = '🔍 Scanning...';
                 }
 
-                // Simulate liveness success after 1.5s
                 if (livenessTimeout) clearTimeout(livenessTimeout);
                 livenessTimeout = setTimeout(() => {
                     livenessCheckActive = false;
                     const prompt = document.getElementById('livenessPrompt');
                     if (prompt) prompt.style.display = 'none';
 
-                    // Generate a mock face embedding
                     const mockEmbedding = [];
                     for (let i = 0; i < 128; i++) {
                         mockEmbedding.push((Math.random() * 2) - 1);
@@ -1441,7 +1362,6 @@
                             addTimeline(`${student.name} verified via Face Recognition`, `Room ${currentRoom} · ${match.confidence}%`);
                             showToast(`✅ ${student.name} verified (${match.confidence}%)`, 'success');
 
-                            // Update face box
                             const faceBox = document.getElementById('faceBox');
                             if (faceBox) {
                                 faceBox.className = 'face-box match';
@@ -1454,13 +1374,11 @@
                                 }
                                 addTimeline(`Room ${currentRoom} completed`, `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
                                 showToast(`🎉 Room ${currentRoom} complete!`, 'success');
-                                // Stop face recognition when room is complete
                                 stopFaceRecognition();
                             }
                             renderBedCheck();
                         }
                     } else {
-                        // No match - show unknown
                         const faceBox = document.getElementById('faceBox');
                         if (faceBox) {
                             faceBox.className = 'face-box nomatch';
@@ -1505,7 +1423,6 @@
                         </div>
                     `;
                 }
-                // Remove face box
                 const faceBox = document.getElementById('faceBox');
                 if (faceBox) faceBox.remove();
                 const livenessPrompt = document.getElementById('livenessPrompt');
@@ -1606,7 +1523,6 @@
                     return;
                 }
 
-                // Stop face recognition if active
                 if (isFaceRecognitionActive) stopFaceRecognition();
 
                 if (currentRoom && currentRoom !== room) {
@@ -1642,7 +1558,6 @@
                 showToast(`📋 Room ${room} selected. Start face recognition.`, 'info');
                 renderBedCheck();
 
-                // Auto-start face recognition
                 setTimeout(() => {
                     if (!isFaceRecognitionActive && isSessionActive && currentRoom) {
                         startFaceRecognition();
@@ -1659,13 +1574,6 @@
                 } else {
                     showToast('🎉 You have completed all rooms in your assigned area!', 'success');
                 }
-            }
-
-            function selectFloor(floor) {
-                selectedFloor = floor;
-                currentRoom = null;
-                if (isFaceRecognitionActive) stopFaceRecognition();
-                renderBedCheck();
             }
 
             // =============================================
@@ -1688,29 +1596,6 @@
 
                 const absentCount = autoAbsentQueue.length;
 
-                // Build floor tabs from room structure
-                const allFloors = [];
-                roomStructure.areas.forEach(area => {
-                    if (area.floor && !allFloors.includes(area.floor)) {
-                        allFloors.push(area.floor);
-                    }
-                });
-                allFloors.sort();
-
-                // Get rooms for display with floor grouping
-                const roomsWithFloors = {};
-                roomStructure.areas.forEach(area => {
-                    const floorKey = area.floor || 'All';
-                    if (!roomsWithFloors[floorKey]) {
-                        roomsWithFloors[floorKey] = [];
-                    }
-                    area.rooms.forEach(room => {
-                        if (!roomsWithFloors[floorKey].includes(room)) {
-                            roomsWithFloors[floorKey].push(room);
-                        }
-                    });
-                });
-
                 // Get all rooms for display
                 const allRooms = availableRooms;
                 if (allRooms.length > 0 && !currentRoom) {
@@ -1719,12 +1604,9 @@
                 }
 
                 const areaDisplay = assignedArea || 'Not Assigned';
-                const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
+                const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor Range' : 'Flat';
                 const hostelDisplay = assignedHostelName || 'Your Hostel';
-
-                // Get room range for current room
-                const currentArea = getAreaForRoom(currentRoom);
-                const roomRange = currentArea ? currentArea.name : '';
+                const displayRoomsText = `${allRooms.length} ${allRooms.length === 1 ? 'Room' : 'Rooms'}`;
 
                 let html = `
                     <!-- Session Banner -->
@@ -1755,7 +1637,7 @@
                             <div class="value">${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
                         </div>
                         <div>
-                            <span class="badge badge-assigned">${allRooms.length} Rooms</span>
+                            <span class="badge badge-assigned">${displayRoomsText}</span>
                             <span class="badge ${isSessionActive ? 'badge-active' : 'badge-inactive'}" style="margin-left:0.3rem;">
                                 ${isSessionActive ? '🟢 Active' : '⏳ Inactive'}
                             </span>
@@ -1811,7 +1693,7 @@
                     </div>
                 `;
 
-                // Room buttons with floor grouping
+                // Room buttons - Only rooms in assigned area
                 html += `
                     <div class="card mt-4">
                         <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Rooms in ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
@@ -1821,16 +1703,13 @@
                                     const students = getStudentsForRoom(room);
                                     const allVerified = students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified);
                                     const isActive = room === currentRoom;
-                                    const area = getAreaForRoom(room);
-                                    const rangeLabel = area ? area.name : '';
                                     let btnClass = 'room-btn';
                                     if (isActive) btnClass += ' active';
                                     else if (allVerified && students.length > 0) btnClass += ' completed';
                                     return `
-                                        <button class="${btnClass}" onclick="scanRoomQR('${room}')" ${students.length === 0 || !isSessionActive ? 'disabled' : ''} title="${rangeLabel}">
+                                        <button class="${btnClass}" onclick="scanRoomQR('${room}')" ${students.length === 0 || !isSessionActive ? 'disabled' : ''}>
                                             ${room}
                                             <span class="count-badge">${students.filter(s => bedScanStatus[s.id]?.verified).length}/${students.length}</span>
-                                            ${rangeLabel ? `<span style="display:block;font-size:0.45rem;color:#6b778b;">${rangeLabel}</span>` : ''}
                                         </button>
                                     `;
                                 }).join('')}
@@ -1844,7 +1723,7 @@
                 // Current Room Panel
                 html += `
                     <div class="card mt-4 room-panel">
-                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Current Room ${currentRoom ? `· ${currentRoom}` : ''} ${roomRange ? `<span class="room-range-badge">${roomRange}</span>` : ''}</div>
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Current Room ${currentRoom ? `· ${currentRoom}` : ''}</div>
                         ${currentRoom && roomStudents.length > 0 ? `
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                                 <div>
@@ -1982,7 +1861,6 @@
                         if (!existingVideo) {
                             previewContainer.innerHTML = '';
                             previewContainer.appendChild(faceVideoElement);
-                            // Add face box and liveness prompt
                             const faceBox = document.createElement('div');
                             faceBox.className = 'face-box processing';
                             faceBox.id = 'faceBox';
@@ -2088,7 +1966,6 @@
             window.clearResolved = clearResolved;
             window.rescanStudent = rescanStudent;
             window.renderBedCheck = renderBedCheck;
-            window.selectFloor = selectFloor;
 
             // =============================================
             // INIT
