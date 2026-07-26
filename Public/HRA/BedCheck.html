@@ -443,7 +443,7 @@
         }
 
         /* Assign RA Modal */
-        .assign-modal .modal-box { max-width: 600px; height: auto; max-height: 90vh; }
+        .assign-modal .modal-box { max-width: 700px; height: auto; max-height: 90vh; }
         .assign-modal .modal-body { display: block; height: auto; }
         .assign-modal .modal-body .panel { max-height: none; }
 
@@ -490,6 +490,17 @@
             padding: 0.15rem 0.5rem;
             border-radius: 9999px;
             font-weight: 700;
+        }
+
+        /* Room range display */
+        .room-range-tag {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            background: #e7edf5;
+            border-radius: 0.3rem;
+            font-size: 0.6rem;
+            color: #24466f;
+            font-weight: 600;
         }
     </style>
 </head>
@@ -598,7 +609,7 @@
                     <p class="text-sm text-muted">Based on your hostel configuration:</p>
                     <div class="flex gap-2 mt-2 flex-wrap">
                         <span class="badge badge-submitted" style="font-size:0.7rem;">Type: <span id="assignHostelType">floor</span></span>
-                        <span class="badge badge-submitted" style="font-size:0.7rem;">Rooms: <span id="assignTotalRooms">0</span></span>
+                        <span class="badge badge-submitted" style="font-size:0.7rem;">Total Rooms: <span id="assignTotalRooms">0</span></span>
                     </div>
                 </div>
 
@@ -607,6 +618,29 @@
                     <div id="assignAreaList" class="area-radio-grid">
                         <!-- Dynamically populated -->
                     </div>
+                </div>
+
+                <!-- Room Range Selection - Shows when area is selected -->
+                <div id="roomRangeContainer" style="display:none;margin-top:1rem;padding-top:1rem;border-top:1px solid #eee8de;">
+                    <div class="field" style="margin-bottom:0.75rem;">
+                        <label>Room Range (Optional)</label>
+                        <p class="text-xs text-muted">Select specific rooms for this RA, or leave blank to assign all rooms in the area.</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                        <div class="field">
+                            <label style="font-size:0.7rem;">Start Room</label>
+                            <select id="assignStartRoom" style="padding:0.4rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.8rem;background:white;outline:none;width:100%;">
+                                <option value="">Start...</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label style="font-size:0.7rem;">End Room</label>
+                            <select id="assignEndRoom" style="padding:0.4rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.8rem;background:white;outline:none;width:100%;">
+                                <option value="">End...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="text-xs text-muted mt-1">Leave both blank to assign all rooms in the selected area.</p>
                 </div>
             </div>
             <div class="modal-footer">
@@ -707,6 +741,7 @@
             let selectedStudent = null;
             let modalData = null;
             let roomStructure = {};
+            let selectedAreaKey = null;
 
             const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
@@ -792,12 +827,15 @@
 
             function setNotice(msg) { noticeText.textContent = msg; }
 
+            // =============================================
+            // ROOM STRUCTURE & ASSIGNMENT LOGIC
+            // =============================================
+
             function buildRoomStructure() {
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
-                const uniqueFloors = [...new Set(students.map(s => s.floor).filter(Boolean))].sort();
-                const uniqueFlats = [...new Set(students.map(s => s.flat).filter(Boolean))].sort();
-
+                
                 if (hostelData?.type === 'flat') {
+                    // Flats: Each flat is an area with all its rooms
                     const flatNumbers = [];
                     students.forEach(s => {
                         if (s.flat) {
@@ -813,6 +851,7 @@
                         rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
                     }));
                 } else {
+                    // Boys Hostel: Floors A, B, C with room ranges
                     const floorLetters = [];
                     students.forEach(s => {
                         if (s.floor) {
@@ -822,31 +861,139 @@
                     });
                     const sortedLetters = [...new Set(floorLetters)].sort();
                     roomStructure.type = 'floor';
-                    roomStructure.areas = sortedLetters.map(letter => ({
-                        name: `Floor ${letter}`,
-                        key: `Floor ${letter}`,
-                        rooms: students.filter(s => s.floor === `Floor ${letter}`).map(s => s.room).filter(Boolean)
-                    }));
+                    
+                    // For each floor, create room ranges based on the pattern
+                    sortedLetters.forEach(letter => {
+                        // Get all rooms for this floor
+                        const floorRooms = students
+                            .filter(s => s.floor === `Floor ${letter}`)
+                            .map(s => s.room)
+                            .filter(Boolean)
+                            .sort((a, b) => {
+                                const numA = parseInt(a.replace(letter, ''));
+                                const numB = parseInt(b.replace(letter, ''));
+                                return numA - numB;
+                            });
+                        
+                        // Create room ranges based on the pattern:
+                        // A1-A9, A10-A18, B1-B9, B10-B18, C1-C9, C10-C18
+                        const roomRanges = [];
+                        if (floorRooms.length > 0) {
+                            const roomsByLetter = {};
+                            floorRooms.forEach(r => {
+                                const prefix = r.match(/^[A-Z]/)?.[0] || '';
+                                const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                if (!roomsByLetter[prefix]) roomsByLetter[prefix] = [];
+                                roomsByLetter[prefix].push(num);
+                            });
+                            
+                            Object.keys(roomsByLetter).forEach(prefix => {
+                                const nums = roomsByLetter[prefix].sort((a, b) => a - b);
+                                // Split into ranges: 1-9 and 10-18
+                                const range1 = nums.filter(n => n <= 9);
+                                const range2 = nums.filter(n => n >= 10);
+                                
+                                if (range1.length > 0) {
+                                    const rangeName = `${prefix}${Math.min(...range1)}-${prefix}${Math.max(...range1)}`;
+                                    const rangeRooms = range1.map(n => `${prefix}${n}`);
+                                    roomRanges.push({
+                                        name: rangeName,
+                                        key: rangeName,
+                                        rooms: rangeRooms,
+                                        prefix: prefix,
+                                        start: Math.min(...range1),
+                                        end: Math.max(...range1)
+                                    });
+                                }
+                                if (range2.length > 0) {
+                                    const rangeName = `${prefix}${Math.min(...range2)}-${prefix}${Math.max(...range2)}`;
+                                    const rangeRooms = range2.map(n => `${prefix}${n}`);
+                                    roomRanges.push({
+                                        name: rangeName,
+                                        key: rangeName,
+                                        rooms: rangeRooms,
+                                        prefix: prefix,
+                                        start: Math.min(...range2),
+                                        end: Math.max(...range2)
+                                    });
+                                }
+                            });
+                        }
+                        
+                        // If no rooms found, create default ranges for the floor
+                        if (roomRanges.length === 0) {
+                            // Default: 18 rooms per floor
+                            const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
+                            const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
+                            roomRanges.push({
+                                name: `${letter}1-${letter}9`,
+                                key: `${letter}1-${letter}9`,
+                                rooms: defaultRooms1,
+                                prefix: letter,
+                                start: 1,
+                                end: 9
+                            });
+                            roomRanges.push({
+                                name: `${letter}10-${letter}18`,
+                                key: `${letter}10-${letter}18`,
+                                rooms: defaultRooms2,
+                                prefix: letter,
+                                start: 10,
+                                end: 18
+                            });
+                        }
+                        
+                        roomRanges.forEach(range => {
+                            roomStructure.areas.push({
+                                name: range.name,
+                                key: range.key,
+                                rooms: range.rooms,
+                                floor: `Floor ${letter}`,
+                                prefix: range.prefix,
+                                start: range.start,
+                                end: range.end
+                            });
+                        });
+                    });
                 }
 
+                // If no areas found, create default based on hostel type
                 if (roomStructure.areas.length === 0) {
                     if (hostelData?.type === 'flat') {
                         const totalFlats = hostelData.total_flats || 9;
                         for (let i = 1; i <= totalFlats; i++) {
+                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
                             roomStructure.areas.push({
                                 name: `Flat ${i}`,
                                 key: `Flat ${i}`,
-                                rooms: Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`)
+                                rooms: rooms
                             });
                         }
                     } else {
                         const totalFloors = hostelData?.total_floors || 3;
                         const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
                         for (let i = 0; i < totalFloors; i++) {
+                            const letter = letters[i];
+                            // Create two ranges per floor: 1-9 and 10-18
+                            const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
+                            const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
                             roomStructure.areas.push({
-                                name: `Floor ${letters[i]}`,
-                                key: `Floor ${letters[i]}`,
-                                rooms: Array.from({ length: 18 }, (_, r) => `${letters[i]}${String(r + 1).padStart(2, '0')}`)
+                                name: `${letter}1-${letter}9`,
+                                key: `${letter}1-${letter}9`,
+                                rooms: range1,
+                                floor: `Floor ${letter}`,
+                                prefix: letter,
+                                start: 1,
+                                end: 9
+                            });
+                            roomStructure.areas.push({
+                                name: `${letter}10-${letter}18`,
+                                key: `${letter}10-${letter}18`,
+                                rooms: range2,
+                                floor: `Floor ${letter}`,
+                                prefix: letter,
+                                start: 10,
+                                end: 18
                             });
                         }
                     }
@@ -858,30 +1005,165 @@
                 return area ? area.rooms : [];
             }
 
-            function statusBadge(status) {
-                const map = {
-                    'Not Started': 'status-badge-not-started',
-                    'In Progress': 'status-badge-in-progress',
-                    'Submitted': 'status-badge-submitted',
-                    'Approved': 'status-badge-approved',
-                    'Rejected': 'status-badge-rejected',
-                    'Under Review': 'status-badge-submitted'
-                };
-                return `<span class="status-badge ${map[status] || 'status-badge-not-started'}">${status || 'Not Started'}</span>`;
+            function getAreaByRoom(roomCode) {
+                // Find which area this room belongs to
+                const prefix = roomCode.match(/^[A-Z]/)?.[0] || '';
+                const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
+                
+                // Check if it's a flat
+                if (roomCode.startsWith('F') && roomCode.includes('R')) {
+                    const flatNum = roomCode.match(/F(\d+)/)?.[1];
+                    return roomStructure.areas.find(a => a.key === `Flat ${flatNum}`);
+                }
+                
+                // Check floor ranges
+                return roomStructure.areas.find(a => {
+                    if (a.prefix === prefix) {
+                        return num >= a.start && num <= a.end;
+                    }
+                    return false;
+                });
             }
 
-            // ---- MODAL FUNCTIONS ----
+            // =============================================
+            // ASSIGN RA LOGIC WITH ROOM RANGES
+            // =============================================
+
+            function openAssignRA() {
+                if (isSessionRunning) {
+                    showToast('🔒 Assignments are locked because the BedCheck session is running.', 'error');
+                    return;
+                }
+                buildRoomStructure();
+                const modal = document.getElementById('assignRAModal');
+                const select = document.getElementById('assignRAStaff');
+                const raStaff = staff.filter(s => s.role === 'RA');
+                select.innerHTML = '<option value="">Select RA...</option>' +
+                    raStaff.map(ra => `<option value="${ra.id}">${ra.name} (${ra.assigned_floor || 'Unassigned'})</option>`).join('');
+
+                document.getElementById('assignHostelType').textContent = roomStructure.type;
+                const totalRooms = roomStructure.areas.reduce((sum, a) => sum + a.rooms.length, 0);
+                document.getElementById('assignTotalRooms').textContent = totalRooms;
+
+                // Show areas based on hostel type
+                const areaContainer = document.getElementById('assignAreaList');
+                areaContainer.innerHTML = roomStructure.areas.map(area => {
+                    const displayName = area.floor ? `${area.floor} · ${area.name}` : area.name;
+                    return `
+                        <label onclick="selectAreaForAssignment('${area.key}')">
+                            <input type="radio" name="assignArea" value="${area.key}" />
+                            ${displayName}
+                            <span class="count">${area.rooms.length} rooms</span>
+                        </label>
+                    `;
+                }).join('');
+
+                // Reset room range container
+                document.getElementById('roomRangeContainer').style.display = 'none';
+                selectedAreaKey = null;
+                modal.classList.add('active');
+            }
+
+            function selectAreaForAssignment(areaKey) {
+                selectedAreaKey = areaKey;
+                const area = roomStructure.areas.find(a => a.key === areaKey);
+                if (!area) return;
+
+                const container = document.getElementById('roomRangeContainer');
+                container.style.display = 'block';
+
+                const startSelect = document.getElementById('assignStartRoom');
+                const endSelect = document.getElementById('assignEndRoom');
+                
+                // Populate room options
+                const rooms = area.rooms.sort((a, b) => {
+                    const numA = parseInt(a.replace(/^[A-Z]/, ''));
+                    const numB = parseInt(b.replace(/^[A-Z]/, ''));
+                    return numA - numB;
+                });
+
+                startSelect.innerHTML = '<option value="">Start...</option>' + 
+                    rooms.map(r => `<option value="${r}">${r}</option>`).join('');
+                endSelect.innerHTML = '<option value="">End...</option>' + 
+                    rooms.map(r => `<option value="${r}">${r}</option>`).join('');
+            }
+
+            function closeAssignRA() {
+                document.getElementById('assignRAModal').classList.remove('active');
+                selectedAreaKey = null;
+            }
+
+            function saveAssignment() {
+                const raId = document.getElementById('assignRAStaff').value;
+                const selectedArea = document.querySelector('input[name="assignArea"]:checked');
+                if (!raId) { showToast('Please select an RA', 'error'); return; }
+                if (!selectedArea) { showToast('Please select an area', 'error'); return; }
+                
+                const areaKey = selectedArea.value;
+                const area = roomStructure.areas.find(a => a.key === areaKey);
+                if (!area) { showToast('Area not found', 'error'); return; }
+
+                const startRoom = document.getElementById('assignStartRoom').value;
+                const endRoom = document.getElementById('assignEndRoom').value;
+                
+                let assignedRooms = area.rooms;
+                if (startRoom && endRoom) {
+                    // Filter rooms in range
+                    const prefix = area.prefix || '';
+                    const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
+                    const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
+                    assignedRooms = area.rooms.filter(r => {
+                        const num = parseInt(r.replace(/^[A-Z]/, ''));
+                        return num >= startNum && num <= endNum;
+                    });
+                    
+                    if (assignedRooms.length === 0) {
+                        showToast('No rooms found in the selected range', 'error');
+                        return;
+                    }
+                }
+
+                const ra = staff.find(s => s.id == raId);
+                if (ra) {
+                    // Store the assigned area and room range
+                    ra.assigned_floor = areaKey;
+                    ra.assigned_area = areaKey;
+                    ra.room_range_start = startRoom || null;
+                    ra.room_range_end = endRoom || null;
+                    ra.assigned_rooms = assignedRooms;
+                    
+                    showToast(`${ra.name} assigned to ${areaKey}${startRoom && endRoom ? ` (${startRoom} - ${endRoom})` : ''}`, 'success');
+                    closeAssignRA();
+                    renderReviewBedCheck();
+                    sendNotificationToRA(ra.name, `You have been assigned to ${areaKey} for BedCheck.`);
+                } else {
+                    showToast('Error saving assignment', 'error');
+                }
+            }
+
+            // =============================================
+            // MODAL FUNCTIONS
+            // =============================================
+
             function openViewSubmission(raName, areaKey) {
                 const ra = staff.find(s => s.name === raName && s.role === 'RA');
                 if (!ra) { showToast('RA not found', 'error'); return; }
-                const rooms = getRoomsForArea(areaKey);
+                
+                let rooms = getRoomsForArea(areaKey);
+                // If RA has specific room range, use those
+                if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
+                    rooms = ra.assigned_rooms;
+                }
+                
                 const areaStudents = students.filter(s => {
                     if (roomStructure.type === 'flat') {
                         return s.flat === areaKey || s.floor === areaKey;
                     } else {
-                        return s.floor === areaKey;
+                        // Check if student's room is in the assigned rooms
+                        return rooms.includes(s.room);
                     }
                 });
+                
                 modalData = {
                     ra: ra,
                     area: areaKey,
@@ -909,36 +1191,52 @@
                 if (!modalData) return;
                 const ra = modalData.ra;
                 const area = modalData.area;
+                const areaDisplay = roomStructure.areas.find(a => a.key === area);
+                const displayName = areaDisplay ? areaDisplay.name : area;
+                
                 document.getElementById('modalRAName').textContent = ra.name;
                 document.getElementById('modalHostel').textContent = hostelData?.name || 'Champions Hostel';
-                document.getElementById('modalFloor').textContent = area;
+                document.getElementById('modalFloor').textContent = displayName;
                 document.getElementById('modalSessionDate').textContent = 'Night BedCheck · ' + new Date().toLocaleDateString();
                 document.getElementById('modalSessionTime').textContent = '10:00 PM - 12:00 AM';
                 document.getElementById('modalSubmittedTime').textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit',
                     minute: '2-digit' });
                 document.getElementById('modalInfoName').textContent = ra.name;
                 document.getElementById('modalInfoHostel').textContent = hostelData?.name || 'Champions Hostel';
-                document.getElementById('modalInfoFloor').textContent = area;
+                document.getElementById('modalInfoFloor').textContent = displayName;
                 document.getElementById('modalInfoSubmitted').textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit',
                     minute: '2-digit' });
 
                 const roomContainer = document.getElementById('modalRoomContainer');
                 const allStudents = modalData.students;
+                
+                // Group rooms by floor or flat
                 const roomGroups = {};
                 modalData.rooms.forEach(room => {
                     let groupKey = area;
-                    if (room.startsWith('F') && room.includes('R')) {
+                    if (roomStructure.type === 'flat' && room.startsWith('F') && room.includes('R')) {
                         const flatNum = room.match(/F(\d+)/)?.[1];
                         if (flatNum) groupKey = `Flat ${flatNum}`;
+                    } else {
+                        const prefix = room.match(/^[A-Z]/)?.[0] || '';
+                        const num = parseInt(room.replace(/^[A-Z]/, ''));
+                        // Determine range
+                        if (num <= 9) {
+                            groupKey = `${prefix}1-${prefix}9`;
+                        } else {
+                            groupKey = `${prefix}10-${prefix}18`;
+                        }
                     }
                     if (!roomGroups[groupKey]) roomGroups[groupKey] = [];
                     roomGroups[groupKey].push(room);
                 });
+                
                 const sortedGroups = Object.keys(roomGroups).sort((a, b) => {
                     const numA = parseInt(a.match(/\d+/)?.[0]) || 0;
                     const numB = parseInt(b.match(/\d+/)?.[0]) || 0;
                     return numA - numB;
                 });
+                
                 roomContainer.innerHTML = sortedGroups.map(group => {
                     const groupRooms = roomGroups[group].sort();
                     return `
@@ -1060,57 +1358,16 @@
                 }
             }
 
-            // ---- ASSIGN RA ----
-            function openAssignRA() {
-                if (isSessionRunning) {
-                    showToast('🔒 Assignments are locked because the BedCheck session is running.', 'error');
-                    return;
-                }
-                buildRoomStructure();
-                const modal = document.getElementById('assignRAModal');
-                const select = document.getElementById('assignRAStaff');
-                const raStaff = staff.filter(s => s.role === 'RA');
-                select.innerHTML = '<option value="">Select RA...</option>' +
-                    raStaff.map(ra => `<option value="${ra.id}">${ra.name} (${ra.assigned_floor || 'Unassigned'})</option>`).join(
-                    '');
-
-                document.getElementById('assignHostelType').textContent = roomStructure.type;
-                const totalRooms = roomStructure.areas.reduce((sum, a) => sum + a.rooms.length, 0);
-                document.getElementById('assignTotalRooms').textContent = totalRooms;
-
-                const areaContainer = document.getElementById('assignAreaList');
-                areaContainer.innerHTML = roomStructure.areas.map(area => `
-                    <label>
-                        <input type="radio" name="assignArea" value="${area.key}" />
-                        ${area.name}
-                        <span class="count">${area.rooms.length} rooms</span>
-                    </label>
-                `).join('');
-
-                modal.classList.add('active');
-            }
-
-            function closeAssignRA() {
-                document.getElementById('assignRAModal').classList.remove('active');
-            }
-
-            function saveAssignment() {
-                const raId = document.getElementById('assignRAStaff').value;
-                const selectedArea = document.querySelector('input[name="assignArea"]:checked');
-                if (!raId) { showToast('Please select an RA', 'error'); return; }
-                if (!selectedArea) { showToast('Please select an area', 'error'); return; }
-                const areaKey = selectedArea.value;
-                const ra = staff.find(s => s.id == raId);
-                if (ra) {
-                    ra.assigned_floor = areaKey;
-                    ra.assigned_area = areaKey;
-                    showToast(`${ra.name} assigned to ${areaKey}`, 'success');
-                    closeAssignRA();
-                    renderReviewBedCheck();
-                    sendNotificationToRA(ra.name, `You have been assigned to ${areaKey} for BedCheck.`);
-                } else {
-                    showToast('Error saving assignment', 'error');
-                }
+            function statusBadge(status) {
+                const map = {
+                    'Not Started': 'status-badge-not-started',
+                    'In Progress': 'status-badge-in-progress',
+                    'Submitted': 'status-badge-submitted',
+                    'Approved': 'status-badge-approved',
+                    'Rejected': 'status-badge-rejected',
+                    'Under Review': 'status-badge-submitted'
+                };
+                return `<span class="status-badge ${map[status] || 'status-badge-not-started'}">${status || 'Not Started'}</span>`;
             }
 
             // ---- RENDER ----
@@ -1203,7 +1460,7 @@
                                     <tr>
                                         <th>RA Name</th>
                                         <th>Assigned Area</th>
-                                        <th>Rooms</th>
+                                        <th>Room Range</th>
                                         <th>Verified</th>
                                         <th>Status</th>
                                         <th>Action</th>
@@ -1219,11 +1476,24 @@
                                             if (roomStructure.type === 'flat') {
                                                 return s.flat === area || s.floor === area;
                                             } else {
-                                                return s.floor === area;
+                                                return rooms.includes(s.room);
                                             }
                                         });
                                         const raVerified = raStudents.filter(s => s.status === 'Present' || s.status === 'Manual').length;
                                         const status = ra.submission_status || 'Not Started';
+                                        
+                                        // Determine room range display
+                                        let roomRangeDisplay = 'All rooms';
+                                        if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
+                                            const sorted = ra.assigned_rooms.sort();
+                                            if (sorted.length > 0) {
+                                                const prefix = sorted[0].match(/^[A-Z]/)?.[0] || '';
+                                                const firstNum = parseInt(sorted[0].replace(/^[A-Z]/, ''));
+                                                const lastNum = parseInt(sorted[sorted.length-1].replace(/^[A-Z]/, ''));
+                                                roomRangeDisplay = `${prefix}${firstNum} - ${prefix}${lastNum}`;
+                                            }
+                                        }
+                                        
                                         let actionBtn = '';
                                         if (status === 'Submitted') {
                                             actionBtn = `<button class="btn-ghost" style="font-size:0.75rem;" onclick="window.openViewSubmission('${ra.name}', '${area}')"><i class="fas fa-eye"></i> Review</button>`;
@@ -1236,7 +1506,7 @@
                                             <tr class="ra-row">
                                                 <td><i class="fas fa-user" style="color:#a77915;width:1.2rem;"></i> ${ra.name}</td>
                                                 <td><span class="ra-meta-info">${area}</span></td>
-                                                <td><span class="ra-meta-info">${rooms.length}</span></td>
+                                                <td><span class="room-range-tag">${roomRangeDisplay}</span></td>
                                                 <td><span class="ra-meta-info">${raVerified} / ${raStudents.length}</span></td>
                                                 <td>${statusBadge(status)}</td>
                                                 <td>${actionBtn}</td>
@@ -1285,6 +1555,7 @@
                 window.closeAssignRA = closeAssignRA;
                 window.saveAssignment = saveAssignment;
                 window.sendNotificationToRA = sendNotificationToRA;
+                window.selectAreaForAssignment = selectAreaForAssignment;
             }
 
             // ---- DATA LOADING ----
@@ -1382,6 +1653,16 @@
                 document.getElementById('assignRAModal').addEventListener('click', function(e) {
                     if (e.target === this) closeAssignRA();
                 });
+                
+                // Area selection listener for room range
+                document.addEventListener('change', function(e) {
+                    if (e.target && e.target.name === 'assignArea') {
+                        const areaKey = e.target.value;
+                        if (areaKey) {
+                            selectAreaForAssignment(areaKey);
+                        }
+                    }
+                });
             }
 
             window.showToast = showToast;
@@ -1393,6 +1674,7 @@
             window.closeAssignRA = closeAssignRA;
             window.saveAssignment = saveAssignment;
             window.sendNotificationToRA = sendNotificationToRA;
+            window.selectAreaForAssignment = selectAreaForAssignment;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
