@@ -133,6 +133,7 @@
         .badge-assigned { background: #d6ad4b; color: #10233f; }
         .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-inactive { background: #e8edf2; color: #536274; }
+        .badge-floor { background: #e7edf5; color: #24466f; }
 
         /* ----- CARDS ----- */
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
@@ -289,6 +290,44 @@
         .room-selector-grid .room-btn.active { background: #d6ad4b; border-color: #10233f; color: #10233f; }
         .room-selector-grid .room-btn .count { font-size: 0.6rem; opacity: 0.6; }
         @media (max-width: 480px) { .room-selector-grid .room-btn { font-size: 0.65rem; padding: 0.2rem 0.6rem; } }
+
+        /* Room Range Tag */
+        .room-range-tag {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            background: #e7edf5;
+            border-radius: 0.3rem;
+            font-size: 0.6rem;
+            color: #24466f;
+            font-weight: 600;
+        }
+
+        .floor-group-label {
+            font-weight: 700;
+            font-size: 0.8rem;
+            padding: 0.3rem 0.5rem;
+            background: #fbf7ef;
+            border-radius: 0.3rem;
+            margin-bottom: 0.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .floor-group-label .count-badge {
+            font-size: 0.6rem;
+            color: #6b778b;
+            font-weight: 400;
+        }
+        .room-range-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.15rem 0.5rem 0.15rem 1.2rem;
+            font-size: 0.75rem;
+            border-bottom: 1px solid #f5f1e8;
+        }
+        .room-range-item:last-child { border-bottom: none; }
+        .room-range-item .range-name { font-weight: 600; }
+        .room-range-item .range-stats { font-size: 0.65rem; color: #6b778b; }
     </style>
 </head>
 <body>
@@ -399,8 +438,147 @@
             let assignedHostelId = null;
             let selectedRoom = null;
             let selectedRoomData = null;
+            let roomStructure = {};
             const ITEMS_PER_PAGE = 10;
 
+            // =============================================
+            // BUILD ROOM STRUCTURE
+            // =============================================
+            function buildRoomStructure() {
+                if (!assignedHostelId) return;
+                roomStructure = { type: 'floor', areas: [] };
+
+                const hostelStudentsFiltered = allStudents.filter(s => s.hostel_id === assignedHostelId);
+
+                // Get floors from students
+                const floorLetters = [];
+                hostelStudentsFiltered.forEach(s => {
+                    if (s.floor) {
+                        const letter = s.floor.replace('Floor ', '');
+                        if (letter) floorLetters.push(letter);
+                    }
+                });
+                const sortedLetters = [...new Set(floorLetters)].sort();
+
+                sortedLetters.forEach(letter => {
+                    const floorRooms = hostelStudentsFiltered
+                        .filter(s => s.floor === `Floor ${letter}`)
+                        .map(s => s.room)
+                        .filter(Boolean)
+                        .sort((a, b) => {
+                            const numA = parseInt(a.replace(letter, ''));
+                            const numB = parseInt(b.replace(letter, ''));
+                            return numA - numB;
+                        });
+
+                    let roomRanges = [];
+                    // Default: 2 ranges per floor (1-9 and 10-18)
+                    const range1 = floorRooms.filter(r => {
+                        const num = parseInt(r.replace(letter, ''));
+                        return num >= 1 && num <= 9;
+                    });
+                    const range2 = floorRooms.filter(r => {
+                        const num = parseInt(r.replace(letter, ''));
+                        return num >= 10 && num <= 18;
+                    });
+
+                    if (range1.length > 0) {
+                        roomRanges.push({
+                            name: `${letter}1-${letter}9`,
+                            key: `${letter}1-${letter}9`,
+                            rooms: range1,
+                            prefix: letter,
+                            start: 1,
+                            end: 9
+                        });
+                    }
+                    if (range2.length > 0) {
+                        roomRanges.push({
+                            name: `${letter}10-${letter}18`,
+                            key: `${letter}10-${letter}18`,
+                            rooms: range2,
+                            prefix: letter,
+                            start: 10,
+                            end: 18
+                        });
+                    }
+
+                    // If no rooms found, create default ranges
+                    if (roomRanges.length === 0) {
+                        const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
+                        const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
+                        roomRanges.push({
+                            name: `${letter}1-${letter}9`,
+                            key: `${letter}1-${letter}9`,
+                            rooms: defaultRooms1,
+                            prefix: letter,
+                            start: 1,
+                            end: 9
+                        });
+                        roomRanges.push({
+                            name: `${letter}10-${letter}18`,
+                            key: `${letter}10-${letter}18`,
+                            rooms: defaultRooms2,
+                            prefix: letter,
+                            start: 10,
+                            end: 18
+                        });
+                    }
+
+                    roomRanges.forEach(range => {
+                        roomStructure.areas.push({
+                            name: range.name,
+                            key: range.key,
+                            rooms: range.rooms,
+                            floor: `Floor ${letter}`,
+                            prefix: range.prefix,
+                            start: range.start,
+                            end: range.end
+                        });
+                    });
+                });
+
+                // If no areas found, create defaults
+                if (roomStructure.areas.length === 0) {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                    for (let i = 0; i < 3; i++) {
+                        const letter = letters[i];
+                        const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
+                        const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
+                        roomStructure.areas.push({
+                            name: `${letter}1-${letter}9`,
+                            key: `${letter}1-${letter}9`,
+                            rooms: range1,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 1,
+                            end: 9
+                        });
+                        roomStructure.areas.push({
+                            name: `${letter}10-${letter}18`,
+                            key: `${letter}10-${letter}18`,
+                            rooms: range2,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 10,
+                            end: 18
+                        });
+                    }
+                }
+            }
+
+            function getAreaForRoom(room) {
+                return roomStructure.areas.find(a => a.rooms.includes(room));
+            }
+
+            function getRoomsForArea(areaKey) {
+                const area = roomStructure.areas.find(a => a.key === areaKey);
+                return area ? area.rooms : [];
+            }
+
+            // =============================================
+            // API HELPERS
+            // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
                     const headers = {
@@ -463,7 +641,6 @@
 
             async function loadStudents() {
                 try {
-                    // Use hostel-specific endpoint if available
                     let endpoint = '/students';
                     if (assignedHostelId) {
                         endpoint = `/hostels/${assignedHostelId}/students`;
@@ -471,7 +648,6 @@
                     const data = await apiCall(endpoint);
                     allStudents = data.data || [];
                     
-                    // Filter to only this hostel's students
                     if (assignedHostelId) {
                         hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
                     } else if (assignedHostelName) {
@@ -482,6 +658,9 @@
                     } else {
                         hostelStudents = allStudents;
                     }
+                    
+                    // Build room structure after loading students
+                    buildRoomStructure();
                     
                     return hostelStudents;
                 } catch { 
@@ -512,7 +691,6 @@
                     const studentMap = {};
                     hostelStudents.forEach(s => { studentMap[s.id] = s; });
 
-                    // Only include scans for students in this hostel
                     roomHistory = scans
                         .filter(scan => {
                             const student = studentMap[scan.student_id];
@@ -598,7 +776,14 @@
             function renderRoomHistory() {
                 const container = document.getElementById('screenContent');
 
-                const rooms = [...new Set(roomHistory.map(h => h.room).filter(r => r && r !== '—'))].sort();
+                // Get all rooms from room structure
+                const allRooms = [];
+                roomStructure.areas.forEach(area => {
+                    area.rooms.forEach(room => {
+                        if (!allRooms.includes(room)) allRooms.push(room);
+                    });
+                });
+                const rooms = allRooms.sort();
 
                 // Overall stats
                 const totalScans = roomHistory.length;
@@ -627,7 +812,6 @@
                     roomAutoAbsent = selectedRoomEntries.filter(h => h.status === 'Auto-Absent');
                     roomOccupants = getBedSlots(selectedRoomEntries);
 
-                    // Build timeline
                     roomTimeline = selectedRoomEntries.map(e => ({
                         time: e.time,
                         event: e.status === 'Present' ? `${e.student} verified` :
@@ -666,6 +850,47 @@
                 const end = start + ITEMS_PER_PAGE;
                 const pageHistory = filteredHistory.slice(start, end);
 
+                // Build room selector with floor grouping
+                let roomSelectorHtml = '';
+                if (rooms.length > 0) {
+                    // Group rooms by floor
+                    const floorGroups = {};
+                    roomStructure.areas.forEach(area => {
+                        const floorKey = area.floor || 'All';
+                        if (!floorGroups[floorKey]) floorGroups[floorKey] = [];
+                        area.rooms.forEach(room => {
+                            if (!floorGroups[floorKey].includes(room)) {
+                                floorGroups[floorKey].push(room);
+                            }
+                        });
+                    });
+
+                    const sortedFloors = Object.keys(floorGroups).sort();
+                    sortedFloors.forEach(floor => {
+                        const floorRooms = floorGroups[floor].sort();
+                        roomSelectorHtml += `
+                            <div class="floor-group-label">
+                                <span>${floor}</span>
+                                <span class="count-badge">${floorRooms.length} rooms</span>
+                            </div>
+                            <div class="room-selector-grid" style="padding-left:0.5rem;margin-bottom:0.5rem;">
+                                ${floorRooms.map(room => {
+                                    const count = roomHistory.filter(h => h.room === room).length;
+                                    const isSelected = room === selectedRoom;
+                                    return `
+                                        <button class="room-btn ${isSelected ? 'active' : ''}" onclick="selectRoom('${room}')">
+                                            ${room}
+                                            <span class="count">(${count})</span>
+                                        </button>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `;
+                    });
+                } else {
+                    roomSelectorHtml = '<p class="text-muted text-sm">No rooms with records in ' + assignedHostelName + '</p>';
+                }
+
                 container.innerHTML = `
                     <div class="page-heading">
                         <div>
@@ -677,6 +902,7 @@
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${totalScans} records</span>
                                 <span class="text-muted" style="margin-left:0.5rem;">· ${hostelStudents.length} students</span>
+                                <span class="badge badge-floor" style="font-size:0.55rem;margin-left:0.5rem;">${roomStructure.areas.length} room ranges</span>
                             </p>
                         </div>
                         <div class="action-group">
@@ -720,22 +946,7 @@
                     <!-- Room Selector -->
                     <div class="card mt-4">
                         <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Select Room</div>
-                        ${rooms.length === 0 ? `
-                            <p class="text-muted text-sm">No rooms with records in ${assignedHostelName}</p>
-                        ` : `
-                            <div class="room-selector-grid">
-                                ${rooms.map(room => {
-                                    const count = roomHistory.filter(h => h.room === room).length;
-                                    const isSelected = room === selectedRoom;
-                                    return `
-                                        <button class="room-btn ${isSelected ? 'active' : ''}" onclick="selectRoom('${room}')">
-                                            ${room}
-                                            <span class="count">(${count})</span>
-                                        </button>
-                                    `;
-                                }).join('')}
-                            </div>
-                        `}
+                        ${roomSelectorHtml}
                     </div>
 
                     ${selectedRoom && selectedRoomEntries.length > 0 ? `

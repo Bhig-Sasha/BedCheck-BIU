@@ -36,10 +36,7 @@
 
         .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
         .sidebar .brand-badge {
-            display: grid;
-            place-items: center;
-            width: 2.75rem;
-            height: 2.75rem;
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
             border-radius: 0.5rem;
             background: #d6ad4b;
             color: #10233f;
@@ -106,10 +103,7 @@
         .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
         .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
         .mobile-drawer .brand-badge {
-            display: grid;
-            place-items: center;
-            width: 2.75rem;
-            height: 2.75rem;
+            display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
             border-radius: 0.5rem;
             background: #d6ad4b;
             color: #10233f;
@@ -445,7 +439,7 @@
             background: #0a1a2f;
             border-radius: 0.5rem;
             padding: 0;
-            min-height: 240px;
+            min-height: 280px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -457,7 +451,8 @@
         .face-control .camera-preview video {
             width: 100%;
             height: 100%;
-            min-height: 240px;
+            min-height: 280px;
+            max-height: 400px;
             object-fit: cover;
             display: block;
             background: #0a1a2f;
@@ -506,10 +501,11 @@
 
         @media (max-width: 480px) {
             .face-control .camera-preview {
-                min-height: 180px;
+                min-height: 200px;
             }
             .face-control .camera-preview video {
-                min-height: 180px;
+                min-height: 200px;
+                max-height: 300px;
             }
             .face-control .camera-preview .overlay .icon { font-size: 2rem; }
         }
@@ -742,6 +738,17 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+
+        /* Room range badge */
+        .room-range-badge {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            background: #e7edf5;
+            border-radius: 0.3rem;
+            font-size: 0.55rem;
+            color: #24466f;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -857,8 +864,8 @@
             let faceDetectionInterval = null;
             let isProcessingFace = false;
             let livenessCheckActive = false;
-            let livenessStep = 0; // 0=idle, 1=blink, 2=head turn, 3=smile
             let livenessTimeout = null;
+            let roomStructure = {};
 
             // Mock face embeddings for demo
             let faceEmbeddings = {};
@@ -908,55 +915,194 @@
                 }
             }
 
-            function getAssignedRooms() {
-                if (!assignedArea || !assignedHostelId) return [];
-                let areaStudents = allStudents.filter(s => {
-                    if (s.hostel_id !== assignedHostelId) return false;
-                    if (assignedAreaType === 'floor') {
-                        return (s.floor_name === assignedArea || s.floor === assignedArea);
-                    } else {
-                        return (s.floor_name === assignedArea || s.floor === assignedArea ||
-                            s.flat_name === assignedArea || s.flat === assignedArea);
-                    }
-                });
-                if (selectedFloor) {
-                    areaStudents = areaStudents.filter(s => (s.floor_name === selectedFloor || s.floor === selectedFloor));
+            // =============================================
+            // ROOM STRUCTURE BUILDING
+            // =============================================
+            function buildRoomStructure() {
+                if (!assignedHostelId) return;
+                roomStructure = { type: assignedAreaType || 'floor', areas: [] };
+
+                // Get all students in this hostel
+                const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+
+                if (assignedAreaType === 'flat') {
+                    // Flats: Each flat is an area
+                    const flatNumbers = [];
+                    hostelStudents.forEach(s => {
+                        if (s.flat) {
+                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
+                            if (num) flatNumbers.push(num);
+                        }
+                    });
+                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
+                    roomStructure.type = 'flat';
+                    roomStructure.areas = sortedFlats.map(num => ({
+                        name: `Flat ${num}`,
+                        key: `Flat ${num}`,
+                        rooms: hostelStudents.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
+                    }));
+                } else {
+                    // Floors with room ranges
+                    const floorLetters = [];
+                    hostelStudents.forEach(s => {
+                        if (s.floor) {
+                            const letter = s.floor.replace('Floor ', '');
+                            if (letter) floorLetters.push(letter);
+                        }
+                    });
+                    const sortedLetters = [...new Set(floorLetters)].sort();
+                    roomStructure.type = 'floor';
+
+                    sortedLetters.forEach(letter => {
+                        const floorRooms = hostelStudents
+                            .filter(s => s.floor === `Floor ${letter}`)
+                            .map(s => s.room)
+                            .filter(Boolean)
+                            .sort((a, b) => {
+                                const numA = parseInt(a.replace(letter, ''));
+                                const numB = parseInt(b.replace(letter, ''));
+                                return numA - numB;
+                            });
+
+                        let roomRanges = [];
+                        // Default: 2 ranges per floor (1-9 and 10-18)
+                        const range1 = floorRooms.filter(r => {
+                            const num = parseInt(r.replace(letter, ''));
+                            return num >= 1 && num <= 9;
+                        });
+                        const range2 = floorRooms.filter(r => {
+                            const num = parseInt(r.replace(letter, ''));
+                            return num >= 10 && num <= 18;
+                        });
+
+                        if (range1.length > 0) {
+                            roomRanges.push({
+                                name: `${letter}1-${letter}9`,
+                                key: `${letter}1-${letter}9`,
+                                rooms: range1,
+                                prefix: letter,
+                                start: 1,
+                                end: 9
+                            });
+                        }
+                        if (range2.length > 0) {
+                            roomRanges.push({
+                                name: `${letter}10-${letter}18`,
+                                key: `${letter}10-${letter}18`,
+                                rooms: range2,
+                                prefix: letter,
+                                start: 10,
+                                end: 18
+                            });
+                        }
+
+                        // If no rooms found, create default ranges
+                        if (roomRanges.length === 0) {
+                            const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
+                            const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
+                            roomRanges.push({
+                                name: `${letter}1-${letter}9`,
+                                key: `${letter}1-${letter}9`,
+                                rooms: defaultRooms1,
+                                prefix: letter,
+                                start: 1,
+                                end: 9
+                            });
+                            roomRanges.push({
+                                name: `${letter}10-${letter}18`,
+                                key: `${letter}10-${letter}18`,
+                                rooms: defaultRooms2,
+                                prefix: letter,
+                                start: 10,
+                                end: 18
+                            });
+                        }
+
+                        roomRanges.forEach(range => {
+                            roomStructure.areas.push({
+                                name: range.name,
+                                key: range.key,
+                                rooms: range.rooms,
+                                floor: `Floor ${letter}`,
+                                prefix: range.prefix,
+                                start: range.start,
+                                end: range.end
+                            });
+                        });
+                    });
                 }
-                const rooms = [...new Set(areaStudents.map(s => s.room_code || s.room || 'All').filter(Boolean))];
-                return rooms.length > 0 ? rooms.sort() : [];
+
+                // If no areas found, create defaults
+                if (roomStructure.areas.length === 0) {
+                    if (assignedAreaType === 'flat') {
+                        for (let i = 1; i <= 9; i++) {
+                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
+                            roomStructure.areas.push({
+                                name: `Flat ${i}`,
+                                key: `Flat ${i}`,
+                                rooms: rooms
+                            });
+                        }
+                    } else {
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                        for (let i = 0; i < 3; i++) {
+                            const letter = letters[i];
+                            const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
+                            const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
+                            roomStructure.areas.push({
+                                name: `${letter}1-${letter}9`,
+                                key: `${letter}1-${letter}9`,
+                                rooms: range1,
+                                floor: `Floor ${letter}`,
+                                prefix: letter,
+                                start: 1,
+                                end: 9
+                            });
+                            roomStructure.areas.push({
+                                name: `${letter}10-${letter}18`,
+                                key: `${letter}10-${letter}18`,
+                                rooms: range2,
+                                floor: `Floor ${letter}`,
+                                prefix: letter,
+                                start: 10,
+                                end: 18
+                            });
+                        }
+                    }
+                }
+
+                // Update availableRooms from room structure
+                const allRooms = [];
+                roomStructure.areas.forEach(area => {
+                    area.rooms.forEach(room => {
+                        if (!allRooms.includes(room)) allRooms.push(room);
+                    });
+                });
+                availableRooms = allRooms.sort();
+            }
+
+            function getRoomsForArea(areaKey) {
+                const area = roomStructure.areas.find(a => a.key === areaKey);
+                return area ? area.rooms : [];
+            }
+
+            function getAreaForRoom(room) {
+                return roomStructure.areas.find(a => a.rooms.includes(room));
             }
 
             function getStudentsForRoom(room) {
-                if (!assignedArea || !assignedHostelId) return [];
-                let students = allStudents.filter(s => {
+                if (!assignedHostelId) return [];
+                return allStudents.filter(s => {
                     if (s.hostel_id !== assignedHostelId) return false;
-                    if (assignedAreaType === 'floor') {
-                        if (!(s.floor_name === assignedArea || s.floor === assignedArea)) return false;
-                    } else {
-                        if (!(s.floor_name === assignedArea || s.floor === assignedArea ||
-                                s.flat_name === assignedArea || s.flat === assignedArea)) return false;
-                    }
-                    if (selectedFloor) {
-                        if (!(s.floor_name === selectedFloor || s.floor === selectedFloor)) return false;
-                    }
                     return (s.room_code === room || s.room === room);
                 });
-                return students;
             }
 
             function getTotalStats() {
                 let areaStudents = allStudents.filter(s => {
                     if (s.hostel_id !== assignedHostelId) return false;
-                    if (assignedAreaType === 'floor') {
-                        return (s.floor_name === assignedArea || s.floor === assignedArea);
-                    } else {
-                        return (s.floor_name === assignedArea || s.floor === assignedArea ||
-                            s.flat_name === assignedArea || s.flat === assignedArea);
-                    }
+                    return true;
                 });
-                if (selectedFloor) {
-                    areaStudents = areaStudents.filter(s => (s.floor_name === selectedFloor || s.floor === selectedFloor));
-                }
                 const total = areaStudents.length;
                 const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
                 const present = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Present').length;
@@ -964,7 +1110,7 @@
                 const late = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Late').length;
                 let totalRooms = 0;
                 let completedRoomsCount = 0;
-                const rooms = getAssignedRooms();
+                const rooms = availableRooms;
                 rooms.forEach(room => {
                     const students = getStudentsForRoom(room);
                     if (students.length > 0) {
@@ -1020,10 +1166,9 @@
             }
 
             // =============================================
-            // FACE RECOGNITION (Mock)
+            // FACE RECOGNITION (Mock with real camera)
             // =============================================
             function generateMockEmbedding(name) {
-                // deterministic mock embedding based on name
                 let hash = 0;
                 for (let i = 0; i < name.length; i++) {
                     hash = ((hash << 5) - hash) + name.charCodeAt(i);
@@ -1045,7 +1190,6 @@
             }
 
             function compareEmbeddings(emb1, emb2) {
-                // cosine similarity
                 let dot = 0, norm1 = 0, norm2 = 0;
                 for (let i = 0; i < Math.min(emb1.length, emb2.length); i++) {
                     dot += emb1[i] * emb2[i];
@@ -1080,7 +1224,7 @@
             }
 
             // =============================================
-            // FACE RECOGNITION CONTROLS
+            // FACE RECOGNITION CONTROLS - Real Camera
             // =============================================
             async function startFaceRecognition() {
                 if (!isSessionActive) {
@@ -1097,13 +1241,18 @@
                 }
 
                 try {
-                    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                        showToast('⚠️ Camera requires HTTPS. Please use HTTPS.', 'error');
+                    // Check if camera is supported
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        showToast('Camera not supported on this device.', 'error');
+                        return;
                     }
 
+                    // Use environment facing camera on mobile, user facing on desktop
+                    const facingMode = window.innerWidth < 768 ? 'environment' : 'user';
+                    
                     const constraints = {
                         video: {
-                            facingMode: 'user',
+                            facingMode: facingMode,
                             width: { ideal: 640 },
                             height: { ideal: 480 }
                         },
@@ -1130,26 +1279,66 @@
                     faceVideoElement.setAttribute('webkit-playsinline', '');
                     faceVideoElement.style.width = '100%';
                     faceVideoElement.style.height = '100%';
-                    faceVideoElement.style.minHeight = '240px';
+                    faceVideoElement.style.minHeight = '280px';
+                    faceVideoElement.style.maxHeight = '400px';
                     faceVideoElement.style.objectFit = 'cover';
                     faceVideoElement.style.background = '#0a1a2f';
 
-                    await new Promise((resolve) => {
-                        faceVideoElement.onloadedmetadata = () => {
-                            faceVideoElement.play().catch(e => console.log('Play error:', e));
-                            resolve();
+                    await new Promise((resolve, reject) => {
+                        let resolved = false;
+                        const timeout = setTimeout(() => {
+                            if (!resolved) {
+                                reject(new Error('Camera timeout - please check permissions'));
+                            }
+                        }, 10000);
+
+                        const onLoaded = () => {
+                            if (!resolved) {
+                                resolved = true;
+                                clearTimeout(timeout);
+                                faceVideoElement.play().catch(e => console.log('Play error:', e));
+                                resolve();
+                            }
                         };
-                        faceVideoElement.onloadeddata = () => {
-                            faceVideoElement.play().catch(e => console.log('Play error:', e));
-                            resolve();
-                        };
-                        setTimeout(resolve, 5000);
+
+                        faceVideoElement.onloadedmetadata = onLoaded;
+                        faceVideoElement.onloadeddata = onLoaded;
+                        faceVideoElement.oncanplay = onLoaded;
+                        
+                        // Start playing immediately
+                        faceVideoElement.play().catch(e => {
+                            console.log('Autoplay error:', e);
+                            // Still resolve after a delay
+                            setTimeout(() => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    clearTimeout(timeout);
+                                    resolve();
+                                }
+                            }, 2000);
+                        });
                     });
 
                     previewContainer.appendChild(faceVideoElement);
 
+                    // Add face box
+                    const faceBox = document.createElement('div');
+                    faceBox.className = 'face-box processing';
+                    faceBox.id = 'faceBox';
+                    faceBox.style.cssText = 'position:absolute;top:25%;left:25%;width:50%;height:50%;border:2px solid #d6ad4b;border-radius:0.5rem;';
+                    faceBox.innerHTML = `<div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;">🔍 Scanning...</div>`;
+                    previewContainer.appendChild(faceBox);
+
+                    // Add liveness prompt
+                    const prompt = document.createElement('div');
+                    prompt.className = 'liveness-prompt';
+                    prompt.id = 'livenessPrompt';
+                    prompt.style.display = 'none';
+                    prompt.textContent = '👁️ Please blink';
+                    previewContainer.appendChild(prompt);
+
                     isFaceRecognitionActive = true;
-                    showToast('📸 Face recognition started. Looking for students...', 'info');
+                    showToast('📸 Face recognition started.', 'info');
                     addTimeline('Face recognition started', `Room ${currentRoom}`);
 
                     startFaceDetectionLoop();
@@ -1163,6 +1352,8 @@
                         errorMessage += 'No camera found on this device.';
                     } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
                         errorMessage += 'Camera is in use by another app.';
+                    } else if (error.name === 'OverconstrainedError') {
+                        errorMessage += 'Camera constraints not supported.';
                     } else {
                         errorMessage += error.message;
                     }
@@ -1175,6 +1366,7 @@
                                 <div class="icon"><i class="fas fa-exclamation-triangle" style="color:#d6ad4b;"></i></div>
                                 <div class="text" style="color:#d6ad4b;">Camera not available</div>
                                 <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;">${errorMessage}</div>
+                                <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;">${location.protocol === 'http:' ? '⚠️ Use HTTPS for camera access' : 'Please grant camera permission'}</div>
                             </div>
                         `;
                     }
@@ -1193,16 +1385,14 @@
                     if (isProcessingFace) return;
                     const pendingStudents = currentRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
                     if (pendingStudents.length === 0) {
-                        // all verified, stop auto detection
                         return;
                     }
 
                     // Simulate face detection and recognition
-                    // In a real implementation, this would capture frames and run inference
-                    if (Math.random() > 0.65) {
+                    if (Math.random() > 0.55) {
                         processFaceDetection();
                     }
-                }, 2000);
+                }, 2500);
             }
 
             function processFaceDetection() {
@@ -1211,18 +1401,23 @@
 
                 // Simulate liveness check
                 livenessCheckActive = true;
-                livenessStep = 1;
                 const livenessPrompt = document.getElementById('livenessPrompt');
                 if (livenessPrompt) {
                     livenessPrompt.textContent = '👁️ Please blink';
                     livenessPrompt.style.display = 'block';
                 }
 
+                // Update face box
+                const faceBox = document.getElementById('faceBox');
+                if (faceBox) {
+                    faceBox.className = 'face-box processing';
+                    faceBox.querySelector('.label').textContent = '🔍 Scanning...';
+                }
+
                 // Simulate liveness success after 1.5s
                 if (livenessTimeout) clearTimeout(livenessTimeout);
                 livenessTimeout = setTimeout(() => {
                     livenessCheckActive = false;
-                    livenessStep = 0;
                     const prompt = document.getElementById('livenessPrompt');
                     if (prompt) prompt.style.display = 'none';
 
@@ -1275,13 +1470,6 @@
                     }
                     isProcessingFace = false;
                 }, 1500);
-
-                // Simulate face box animation
-                const faceBox = document.getElementById('faceBox');
-                if (faceBox) {
-                    faceBox.className = 'face-box processing';
-                    faceBox.querySelector('.label').textContent = '🔍 Scanning...';
-                }
             }
 
             function stopFaceRecognition() {
@@ -1290,11 +1478,15 @@
                     faceDetectionInterval = null;
                 }
                 if (faceStream) {
-                    faceStream.getTracks().forEach(track => track.stop());
+                    faceStream.getTracks().forEach(track => {
+                        try { track.stop(); } catch(e) {}
+                    });
                     faceStream = null;
                 }
                 if (faceVideoElement) {
-                    faceVideoElement.srcObject = null;
+                    try {
+                        faceVideoElement.srcObject = null;
+                    } catch(e) {}
                     faceVideoElement = null;
                 }
                 isFaceRecognitionActive = false;
@@ -1460,7 +1652,7 @@
 
             function selectNextRoom() {
                 if (!currentRoom) return;
-                const rooms = getAssignedRooms();
+                const rooms = availableRooms;
                 const idx = rooms.indexOf(currentRoom);
                 if (idx < rooms.length - 1) {
                     scanRoomQR(rooms[idx + 1]);
@@ -1496,22 +1688,43 @@
 
                 const absentCount = autoAbsentQueue.length;
 
-                let allFloors = [];
-                if (assignedHostelId) {
-                    const areaStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-                    allFloors = [...new Set(areaStudents.map(s => s.floor_name || s.floor).filter(Boolean))];
-                    allFloors.sort();
-                }
+                // Build floor tabs from room structure
+                const allFloors = [];
+                roomStructure.areas.forEach(area => {
+                    if (area.floor && !allFloors.includes(area.floor)) {
+                        allFloors.push(area.floor);
+                    }
+                });
+                allFloors.sort();
 
-                availableRooms = getAssignedRooms();
-                if (availableRooms.length > 0 && !currentRoom) {
-                    currentRoom = availableRooms[0];
+                // Get rooms for display with floor grouping
+                const roomsWithFloors = {};
+                roomStructure.areas.forEach(area => {
+                    const floorKey = area.floor || 'All';
+                    if (!roomsWithFloors[floorKey]) {
+                        roomsWithFloors[floorKey] = [];
+                    }
+                    area.rooms.forEach(room => {
+                        if (!roomsWithFloors[floorKey].includes(room)) {
+                            roomsWithFloors[floorKey].push(room);
+                        }
+                    });
+                });
+
+                // Get all rooms for display
+                const allRooms = availableRooms;
+                if (allRooms.length > 0 && !currentRoom) {
+                    currentRoom = allRooms[0];
                     currentRoomStudents = getStudentsForRoom(currentRoom);
                 }
 
                 const areaDisplay = assignedArea || 'Not Assigned';
                 const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
                 const hostelDisplay = assignedHostelName || 'Your Hostel';
+
+                // Get room range for current room
+                const currentArea = getAreaForRoom(currentRoom);
+                const roomRange = currentArea ? currentArea.name : '';
 
                 let html = `
                     <!-- Session Banner -->
@@ -1542,7 +1755,7 @@
                             <div class="value">${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
                         </div>
                         <div>
-                            <span class="badge badge-assigned">${availableRooms.length} Rooms</span>
+                            <span class="badge badge-assigned">${allRooms.length} Rooms</span>
                             <span class="badge ${isSessionActive ? 'badge-active' : 'badge-inactive'}" style="margin-left:0.3rem;">
                                 ${isSessionActive ? '🟢 Active' : '⏳ Inactive'}
                             </span>
@@ -1558,14 +1771,14 @@
                         <div class="face-control">
                             <div class="camera-preview" id="facePreview">
                                 ${isFaceRecognitionActive && faceVideoElement ? `
-                                    <video autoplay playsinline webkit-playsinline muted style="width:100%;height:100%;min-height:240px;object-fit:cover;background:#0a1a2f;"></video>
+                                    <video autoplay playsinline webkit-playsinline muted style="width:100%;height:100%;min-height:280px;max-height:400px;object-fit:cover;background:#0a1a2f;"></video>
                                     <div class="face-box processing" id="faceBox" style="position:absolute;top:25%;left:25%;width:50%;height:50%;border:2px solid #d6ad4b;border-radius:0.5rem;">
                                         <div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;">🔍 Scanning...</div>
                                     </div>
                                     <div class="liveness-prompt" id="livenessPrompt" style="display:none;">👁️ Please blink</div>
                                 ` : `
                                     <div class="overlay">
-                                        <div class="icon"><i class="fas fa-user"></i></div>
+                                        <div class="icon"><i class="fas fa-camera"></i></div>
                                         <div class="text">${isSessionActive ? 'Click "Start Recognition" to begin' : 'Waiting for session to start...'}</div>
                                         ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
                                         ${isSessionActive ? `<div style="margin-top:0.5rem;font-size:0.7rem;color:#a8d5b8;">✅ Session active · Face engine ready</div>` : ''}
@@ -1598,38 +1811,26 @@
                     </div>
                 `;
 
-                // Floor Tabs
-                if (allFloors.length > 1) {
-                    html += `
-                        <div class="card mt-4">
-                            <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Floors</div>
-                            <div class="floor-tabs">
-                                <button class="tab ${!selectedFloor ? 'active' : ''}" onclick="selectFloor(null)">All Floors</button>
-                                ${allFloors.map(f => `
-                                    <button class="tab ${selectedFloor === f ? 'active' : ''}" onclick="selectFloor('${f}')">${f}</button>
-                                `).join('')}
-                            </div>
-                        </div>
-                    `;
-                }
-
-                // Room buttons
+                // Room buttons with floor grouping
                 html += `
                     <div class="card mt-4">
-                        <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Rooms in ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}${selectedFloor ? ` · ${selectedFloor}` : ''}</div>
-                        ${availableRooms.length > 0 ? `
+                        <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Rooms in ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
+                        ${allRooms.length > 0 ? `
                             <div class="room-buttons">
-                                ${availableRooms.map(room => {
+                                ${allRooms.map(room => {
                                     const students = getStudentsForRoom(room);
                                     const allVerified = students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified);
                                     const isActive = room === currentRoom;
+                                    const area = getAreaForRoom(room);
+                                    const rangeLabel = area ? area.name : '';
                                     let btnClass = 'room-btn';
                                     if (isActive) btnClass += ' active';
                                     else if (allVerified && students.length > 0) btnClass += ' completed';
                                     return `
-                                        <button class="${btnClass}" onclick="scanRoomQR('${room}')" ${students.length === 0 || !isSessionActive ? 'disabled' : ''}>
+                                        <button class="${btnClass}" onclick="scanRoomQR('${room}')" ${students.length === 0 || !isSessionActive ? 'disabled' : ''} title="${rangeLabel}">
                                             ${room}
                                             <span class="count-badge">${students.filter(s => bedScanStatus[s.id]?.verified).length}/${students.length}</span>
+                                            ${rangeLabel ? `<span style="display:block;font-size:0.45rem;color:#6b778b;">${rangeLabel}</span>` : ''}
                                         </button>
                                     `;
                                 }).join('')}
@@ -1643,7 +1844,7 @@
                 // Current Room Panel
                 html += `
                     <div class="card mt-4 room-panel">
-                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Current Room ${currentRoom ? `· ${currentRoom}` : ''}</div>
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Current Room ${currentRoom ? `· ${currentRoom}` : ''} ${roomRange ? `<span class="room-range-badge">${roomRange}</span>` : ''}</div>
                         ${currentRoom && roomStudents.length > 0 ? `
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                                 <div>
@@ -1939,12 +2140,15 @@
 
                     updateHeader();
 
+                    // Build room structure
+                    buildRoomStructure();
+
                     // Build face embeddings
                     buildFaceEmbeddings();
 
                     await loadSessionData();
 
-                    availableRooms = getAssignedRooms();
+                    // Set current room if available
                     if (availableRooms.length > 0 && !currentRoom) {
                         currentRoom = availableRooms[0];
                         currentRoomStudents = getStudentsForRoom(currentRoom);
