@@ -333,6 +333,7 @@
             let filteredStudents = [];
             let currentPage = 1;
             let searchQuery = '';
+            let assignedHostelId = null;
             let assignedHostelName = '';
 
             // =============================================
@@ -379,15 +380,39 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - FILTERED BY HOSTEL ID
             // =============================================
             async function loadStudents() {
                 try {
-                    const data = await apiCall('/students');
+                    // If we have a hostel ID, use the hostel-specific endpoint
+                    let endpoint = '/students';
+                    if (assignedHostelId) {
+                        endpoint = `/hostels/${assignedHostelId}/students`;
+                    }
+                    
+                    const data = await apiCall(endpoint);
                     allStudents = data.data || [];
+                    
+                    // Filter students by hostel ID or name
+                    if (assignedHostelId) {
+                        hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                    } else if (assignedHostelName) {
+                        hostelStudents = allStudents.filter(s => 
+                            s.hostel === assignedHostelName || 
+                            s.hostel_name === assignedHostelName
+                        );
+                    } else {
+                        hostelStudents = allStudents;
+                    }
+                    
+                    filteredStudents = [...hostelStudents];
+                    
                     return allStudents;
                 } catch (error) {
+                    console.error('Error loading students:', error);
                     allStudents = [];
+                    hostelStudents = [];
+                    filteredStudents = [];
                     return allStudents;
                 }
             }
@@ -411,9 +436,10 @@
                 name.textContent = displayName;
                 role.textContent = 'RA';
                 roleLabel.textContent = 'RA';
-                roleScope.textContent = assignedHostelName ? `Assigned: ${assignedHostelName} · Perform nightly BedCheck` :
-                    'No hostel assigned';
-                mobileRole.textContent = `RA · ${assignedHostelName ? `Assigned: ${assignedHostelName}` : 'No hostel assigned'}`;
+                
+                const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
+                roleScope.textContent = `${hostelDisplay} · Perform nightly BedCheck`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · Perform nightly BedCheck`;
             }
 
             // =============================================
@@ -652,7 +678,15 @@
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
                 
+                // Get hostel info from user data
+                assignedHostelId = currentUser?.hostel_id || null;
                 assignedHostelName = currentUser?.hostel || currentUser?.hostel_name || '';
+                
+                // If we have hostel ID but no name, try to get it from the user object
+                if (assignedHostelId && !assignedHostelName) {
+                    // The name might be stored separately
+                    assignedHostelName = currentUser?.hostel_name || currentUser?.hostel || '';
+                }
                 
                 updateHeader();
                 return true;
@@ -716,13 +750,6 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading student data...';
                     await loadStudents();
-                    
-                    hostelStudents = allStudents.filter(s => 
-                        s.hostel_name === assignedHostelName || 
-                        s.hostel === assignedHostelName
-                    );
-                    
-                    filteredStudents = [...hostelStudents];
                     
                     document.getElementById('noticeText').textContent = 
                         `${hostelStudents.length} students in ${assignedHostelName || 'your hostel'}. Search to find specific students.`;

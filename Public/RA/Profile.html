@@ -212,12 +212,70 @@
         .profile-photo-wrapper .camera-btn { position: absolute; bottom: -0.25rem; right: -0.25rem; background: #d6ad4b; border: none; border-radius: 50%; width: 2rem; height: 2rem; cursor: pointer; color: #10233f; font-size: 0.75rem; display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: background 0.15s; }
         .profile-photo-wrapper .camera-btn:hover { background: #c49a2a; }
         @media (max-width: 480px) { .profile-photo-wrapper .camera-btn { width: 1.6rem; height: 1.6rem; font-size: 0.6rem; } }
+
+        /* ----- CHANGE PASSWORD MODAL ----- */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(16,35,63,0.6);
+            z-index: 60;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            max-width: 28rem;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal .modal-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem; color: #17233c; }
+        .modal .modal-close { background: transparent; border: none; font-size: 1.2rem; color: #6b778b; cursor: pointer; padding: 0.25rem; }
+        .modal .modal-close:hover { color: #17233c; }
+        .modal .field { margin-top: 0.75rem; }
+        .modal .field label { font-weight: 600; font-size: 0.8rem; color: #2c3e5a; }
+        .modal .field input { padding: 0.5rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; width: 100%; font-family: inherit; }
+        .modal .field input:focus { border-color: #a77915; box-shadow: 0 0 0 2px rgba(167, 121, 21, 0.1); }
+        .modal .modal-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; justify-content: flex-end; }
     </style>
 </head>
 <body>
 
     <!-- ===== TOAST ===== -->
     <div id="toast" class="toast"></div>
+
+    <!-- ===== CHANGE PASSWORD MODAL ===== -->
+    <div class="modal-overlay" id="passwordModal">
+        <div class="modal">
+            <div class="flex-between">
+                <h3 class="modal-title">Change Password</h3>
+                <button class="modal-close" onclick="closePasswordModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <p class="text-sm text-muted mt-1">Enter your current password and choose a new one.</p>
+            <div class="field">
+                <label>Current Password</label>
+                <input type="password" id="currentPassword" placeholder="Enter current password" />
+            </div>
+            <div class="field">
+                <label>New Password</label>
+                <input type="password" id="newPassword" placeholder="Enter new password (min 6 chars)" />
+            </div>
+            <div class="field">
+                <label>Confirm New Password</label>
+                <input type="password" id="confirmPassword" placeholder="Confirm new password" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn-primary" onclick="changePassword()">Update Password</button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== PORTAL ===== -->
     <div class="app-wrapper">
@@ -431,8 +489,10 @@
                 name.textContent = displayName;
                 role.textContent = 'RA';
                 roleLabel.textContent = 'RA';
-                roleScope.textContent = currentUser.scope || 'Assigned hostel · Perform nightly BedCheck';
-                mobileRole.textContent = `RA · ${currentUser.scope || 'Assigned hostel · Perform nightly BedCheck'}`;
+                
+                const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
+                roleScope.textContent = `${hostelDisplay} · Perform nightly BedCheck`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · Perform nightly BedCheck`;
             }
 
             // =============================================
@@ -494,23 +554,53 @@
                 }
             }
 
-            async function resetPassword() {
-                const newPass = prompt('Enter new password (minimum 8 characters):');
-                if (newPass === null) return;
-                if (newPass.length < 8) {
-                    showToast('Password must be at least 8 characters', 'error');
+            // =============================================
+            // CHANGE PASSWORD - Using new endpoint with current password
+            // =============================================
+            function openPasswordModal() {
+                document.getElementById('passwordModal').classList.add('active');
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmPassword').value = '';
+                document.getElementById('currentPassword').focus();
+            }
+
+            function closePasswordModal() {
+                document.getElementById('passwordModal').classList.remove('active');
+            }
+
+            async function changePassword() {
+                const currentPassword = document.getElementById('currentPassword')?.value;
+                const newPassword = document.getElementById('newPassword')?.value;
+                const confirmPassword = document.getElementById('confirmPassword')?.value;
+
+                if (!currentPassword) {
+                    showToast('Please enter your current password', 'error');
+                    return;
+                }
+
+                if (!newPassword || newPassword.length < 6) {
+                    showToast('New password must be at least 6 characters', 'error');
+                    return;
+                }
+
+                if (newPassword !== confirmPassword) {
+                    showToast('Passwords do not match', 'error');
                     return;
                 }
 
                 try {
                     const userId = currentUser?.id || sessionStorage.getItem('user_id');
-                    await apiCall(`/staff/${userId}/password`, {
+                    
+                    await apiCall(`/staff/${userId}/change-password`, {
                         method: 'PUT',
-                        body: JSON.stringify({ password: newPass })
+                        body: JSON.stringify({ currentPassword, newPassword })
                     });
-                    showToast('Password reset successfully!', 'success');
+
+                    closePasswordModal();
+                    showToast('Password changed successfully!', 'success');
                 } catch (error) {
-                    showToast('Error resetting password: ' + error.message, 'error');
+                    showToast('Error changing password: ' + error.message, 'error');
                 }
             }
 
@@ -536,7 +626,7 @@
                 const displayHostel = userData.hostel || currentUser?.hostel || 'Not assigned';
                 const displayLastLogin = userData.lastLogin || currentUser?.lastLogin || new Date().toLocaleString();
 
-                // RA-specific activity log
+                // RA-specific activity log - will be fetched from API in production
                 const activities = [
                     { time: 'Today, 10:15 PM', desc: 'Completed fingerprint verification for Room B12' },
                     { time: 'Today, 09:30 PM', desc: 'Started BedCheck session for Champions Hostel' },
@@ -651,7 +741,7 @@
 
                         <!-- Security Actions -->
                         <div class="mt-4 pt-4 border-t" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-                            <button class="btn-outline" onclick="resetPassword()"><i class="fas fa-key"></i> Reset Password</button>
+                            <button class="btn-outline" onclick="openPasswordModal()"><i class="fas fa-key"></i> Change Password</button>
                             <button class="btn-outline" onclick="showToast('Two-factor authentication settings opened', 'info')"><i class="fas fa-shield-alt"></i> 2FA Settings</button>
                         </div>
                     </div>
@@ -739,7 +829,9 @@
             window.showToast = showToast;
             window.toggleEdit = toggleEdit;
             window.saveProfile = saveProfile;
-            window.resetPassword = resetPassword;
+            window.openPasswordModal = openPasswordModal;
+            window.closePasswordModal = closePasswordModal;
+            window.changePassword = changePassword;
             window.uploadPhoto = uploadPhoto;
 
             // =============================================
