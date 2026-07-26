@@ -121,9 +121,6 @@
         .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: transparent; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.15s; text-decoration: none; color: #17233c; justify-content: center; }
         .btn-outline:hover { background: #f5f1e8; border-color: #a77915; }
 
-        .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
-        .btn-success:hover { background: #1f4a32; }
-
         .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
         .badge-approved { background: #e1f0e5; color: #2d6545; }
         .badge-absent { background: #f8e1dc; color: #9b3c31; }
@@ -131,6 +128,7 @@
         .badge-present { background: #e1f0e5; color: #2d6545; }
         .badge-pending { background: #e8edf2; color: #536274; }
         .badge-assigned { background: #d6ad4b; color: #10233f; }
+        .badge-floor { background: #e7edf5; color: #24466f; }
 
         /* ----- CARDS ----- */
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
@@ -232,6 +230,44 @@
         .tab-btn { padding: 0.4rem 1.2rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: transparent; font-weight: 600; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; color: #17233c; }
         .tab-btn:hover { background: #f5f1e8; border-color: #a77915; }
         .tab-btn.active { background: #10233f; color: white; border-color: #10233f; }
+
+        /* Room Range Tag */
+        .room-range-tag {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            background: #e7edf5;
+            border-radius: 0.3rem;
+            font-size: 0.6rem;
+            color: #24466f;
+            font-weight: 600;
+        }
+
+        .floor-group-label {
+            font-weight: 700;
+            font-size: 0.85rem;
+            padding: 0.3rem 0.5rem;
+            background: #fbf7ef;
+            border-radius: 0.3rem;
+            margin-bottom: 0.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .floor-group-label .count-badge {
+            font-size: 0.6rem;
+            color: #6b778b;
+            font-weight: 400;
+        }
+        .room-range-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.15rem 0.5rem 0.15rem 1.5rem;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #f5f1e8;
+        }
+        .room-range-item:last-child { border-bottom: none; }
+        .room-range-item .range-name { font-weight: 600; }
+        .room-range-item .range-stats { font-size: 0.7rem; color: #6b778b; }
     </style>
 </head>
 <body>
@@ -326,7 +362,7 @@
             let students = [];
             let scans = [];
             let activeTab = 'overview';
-            let isLoading = true;
+            let roomStructure = {};
 
             const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
@@ -426,6 +462,180 @@
                 return `<span class="badge ${map[status] || 'badge-pending'}">${status || 'Unknown'}</span>`;
             }
 
+            // =============================================
+            // BUILD ROOM STRUCTURE
+            // =============================================
+            function buildRoomStructure() {
+                if (!hostelData) return;
+                roomStructure = { type: hostelData?.type || 'floor', areas: [], floorRanges: {} };
+
+                if (hostelData?.type === 'flat') {
+                    const flatNumbers = [];
+                    students.forEach(s => {
+                        if (s.flat) {
+                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
+                            if (num) flatNumbers.push(num);
+                        }
+                    });
+                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
+                    roomStructure.type = 'flat';
+                    roomStructure.areas = sortedFlats.map(num => ({
+                        name: `Flat ${num}`,
+                        key: `Flat ${num}`,
+                        rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
+                    }));
+                } else {
+                    const floorLetters = [];
+                    students.forEach(s => {
+                        if (s.floor) {
+                            const letter = s.floor.replace('Floor ', '');
+                            if (letter) floorLetters.push(letter);
+                        }
+                    });
+                    const sortedLetters = [...new Set(floorLetters)].sort();
+                    roomStructure.type = 'floor';
+
+                    // Check if Girls Hostel (3 RAs per floor)
+                    const raStaff = [];
+                    const isGirlsHostel = sortedLetters.length > 0 && sortedLetters.every(letter => {
+                        const floorRooms = students.filter(s => s.floor === `Floor ${letter}`).map(s => s.room).filter(Boolean);
+                        const nums = floorRooms.map(r => parseInt(r.replace(letter, ''))).filter(n => !isNaN(n));
+                        return nums.some(n => n >= 15);
+                    });
+
+                    sortedLetters.forEach(letter => {
+                        const floorRooms = students
+                            .filter(s => s.floor === `Floor ${letter}`)
+                            .map(s => s.room)
+                            .filter(Boolean)
+                            .sort((a, b) => {
+                                const numA = parseInt(a.replace(letter, ''));
+                                const numB = parseInt(b.replace(letter, ''));
+                                return numA - numB;
+                            });
+
+                        let roomRanges = [];
+
+                        if (isGirlsHostel) {
+                            // Girls Hostel: 3 RAs per floor
+                            const range1 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 1 && num <= 8;
+                            });
+                            const range2 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 9 && num <= 14;
+                            });
+                            const range3 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 15 && num <= 18;
+                            });
+                            if (range1.length > 0) {
+                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`, rooms: range1,
+                                    prefix: letter, start: 1, end: 8 });
+                            }
+                            if (range2.length > 0) {
+                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`, rooms: range2,
+                                    prefix: letter, start: 9, end: 14 });
+                            }
+                            if (range3.length > 0) {
+                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`, rooms: range3,
+                                    prefix: letter, start: 15, end: 18 });
+                            }
+                        } else {
+                            // Boys Hostel: 2 RAs per floor
+                            const range1 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 1 && num <= 9;
+                            });
+                            const range2 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 10 && num <= 18;
+                            });
+                            if (range1.length > 0) {
+                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: range1,
+                                    prefix: letter, start: 1, end: 9 });
+                            }
+                            if (range2.length > 0) {
+                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: range2,
+                                    prefix: letter, start: 10, end: 18 });
+                            }
+                        }
+
+                        if (roomRanges.length === 0) {
+                            if (isGirlsHostel) {
+                                const defaultRooms1 = Array.from({ length: 8 }, (_, i) => `${letter}${i+1}`);
+                                const defaultRooms2 = Array.from({ length: 6 }, (_, i) => `${letter}${i+9}`);
+                                const defaultRooms3 = Array.from({ length: 4 }, (_, i) => `${letter}${i+15}`);
+                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`,
+                                    rooms: defaultRooms1, prefix: letter, start: 1, end: 8 });
+                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`,
+                                    rooms: defaultRooms2, prefix: letter, start: 9, end: 14 });
+                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`,
+                                    rooms: defaultRooms3, prefix: letter, start: 15, end: 18 });
+                            } else {
+                                const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
+                                const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
+                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`,
+                                    rooms: defaultRooms1, prefix: letter, start: 1, end: 9 });
+                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`,
+                                    rooms: defaultRooms2, prefix: letter, start: 10, end: 18 });
+                            }
+                        }
+
+                        roomRanges.forEach(range => {
+                            roomStructure.areas.push({
+                                name: range.name,
+                                key: range.key,
+                                rooms: range.rooms,
+                                floor: `Floor ${letter}`,
+                                prefix: range.prefix,
+                                start: range.start,
+                                end: range.end
+                            });
+                        });
+
+                        roomStructure.floorRanges[letter] = roomRanges;
+                    });
+                }
+
+                if (roomStructure.areas.length === 0) {
+                    if (hostelData?.type === 'flat') {
+                        const totalFlats = hostelData.total_flats || 9;
+                        for (let i = 1; i <= totalFlats; i++) {
+                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
+                            roomStructure.areas.push({ name: `Flat ${i}`, key: `Flat ${i}`, rooms: rooms });
+                        }
+                    } else {
+                        const totalFloors = hostelData?.total_floors || 3;
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                        for (let i = 0; i < totalFloors; i++) {
+                            const letter = letters[i];
+                            const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
+                            const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
+                            roomStructure.areas.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`,
+                                rooms: range1, floor: `Floor ${letter}`, prefix: letter, start: 1, end: 9 });
+                            roomStructure.areas.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`,
+                                rooms: range2, floor: `Floor ${letter}`, prefix: letter, start: 10, end: 18 });
+                        }
+                    }
+                }
+            }
+
+            function getRoomStudents(room) {
+                return students.filter(s => s.room === room);
+            }
+
+            function getAreaStats(area) {
+                const areaStudents = students.filter(s => area.rooms.includes(s.room));
+                const total = areaStudents.length;
+                const present = areaStudents.filter(s => s.status === 'Present').length;
+                const absent = areaStudents.filter(s => s.status === 'Absent').length;
+                const late = areaStudents.filter(s => s.status === 'Late').length;
+                const manual = areaStudents.filter(s => s.status === 'Manual').length;
+                return { total, present, absent, late, manual, rate: total > 0 ? Math.round((present / total) * 100) : 0 };
+            }
+
             function renderLoading() {
                 screenContent.innerHTML = `
                     <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
@@ -460,6 +670,8 @@
             }
 
             function renderReports() {
+                buildRoomStructure();
+
                 const totalStudents = students.length;
                 const present = students.filter(s => s.status === 'Present').length;
                 const absent = students.filter(s => s.status === 'Absent').length;
@@ -472,27 +684,38 @@
                 const hostelName = hostelData?.name || 'Your Hostel';
                 const totalRooms = hostelData?.total_rooms || 0;
 
-                // Floor distribution
-                const floorData = {};
-                students.forEach(s => {
-                    if (s.floor) {
-                        floorData[s.floor] = (floorData[s.floor] || 0) + 1;
+                // Floor distribution with room ranges
+                const floorGroups = {};
+                roomStructure.areas.forEach(area => {
+                    const floorKey = area.floor || area.name;
+                    if (!floorGroups[floorKey]) {
+                        floorGroups[floorKey] = { name: floorKey, areas: [], total: 0, present: 0 };
                     }
+                    const stats = getAreaStats(area);
+                    floorGroups[floorKey].areas.push({ name: area.name, stats });
+                    floorGroups[floorKey].total += stats.total;
+                    floorGroups[floorKey].present += stats.present;
                 });
-                const floorKeys = Object.keys(floorData);
-                const floorStats = floorKeys.map(floor => {
-                    const count = floorData[floor];
-                    const presentCount = students.filter(s => s.floor === floor && s.status === 'Present').length;
-                    return { floor, total: count, present: presentCount, rate: count > 0 ? Math.round((presentCount / count) *
-                            100) : 0 };
-                });
+
+                const floorStats = Object.values(floorGroups).map(group => ({
+                    floor: group.name,
+                    total: group.total,
+                    present: group.present,
+                    rate: group.total > 0 ? Math.round((group.present / group.total) * 100) : 0,
+                    areas: group.areas
+                }));
 
                 // Recent scans/activity
                 const recentActivity = scans.slice(0, 5).map(s => {
                     const student = students.find(st => st.id === s.student_id);
                     const time = new Date(s.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                    return { time, name: student?.name || 'Unknown', status: s.status || 'Verified' };
+                    return { time, name: student?.name || 'Unknown', status: s.status || 'Verified', room: s.room || '' };
                 });
+
+                // Determine hostel type
+                const isGirls = roomStructure.areas.some(a => a.start === 15);
+                const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
+                    isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
 
                 const html = `
                     <div class="page-heading">
@@ -504,6 +727,8 @@
                                     <i class="fas fa-building"></i> ${hostelName}
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
+                                <span class="badge badge-floor" style="font-size:0.55rem;margin-left:0.5rem;">${hostelTypeLabel}</span>
+                                <span class="badge badge-floor" style="font-size:0.55rem;">${roomStructure.areas.length} room ranges</span>
                             </p>
                         </div>
                         <div class="action-group">
@@ -516,7 +741,7 @@
                     <div class="flex-center gap-2 flex-wrap">
                         <button class="tab-btn ${activeTab === 'overview' ? 'active' : ''}" onclick="setTab('overview')">Overview</button>
                         <button class="tab-btn ${activeTab === 'students' ? 'active' : ''}" onclick="setTab('students')">Student List</button>
-                        <button class="tab-btn ${activeTab === 'attendance' ? 'active' : ''}" onclick="setTab('attendance')">Attendance Details</button>
+                        <button class="tab-btn ${activeTab === 'rooms' ? 'active' : ''}" onclick="setTab('rooms')">Room Ranges</button>
                     </div>
 
                     ${activeTab === 'overview' ? `
@@ -557,12 +782,20 @@
                             </div>
 
                             <div class="card">
-                                <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Floor Distribution</div>
+                                <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Room Range Breakdown</div>
                                 <div class="mt-3">
                                     ${floorStats.length > 0 ? floorStats.map(f => `
-                                        <div class="flex-between"><span class="text-muted">${f.floor}</span><span class="font-bold">${f.present}/${f.total} (${f.rate}%)</span></div>
-                                        <div class="progress-bar mt-1"><div class="fill" style="width:${f.rate}%;"></div></div>
-                                    `).join('') : '<p class="text-muted text-sm">No floor data available</p>'}
+                                        <div class="floor-group-label">
+                                            <span>${f.floor}</span>
+                                            <span class="count-badge">${f.present}/${f.total} (${f.rate}%)</span>
+                                        </div>
+                                        ${f.areas.map(area => `
+                                            <div class="room-range-item">
+                                                <span class="range-name">${area.name}</span>
+                                                <span class="range-stats">${area.stats.present}/${area.stats.total} · ${area.stats.rate}%</span>
+                                            </div>
+                                        `).join('')}
+                                    `).join('') : '<p class="text-muted text-sm">No room range data available</p>'}
                                 </div>
                             </div>
                         </div>
@@ -572,7 +805,7 @@
                             <div class="mt-3">
                                 ${recentActivity.length > 0 ? recentActivity.map(a => `
                                     <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;">
-                                        <span><span class="font-bold">${a.name}</span> ${a.status}</span>
+                                        <span><span class="font-bold">${a.name}</span> ${a.status} ${a.room ? '· ' + a.room : ''}</span>
                                         <span class="text-xs text-muted">${a.time}</span>
                                     </div>
                                 `).join('') : '<p class="text-muted text-sm">No recent activity</p>'}
@@ -622,41 +855,37 @@
                     </div>
                     ` : ''}
 
-                    ${activeTab === 'attendance' ? `
-                    <div class="mt-4">
-                        <div class="grid-2">
-                            <div class="card">
-                                <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Attendance Summary</div>
-                                <div class="mt-3">
-                                    <div class="flex-between"><span class="text-muted">Total Students</span><span class="font-bold">${totalStudents}</span></div>
-                                    <div class="flex-between mt-2"><span class="text-muted">Present</span><span class="badge badge-present">${present}</span></div>
-                                    <div class="flex-between mt-2"><span class="text-muted">Absent</span><span class="badge badge-absent">${absent}</span></div>
-                                    <div class="flex-between mt-2"><span class="text-muted">Late</span><span class="badge badge-late">${late}</span></div>
-                                    <div class="flex-between mt-2"><span class="text-muted">Manual Verification</span><span class="badge badge-pending">${manual}</span></div>
-                                </div>
-                            </div>
-
-                            <div class="card">
-                                <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Attendance by Floor</div>
-                                <div class="mt-3">
-                                    ${floorStats.length > 0 ? floorStats.map(f => `
-                                        <div class="flex-between"><span class="text-muted">${f.floor}</span><span class="font-bold">${f.present}/${f.total} (${f.rate}%)</span></div>
-                                        <div class="progress-bar mt-1"><div class="fill" style="width:${f.rate}%;"></div></div>
-                                    `).join('') : '<p class="text-muted text-sm">No floor data available</p>'}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card mt-4">
-                            <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Recent Activity</div>
-                            <div class="mt-3">
-                                ${recentActivity.length > 0 ? recentActivity.map(a => `
-                                    <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;">
-                                        <span><span class="font-bold">${a.name}</span> ${a.status}</span>
-                                        <span class="text-xs text-muted">${a.time}</span>
+                    ${activeTab === 'rooms' ? `
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Room Range Details</div>
+                        <div class="mt-3">
+                            ${floorStats.length > 0 ? floorStats.map(f => `
+                                <div style="margin-bottom:1rem;">
+                                    <div class="floor-group-label">
+                                        <span>${f.floor}</span>
+                                        <span class="count-badge">${f.present}/${f.total} (${f.rate}%)</span>
                                     </div>
-                                `).join('') : '<p class="text-muted text-sm">No recent activity</p>'}
-                            </div>
+                                    ${f.areas.map(area => {
+                                        const stats = area.stats;
+                                        return `
+                                            <div style="padding:0.3rem 0.5rem 0.3rem 1.5rem;border-bottom:1px solid #f5f1e8;">
+                                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                                    <span style="font-weight:600;">${area.name}</span>
+                                                    <span class="room-range-tag">${stats.present}/${stats.total} verified</span>
+                                                </div>
+                                                <div style="display:flex;gap:1rem;font-size:0.7rem;color:#6b778b;margin-top:0.1rem;">
+                                                    <span>✅ Present: ${stats.present}</span>
+                                                    <span>❌ Absent: ${stats.absent}</span>
+                                                    <span>⏰ Late: ${stats.late}</span>
+                                                    <span>✍️ Manual: ${stats.manual}</span>
+                                                    <span>📊 ${stats.rate}%</span>
+                                                </div>
+                                                <div class="progress-bar mt-1"><div class="fill" style="width:${stats.rate}%;"></div></div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            `).join('') : '<p class="text-muted text-sm">No room range data available</p>'}
                         </div>
                     </div>
                     ` : ''}
