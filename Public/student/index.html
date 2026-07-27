@@ -12,7 +12,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -113,8 +112,7 @@
         .field input:disabled, .field select:disabled { background: #f5f1e8; cursor: not-allowed; }
 
         .grid-2 { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
-        .grid-3 { display: grid; gap: 0.75rem; grid-template-columns: repeat(3, 1fr); }
-        @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
 
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
         .flex-center { display: flex; align-items: center; gap: 0.5rem; }
@@ -182,17 +180,23 @@
         .btn-success:hover { background: #1f4a32; }
         .btn-success:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .btn-danger {
+        .btn-success-lg {
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 0.75rem;
+        }
+
+        .btn-gold {
             display: inline-flex; align-items: center; gap: 0.5rem;
             padding: 0.6rem 1.2rem;
             border: none; border-radius: 0.5rem;
-            background: #a84134; color: white;
+            background: #d6ad4b; color: #10233f;
             font-weight: 700; font-size: 0.85rem;
             cursor: pointer;
             transition: background 0.15s;
             text-decoration: none;
         }
-        .btn-danger:hover { background: #8a2e23; }
+        .btn-gold:hover { background: #c49a3a; }
 
         /* ----- DECLARATION ----- */
         .declaration-item {
@@ -297,7 +301,7 @@
         .success-screen .student-detail-card .detail-label { color: #68768a; }
         .success-screen .student-detail-card .detail-value { font-weight: 600; }
 
-        /* ----- FACE ENROLLMENT - REAL MEDIAPIPE ----- */
+        /* ----- FACE ENROLLMENT ----- */
         .face-enrollment {
             background: #f8f6f0;
             border-radius: 0.75rem;
@@ -334,6 +338,7 @@
             color: #d6ad4b;
             opacity: 0.5;
         }
+
         .face-camera-preview .camera-status {
             font-size: 0.75rem;
             color: #a0aec0;
@@ -353,9 +358,43 @@
         .face-camera-preview .camera-status .status-dot.loading { background: #fbbf24; animation: pulse-dot 1s infinite; }
         .face-camera-preview .camera-status .status-dot.ready { background: #4ade80; }
         .face-camera-preview .camera-status .status-dot.error { background: #f87171; }
+        .face-camera-preview .camera-status .status-dot.capturing { background: #d6ad4b; animation: pulse-dot 0.5s infinite; }
         @keyframes pulse-dot {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
+        }
+
+        /* Face Guide Overlay */
+        .face-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .face-guide {
+            width: 200px;
+            height: 260px;
+            border: 2px dashed rgba(214, 173, 75, 0.5);
+            border-radius: 50%;
+            animation: pulse-guide 2s ease-in-out infinite;
+            transition: border-color 0.3s;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -60%);
+        }
+        .face-guide.detected {
+            border-color: #4ade80;
+            border-style: solid;
+        }
+        @keyframes pulse-guide {
+            0%, 100% { border-color: rgba(214, 173, 75, 0.3); }
+            50% { border-color: rgba(214, 173, 75, 0.8); }
         }
 
         /* Quality panel inside camera */
@@ -417,11 +456,6 @@
             background: rgba(214, 173, 75, 0.2);
             color: #d6ad4b;
             transform: scale(1.05);
-        }
-        .face-capture-step-inline.failed {
-            border-color: #f87171;
-            background: rgba(248, 113, 113, 0.15);
-            color: #f87171;
         }
 
         /* Progress bar inside camera */
@@ -590,6 +624,28 @@
             display: none;
         }
 
+        /* Completion Message */
+        .completion-message {
+            background: #dcfce7;
+            border: 2px solid #4ade80;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            text-align: center;
+            margin: 1rem 0;
+        }
+        .completion-message .icon {
+            font-size: 3rem;
+            color: #2d6545;
+        }
+        .completion-message h3 {
+            color: #065f46;
+            margin: 0.5rem 0;
+        }
+        .completion-message p {
+            color: #065f46;
+            opacity: 0.8;
+        }
+
         @media (max-width: 640px) {
             .register-container { padding: 0.75rem; }
             .register-header .logo h1 { font-size: 1.1rem; }
@@ -605,6 +661,7 @@
             .face-capture-step-inline .step-label { font-size: 0.35rem; }
             .quality-panel { display: none; }
             .toast { bottom: 0.5rem; right: 0.5rem; left: 0.5rem; max-width: none; font-size: 0.8rem; }
+            .face-guide { width: 150px; height: 200px; }
         }
     </style>
 </head>
@@ -657,12 +714,13 @@
             let isEnrolling = false;
             let cameraStream = null;
             let isCameraReady = false;
-            let faceDetection = null;
             let faceMesh = null;
             let mediaPipeReady = false;
             let currentQuality = 0;
             let faceDetected = false;
             let faceLandmarks = null;
+            let isMediaPipeLoading = false;
+            let enrollmentComplete = false;
             
             const totalCaptures = 10;
             const captureInstructions = [
@@ -751,6 +809,24 @@
             // ---------- MEDIAPIPE FACE MESH ----------
             function initMediaPipe() {
                 return new Promise((resolve, reject) => {
+                    if (mediaPipeReady) {
+                        resolve();
+                        return;
+                    }
+
+                    if (isMediaPipeLoading) {
+                        // Wait for loading to complete
+                        const checkReady = setInterval(() => {
+                            if (mediaPipeReady) {
+                                clearInterval(checkReady);
+                                resolve();
+                            }
+                        }, 100);
+                        return;
+                    }
+
+                    isMediaPipeLoading = true;
+
                     try {
                         faceMesh = new FaceMesh({
                             locateFile: (file) => {
@@ -775,13 +851,28 @@
                                 faceDetected = false;
                                 faceLandmarks = null;
                                 updateFaceStatus(false);
+                                // Gradually decrease quality when no face
+                                if (currentQuality > 10) {
+                                    currentQuality = Math.max(10, currentQuality - 0.5);
+                                    updateQualityDisplay(currentQuality);
+                                }
                             }
                         });
 
-                        mediaPipeReady = true;
-                        resolve();
+                        // Warm up MediaPipe
+                        faceMesh.initialize().then(() => {
+                            mediaPipeReady = true;
+                            isMediaPipeLoading = false;
+                            console.log('✅ MediaPipe Face Mesh initialized');
+                            resolve();
+                        }).catch((err) => {
+                            console.error('MediaPipe init error:', err);
+                            isMediaPipeLoading = false;
+                            reject(err);
+                        });
                     } catch (error) {
-                        console.error('MediaPipe init error:', error);
+                        console.error('MediaPipe setup error:', error);
+                        isMediaPipeLoading = false;
                         reject(error);
                     }
                 });
@@ -796,6 +887,7 @@
 
                     // Initialize MediaPipe first
                     if (!mediaPipeReady) {
+                        showToast('Loading face detection...', 'info');
                         await initMediaPipe();
                     }
 
@@ -818,8 +910,16 @@
                         
                         // Start MediaPipe processing
                         const sendToMediaPipe = async () => {
-                            if (video.readyState >= 2) {
-                                await faceMesh.send({ image: video });
+                            if (!isCameraReady || !video || video.readyState < 2) {
+                                if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
+                                return;
+                            }
+                            try {
+                                if (mediaPipeReady && faceMesh) {
+                                    await faceMesh.send({ image: video });
+                                }
+                            } catch (e) {
+                                // Silently handle errors
                             }
                             if (isCameraReady) {
                                 requestAnimationFrame(sendToMediaPipe);
@@ -860,8 +960,7 @@
                 if (dot) {
                     dot.className = 'status-dot ' + status;
                 }
-                const text = statusEl.textContent.replace(/[●○•]/g, '').trim();
-                statusEl.innerHTML = `<span class="status-dot ${status}"></span> ${message || text}`;
+                statusEl.innerHTML = `<span class="status-dot ${status}"></span> ${message}`;
             }
 
             function updateFaceStatus(detected) {
@@ -878,12 +977,10 @@
             // ---------- QUALITY CALCULATION ----------
             function calculateQuality(landmarks) {
                 if (!landmarks || landmarks.length < 468) {
-                    currentQuality = 0;
                     return;
                 }
 
                 try {
-                    // Calculate face width and height
                     const leftEye = landmarks[33];
                     const rightEye = landmarks[263];
                     const noseTip = landmarks[1];
@@ -892,15 +989,12 @@
                     const faceWidth = Math.abs(rightEye.x - leftEye.x);
                     const faceHeight = Math.abs(chin.y - noseTip.y);
                     
-                    // Check if face is centered
                     const centerX = (leftEye.x + rightEye.x) / 2;
                     const centerY = (noseTip.y + chin.y) / 2;
                     const centeringScore = 1 - Math.abs(centerX - 0.5) * 2;
                     
-                    // Check face size (not too small, not too large)
                     const sizeScore = Math.min(faceWidth * 3, 1);
                     
-                    // Check symmetry (left/right eye positions)
                     const leftEyeCenter = {
                         x: (landmarks[33].x + landmarks[133].x) / 2,
                         y: (landmarks[33].y + landmarks[133].y) / 2
@@ -912,21 +1006,17 @@
                     const eyeLevel = Math.abs(leftEyeCenter.y - rightEyeCenter.y);
                     const symmetryScore = 1 - eyeLevel * 2;
                     
-                    // Combine scores
-                    const quality = (
+                    const quality = Math.min(99, Math.max(40, (
                         centeringScore * 0.3 +
                         sizeScore * 0.3 +
                         symmetryScore * 0.2 +
-                        0.2 // base score
-                    ) * 100;
+                        0.2
+                    ) * 100));
 
-                    currentQuality = Math.min(99, Math.max(40, quality));
-                    
-                    // Update UI
-                    updateQualityDisplay(currentQuality);
+                    currentQuality = quality;
+                    updateQualityDisplay(quality);
                 } catch (error) {
                     console.warn('Quality calculation error:', error);
-                    currentQuality = 70;
                 }
             }
 
@@ -952,7 +1042,6 @@
                     overallQuality.style.fontWeight = '700';
                 }
 
-                // Update quality panel rows
                 const rows = document.querySelectorAll('.quality-panel .quality-row');
                 if (rows.length >= 6) {
                     const qualities = [
@@ -963,7 +1052,6 @@
                         quality > 60 ? 'good' : quality > 40 ? 'warning' : 'bad',
                         faceDetected ? 'good' : 'warning'
                     ];
-                    const labels = ['Lighting', 'Eyes', 'Distance', 'Blur', 'Angle', 'Liveness'];
                     rows.forEach((row, index) => {
                         if (index < 6) {
                             const span = row.querySelector('span:last-child');
@@ -983,8 +1071,6 @@
                 }
 
                 try {
-                    // Extract 128 key points from the 468 landmarks
-                    // We'll use a subset of points that are most distinctive
                     const keyIndices = [
                         1, 33, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95, 98, 101, 105, 109, 112, 115, 119, 122, 125, 128,
                         132, 133, 136, 140, 144, 145, 147, 148, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160, 161,
@@ -1016,12 +1102,10 @@
                         }
                     });
 
-                    // If we don't have enough points, pad with zeros
                     while (embedding.length < 512) {
                         embedding.push(0);
                     }
 
-                    // Normalize the embedding
                     const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
                     if (norm > 0) {
                         return embedding.map(v => v / norm);
@@ -1052,7 +1136,7 @@
                 isCapturing = true;
                 const captureBtn = document.getElementById('captureBtn');
                 if (captureBtn) captureBtn.disabled = true;
-                document.getElementById('captureStatus').textContent = '📸 Capturing...';
+                updateCameraStatus('capturing', '📸 Capturing...');
 
                 try {
                     const video = document.getElementById('cameraVideo');
@@ -1062,7 +1146,6 @@
                     canvas.width = video.videoWidth || 640;
                     canvas.height = video.videoHeight || 480;
                     
-                    // Draw the video frame (mirrored for natural look)
                     context.save();
                     context.scale(-1, 1);
                     context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
@@ -1070,13 +1153,11 @@
                     
                     const imageData = canvas.toDataURL('image/jpeg', 0.9);
                     
-                    // Extract real face embedding from MediaPipe landmarks
                     let embedding = null;
                     if (faceLandmarks) {
                         embedding = extractFaceEmbedding(faceLandmarks);
                     }
                     
-                    // Fallback to simulated if extraction fails
                     if (!embedding) {
                         const seed = currentQuality / 100;
                         embedding = generateSimulatedEmbedding(seed);
@@ -1104,19 +1185,22 @@
                     
                     document.getElementById('captureCount').textContent = `${faceCaptures.length} / ${totalCaptures}`;
                     document.getElementById('faceProgressFill').style.width = `${(faceCaptures.length / totalCaptures) * 100}%`;
-                    document.getElementById('captureStatus').textContent = faceCaptures.length >= totalCaptures ? '✅ Complete!' : 'Ready';
                     
                     showToast(`Capture ${faceCaptures.length}/${totalCaptures} complete!`, 'success');
 
                     if (faceCaptures.length >= totalCaptures) {
-                        if (captureBtn) {
-                            captureBtn.textContent = '✅ Complete';
-                            captureBtn.disabled = true;
-                        }
-                        document.getElementById('captureStatus').textContent = '✅ All captured! Click "Enroll Face"';
+                        // All captures done!
+                        document.getElementById('captureStatus').textContent = '✅ All captured!';
+                        updateCameraStatus('ready', '✅ All 10 captures complete!');
+                        
+                        // Show completion message
+                        showCompletionMessage();
+                        
+                        // Enable enroll button
                         const enrollBtn = document.querySelector('button[onclick="window.enrollFace()"]');
                         if (enrollBtn) enrollBtn.style.display = 'inline-flex';
                         
+                        // Update all steps to done
                         const stepBadges = document.querySelectorAll('.face-capture-step-inline');
                         stepBadges.forEach(el => {
                             if (!el.classList.contains('done')) {
@@ -1124,8 +1208,17 @@
                                 el.querySelector('.step-icon').textContent = '✅';
                             }
                         });
-                        showToast('All captures complete! Click "Enroll Face" to finalize.', 'success');
+                        
+                        if (captureBtn) {
+                            captureBtn.textContent = '✅ Complete';
+                            captureBtn.disabled = true;
+                        }
+                        
+                        enrollmentComplete = true;
                     } else {
+                        document.getElementById('captureStatus').textContent = 'Ready for next capture';
+                        updateCameraStatus('ready', 'Ready for next capture');
+                        
                         const nextStep = document.getElementById(`step_${faceCaptures.length}`);
                         if (nextStep) {
                             nextStep.className = 'face-capture-step-inline active';
@@ -1138,6 +1231,7 @@
                 } catch (error) {
                     console.error('Capture error:', error);
                     showToast('Error capturing: ' + error.message, 'error');
+                    updateCameraStatus('error', 'Capture failed');
                 } finally {
                     isCapturing = false;
                     if (document.getElementById('captureBtn')) {
@@ -1146,10 +1240,27 @@
                 }
             }
 
+            // ---------- SHOW COMPLETION MESSAGE ----------
+            function showCompletionMessage() {
+                const container = document.getElementById('captureStepsInline');
+                if (container) {
+                    const msg = document.createElement('div');
+                    msg.style.cssText = 'grid-column: span 5; text-align: center; padding: 0.5rem; background: rgba(74, 222, 128, 0.15); border-radius: 0.3rem; border: 1px solid #4ade80;';
+                    msg.innerHTML = `
+                        <div style="color: #4ade80; font-weight: 700; font-size: 0.8rem;">
+                            <i class="fas fa-check-circle"></i> All 10 captures complete!
+                        </div>
+                        <div style="color: #94a3b8; font-size: 0.6rem; margin-top: 0.2rem;">
+                            Click "Enroll Face" to save your template
+                        </div>
+                    `;
+                    container.appendChild(msg);
+                }
+            }
+
             // ---------- SIMULATED EMBEDDING (Fallback) ----------
             function generateSimulatedEmbedding(seed) {
                 const embedding = [];
-                const base = seed * 2 - 1;
                 for (let i = 0; i < 512; i++) {
                     const val = Math.sin(seed * 100 + i * 1.7) * 0.8 + Math.cos(i * 0.3) * 0.2;
                     embedding.push(val);
@@ -1180,13 +1291,11 @@
                     const statusEl = document.getElementById('captureStatus');
                     const progressFill = document.getElementById('faceProgressFill');
                     
-                    // Use the real embeddings from captures
                     const embeddings = faceCaptures.map(c => c.embedding || generateSimulatedEmbedding(c.quality / 100));
                     const qualityScores = faceCaptures.map(c => c.quality || 70);
                     const livenessScores = faceCaptures.map(c => c.liveness || 90);
                     const captureLabels = captureInstructions.slice(0, faceCaptures.length);
 
-                    // Check if student exists
                     let existingStudent = null;
                     try {
                         const searchRes = await apiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
@@ -1252,7 +1361,6 @@
 
                     showToast('Enrolling face...', 'info');
                     
-                    // Send to API
                     const enrollResponse = await fetch(`${API_BASE}/face-templates/enroll`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1280,9 +1388,9 @@
                         showToast('✅ Face successfully enrolled!', 'success');
                         saveDraft(true);
                         
-                        // Stop camera
                         stopCamera();
                         
+                        // Show success and redirect option
                         setTimeout(() => {
                             renderRegistrationForm();
                         }, 500);
@@ -1297,6 +1405,19 @@
                 }
             }
 
+            // ---------- SAVE AND GO TO DASHBOARD ----------
+            function saveAndGoToDashboard() {
+                // Save draft one last time
+                saveDraft(true);
+                
+                // Navigate to dashboard
+                // In production, this would redirect to the student dashboard
+                window.location.href = '/dashboard.html';
+                
+                // Or show a message
+                showToast('Redirecting to dashboard...', 'success');
+            }
+
             function resetFaceCaptures() {
                 if (faceCaptures.length === 0 && !studentData.face_enrolled) return;
                 if (confirm('Are you sure you want to reset all face captures?')) {
@@ -1305,6 +1426,7 @@
                     studentData.face_enrolled = false;
                     studentData.face_embedding = null;
                     studentData.face_template_id = null;
+                    enrollmentComplete = false;
                     currentStep = 3;
                     renderRegistrationForm();
                     showToast('Face captures reset', 'info');
@@ -1384,6 +1506,9 @@
                 }
 
                 checkAutoAdvance();
+
+                // Check if we should show the completion banner
+                const showCompletion = enrollmentComplete && faceCaptures.length >= totalCaptures;
 
                 const html = `
                     <!-- Section 1: Personal Information -->
@@ -1480,34 +1605,30 @@
                         <div class="face-enrollment">
                             <p class="text-sm text-muted mb-2">Position your face in the guide and click capture for each pose. ${totalCaptures} captures needed.</p>
                             
-                            <!-- Camera Preview with real video -->
+                            <!-- Camera Preview -->
                             <div class="face-camera-preview" id="cameraPreview">
-                                <!-- Video element -->
                                 <video id="cameraVideo" autoplay playsinline muted style="width:100%;border-radius:0.75rem;background:#0a0a15;object-fit:cover;transform:scaleX(-1);"></video>
                                 
-                                <!-- Face Guide Overlay -->
-                                <div class="face-overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;display:flex;align-items:center;justify-content:center;">
-                                    <div class="face-guide" id="faceGuide" style="width:200px;height:260px;border:2px dashed rgba(214,173,75,0.5);border-radius:50%;animation:pulse-guide 2s ease-in-out infinite;transition:border-color 0.3s;position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);"></div>
+                                <div class="face-overlay">
+                                    <div class="face-guide" id="faceGuide"></div>
                                 </div>
                                 
-                                <div class="camera-status" id="cameraStatus" style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:0.3rem 0.8rem;border-radius:0.5rem;font-size:0.7rem;width:auto;">
+                                <div class="camera-status" id="cameraStatus">
                                     <span class="status-dot loading"></span> Initializing camera...
                                 </div>
                                 
-                                <!-- Quality Panel -->
                                 <div class="quality-panel" id="qualityPanel">
                                     <div class="quality-row">Lighting <span class="good">✓</span></div>
                                     <div class="quality-row">Eyes <span class="good">✓</span></div>
                                     <div class="quality-row">Distance <span class="good">✓</span></div>
                                     <div class="quality-row">Blur <span class="good">✓</span></div>
                                     <div class="quality-row">Angle <span class="good">✓</span></div>
-                                    <div class="quality-row">Liveness <span class="waiting">○</span></div>
+                                    <div class="quality-row">Liveness <span class="warning">○</span></div>
                                     <div class="quality-row" style="border-top:1px solid #334155;padding-top:0.2rem;margin-top:0.2rem;">
                                         Overall <span id="overallQuality" style="color:#4ade80;font-weight:700;">86%</span>
                                     </div>
                                 </div>
 
-                                <!-- Capture Steps inside camera -->
                                 <div class="face-capture-steps-inline" id="captureStepsInline">
                                     ${captureInstructions.map((label, i) => `
                                         <div class="face-capture-step-inline ${i < faceCaptures.length ? 'done' : i === faceCaptures.length ? 'active' : ''}" id="step_${i}">
@@ -1517,17 +1638,15 @@
                                     `).join('')}
                                 </div>
 
-                                <!-- Progress Bar -->
                                 <div class="face-progress-inline">
                                     <div class="fill" id="faceProgressFill" style="width:${(faceCaptures.length / totalCaptures) * 100}%;"></div>
                                 </div>
                                 <div class="face-capture-info">
                                     <span id="captureCount">${faceCaptures.length} / ${totalCaptures}</span>
-                                    <span id="captureStatus">${faceCaptures.length === 0 ? 'Ready' : 'Capturing...'}</span>
+                                    <span id="captureStatus">${faceCaptures.length === 0 ? 'Ready' : faceCaptures.length >= totalCaptures ? '✅ Complete!' : 'Capturing...'}</span>
                                 </div>
                             </div>
 
-                            <!-- Quality Bar -->
                             <div class="face-quality-bar">
                                 <span class="quality-label">Quality</span>
                                 <div class="quality-track"><div class="fill" id="qualityFill" style="width:86%;background:#4ade80;"></div></div>
@@ -1537,12 +1656,17 @@
                             <!-- Action Buttons -->
                             <div class="flex gap-2 mt-2 flex-wrap">
                                 <button class="btn-success" id="captureBtn" onclick="window.captureFace()" ${isCapturing ? 'disabled' : ''} style="flex:1;justify-content:center;">
-                                    <i class="fas fa-camera"></i> ${faceCaptures.length === 0 ? 'Start Capture' : 'Capture Next'}
+                                    <i class="fas fa-camera"></i> ${faceCaptures.length === 0 ? 'Start Capture' : faceCaptures.length >= totalCaptures ? '✅ Complete' : `Capture ${faceCaptures.length + 1}/${totalCaptures}`}
                                 </button>
                                 ${faceCaptures.length > 0 ? `<button class="btn-outline" onclick="window.resetFaceCaptures()"><i class="fas fa-undo"></i> Reset</button>` : ''}
                                 ${faceCaptures.length >= totalCaptures ? `<button class="btn-primary" onclick="window.enrollFace()"><i class="fas fa-check"></i> Enroll Face</button>` : ''}
                             </div>
-                            <p class="text-xs text-muted mt-2"><i class="fas fa-info-circle"></i> ${faceDetected ? '✅ Face detected' : '⏳ Position your face in the guide'}</p>
+                            
+                            <p class="text-xs text-muted mt-2">
+                                <i class="fas fa-info-circle"></i> 
+                                ${faceDetected ? '✅ Face detected - Good quality!' : '⏳ Position your face in the guide'}
+                                ${faceCaptures.length >= totalCaptures ? ' 🎉 All captures complete!' : ''}
+                            </p>
                         </div>
                         ` : `
                         <div style="text-align:center;padding:0.75rem;">
@@ -1554,12 +1678,11 @@
                         </div>
                         `}
 
-                        <!-- Security Box -->
                         <div class="security-box">
                             <div class="security-icon"><i class="fas fa-shield-alt"></i></div>
                             <div class="security-text">
                                 <strong>Your facial image is NOT stored.</strong><br />
-                                The system stores only an encrypted mathematical template (Face Embedding) extracted from 468 facial landmarks.
+                                The system stores only an encrypted mathematical template extracted from 468 facial landmarks.
                             </div>
                         </div>
                     </div>
@@ -1581,7 +1704,6 @@
                             <div style="grid-column:span 2;text-align:center;padding:0.4rem;background:#dcfce7;border-radius:0.5rem;color:#065f46;font-weight:700;">✅ Ready for BedCheck</div>
                         </div>
 
-                        <!-- Declaration -->
                         <div class="mt-2 pt-2 border-t">
                             <div class="declaration-item">
                                 <input type="checkbox" id="declaration" ${studentData.declaration ? 'checked' : ''} onchange="window.updateField('declaration', this.checked);window.checkAutoAdvance();" />
@@ -1589,9 +1711,11 @@
                             </div>
                         </div>
 
-                        <div class="mt-2"><button class="btn-success" onclick="window.submitRegistration()" style="width:100%;justify-content:center;padding:0.75rem;font-size:1rem;">
-                            <i class="fas fa-check-circle"></i> Finish Registration
-                        </button></div>
+                        <div class="mt-2">
+                            <button class="btn-success" onclick="window.submitRegistration()" style="width:100%;justify-content:center;padding:0.75rem;font-size:1rem;">
+                                <i class="fas fa-check-circle"></i> Finish Registration
+                            </button>
+                        </div>
                         ` : `
                         <p class="text-muted text-sm">Please complete all previous steps including Face Enrollment.</p>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;margin-top:0.5rem;">
@@ -1607,6 +1731,7 @@
                     <div class="form-actions">
                         <button class="btn-outline" onclick="window.saveDraft()"><i class="fas fa-save"></i> Save Draft</button>
                         <button class="btn-outline" onclick="window.resetForm()"><i class="fas fa-undo"></i> Reset</button>
+                        ${studentData.face_enrolled ? `<button class="btn-gold" onclick="window.saveAndGoToDashboard()"><i class="fas fa-arrow-right"></i> Save & Go to Dashboard</button>` : ''}
                     </div>
                 `;
 
@@ -1964,6 +2089,7 @@
                         face_enrolled: false
                     };
                     faceCaptures = [];
+                    enrollmentComplete = false;
                     currentStep = 0;
                     localStorage.removeItem('studentRegistrationDraft');
                     renderRegistrationForm();
@@ -2082,7 +2208,7 @@
 
                             <div class="flex gap-2 mt-4 justify-center flex-wrap">
                                 <button class="btn-success" onclick="window.printSlip()"><i class="fas fa-print"></i> Print</button>
-                                <button class="btn-primary" onclick="window.resetRegistration()"><i class="fas fa-plus"></i> New Registration</button>
+                                <button class="btn-primary" onclick="window.saveAndGoToDashboard()"><i class="fas fa-arrow-right"></i> Go to Dashboard</button>
                             </div>
 
                             <p class="text-sm text-muted mt-3">
@@ -2109,6 +2235,7 @@
                     face_enrolled: false
                 };
                 faceCaptures = [];
+                enrollmentComplete = false;
                 currentStep = 0;
                 submitted = false;
                 localStorage.removeItem('studentRegistrationDraft');
@@ -2137,6 +2264,7 @@
             window.captureFace = captureFace;
             window.resetFaceCaptures = resetFaceCaptures;
             window.enrollFace = enrollFace;
+            window.saveAndGoToDashboard = saveAndGoToDashboard;
             window.printSlip = printSlip;
             window.startCamera = startCamera;
             window.stopCamera = stopCamera;
