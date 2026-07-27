@@ -339,14 +339,22 @@
 
       // ========== API HELPERS ==========
       async function apiCall(endpoint, opts = {}) {
-        const res = await fetch(`${API_BASE}${endpoint}`, {
-          ...opts,
-          headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!data.success) throw new Error(data.message || 'API error');
-        return data;
+        try {
+          const res = await fetch(`${API_BASE}${endpoint}`, {
+            ...opts,
+            headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+          });
+          if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`HTTP ${res.status}: ${errorText}`);
+          }
+          const data = await res.json();
+          if (!data.success) throw new Error(data.message || 'API error');
+          return data;
+        } catch (error) {
+          console.error('API Error:', error);
+          throw error;
+        }
       }
 
       function formatTime(d) {
@@ -479,29 +487,8 @@
 
       async function loadSessions() {
         try {
-          // Load from the sessions table (not bedcheck/sessions)
           const d = await apiCall('/sessions');
           sessions = d.data || [];
-          
-          // If no sessions exist, create a default one
-          if (sessions.length === 0) {
-            const today = new Date().toISOString().split('T')[0];
-            const newSession = await apiCall('/sessions', {
-              method: 'POST',
-              body: JSON.stringify({
-                date: today,
-                start_time: '22:00',
-                end_time: '23:59',
-                status: 'Scheduled',
-                hostels_completed: 0,
-                total_hostels: hostels.length || 11,
-                completion: 0
-              })
-            });
-            if (newSession.success) {
-              sessions = [newSession.data];
-            }
-          }
         } catch (e) {
           sessions = [];
           console.warn('Failed to load sessions:', e);
@@ -517,8 +504,12 @@
             sessionStatus = activeSession.status;
           } else {
             // Check submission state as fallback
-            const d = await apiCall('/submission');
-            sessionStatus = d.data?.state || 'Scheduled';
+            try {
+              const d = await apiCall('/submission');
+              sessionStatus = d.data?.state || 'Scheduled';
+            } catch (e) {
+              sessionStatus = 'Scheduled';
+            }
           }
         } catch (e) {
           sessionStatus = 'Scheduled';
@@ -527,13 +518,55 @@
         return sessionStatus;
       }
 
+      // ========== CREATE NEW SESSION (FIXED) ==========
+      async function createNewSession() {
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          
+          // Match your server's expected format exactly
+          const sessionData = {
+            date: today,
+            start_time: '22:00',
+            end_time: '23:59',
+            status: 'Scheduled',
+            hostels_completed: 0,
+            total_hostels: hostels.length || 11,
+            completion: 0
+          };
+
+          console.log('Creating session with data:', sessionData);
+
+          const d = await apiCall('/sessions', {
+            method: 'POST',
+            body: JSON.stringify(sessionData)
+          });
+
+          if (d.success) {
+            // Add to beginning of array
+            sessions.unshift(d.data);
+            showToast('New session created successfully!', 'success');
+            renderSessions();
+            return d.data;
+          }
+          return null;
+        } catch (e) {
+          console.error('Create session error:', e);
+          showToast('Failed to create session: ' + e.message, 'error');
+          return null;
+        }
+      }
+      window.createNewSession = createNewSession;
+
       // ========== UPDATE SESSION STATUS ==========
       async function updateSessionStatus(sessionId, newStatus) {
         try {
+          console.log(`Updating session ${sessionId} to ${newStatus}`);
+          
           const d = await apiCall(`/sessions/${sessionId}`, {
             method: 'PUT',
             body: JSON.stringify({ status: newStatus })
           });
+          
           if (d.success) {
             // Update local sessions array
             const idx = sessions.findIndex(s => s.id === sessionId);
@@ -547,35 +580,8 @@
             return d.data;
           }
         } catch (e) {
+          console.error('Update session error:', e);
           showToast('Failed to update session: ' + e.message, 'error');
-        }
-        return null;
-      }
-
-      // ========== CREATE NEW SESSION ==========
-      async function createNewSession() {
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          const d = await apiCall('/sessions', {
-            method: 'POST',
-            body: JSON.stringify({
-              date: today,
-              start_time: '22:00',
-              end_time: '23:59',
-              status: 'Scheduled',
-              hostels_completed: 0,
-              total_hostels: hostels.length || 11,
-              completion: 0
-            })
-          });
-          if (d.success) {
-            sessions.unshift(d.data);
-            showToast('New session created', 'success');
-            renderSessions();
-            return d.data;
-          }
-        } catch (e) {
-          showToast('Failed to create session: ' + e.message, 'error');
         }
         return null;
       }
@@ -658,16 +664,16 @@
           <div class="mt-4 border-t pt-4">
             <p class="text-xs text-muted">Session Controls</p>
             <div class="session-controls mt-2">
-              <button class="btn-primary success" onclick="handleSessionAction(${session.id}, 'Running')" ${session.status === 'Running' ? 'disabled' : ''}>
+              <button class="btn-primary success" onclick="window.handleSessionAction(${session.id}, 'Running')" ${session.status === 'Running' ? 'disabled' : ''}>
                 <i class="fas fa-play"></i> Start
               </button>
-              <button class="btn-primary" onclick="handleSessionAction(${session.id}, 'Submitted')" ${session.status === 'Submitted' ? 'disabled' : ''}>
+              <button class="btn-primary" onclick="window.handleSessionAction(${session.id}, 'Submitted')" ${session.status === 'Submitted' ? 'disabled' : ''}>
                 <i class="fas fa-paper-plane"></i> Submit
               </button>
-              <button class="btn-primary danger" onclick="handleSessionAction(${session.id}, 'Closed')" ${session.status === 'Closed' ? 'disabled' : ''}>
+              <button class="btn-primary danger" onclick="window.handleSessionAction(${session.id}, 'Closed')" ${session.status === 'Closed' ? 'disabled' : ''}>
                 <i class="fas fa-stop"></i> Close
               </button>
-              <button class="btn-primary" onclick="handleSessionAction(${session.id}, 'Locked')" ${session.status === 'Locked' ? 'disabled' : ''}>
+              <button class="btn-primary" onclick="window.handleSessionAction(${session.id}, 'Locked')" ${session.status === 'Locked' ? 'disabled' : ''}>
                 <i class="fas fa-lock"></i> Lock
               </button>
             </div>
@@ -849,7 +855,7 @@
                 <p class="font-bold text-sm">Quick Actions</p>
                 <div class="mt-3" style="display:flex;flex-direction:column;gap:0.5rem;">
                   ${sessions.length > 0 ? `
-                    <button class="btn-primary success" onclick="window.handleSessionAction(${sessions[0].id}, 'Running')" style="width:100%;justify-content:center;">
+                    <button class="btn-primary success" onclick="window.handleSessionAction(${sessions[0].id}, 'Running')" style="width:100%;justify-content:center;" ${sessions[0].status === 'Running' ? 'disabled' : ''}>
                       <i class="fas fa-play"></i> Start Latest Session
                     </button>
                   ` : ''}
@@ -896,12 +902,7 @@
       };
 
       window.viewAllSessions = function() {
-        showToast('Showing all ${sessions.length} sessions', 'info');
-        // Could navigate to a full session list page
-      };
-
-      window.createNewSession = function() {
-        createNewSession();
+        showToast(`Showing all ${sessions.length} sessions`, 'info');
       };
 
       // ========== REFRESH ==========
