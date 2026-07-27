@@ -1096,7 +1096,7 @@
         }
 
         // =============================================
-        // RENDER ROOM TABLE - FIXED
+        // RENDER ROOM TABLE
         // =============================================
         function renderRoomTable(floorValue) {
             const tbody = document.getElementById('roomTableBody');
@@ -1139,13 +1139,11 @@
         }
 
         // =============================================
-        // ROOM DRAWER - FIXED
+        // ROOM DRAWER
         // =============================================
         async function openRoomDrawer(roomId) {
-            // Try to find the room by ID (as number or string)
             let room = allRooms.find(r => String(r.id) === String(roomId));
             
-            // If not found, try to find by room_code
             if (!room) {
                 room = allRooms.find(r => r.room_code === roomId || r.full_code === roomId);
             }
@@ -1300,11 +1298,13 @@
             document.getElementById('addRoomModal').classList.remove('show');
         }
 
+        // =============================================
+        // SAVE ROOM - FIXED: Only use valid bed statuses
+        // =============================================
         async function saveRoom() {
             const floorFlat = document.getElementById('roomFloorFlat').value;
             const roomCode = document.getElementById('roomCode').value.trim();
             const capacity = parseInt(document.getElementById('roomCapacity').value);
-            const status = document.getElementById('roomStatus').value;
             const autoCreateBeds = document.getElementById('autoCreateBeds').checked;
             
             if (!floorFlat) {
@@ -1351,13 +1351,14 @@
                 if (autoCreateBeds) {
                     const bedLabels = getBedLabels(capacity);
                     for (const label of bedLabels.slice(0, capacity)) {
+                        // Always use 'available' for new beds - this is a valid status
                         await apiCall('/bed-spaces', {
                             method: 'POST',
                             body: JSON.stringify({
                                 room_id: newRoom.id,
                                 bed_code: label,
                                 full_bed_code: `${roomCode}-${label}`,
-                                status: 'available'
+                                status: 'available'  // ✅ Valid status
                             })
                         });
                     }
@@ -1371,6 +1372,7 @@
                 const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
                 allBedSpaces = refreshedBeds;
                 
+                // Re-render the floor selector and room table
                 renderFloorSelector();
                 if (selectedFloor) {
                     renderRoomTable(selectedFloor);
@@ -1410,6 +1412,9 @@
             document.getElementById('assignStudentModal').classList.remove('show');
         }
 
+        // =============================================
+        // ASSIGN STUDENT TO BED - FIXED: Uses valid statuses
+        // =============================================
         async function assignStudentToBed() {
             const studentId = document.getElementById('studentSelect').value;
             if (!studentId) {
@@ -1432,22 +1437,29 @@
                 let bed = allBedSpaces.find(b => String(b.room_id) === String(selectedRoom.id) && b.bed_code === selectedBed);
                 
                 if (!bed) {
+                    // Create new bed with 'occupied' status (valid)
                     const bedResponse = await apiCall('/bed-spaces', {
                         method: 'POST',
                         body: JSON.stringify({
                             room_id: selectedRoom.id,
                             bed_code: selectedBed,
                             full_bed_code: `${selectedRoom.room_code}-${selectedBed}`,
-                            status: 'occupied'
+                            status: 'occupied'  // ✅ Valid status
                         })
                     });
                     bed = bedResponse.data;
                     allBedSpaces.push(bed);
                 } else {
+                    // Check if bed is available
+                    if (bed.status !== 'available') {
+                        showToast('This bed is not available', 'warning');
+                        return;
+                    }
+                    // Update to 'occupied' (valid)
                     await apiCall(`/bed-spaces/${bed.id}`, {
                         method: 'PUT',
                         body: JSON.stringify({
-                            status: 'occupied',
+                            status: 'occupied',  // ✅ Valid status
                             student_id: student.id
                         })
                     });
@@ -1472,6 +1484,9 @@
             }
         }
 
+        // =============================================
+        // REMOVE STUDENT FROM BED - FIXED: Uses valid statuses
+        // =============================================
         async function removeStudentFromBed(roomId, bedLabel) {
             const room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) return;
@@ -1488,10 +1503,11 @@
             }
             
             try {
+                // Set to 'available' (valid)
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        status: 'available',
+                        status: 'available',  // ✅ Valid status
                         student_id: null
                     })
                 });
@@ -1515,20 +1531,28 @@
             }
         }
 
+        // =============================================
+        // MARK BED MAINTENANCE - FIXED: Uses valid statuses
+        // =============================================
         async function markBedMaintenance(roomId, bedLabel) {
             const room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) return;
             
             const bed = allBedSpaces.find(b => String(b.room_id) === String(roomId) && b.bed_code === bedLabel);
-            if (!bed) return;
+            if (!bed) {
+                showToast('Bed not found', 'error');
+                return;
+            }
             
             try {
+                // Toggle between 'available' and 'maintenance' (both valid)
                 const newStatus = bed.status === 'maintenance' ? 'available' : 'maintenance';
+                
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        status: newStatus,
-                        student_id: bed.status === 'maintenance' ? null : bed.student_id
+                        status: newStatus,  // ✅ Valid status: 'available' or 'maintenance'
+                        student_id: newStatus === 'available' ? null : bed.student_id
                     })
                 });
                 
