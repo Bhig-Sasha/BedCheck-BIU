@@ -518,28 +518,6 @@
             text-align: right;
         }
 
-        /* Security Box */
-        .security-box {
-            background: #f0f4f8;
-            border: 1px solid #d6ad4b;
-            border-radius: 0.75rem;
-            padding: 0.75rem;
-            margin: 0.5rem 0;
-            display: flex;
-            gap: 0.5rem;
-            align-items: flex-start;
-        }
-        .security-box .security-icon {
-            font-size: 1.2rem;
-            color: #d6ad4b;
-            flex-shrink: 0;
-        }
-        .security-box .security-text {
-            font-size: 0.7rem;
-            color: #475569;
-        }
-        .security-box .security-text strong { color: #10233f; }
-
         /* Loading spinner */
         .loading-spinner {
             display: flex;
@@ -695,7 +673,7 @@
             'use strict';
 
             // =============================================
-            // STUDENT REGISTRATION - REAL FACE ENROLLMENT
+            // STUDENT REGISTRATION - Face++ Integration
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -752,9 +730,9 @@
                 status: 'Active',
                 notes: '',
                 declaration: false,
-                face_embedding: null,
-                face_template_id: null,
-                face_enrolled: false
+                face_token: null,
+                face_enrolled: false,
+                face_template_id: null
             };
 
             const facultyDepartments = {
@@ -1059,59 +1037,6 @@
                 }
             }
 
-            // ---------- EXTRACT FACE EMBEDDING ----------
-            function extractFaceEmbedding(landmarks) {
-                if (!landmarks || landmarks.length < 468) {
-                    return null;
-                }
-
-                try {
-                    const keyIndices = [
-                        1, 33, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95, 98, 101, 105, 109, 112, 115, 119, 122, 125, 128,
-                        132, 133, 136, 140, 144, 145, 147, 148, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160, 161,
-                        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
-                        181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199,
-                        200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218,
-                        219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237,
-                        238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256,
-                        257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275,
-                        276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289, 290, 291, 292, 293, 294,
-                        295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313,
-                        314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332,
-                        333, 334, 335, 336, 337, 338, 339, 340, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351,
-                        352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366, 367, 368, 369, 370,
-                        371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389,
-                        390, 391, 392, 393, 394, 395, 396, 397, 398, 399, 400, 401, 402, 403, 404, 405, 406, 407, 408,
-                        409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 424, 425, 426, 427,
-                        428, 429, 430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446,
-                        447, 448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 462, 463, 464, 465,
-                        466, 467
-                    ];
-
-                    const embedding = [];
-                    keyIndices.forEach(idx => {
-                        if (idx < landmarks.length) {
-                            embedding.push(landmarks[idx].x || 0);
-                            embedding.push(landmarks[idx].y || 0);
-                            embedding.push(landmarks[idx].z || 0);
-                        }
-                    });
-
-                    while (embedding.length < 512) {
-                        embedding.push(0);
-                    }
-
-                    const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
-                    if (norm > 0) {
-                        return embedding.map(v => v / norm);
-                    }
-                    return embedding;
-                } catch (error) {
-                    console.error('Embedding extraction error:', error);
-                    return null;
-                }
-            }
-
             // ---------- CAPTURE FACE ----------
             function captureFace() {
                 if (isCapturing || faceCaptures.length >= totalCaptures) return;
@@ -1147,28 +1072,13 @@
                     context.restore();
                     
                     const imageData = canvas.toDataURL('image/jpeg', 0.9);
-                    
-                    let embedding = null;
-                    if (faceLandmarks) {
-                        embedding = extractFaceEmbedding(faceLandmarks);
-                    }
-                    
-                    if (!embedding) {
-                        const seed = currentQuality / 100;
-                        embedding = generateSimulatedEmbedding(seed);
-                    }
-                    
-                    const quality = currentQuality || 70;
-                    const liveness = faceDetected ? 92 + Math.random() * 6 : 70;
 
                     faceCaptures.push({
                         index: faceCaptures.length,
                         timestamp: Date.now(),
                         imageData: imageData,
-                        embedding: embedding,
-                        quality: quality,
-                        liveness: liveness,
-                        landmarks: faceLandmarks ? JSON.stringify(faceLandmarks.map(l => ({x: l.x, y: l.y, z: l.z}))) : null
+                        quality: currentQuality || 70,
+                        liveness: faceDetected ? 92 + Math.random() * 6 : 70
                     });
 
                     const stepEl = document.getElementById(`step_${faceCaptures.length - 1}`);
@@ -1248,18 +1158,7 @@
                 }
             }
 
-            // ---------- SIMULATED EMBEDDING (Fallback) ----------
-            function generateSimulatedEmbedding(seed) {
-                const embedding = [];
-                for (let i = 0; i < 512; i++) {
-                    const val = Math.sin(seed * 100 + i * 1.7) * 0.8 + Math.cos(i * 0.3) * 0.2;
-                    embedding.push(val);
-                }
-                const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
-                return embedding.map(v => v / norm);
-            }
-
-            // ---------- ENROLL FACE ----------
+            // ---------- ENROLL FACE (UPDATED FOR Face++) ----------
             async function enrollFace() {
                 if (faceCaptures.length < totalCaptures) {
                     showToast(`Please capture all ${totalCaptures} faces first.`, 'error');
@@ -1275,27 +1174,31 @@
                     return;
                 }
 
-                showToast('Generating face template...', 'info');
+                showToast('Processing face with Face++...', 'info');
                 
                 try {
                     const statusEl = document.getElementById('captureStatus');
                     const progressFill = document.getElementById('faceProgressFill');
                     
-                    const embeddings = faceCaptures.map(c => c.embedding || generateSimulatedEmbedding(c.quality / 100));
-                    const qualityScores = faceCaptures.map(c => c.quality || 70);
-                    const livenessScores = faceCaptures.map(c => c.liveness || 90);
-                    const captureLabels = captureInstructions.slice(0, faceCaptures.length);
-
+                    // Use the best quality capture for enrollment (last one or highest quality)
+                    const bestCapture = faceCaptures.reduce((a, b) => 
+                        (a.quality || 0) > (b.quality || 0) ? a : b
+                    );
+                    
+                    // First, create or get student record
                     let existingStudent = null;
+                    let studentId = 0;
+
                     try {
+                        // Check if student already exists by matric
                         const searchRes = await apiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
                         if (searchRes.data && searchRes.data.length > 0) {
                             existingStudent = searchRes.data[0];
+                            studentId = existingStudent.id;
                         }
                     } catch (e) {}
 
-                    let studentId = existingStudent?.id || 0;
-
+                    // If student doesn't exist, create them first
                     if (!existingStudent) {
                         showToast('Creating student record...', 'info');
                         const hostel = hostels.find(h => h.id == parseInt(studentData.hostel_id));
@@ -1349,19 +1252,15 @@
                         }
                     }
 
-                    showToast('Enrolling face...', 'info');
+                    // Now enroll face using Face++ via server
+                    showToast('Enrolling face with Face++...', 'info');
                     
-                    const enrollResponse = await fetch(`${API_BASE}/face-templates/enroll`, {
+                    const enrollResponse = await fetch(`${API_BASE}/students/enroll-face`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             student_id: studentId,
-                            embeddings: embeddings,
-                            capture_labels: captureLabels,
-                            quality_scores: qualityScores,
-                            liveness_scores: livenessScores,
-                            device_info: navigator.userAgent || 'web',
-                            ip_address: 'client-side'
+                            image: bestCapture.imageData
                         })
                     });
 
@@ -1369,13 +1268,13 @@
 
                     if (enrollResult.success) {
                         studentData.face_enrolled = true;
-                        studentData.face_embedding = embeddings[0];
-                        studentData.face_template_id = enrollResult.data.template_id;
+                        studentData.face_token = enrollResult.data.face_token;
+                        studentData.face_template_id = enrollResult.data.student?.face_template_id || null;
                         
                         if (progressFill) progressFill.style.width = '100%';
-                        if (statusEl) statusEl.textContent = '✅ Enrolled!';
+                        if (statusEl) statusEl.textContent = '✅ Enrolled with Face++!';
                         
-                        showToast('✅ Face successfully enrolled!', 'success');
+                        showToast('✅ Face successfully enrolled with Face++!', 'success');
                         saveDraft(true);
                         
                         stopCamera();
@@ -1407,7 +1306,7 @@
                     stopCamera();
                     faceCaptures = [];
                     studentData.face_enrolled = false;
-                    studentData.face_embedding = null;
+                    studentData.face_token = null;
                     studentData.face_template_id = null;
                     enrollmentComplete = false;
                     currentStep = 3;
@@ -1428,7 +1327,7 @@
                             const parsed = JSON.parse(savedDraft);
                             if (Object.values(parsed).some(v => v !== '' && v !== false && v !== null)) {
                                 studentData = parsed;
-                                if (studentData.face_embedding) {
+                                if (studentData.face_token) {
                                     studentData.face_enrolled = true;
                                 }
                                 showToast('Draft loaded. Continue where you left off.', 'info');
@@ -1639,7 +1538,7 @@
                                     <i class="fas fa-camera"></i> ${faceCaptures.length === 0 ? 'Start Capture' : faceCaptures.length >= totalCaptures ? '✅ Complete' : `Capture ${faceCaptures.length + 1}/${totalCaptures}`}
                                 </button>
                                 ${faceCaptures.length > 0 ? `<button class="btn-outline" onclick="window.resetFaceCaptures()"><i class="fas fa-undo"></i> Reset</button>` : ''}
-                                ${faceCaptures.length >= totalCaptures ? `<button class="btn-primary" onclick="window.enrollFace()"><i class="fas fa-check"></i> Enroll Face</button>` : ''}
+                                ${faceCaptures.length >= totalCaptures ? `<button class="btn-primary" onclick="window.enrollFace()"><i class="fas fa-check"></i> Enroll Face (Face++)</button>` : ''}
                             </div>
                             
                             <p class="text-xs text-muted mt-2">
@@ -1651,20 +1550,13 @@
                         ` : `
                         <div style="text-align:center;padding:0.75rem;">
                             <div style="font-size:2.5rem;color:#4ade80;">✅</div>
-                            <h3 class="font-bold text-green">Face Successfully Enrolled</h3>
+                            <h3 class="font-bold text-green">Face Successfully Enrolled with Face++</h3>
                             <p class="text-sm text-muted">${totalCaptures} captures · Quality: ${Math.round(faceCaptures.reduce((sum, c) => sum + c.quality, 0) / faceCaptures.length || 0)}%</p>
+                            ${studentData.face_token ? `<p class="text-xs text-muted">Face Token: ${studentData.face_token}</p>` : ''}
                             ${studentData.face_template_id ? `<p class="text-xs text-muted">Template ID: ${studentData.face_template_id}</p>` : ''}
                             <button class="btn-outline mt-2" onclick="window.resetFaceCaptures()"><i class="fas fa-redo"></i> Re-enroll</button>
                         </div>
                         `}
-
-                        <div class="security-box">
-                            <div class="security-icon"><i class="fas fa-shield-alt"></i></div>
-                            <div class="security-text">
-                                <strong>Your facial image is NOT stored.</strong><br />
-                                The system stores only an encrypted mathematical template extracted from 468 facial landmarks.
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Section 5: Complete -->
@@ -2062,7 +1954,7 @@
                         hostel_name: '', floor_name: '', room_code: '', bed_code: '',
                         status: 'Active', notes: '',
                         declaration: false,
-                        face_embedding: null,
+                        face_token: null,
                         face_template_id: null,
                         face_enrolled: false
                     };
@@ -2121,7 +2013,7 @@
                     bed_code: bed?.bed_code || studentData.bed_code || null,
                     status: 'Active',
                     notes: studentData.notes || null,
-                    face_embedding: studentData.face_embedding || null,
+                    face_token: studentData.face_token || null,
                     face_template_id: studentData.face_template_id || null,
                     face_enrolled: true,
                     enrollment_date: new Date().toISOString()
@@ -2181,7 +2073,8 @@
                                     <div class="detail-row"><span class="detail-label">Hostel</span><span class="detail-value">${hostelName}</span></div>
                                     <div class="detail-row"><span class="detail-label">Room</span><span class="detail-value">${roomCode}</span></div>
                                     <div class="detail-row"><span class="detail-label">Bed</span><span class="detail-value">${bedCode}</span></div>
-                                    ${studentData.face_template_id ? `<div class="detail-row"><span class="detail-label">Face ID</span><span class="detail-value" style="font-size:0.6rem;font-family:monospace;color:#d6ad4b;">${studentData.face_template_id}</span></div>` : ''}
+                                    ${studentData.face_token ? `<div class="detail-row"><span class="detail-label">Face Token</span><span class="detail-value" style="font-size:0.6rem;font-family:monospace;color:#d6ad4b;">${studentData.face_token}</span></div>` : ''}
+                                    ${studentData.face_template_id ? `<div class="detail-row"><span class="detail-label">Template ID</span><span class="detail-value" style="font-size:0.6rem;font-family:monospace;color:#d6ad4b;">${studentData.face_template_id}</span></div>` : ''}
                                     <div class="detail-row"><span class="detail-label">Reference</span><span class="detail-value" style="font-size:0.75rem;">${refNumber}</span></div>
                                 </div>
                             </div>
@@ -2192,7 +2085,7 @@
                             </div>
 
                             <p class="text-sm text-muted mt-3">
-                                <i class="fas fa-info-circle"></i> Your face is enrolled for BedCheck verification.
+                                <i class="fas fa-info-circle"></i> Your face is enrolled for BedCheck verification using Face++.
                             </p>
                         </div>
                     </div>
@@ -2210,7 +2103,7 @@
                     hostel_name: '', floor_name: '', room_code: '', bed_code: '',
                     status: 'Active', notes: '',
                     declaration: false,
-                    face_embedding: null,
+                    face_token: null,
                     face_template_id: null,
                     face_enrolled: false
                 };

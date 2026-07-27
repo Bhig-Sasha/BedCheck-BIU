@@ -1,10 +1,12 @@
-// server.js - Supabase Version with Unified Staff Table & Full Audit System
+// server.js - Supabase Version with Face++ Face Recognition & Full Audit System
 // Optimized for Render.com Deployment
 
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const bcrypt = require('bcrypt');
+const axios = require('axios');
+const FormData = require('form-data');
 require('dotenv').config();
 
 const app = express();
@@ -27,6 +29,239 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// =====================================================
+// FACE++ CONFIGURATION
+// =====================================================
+
+// IMPORTANT: Replace these with your regenerated keys!
+const FACE_PP_API_KEY = process.env.FACE_PP_API_KEY || '';
+const FACE_PP_API_SECRET = process.env.FACE_PP_API_SECRET || '';
+const FACE_PP_API_URL = process.env.FACE_PP_API_URL || 'https://api-us.faceplusplus.com/facepp/v3';
+const FACE_PP_FACESET_TOKEN = process.env.FACE_PP_FACESET_TOKEN || '';
+
+console.log('🔐 Face++ API Key:', FACE_PP_API_KEY ? '✅ Configured' : '❌ Missing');
+console.log('🔐 Face++ API Secret:', FACE_PP_API_SECRET ? '✅ Configured' : '❌ Missing');
+console.log('🔐 Face++ FaceSet Token:', FACE_PP_FACESET_TOKEN ? '✅ Configured' : '❌ Missing');
+
+// =====================================================
+// FACE++ SERVICE
+// =====================================================
+
+class FacePlusPlusService {
+    constructor(apiKey, apiSecret) {
+        this.apiKey = apiKey;
+        this.apiSecret = apiSecret;
+        this.baseUrl = FACE_PP_API_URL;
+    }
+
+    async detectFace(imageBase64) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            
+            const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(base64Data, 'base64');
+            formData.append('image_file', buffer, {
+                filename: 'face.jpg',
+                contentType: 'image/jpeg'
+            });
+            formData.append('return_landmark', '0');
+            formData.append('return_attributes', 'gender,age,smiling,eyestatus');
+
+            const response = await axios.post(`${this.baseUrl}/detect`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            if (response.data.faces && response.data.faces.length > 0) {
+                const face = response.data.faces[0];
+                return {
+                    success: true,
+                    face_token: face.face_token,
+                    attributes: face.attributes || {},
+                    face_rectangle: face.face_rectangle || {},
+                    confidence: 1.0
+                };
+            } else {
+                return {
+                    success: false,
+                    error: 'No face detected in the image',
+                    code: 'NO_FACE_DETECTED'
+                };
+            }
+        } catch (error) {
+            console.error('Face++ detect error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+
+    async addFaceToSet(faceToken, facesetToken = FACE_PP_FACESET_TOKEN) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
+            formData.append('face_tokens', faceToken);
+
+            const response = await axios.post(`${this.baseUrl}/faceset/addface`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            return {
+                success: true,
+                data: response.data
+            };
+        } catch (error) {
+            console.error('Face++ add face error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+
+    async searchFace(imageBase64, facesetToken = FACE_PP_FACESET_TOKEN) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            
+            const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(base64Data, 'base64');
+            formData.append('image_file', buffer, {
+                filename: 'face.jpg',
+                contentType: 'image/jpeg'
+            });
+            
+            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
+            formData.append('return_result_count', '10');
+
+            const response = await axios.post(`${this.baseUrl}/search`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            if (response.data.results && response.data.results.length > 0) {
+                return {
+                    success: true,
+                    results: response.data.results.map(result => ({
+                        face_token: result.face_token,
+                        confidence: result.confidence,
+                        threshold: response.data.thresholds || {}
+                    })),
+                    thresholds: response.data.thresholds || {}
+                };
+            } else {
+                return {
+                    success: true,
+                    results: [],
+                    message: 'No matching faces found'
+                };
+            }
+        } catch (error) {
+            console.error('Face++ search error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+
+    async compareFaces(faceToken1, faceToken2) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            formData.append('face_token1', faceToken1);
+            formData.append('face_token2', faceToken2);
+
+            const response = await axios.post(`${this.baseUrl}/compare`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            return {
+                success: true,
+                confidence: response.data.confidence,
+                thresholds: response.data.thresholds || {}
+            };
+        } catch (error) {
+            console.error('Face++ compare error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+
+    async getFaceDetail(faceToken) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            formData.append('face_token', faceToken);
+            formData.append('return_landmark', '0');
+            formData.append('return_attributes', 'gender,age,smiling,eyestatus');
+
+            const response = await axios.post(`${this.baseUrl}/face/getdetail`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            return {
+                success: true,
+                data: response.data
+            };
+        } catch (error) {
+            console.error('Face++ get detail error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+
+    async removeFaceFromSet(faceToken, facesetToken = FACE_PP_FACESET_TOKEN) {
+        try {
+            const formData = new FormData();
+            formData.append('api_key', this.apiKey);
+            formData.append('api_secret', this.apiSecret);
+            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
+            formData.append('face_tokens', faceToken);
+
+            const response = await axios.post(`${this.baseUrl}/faceset/removeface`, formData, {
+                headers: { ...formData.getHeaders() },
+                timeout: 30000
+            });
+
+            return {
+                success: true,
+                data: response.data
+            };
+        } catch (error) {
+            console.error('Face++ remove face error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error_message || error.message,
+                code: error.response?.data?.error_code || 'API_ERROR'
+            };
+        }
+    }
+}
+
+// Initialize Face++ service
+const faceService = new FacePlusPlusService(FACE_PP_API_KEY, FACE_PP_API_SECRET);
 
 // =====================================================
 // MIDDLEWARE
@@ -61,8 +296,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use((req, res, next) => {
   req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.connection?.remoteAddress || 'unknown';
@@ -82,7 +317,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'BIU BedCheck API',
-    version: '1.0.0',
+    version: '2.0.0',
     status: 'running',
     endpoints: '/api/*',
     health: '/health'
@@ -989,6 +1224,561 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
 });
 
 // =====================================================
+// FACE++ ENDPOINTS
+// =====================================================
+
+// Detect face from image
+app.post('/api/face/detect', async (req, res) => {
+    try {
+        const { image, student_id } = req.body;
+        
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Image is required'
+            });
+        }
+
+        const result = await faceService.detectFace(image);
+        
+        if (result.success) {
+            if (student_id) {
+                await supabase
+                    .from('students')
+                    .update({ face_token: result.face_token })
+                    .eq('id', student_id);
+            }
+            
+            res.json({
+                success: true,
+                data: {
+                    face_token: result.face_token,
+                    attributes: result.attributes,
+                    face_rectangle: result.face_rectangle
+                }
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Face detection failed'
+            });
+        }
+    } catch (error) {
+        console.error('Face detection error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Add face to FaceSet
+app.post('/api/face/add-to-set', async (req, res) => {
+    try {
+        const { face_token, student_id } = req.body;
+        
+        if (!face_token) {
+            return res.status(400).json({
+                success: false,
+                message: 'face_token is required'
+            });
+        }
+
+        const result = await faceService.addFaceToSet(face_token);
+        
+        if (result.success) {
+            if (student_id) {
+                await supabase
+                    .from('students')
+                    .update({ face_enrolled: true })
+                    .eq('id', student_id);
+            }
+            
+            res.json({
+                success: true,
+                data: result.data
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Failed to add face to set'
+            });
+        }
+    } catch (error) {
+        console.error('Add face to set error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Search face in FaceSet
+app.post('/api/face/search', async (req, res) => {
+    try {
+        const { image, room_id, hostel_id, threshold = 80 } = req.body;
+        
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Image is required'
+            });
+        }
+
+        const result = await faceService.searchFace(image);
+        
+        if (!result.success) {
+            return res.status(400).json({
+                success: false,
+                message: result.error || 'Face search failed'
+            });
+        }
+
+        let matchedStudents = [];
+        let bestMatch = null;
+
+        if (result.results && result.results.length > 0) {
+            let query = supabase.from('students').select('id, name, matric, room_code, hostel_id, face_token, face_enrolled');
+            
+            if (room_id) {
+                query = query.eq('room_id', room_id);
+            } else if (hostel_id) {
+                query = query.eq('hostel_id', hostel_id);
+            }
+            
+            const { data: students, error } = await query;
+            
+            if (!error && students) {
+                result.results.forEach(match => {
+                    const student = students.find(s => s.face_token === match.face_token);
+                    if (student && match.confidence >= threshold) {
+                        matchedStudents.push({
+                            ...student,
+                            confidence: match.confidence
+                        });
+                    }
+                });
+                
+                if (matchedStudents.length > 0) {
+                    bestMatch = matchedStudents.reduce((a, b) => 
+                        a.confidence > b.confidence ? a : b
+                    );
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            data: {
+                results: result.results,
+                matched_students: matchedStudents,
+                best_match: bestMatch,
+                thresholds: result.thresholds,
+                total_matches: result.results.length
+            }
+        });
+    } catch (error) {
+        console.error('Face search error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Compare two face tokens
+app.post('/api/face/compare', async (req, res) => {
+    try {
+        const { face_token1, face_token2 } = req.body;
+        
+        if (!face_token1 || !face_token2) {
+            return res.status(400).json({
+                success: false,
+                message: 'Both face tokens are required'
+            });
+        }
+
+        const result = await faceService.compareFaces(face_token1, face_token2);
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                data: {
+                    confidence: result.confidence,
+                    thresholds: result.thresholds,
+                    is_match: result.confidence >= result.thresholds?.['1e-5'] || 80
+                }
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Face comparison failed'
+            });
+        }
+    } catch (error) {
+        console.error('Face comparison error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Get face details
+app.get('/api/face/detail/:faceToken', async (req, res) => {
+    try {
+        const { faceToken } = req.params;
+        
+        if (!faceToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'face_token is required'
+            });
+        }
+
+        const result = await faceService.getFaceDetail(faceToken);
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                data: result.data
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Failed to get face details'
+            });
+        }
+    } catch (error) {
+        console.error('Get face detail error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Remove face from FaceSet
+app.delete('/api/face/remove/:faceToken', async (req, res) => {
+    try {
+        const { faceToken } = req.params;
+        const { student_id } = req.body;
+        
+        if (!faceToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'face_token is required'
+            });
+        }
+
+        const result = await faceService.removeFaceFromSet(faceToken);
+        
+        if (result.success) {
+            if (student_id) {
+                await supabase
+                    .from('students')
+                    .update({ 
+                        face_token: null,
+                        face_enrolled: false,
+                        face_template_id: null
+                    })
+                    .eq('id', student_id);
+            }
+            
+            res.json({
+                success: true,
+                message: 'Face removed from set successfully',
+                data: result.data
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Failed to remove face from set'
+            });
+        }
+    } catch (error) {
+        console.error('Remove face error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT FACE ENROLLMENT (Updated with Face++)
+// =====================================================
+
+app.post('/api/students/enroll-face', async (req, res) => {
+    try {
+        const { 
+            student_id,
+            image,
+            name,
+            matric,
+            hostel_id,
+            room_id,
+            bed_space_id
+        } = req.body;
+
+        if (!student_id && !matric) {
+            return res.status(400).json({
+                success: false,
+                message: 'student_id or matric is required'
+            });
+        }
+
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image is required'
+            });
+        }
+
+        let studentQuery = supabase.from('students').select('*');
+        if (student_id) {
+            studentQuery = studentQuery.eq('id', student_id);
+        } else if (matric) {
+            studentQuery = studentQuery.eq('matric', matric);
+        }
+        
+        const { data: student, error: studentError } = await studentQuery.single();
+        
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        const detectResult = await faceService.detectFace(image);
+        
+        if (!detectResult.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face detection failed: ' + detectResult.error
+            });
+        }
+
+        const addResult = await faceService.addFaceToSet(detectResult.face_token);
+        
+        if (!addResult.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to add face to set: ' + addResult.error
+            });
+        }
+
+        const { data: updatedStudent, error: updateError } = await supabase
+            .from('students')
+            .update({
+                face_token: detectResult.face_token,
+                face_enrolled: true,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', student.id)
+            .select()
+            .single();
+
+        if (updateError) {
+            console.error('Update student error:', updateError);
+            await faceService.removeFaceFromSet(detectResult.face_token);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update student record'
+            });
+        }
+
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'Student',
+            actor_id: student.id,
+            actor_role: req.headers['x-staff-role'] || 'Student',
+            action: 'Face Enrolled',
+            module: 'face',
+            details: `${student.name} (${student.matric}) enrolled face successfully`,
+            context: `Face Token: ${detectResult.face_token}`,
+            result: 'success',
+            category: 'face',
+            tone: 'green',
+            hostel_id: student.hostel_id,
+            room_id: student.room_id,
+            student_id: student.id
+        });
+
+        res.json({
+            success: true,
+            data: {
+                student: updatedStudent,
+                face_token: detectResult.face_token,
+                face_attributes: detectResult.attributes
+            }
+        });
+
+    } catch (error) {
+        console.error('Face enrollment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT FACE VERIFICATION (Updated with Face++)
+// =====================================================
+
+app.post('/api/students/verify-face', async (req, res) => {
+    try {
+        const { 
+            student_id,
+            image,
+            room_id,
+            hostel_id,
+            threshold = 80
+        } = req.body;
+
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image is required'
+            });
+        }
+
+        const searchResult = await faceService.searchFace(image);
+        
+        if (!searchResult.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face search failed: ' + searchResult.error
+            });
+        }
+
+        let query = supabase.from('students').select('id, name, matric, room_code, hostel_id, face_token, face_enrolled');
+        
+        if (student_id) {
+            query = query.eq('id', student_id);
+        } else if (room_id) {
+            query = query.eq('room_id', room_id);
+        } else if (hostel_id) {
+            query = query.eq('hostel_id', hostel_id);
+        }
+        
+        const { data: students, error } = await query;
+        
+        if (error) {
+            console.error('Fetch students error:', error);
+        }
+
+        let matchedStudent = null;
+        let bestMatch = null;
+
+        if (students && students.length > 0) {
+            searchResult.results.forEach(match => {
+                const student = students.find(s => s.face_token === match.face_token);
+                if (student && match.confidence >= threshold) {
+                    if (!bestMatch || match.confidence > bestMatch.confidence) {
+                        bestMatch = {
+                            ...student,
+                            confidence: match.confidence
+                        };
+                    }
+                }
+            });
+            
+            matchedStudent = bestMatch;
+        }
+
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'RA',
+            actor_id: getStaffId(req),
+            actor_role: req.headers['x-staff-role'] || 'RA',
+            action: matchedStudent ? 'Face Verified' : 'Face Verification Failed',
+            module: 'face',
+            details: matchedStudent 
+                ? `${matchedStudent.name} (${matchedStudent.matric}) verified with ${matchedStudent.confidence}% confidence`
+                : `Face verification failed - no match found`,
+            context: `Room: ${room_id || 'N/A'}, Hostel: ${hostel_id || 'N/A'}`,
+            result: matchedStudent ? 'success' : 'failed',
+            category: 'face',
+            tone: matchedStudent ? 'green' : 'red',
+            hostel_id: hostel_id,
+            room_id: room_id,
+            student_id: matchedStudent?.id || null
+        });
+
+        res.json({
+            success: true,
+            data: {
+                matched_student: matchedStudent,
+                all_matches: searchResult.results,
+                is_verified: !!matchedStudent,
+                confidence: matchedStudent?.confidence || 0,
+                thresholds: searchResult.thresholds
+            }
+        });
+
+    } catch (error) {
+        console.error('Face verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// GET STUDENT FACE STATUS
+// =====================================================
+
+app.get('/api/students/:studentId/face-status', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.studentId);
+        
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('id, name, matric, face_token, face_enrolled, face_template_id')
+            .eq('id', studentId)
+            .single();
+        
+        if (error || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        let faceDetails = null;
+        if (student.face_token) {
+            const detailResult = await faceService.getFaceDetail(student.face_token);
+            if (detailResult.success) {
+                faceDetails = detailResult.data;
+            }
+        }
+
+        res.json({
+            success: true,
+            data: {
+                student: {
+                    id: student.id,
+                    name: student.name,
+                    matric: student.matric
+                },
+                face_enrolled: student.face_enrolled,
+                face_token: student.face_token,
+                face_template_id: student.face_template_id,
+                face_details: faceDetails
+            }
+        });
+    } catch (error) {
+        console.error('Get face status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
 // REGISTRATION MANAGEMENT - RASD ENDPOINTS
 // =====================================================
 
@@ -996,7 +1786,7 @@ app.get('/api/registration/stats', async (req, res) => {
   try {
     const { data: students, error: studentsError } = await supabase
       .from('students')
-      .select('id, room_id, name, matric, hostel_id, hostel_name, room_code, status, created_at');
+      .select('id, room_id, name, matric, hostel_id, hostel_name, room_code, status, created_at, face_enrolled');
     
     if (studentsError) throw studentsError;
 
@@ -1015,6 +1805,7 @@ app.get('/api/registration/stats', async (req, res) => {
     const totalRegistered = students.length || 0;
     const hostelAssigned = students.filter(s => s.room_id !== null && s.room_id > 0).length || 0;
     const completed = students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete').length || 0;
+    const faceEnrolled = students.filter(s => s.face_enrolled === true).length || 0;
     const issues = students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)).length || 0;
     const totalBedSpaces = bedSpaces.length || 0;
     const availableBeds = bedSpaces.filter(b => b.status === 'available').length || 0;
@@ -1022,6 +1813,7 @@ app.get('/api/registration/stats', async (req, res) => {
     const pipeline = [
       { label: 'Online Registration', count: totalRegistered, icon: 'fa-globe', color: 'blue', students: students },
       { label: 'Hostel Assignment', count: hostelAssigned, icon: 'fa-building', color: 'purple', students: students.filter(s => s.room_id !== null && s.room_id > 0) },
+      { label: 'Face Enrolled', count: faceEnrolled, icon: 'fa-user-check', color: 'gold', students: students.filter(s => s.face_enrolled === true) },
       { label: 'Registration Completed', count: completed, icon: 'fa-check-circle', color: 'green', students: students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete') },
       { label: 'Registration Issues', count: issues, icon: 'fa-exclamation-triangle', color: 'red', students: students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)) }
     ];
@@ -1030,17 +1822,19 @@ app.get('/api/registration/stats', async (req, res) => {
       const hostelStudents = students.filter(s => s.hostel_id === h.id || s.hostel_name === h.name);
       const total = hostelStudents.length;
       const assigned = hostelStudents.filter(s => s.room_id !== null && s.room_id > 0).length;
+      const faceEnrolledCount = hostelStudents.filter(s => s.face_enrolled === true).length;
       const progress = total > 0 ? Math.round((assigned / total) * 100) : 0;
-      return { id: h.id, name: h.name || 'Unknown', registered: total, assigned: assigned, progress: progress, type: h.type || 'floor' };
+      return { id: h.id, name: h.name || 'Unknown', registered: total, assigned: assigned, faceEnrolled: faceEnrolledCount, progress: progress, type: h.type || 'floor' };
     });
 
     const issueTypes = [
       { label: 'No Hostel Assigned', count: students.filter(s => s.room_id === null || s.room_id === 0).length },
       { label: 'Missing Phone Number', count: students.filter(s => !s.phone || s.phone === '').length },
-      { label: 'Missing Name', count: students.filter(s => !s.name || s.name === '').length }
+      { label: 'Missing Name', count: students.filter(s => !s.name || s.name === '').length },
+      { label: 'No Face Enrolled', count: students.filter(s => s.face_enrolled !== true).length }
     ];
 
-    res.json({ success: true, data: { overview: { totalRegistered, hostelAssigned, completed, issues, totalBedSpaces, availableBeds }, pipeline, hostelProgress, issueTypes } });
+    res.json({ success: true, data: { overview: { totalRegistered, hostelAssigned, completed, faceEnrolled, issues, totalBedSpaces, availableBeds }, pipeline, hostelProgress, issueTypes } });
   } catch (error) {
     console.error('Error fetching registration stats:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -1107,14 +1901,15 @@ app.get('/api/hra/hostel', async (req, res) => {
     
     const { data: studentStatuses, error: statusError } = await supabase
       .from('students')
-      .select('status')
+      .select('status, face_enrolled')
       .eq('hostel_id', hostelData.id);
     
-    let presentCount = 0, absentCount = 0, lateCount = 0;
+    let presentCount = 0, absentCount = 0, lateCount = 0, faceEnrolledCount = 0;
     if (!statusError && studentStatuses) {
       presentCount = studentStatuses.filter(s => s.status === 'Present' || s.status === 'Verified').length;
       absentCount = studentStatuses.filter(s => s.status === 'Absent').length;
       lateCount = studentStatuses.filter(s => s.status === 'Late').length;
+      faceEnrolledCount = studentStatuses.filter(s => s.face_enrolled === true).length;
     }
     
     const { data: sessionData, error: sessionError } = await supabase
@@ -1161,84 +1956,13 @@ app.get('/api/hra/hostel', async (req, res) => {
         present_count: presentCount,
         absent_count: absentCount,
         late_count: lateCount,
+        face_enrolled_count: faceEnrolledCount,
         current_session: currentSession
       }
     });
   } catch (error) {
     console.error('Error fetching HRA hostel:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/students', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('students').select('*').eq('hostel_id', id).order('name', { ascending: true });
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching hostel students:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/staff', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('staff').select('id, name, role, username, email, phone, status, assigned_floor, assigned_room, submission_status, level').eq('hostel_id', id).order('name', { ascending: true });
-    if (error) throw error;
-    res.json({ success: true, data: data });
-  } catch (error) {
-    console.error('Error fetching hostel staff:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/audit', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { limit, offset, from_date, to_date } = req.query;
-  try {
-    const auditResult = await auditService.getLogs({ hostel_id: id, limit: limit || 50, offset: offset || 0, from_date, to_date });
-    res.json(auditResult);
-  } catch (error) {
-    console.error('Error fetching hostel audit logs:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/session', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const { data, error } = await supabase.from('bedcheck_sessions').select('*').eq('hostel_id', id).order('created_at', { ascending: false }).limit(1);
-    if (error) throw error;
-    if (data && data.length > 0) {
-      const session = data[0];
-      const { count: totalStudents, error: countError } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('hostel_id', id);
-      if (countError) throw countError;
-      const { data: scanData, error: scanError } = await supabase.from('bedcheck_scans').select('status').eq('session_id', session.id);
-      let verifiedCount = 0;
-      if (!scanError && scanData) {
-        verifiedCount = scanData.filter(s => s.status === 'Verified' || s.status === 'Present').length;
-      }
-      const completion = totalStudents > 0 ? Math.round((verifiedCount / totalStudents) * 100) : 0;
-      res.json({ success: true, data: { ...session, total_students: totalStudents || 0, verified_count: verifiedCount, completion: completion } });
-    } else {
-      res.json({ success: true, data: null });
-    }
-  } catch (error) {
-    console.error('Error fetching session:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-app.get('/api/hostels/:id/recent-activity', async (req, res) => {
-  const id = parseInt(req.params.id);
-  try {
-    const activity = await auditService.getRecentActivity(id, 10);
-    res.json({ success: true, data: activity });
-  } catch (error) {
-    console.error('Error fetching recent activity:', error);
-    res.json({ success: true, data: [] });
   }
 });
 
@@ -1766,7 +2490,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD
+// STUDENTS - Full CRUD (Updated with face fields)
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -1787,7 +2511,15 @@ app.get('/api/students', async (req, res) => {
 });
 
 app.post('/api/students', async (req, res) => {
-  const { name, matric, faculty, department, level, session, hostel_id, hostel_name, floor_flat_id, floor_name, room_id, room_code, bed_space_id, bed_code, status, notes, gender, phone, email, emergency_name, emergency_relation, emergency_phone } = req.body;
+  const { 
+    name, matric, faculty, department, level, session, 
+    hostel_id, hostel_name, floor_flat_id, floor_name, 
+    room_id, room_code, bed_space_id, bed_code, 
+    status, notes, gender, phone, email, 
+    emergency_name, emergency_relation, emergency_phone,
+    face_token, face_enrolled, face_template_id
+  } = req.body;
+  
   try {
     const newStudent = {
       name, matric, gender: gender || 'Male', phone: phone || null, email: email || null,
@@ -1799,16 +2531,30 @@ app.post('/api/students', async (req, res) => {
       status: status || 'Present', notes: notes || null,
       emergency_name: emergency_name || null, emergency_relation: emergency_relation || null,
       emergency_phone: emergency_phone || null,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+      face_token: face_token || null,
+      face_enrolled: face_enrolled || false,
+      face_template_id: face_template_id || null,
+      created_at: new Date().toISOString(), 
+      updated_at: new Date().toISOString()
     };
-    Object.keys(newStudent).forEach(key => { if (newStudent[key] === undefined) delete newStudent[key]; });
+    
+    Object.keys(newStudent).forEach(key => { 
+      if (newStudent[key] === undefined) delete newStudent[key]; 
+    });
+    
     const { data, error } = await supabase.from('students').insert(newStudent).select().single();
     if (error) throw error;
+    
     if (bed_space_id) {
-      await supabase.from('bed_spaces').update({ status: 'occupied', student_id: data.id, updated_at: new Date().toISOString() }).eq('id', parseInt(bed_space_id));
+      await supabase
+        .from('bed_spaces')
+        .update({ status: 'occupied', student_id: data.id, updated_at: new Date().toISOString() })
+        .eq('id', parseInt(bed_space_id));
     }
+    
     const hostel = { id: hostel_id, name: hostel_name };
     await auditEvents.studentRegistered(data, hostel, { name: 'Student Registration', role: 'System' });
+    
     res.json({ success: true, data: data });
   } catch (error) {
     console.error('Error creating student:', error);
@@ -1834,12 +2580,19 @@ app.put('/api/students/:id/status', async (req, res) => {
 app.delete('/api/students/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
-    const { data: student } = await supabase.from('students').select('name, matric, bed_space_id, hostel_id, room_id').eq('id', id).single();
+    const { data: student } = await supabase.from('students').select('name, matric, bed_space_id, hostel_id, room_id, face_token').eq('id', id).single();
+    
+    if (student && student.face_token) {
+      await faceService.removeFaceFromSet(student.face_token);
+    }
+    
     if (student && student.bed_space_id) {
       await supabase.from('bed_spaces').update({ status: 'available', student_id: null, updated_at: new Date().toISOString() }).eq('id', student.bed_space_id);
     }
+    
     const { error } = await supabase.from('students').delete().eq('id', id);
     if (error) throw error;
+    
     await auditService.log({ actor: req.headers['x-staff-name'] || 'System', actor_id: parseInt(req.headers['x-staff-id']) || null, actor_role: req.headers['x-staff-role'] || 'System', action: 'Student Deleted', module: 'students', details: `Deleted ${student?.name} (${student?.matric})`, context: `Student ID: ${id}`, result: 'success', category: 'student', tone: 'red', hostel_id: student?.hostel_id, room_id: student?.room_id, student_id: id });
     res.json({ success: true, message: 'Student deleted successfully' });
   } catch (error) {
@@ -1937,7 +2690,6 @@ app.get('/api/rooms', async (req, res) => {
     }
     
     if (hostel_id) {
-      // Get all floors for this hostel
       const { data: hostelFloors, error: floorsError } = await supabase
         .from('floors_flats')
         .select('id')
@@ -1962,7 +2714,6 @@ app.get('/api/rooms', async (req, res) => {
     const { data, error } = await query.order('room_code', { ascending: true });
     if (error) throw error;
     
-    // Enrich with floor/flat label and capacity
     const enrichedData = await Promise.all(data.map(async (room) => {
       const { data: floorData } = await supabase
         .from('floors_flats')
@@ -1970,7 +2721,6 @@ app.get('/api/rooms', async (req, res) => {
         .eq('id', room.floor_flat_id)
         .maybeSingle();
       
-      // Get bed count for this room
       const { data: bedData } = await supabase
         .from('bed_spaces')
         .select('id, status')
@@ -2002,7 +2752,6 @@ app.get('/api/rooms/:id', async (req, res) => {
     const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single();
     if (error || !data) return res.status(404).json({ success: false, message: 'Room not found' });
     
-    // Enrich with floor/flat label and capacity
     const { data: floorData } = await supabase
       .from('floors_flats')
       .select('name, hostel_id')
@@ -2042,7 +2791,6 @@ app.post('/api/rooms', async (req, res) => {
     const { data, error } = await supabase.from('rooms').insert(newRoom).select().single();
     if (error) throw error;
     
-    // Get floor label for response
     const { data: floorData } = await supabase
       .from('floors_flats')
       .select('name, hostel_id')
@@ -2077,7 +2825,6 @@ app.put('/api/rooms/:id', async (req, res) => {
     const { data, error } = await supabase.from('rooms').update(updateData).eq('id', id).select().single();
     if (error) throw error;
     
-    // Get floor label for response
     const { data: floorData } = await supabase
       .from('floors_flats')
       .select('name, hostel_id')
@@ -2124,7 +2871,6 @@ app.get('/api/bed-spaces', async (req, res) => {
     }
     
     if (hostel_id) {
-      // First get all floors for this hostel
       const { data: hostelFloors, error: floorsError } = await supabase
         .from('floors_flats')
         .select('id')
@@ -2141,7 +2887,6 @@ app.get('/api/bed-spaces', async (req, res) => {
       if (hostelFloors && hostelFloors.length > 0) {
         const floorIds = hostelFloors.map(f => f.id);
         
-        // Then get all rooms for these floors
         const { data: hostelRooms, error: roomsError } = await supabase
           .from('rooms')
           .select('id')
@@ -2262,38 +3007,31 @@ app.get('/api/hostels', async (req, res) => {
     if (hostelsError) throw hostelsError;
     if (!hostelsData || hostelsData.length === 0) return res.json({ success: true, data: [] });
     
-    // Get all floors/flats
     const { data: floorsData, error: floorsError } = await supabase
       .from('floors_flats')
       .select('id, hostel_id, name, type');
     if (floorsError) throw floorsError;
     
-    // Get all rooms
     const { data: roomsData, error: roomsError } = await supabase
       .from('rooms')
       .select('id, floor_flat_id');
     if (roomsError) throw roomsError;
     
-    // Get all bed spaces
     const { data: bedSpacesData, error: bedError } = await supabase
       .from('bed_spaces')
       .select('id, room_id, status');
     if (bedError) throw bedError;
     
-    // Get staff data
     const { data: staffData, error: staffError } = await supabase
       .from('staff')
       .select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level')
       .eq('status', 'Active');
     if (staffError) throw staffError;
     
-    // Calculate counts per hostel
     const enrichedHostels = hostelsData.map(hostel => {
-      // Get floors for this hostel
       const hostelFloors = floorsData?.filter(f => f.hostel_id === hostel.id) || [];
       const totalFloors = hostelFloors.length;
       
-      // Get rooms for this hostel via floors
       let totalRooms = 0;
       const floorIds = hostelFloors.map(f => f.id);
       if (floorIds.length > 0) {
@@ -2301,7 +3039,6 @@ app.get('/api/hostels', async (req, res) => {
         totalRooms = hostelRooms.length;
       }
       
-      // Get bed spaces for this hostel via rooms
       let totalBeds = 0;
       let occupiedBeds = 0;
       if (totalRooms > 0) {
@@ -2317,7 +3054,6 @@ app.get('/api/hostels', async (req, res) => {
       const hraStaff = hostelStaff.find(s => s.role === 'HRA');
       const raStaff = hostelStaff.filter(s => s.role === 'RA');
       
-      // Compute beds per room based on gender
       const bedsPerRoom = hostel.beds_per_room || (hostel.gender === 'female' ? 6 : 4);
       
       return {
@@ -2373,14 +3109,12 @@ app.get('/api/hostels/:id', async (req, res) => {
     const { data: hostelData, error: hostelError } = await supabase.from('hostels').select('*').eq('id', id).single();
     if (hostelError || !hostelData) return res.status(404).json({ success: false, message: 'Hostel not found' });
     
-    // Get floors for this hostel
     const { data: floorsData, error: floorsError } = await supabase
       .from('floors_flats')
       .select('*')
       .eq('hostel_id', id);
     if (floorsError) throw floorsError;
     
-    // Get rooms for this hostel
     const floorIds = floorsData?.map(f => f.id) || [];
     let roomsData = [];
     if (floorIds.length > 0) {
@@ -2392,7 +3126,6 @@ app.get('/api/hostels/:id', async (req, res) => {
       roomsData = rooms || [];
     }
     
-    // Get bed spaces for this hostel
     const roomIds = roomsData.map(r => r.id);
     let bedSpacesData = [];
     if (roomIds.length > 0) {
@@ -2404,7 +3137,6 @@ app.get('/api/hostels/:id', async (req, res) => {
       bedSpacesData = beds || [];
     }
     
-    // Get staff
     const { data: staffData, error: staffError } = await supabase
       .from('staff')
       .select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level')
@@ -2725,7 +3457,7 @@ app.get('/api/hostels/:id/summary', async (req, res) => {
     
     const { data: students, error: studentError } = await supabase
       .from('students')
-      .select('status, room_id')
+      .select('status, room_id, face_enrolled')
       .eq('hostel_id', id);
     
     if (studentError) throw studentError;
@@ -2735,6 +3467,7 @@ app.get('/api/hostels/:id/summary', async (req, res) => {
     const absent = students?.filter(s => s.status === 'Absent').length || 0;
     const late = students?.filter(s => s.status === 'Late').length || 0;
     const assigned = students?.filter(s => s.room_id !== null && s.room_id > 0).length || 0;
+    const faceEnrolled = students?.filter(s => s.face_enrolled === true).length || 0;
     
     const { data: bedSpaces, error: bedError } = await supabase
       .from('bed_spaces')
@@ -2769,7 +3502,8 @@ app.get('/api/hostels/:id/summary', async (req, res) => {
           present: present,
           absent: absent,
           late: late,
-          assigned: assigned
+          assigned: assigned,
+          faceEnrolled: faceEnrolled
         },
         beds: {
           total: totalBeds,
@@ -3354,12 +4088,13 @@ app.get('/api/dashboard/stats', async (req, res) => {
     stats.totalStudents = studentsCount || 0;
     const { count: hostelsCount, error: hostelsError } = await supabase.from('hostels').select('*', { count: 'exact', head: true });
     stats.totalHostels = hostelsCount || 0;
-    const { data: statusData, error: statusError } = await supabase.from('students').select('status');
+    const { data: statusData, error: statusError } = await supabase.from('students').select('status, face_enrolled');
     if (!statusError && statusData) {
       stats.present = statusData.filter(s => s.status === 'Present').length;
       stats.absent = statusData.filter(s => s.status === 'Absent').length;
       stats.late = statusData.filter(s => s.status === 'Late').length;
-    } else { stats.present = 0; stats.absent = 0; stats.late = 0; }
+      stats.faceEnrolled = statusData.filter(s => s.face_enrolled === true).length;
+    } else { stats.present = 0; stats.absent = 0; stats.late = 0; stats.faceEnrolled = 0; }
     res.json({ success: true, data: stats });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
@@ -3421,7 +4156,8 @@ app.get('/api/reports/attendance', async (req, res) => {
     const present = data.filter(s => s.status === 'Present').length;
     const absent = data.filter(s => s.status === 'Absent').length;
     const late = data.filter(s => s.status === 'Late').length;
-    res.json({ success: true, data: { total, present, absent, late, attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0, students: data } });
+    const faceEnrolled = data.filter(s => s.face_enrolled === true).length;
+    res.json({ success: true, data: { total, present, absent, late, faceEnrolled, attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0, students: data } });
   } catch (error) {
     console.error('Error fetching attendance report:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -3429,26 +4165,28 @@ app.get('/api/reports/attendance', async (req, res) => {
 });
 
 // =====================================================
-// FACE TEMPLATE ENDPOINTS
+// FACE TEMPLATE ENDPOINTS (Legacy - kept for compatibility)
 // =====================================================
 
-// GET face template by student ID
 app.get('/api/face-templates/student/:studentId', async (req, res) => {
     try {
         const studentId = parseInt(req.params.studentId);
         
-        const { data: template, error } = await supabase
-            .from('face_templates')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('is_active', true)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('face_token, face_enrolled, face_template_id')
+            .eq('id', studentId)
+            .single();
         
-        if (error) throw error;
+        if (error || !student) {
+            return res.json({ 
+                success: true, 
+                data: null, 
+                message: 'Student not found' 
+            });
+        }
         
-        if (!template) {
+        if (!student.face_token) {
             return res.json({ 
                 success: true, 
                 data: null, 
@@ -3456,412 +4194,20 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
             });
         }
         
-        // Get captures for this template
-        const { data: captures, error: captureError } = await supabase
-            .from('face_captures')
-            .select('id, capture_index, capture_label, quality_score, created_at')
-            .eq('template_id', template.id)
-            .order('capture_index', { ascending: true });
-        
-        if (captureError) throw captureError;
+        // Get face details from Face++
+        const faceDetail = await faceService.getFaceDetail(student.face_token);
         
         res.json({
             success: true,
             data: {
-                ...template,
-                captures: captures || []
+                face_token: student.face_token,
+                face_enrolled: student.face_enrolled,
+                face_template_id: student.face_template_id,
+                face_details: faceDetail.success ? faceDetail.data : null
             }
         });
     } catch (error) {
         console.error('Error fetching face template:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message 
-        });
-    }
-});
-
-// CREATE face template (enroll face)
-app.post('/api/face-templates/enroll', async (req, res) => {
-    try {
-        const { 
-            student_id,
-            embeddings,  // Array of 10 face embeddings
-            capture_labels,
-            quality_scores,
-            liveness_scores,
-            device_info,
-            ip_address
-        } = req.body;
-        
-        if (!student_id) {
-            return res.status(400).json({
-                success: false,
-                message: 'student_id is required'
-            });
-        }
-        
-        if (!embeddings || !Array.isArray(embeddings) || embeddings.length < 5) {
-            return res.status(400).json({
-                success: false,
-                message: 'At least 5 face embeddings are required'
-            });
-        }
-        
-        // Check if student exists
-        const { data: student, error: studentError } = await supabase
-            .from('students')
-            .select('id, name')
-            .eq('id', student_id)
-            .single();
-        
-        if (studentError || !student) {
-            return res.status(404).json({
-                success: false,
-                message: 'Student not found'
-            });
-        }
-        
-        // Calculate average embedding (for simplicity, use the first or average)
-        // In production, you'd use a proper face recognition library
-        const avgEmbedding = embeddings.reduce((acc, emb) => {
-            return acc.map((v, i) => v + (emb[i] || 0));
-        }, Array(embeddings[0].length).fill(0)).map(v => v / embeddings.length);
-        
-        // Generate template hash
-        const crypto = require('crypto');
-        const templateHash = crypto
-            .createHash('sha256')
-            .update(JSON.stringify(avgEmbedding) + student_id + Date.now())
-            .digest('hex');
-        
-        // Insert face template
-        const { data: template, error: templateError } = await supabase
-            .from('face_templates')
-            .insert({
-                student_id: student_id,
-                embedding: avgEmbedding,
-                template_hash: templateHash,
-                capture_count: embeddings.length,
-                quality_score: quality_scores ? 
-                    quality_scores.reduce((a, b) => a + b, 0) / quality_scores.length : 
-                    96.5,
-                liveness_score: liveness_scores ? 
-                    liveness_scores.reduce((a, b) => a + b, 0) / liveness_scores.length : 
-                    98.2,
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
-            .select()
-            .single();
-        
-        if (templateError) throw templateError;
-        
-        // Insert individual captures
-        const captureData = embeddings.map((emb, index) => ({
-            student_id: student_id,
-            template_id: template.id,
-            capture_index: index + 1,
-            capture_label: capture_labels?.[index] || `Capture ${index + 1}`,
-            quality_score: quality_scores?.[index] || 95 + Math.random() * 4,
-            liveness_score: liveness_scores?.[index] || 97 + Math.random() * 3,
-            created_at: new Date().toISOString()
-        }));
-        
-        const { error: captureError } = await supabase
-            .from('face_captures')
-            .insert(captureData);
-        
-        if (captureError) {
-            console.warn('Failed to insert captures:', captureError);
-            // Continue - template is the important part
-        }
-        
-        // Update student record
-        await supabase
-            .from('students')
-            .update({
-                face_enrolled: true,
-                face_embedding: avgEmbedding,
-                face_template_id: template.id
-            })
-            .eq('id', student_id);
-        
-        // Create enrollment session record
-        await supabase
-            .from('face_enrollment_sessions')
-            .insert({
-                student_id: student_id,
-                template_id: template.id,
-                status: 'completed',
-                capture_count: embeddings.length,
-                total_captures: 10,
-                device_info: device_info || 'web',
-                ip_address: ip_address || req.ip,
-                completed_at: new Date().toISOString()
-            });
-        
-        // Audit log for face enrollment
-        await auditService.log({
-            actor: req.headers['x-staff-name'] || 'Student',
-            actor_id: student_id,
-            actor_role: 'Student',
-            action: 'Face Enrolled',
-            module: 'face',
-            details: `Face template enrolled for ${student.name} (${student_id})`,
-            context: `Template ID: ${template.id}`,
-            result: 'success',
-            category: 'face',
-            tone: 'blue',
-            student_id: student_id
-        });
-        
-        res.json({
-            success: true,
-            data: {
-                template_id: template.id,
-                template_hash: templateHash,
-                quality_score: template.quality_score,
-                liveness_score: template.liveness_score,
-                capture_count: embeddings.length,
-                student_id: student_id,
-                student_name: student.name
-            }
-        });
-    } catch (error) {
-        console.error('Error enrolling face:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message 
-        });
-    }
-});
-
-// VERIFY face against stored template
-app.post('/api/face-templates/verify', async (req, res) => {
-    try {
-        const { student_id, face_embedding, threshold = 0.85 } = req.body;
-        
-        if (!student_id || !face_embedding) {
-            return res.status(400).json({
-                success: false,
-                message: 'student_id and face_embedding are required'
-            });
-        }
-        
-        // Get active template for this student
-        const { data: template, error } = await supabase
-            .from('face_templates')
-            .select('*')
-            .eq('student_id', student_id)
-            .eq('is_active', true)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        
-        if (error) throw error;
-        
-        if (!template) {
-            return res.json({
-                success: true,
-                data: {
-                    verified: false,
-                    reason: 'No face template found for this student'
-                }
-            });
-        }
-        
-        // Calculate similarity (cosine similarity)
-        // In production, use a proper face recognition library
-        const storedEmbedding = template.embedding;
-        let similarity = 0;
-        
-        if (Array.isArray(storedEmbedding) && Array.isArray(face_embedding)) {
-            const dotProduct = storedEmbedding.reduce((sum, val, i) => {
-                return sum + val * (face_embedding[i] || 0);
-            }, 0);
-            
-            const magA = Math.sqrt(storedEmbedding.reduce((sum, val) => sum + val * val, 0));
-            const magB = Math.sqrt(face_embedding.reduce((sum, val) => sum + val * val, 0));
-            
-            similarity = magA > 0 && magB > 0 ? dotProduct / (magA * magB) : 0;
-        }
-        
-        const isMatch = similarity >= threshold;
-        
-        // Log verification
-        await supabase
-            .from('face_verifications')
-            .insert({
-                student_id: student_id,
-                template_id: template.id,
-                match_score: similarity,
-                threshold: threshold,
-                is_match: isMatch,
-                verification_type: 'bedcheck',
-                ip_address: req.ip,
-                user_agent: req.headers['user-agent']
-            });
-        
-        // Update template stats
-        await supabase
-            .from('face_templates')
-            .update({
-                last_verified_at: new Date().toISOString(),
-                verification_count: (template.verification_count || 0) + 1
-            })
-            .eq('id', template.id);
-        
-        // Audit log for verification
-        await auditService.log({
-            actor: req.headers['x-staff-name'] || 'System',
-            actor_id: parseInt(req.headers['x-staff-id']) || null,
-            actor_role: req.headers['x-staff-role'] || 'System',
-            action: isMatch ? 'Face Verified' : 'Face Verification Failed',
-            module: 'face',
-            details: isMatch 
-                ? `Face verification successful for student ${student_id} (score: ${similarity.toFixed(4)})`
-                : `Face verification failed for student ${student_id} (score: ${similarity.toFixed(4)}, threshold: ${threshold})`,
-            context: `Template ID: ${template.id}`,
-            result: isMatch ? 'success' : 'failed',
-            category: 'face',
-            tone: isMatch ? 'green' : 'red',
-            student_id: student_id
-        });
-        
-        res.json({
-            success: true,
-            data: {
-                verified: isMatch,
-                similarity: similarity,
-                threshold: threshold,
-                template_id: template.id,
-                quality_score: template.quality_score,
-                liveness_score: template.liveness_score
-            }
-        });
-    } catch (error) {
-        console.error('Error verifying face:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message 
-        });
-    }
-});
-
-// GET face captures for a student
-app.get('/api/face-templates/:studentId/captures', async (req, res) => {
-    try {
-        const studentId = parseInt(req.params.studentId);
-        
-        const { data: captures, error } = await supabase
-            .from('face_captures')
-            .select('*')
-            .eq('student_id', studentId)
-            .order('capture_index', { ascending: true });
-        
-        if (error) throw error;
-        
-        res.json({
-            success: true,
-            data: captures || []
-        });
-    } catch (error) {
-        console.error('Error fetching face captures:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message 
-        });
-    }
-});
-
-// DELETE face template (deactivate)
-app.delete('/api/face-templates/:templateId', async (req, res) => {
-    try {
-        const templateId = parseInt(req.params.templateId);
-        
-        // Get template info before deactivation
-        const { data: template, error: fetchError } = await supabase
-            .from('face_templates')
-            .select('student_id')
-            .eq('id', templateId)
-            .single();
-        
-        if (fetchError) throw fetchError;
-        
-        // Deactivate instead of delete to maintain audit trail
-        const { data, error } = await supabase
-            .from('face_templates')
-            .update({
-                is_active: false,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', templateId)
-            .select()
-            .single();
-        
-        if (error) throw error;
-        
-        // Update student
-        await supabase
-            .from('students')
-            .update({
-                face_enrolled: false,
-                face_template_id: null
-            })
-            .eq('face_template_id', templateId);
-        
-        // Audit log
-        await auditService.log({
-            actor: req.headers['x-staff-name'] || 'Admin',
-            actor_id: parseInt(req.headers['x-staff-id']) || null,
-            actor_role: req.headers['x-staff-role'] || 'Admin',
-            action: 'Face Template Deactivated',
-            module: 'face',
-            details: `Face template ${templateId} deactivated for student ${template?.student_id || 'Unknown'}`,
-            context: `Template ID: ${templateId}`,
-            result: 'success',
-            category: 'face',
-            tone: 'red',
-            student_id: template?.student_id
-        });
-        
-        res.json({
-            success: true,
-            message: 'Face template deactivated successfully',
-            data: data
-        });
-    } catch (error) {
-        console.error('Error deleting face template:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message 
-        });
-    }
-});
-
-// GET face verification history for a student
-app.get('/api/face-templates/:studentId/verifications', async (req, res) => {
-    try {
-        const studentId = parseInt(req.params.studentId);
-        const { limit = 50 } = req.query;
-        
-        const { data, error } = await supabase
-            .from('face_verifications')
-            .select('*')
-            .eq('student_id', studentId)
-            .order('created_at', { ascending: false })
-            .limit(parseInt(limit));
-        
-        if (error) throw error;
-        
-        res.json({
-            success: true,
-            data: data || []
-        });
-    } catch (error) {
-        console.error('Error fetching face verifications:', error);
         res.status(500).json({ 
             success: false, 
             message: 'Database error: ' + error.message 
