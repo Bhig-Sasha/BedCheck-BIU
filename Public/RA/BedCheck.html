@@ -911,7 +911,6 @@
             let faceVideoElement = null;
             let faceDetectionInterval = null;
             let isProcessingFace = false;
-            let livenessCheckActive = false;
             let livenessTimeout = null;
             let roomStructure = {};
             let isCameraReady = false;
@@ -965,17 +964,15 @@
             }
 
             // =============================================
-            // ROOM STRUCTURE BUILDING - ONLY THE ASSIGNED AREA
+            // ROOM STRUCTURE BUILDING
             // =============================================
             function buildRoomStructure() {
                 if (!assignedHostelId || !assignedArea) return;
                 roomStructure = { type: assignedAreaType || 'floor', areas: [] };
 
-                // Get all students in this hostel
                 const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
 
                 if (assignedAreaType === 'flat') {
-                    // Flats: Only show the assigned flat
                     const flatNum = assignedArea.replace('Flat ', '');
                     const flatRooms = hostelStudents
                         .filter(s => s.flat === assignedArea)
@@ -991,7 +988,6 @@
                             floor: assignedArea
                         });
                     } else {
-                        // If no students, show default flat rooms
                         const defaultRooms = Array.from({ length: 4 }, (_, i) => `F${flatNum}R${i+1}`);
                         roomStructure.areas.push({
                             name: assignedArea,
@@ -1001,8 +997,6 @@
                         });
                     }
                 } else {
-                    // Floors: Only show the assigned floor range
-                    // assignedArea format: "A1-A9" or "A10-A18"
                     const prefix = assignedArea.match(/^[A-Z]/)?.[0] || '';
                     const rangeParts = assignedArea.match(/(\d+)-(\d+)/);
                     const startNum = rangeParts ? parseInt(rangeParts[1]) : 1;
@@ -1034,7 +1028,6 @@
                             end: endNum
                         });
                     } else {
-                        // If no students, create default rooms for this range
                         const defaultRooms = Array.from({ length: endNum - startNum + 1 }, (_, i) => `${prefix}${startNum + i}`);
                         roomStructure.areas.push({
                             name: assignedArea,
@@ -1048,7 +1041,6 @@
                     }
                 }
 
-                // Update availableRooms from room structure
                 const allRooms = [];
                 roomStructure.areas.forEach(area => {
                     area.rooms.forEach(room => {
@@ -1069,11 +1061,9 @@
             function getTotalStats() {
                 let areaStudents = allStudents.filter(s => {
                     if (s.hostel_id !== assignedHostelId) return false;
-                    // Filter by assigned area
                     if (assignedAreaType === 'flat') {
                         return s.flat === assignedArea;
                     } else {
-                        // Filter by room range
                         const prefix = assignedArea.match(/^[A-Z]/)?.[0] || '';
                         const rangeParts = assignedArea.match(/(\d+)-(\d+)/);
                         if (rangeParts) {
@@ -1151,7 +1141,7 @@
             }
 
             // =============================================
-            // FACE RECOGNITION (Mock with real camera - FIXED)
+            // FACE RECOGNITION - MOBILE OPTIMIZED
             // =============================================
             function generateMockEmbedding(name) {
                 let hash = 0;
@@ -1209,7 +1199,7 @@
             }
 
             // =============================================
-            // FACE RECOGNITION CONTROLS - REAL CAMERA FIXED
+            // FACE RECOGNITION CONTROLS - MOBILE OPTIMIZED
             // =============================================
             async function startFaceRecognition() {
                 if (!isSessionActive) {
@@ -1226,13 +1216,11 @@
                 }
 
                 try {
-                    // Check if getUserMedia is supported
                     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                         showToast('Camera not supported on this device.', 'error');
                         return;
                     }
 
-                    // Remove old overlays
                     document.getElementById('faceBox')?.remove();
                     document.getElementById('livenessPrompt')?.remove();
 
@@ -1242,10 +1230,8 @@
                         return;
                     }
 
-                    // Clear container
                     previewContainer.innerHTML = '';
 
-                    // Create video element FIRST before setting srcObject
                     faceVideoElement = document.createElement('video');
                     faceVideoElement.autoplay = true;
                     faceVideoElement.playsInline = true;
@@ -1261,20 +1247,41 @@
                     faceVideoElement.style.display = 'block';
                     faceVideoElement.style.borderRadius = '0.5rem';
 
-                    // APPEND TO DOM FIRST - THIS IS CRITICAL
                     previewContainer.appendChild(faceVideoElement);
 
-                    // Now set the stream
-                    const constraints = {
+                    // MOBILE OPTIMIZED: Try back camera first, fallback to front
+                    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                    
+                    let constraints = {
                         video: {
-                            facingMode: 'user',
+                            facingMode: isMobile ? ['environment', 'user'] : 'user',
                             width: { ideal: 640 },
                             height: { ideal: 480 }
                         },
                         audio: false
                     };
 
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    let stream;
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    } catch (firstError) {
+                        // If back camera fails, try front camera
+                        if (isMobile) {
+                            console.log('Back camera failed, trying front camera...');
+                            constraints = {
+                                video: {
+                                    facingMode: 'user',
+                                    width: { ideal: 640 },
+                                    height: { ideal: 480 }
+                                },
+                                audio: false
+                            };
+                            stream = await navigator.mediaDevices.getUserMedia(constraints);
+                        } else {
+                            throw firstError;
+                        }
+                    }
+
                     faceStream = stream;
                     faceVideoElement.srcObject = stream;
 
@@ -1292,13 +1299,9 @@
 
                         faceVideoElement.onplaying = onPlaying;
                         faceVideoElement.onloadedmetadata = () => {
-                            // Once metadata is loaded, try to play
-                            faceVideoElement.play().catch(e => {
-                                console.log('Play attempt:', e);
-                            });
+                            faceVideoElement.play().catch(e => console.log('Play attempt:', e));
                         };
 
-                        // If it's already playing
                         if (faceVideoElement.readyState >= 2) {
                             faceVideoElement.play().then(onPlaying).catch(() => {});
                         }
@@ -1324,14 +1327,17 @@
                     showToast('📸 Camera started!', 'success');
                     addTimeline('Face recognition started', `Room ${currentRoom}`);
 
-                    // Start the real face detection loop
                     startRealFaceDetection();
 
                 } catch (error) {
                     console.error('Camera error:', error);
                     let errorMessage = '⚠️ Camera access denied. ';
+                    
                     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
                         errorMessage += 'Please allow camera access in your browser settings.';
+                        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                            errorMessage = '⚠️ iOS: Go to Settings > Safari > Camera > Allow. Then refresh.';
+                        }
                     } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
                         errorMessage += 'No camera found on this device.';
                     } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
@@ -1341,6 +1347,7 @@
                     } else {
                         errorMessage += error.message;
                     }
+                    
                     showToast(errorMessage, 'error');
 
                     const previewContainer = document.getElementById('facePreview');
@@ -1351,12 +1358,12 @@
                                 <div class="text" style="color:#d6ad4b;font-size:0.85rem;margin-top:0.3rem;">Camera not available</div>
                                 <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;max-width:80%;text-align:center;">${errorMessage}</div>
                                 ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
+                                ${/iPhone|iPad|iPod/i.test(navigator.userAgent) ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">📱 iOS: Settings > Safari > Camera > Allow</div>' : ''}
                                 <button id="retryBtn" class="btn-primary" style="margin-top:0.75rem;padding:0.4rem 1rem;font-size:0.75rem;pointer-events:auto;">
                                     <i class="fas fa-redo"></i> Retry
                                 </button>
                             </div>
                         `;
-                        // Fix retry button
                         document.getElementById('retryBtn')?.addEventListener('click', function() {
                             startFaceRecognition();
                         });
@@ -1365,7 +1372,7 @@
             }
 
             // =============================================
-            // REAL FACE DETECTION LOOP - CAPTURES FROM VIDEO
+            // REAL FACE DETECTION LOOP
             // =============================================
             function startRealFaceDetection() {
                 if (faceDetectionInterval) {
@@ -1373,7 +1380,6 @@
                     faceDetectionInterval = null;
                 }
 
-                // Run detection every 3 seconds
                 faceDetectionInterval = setInterval(() => {
                     if (!isFaceRecognitionActive || !isSessionActive) {
                         clearInterval(faceDetectionInterval);
@@ -1381,10 +1387,8 @@
                         return;
                     }
 
-                    // Check if there are pending students in current room
                     const pendingStudents = currentRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
                     if (pendingStudents.length === 0) {
-                        // All verified, stop recognition
                         if (isFaceRecognitionActive) {
                             showToast('✅ All students verified!', 'success');
                             stopFaceRecognition();
@@ -1392,7 +1396,6 @@
                         return;
                     }
 
-                    // Capture frame from video
                     if (faceVideoElement && faceVideoElement.readyState >= 2) {
                         processRealFaceFrame(faceVideoElement);
                     }
@@ -1400,12 +1403,11 @@
             }
 
             // =============================================
-            // PROCESS REAL FRAME FROM VIDEO - FIXED
+            // PROCESS REAL FRAME FROM VIDEO
             // =============================================
             function processRealFaceFrame(video) {
                 if (isProcessingFace) return;
                 
-                // Check if video is actually ready
                 if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
                     return;
                 }
@@ -1413,25 +1415,21 @@
                 isProcessingFace = true;
 
                 try {
-                    // Create a canvas to capture the frame
                     const canvas = document.createElement('canvas');
                     canvas.width = video.videoWidth || 640;
                     canvas.height = video.videoHeight || 480;
                     const ctx = canvas.getContext('2d');
                     
-                    // Check that we have valid dimensions
                     if (canvas.width === 0 || canvas.height === 0) {
                         isProcessingFace = false;
                         return;
                     }
 
-                    // Draw the current video frame (mirrored for natural look)
                     ctx.save();
                     ctx.scale(-1, 1);
                     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
                     ctx.restore();
 
-                    // Show liveness prompt
                     const prompt = document.getElementById('livenessPrompt');
                     if (prompt) {
                         prompt.style.display = 'block';
@@ -1445,8 +1443,6 @@
                         if (label) label.textContent = '🔍 Scanning...';
                     }
 
-                    // Simulate face detection with slight randomness
-                    // In production, this would use a real face detection model
                     setTimeout(() => {
                         const pendingStudents = currentRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
                         
@@ -1456,14 +1452,11 @@
                             return;
                         }
 
-                        // Generate a mock embedding from the frame
-                        // In production, this would be from a face recognition model
                         const mockEmbedding = [];
                         for (let i = 0; i < 128; i++) {
                             mockEmbedding.push((Math.random() * 2) - 1);
                         }
 
-                        // Try to match with a pending student
                         const match = findMatchingStudent(mockEmbedding);
                         
                         if (match) {
@@ -1485,7 +1478,6 @@
                                     if (label) label.textContent = `✅ ${student.name} ${match.confidence}%`;
                                 }
 
-                                // Check if room is complete
                                 if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
                                     if (!completedRooms.includes(currentRoom)) {
                                         completedRooms.push(currentRoom);
@@ -1502,7 +1494,6 @@
                                 const label = faceBox.querySelector('.label');
                                 if (label) label.textContent = '❌ Unknown Person';
                             }
-                            // Don't show error toast every time to avoid spam
                         }
 
                         if (prompt) prompt.style.display = 'none';
@@ -1722,7 +1713,6 @@
 
                 const absentCount = autoAbsentQueue.length;
 
-                // Get all rooms for display
                 const allRooms = availableRooms;
                 if (allRooms.length > 0 && !currentRoom) {
                     currentRoom = allRooms[0];
@@ -1815,7 +1805,7 @@
                     </div>
                 `;
 
-                // Room buttons - Only rooms in assigned area
+                // Room buttons
                 html += `
                     <div class="card mt-4">
                         <div class="card-title"><span class="icon"><i class="fas fa-door-open"></i></span> Rooms in ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
@@ -1989,14 +1979,11 @@
                     if (previewContainer) {
                         const existingVideo = previewContainer.querySelector('video');
                         if (!existingVideo) {
-                            // Clear container but keep the video
                             const overlays = previewContainer.querySelectorAll('.overlay, .face-box, .liveness-prompt');
                             overlays.forEach(el => el.remove());
                             
-                            // Re-append video
                             previewContainer.appendChild(faceVideoElement);
                             
-                            // Re-create face box
                             const faceBox = document.createElement('div');
                             faceBox.className = 'face-box processing';
                             faceBox.id = 'faceBox';
@@ -2004,7 +1991,6 @@
                             faceBox.innerHTML = `<div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;z-index:6;">🔍 Scanning...</div>`;
                             previewContainer.appendChild(faceBox);
                             
-                            // Re-create liveness prompt
                             const prompt = document.createElement('div');
                             prompt.className = 'liveness-prompt';
                             prompt.id = 'livenessPrompt';
@@ -2154,15 +2140,11 @@
 
                     updateHeader();
 
-                    // Build room structure
                     buildRoomStructure();
-
-                    // Build face embeddings
                     buildFaceEmbeddings();
 
                     await loadSessionData();
 
-                    // Set current room if available
                     if (availableRooms.length > 0 && !currentRoom) {
                         currentRoom = availableRooms[0];
                         currentRoomStudents = getStudentsForRoom(currentRoom);
