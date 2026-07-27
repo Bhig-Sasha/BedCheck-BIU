@@ -286,13 +286,6 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
-        
-        /* Additional styles for better flat/floor display */
-        .floor-card .floor-rooms-count { font-size: 0.65rem; color: #68768a; }
-        .hostel-type-selector { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-        .hostel-type-selector button { padding: 0.3rem 0.75rem; border-radius: 0.5rem; border: 1px solid #ded6c9; background: #fffcf6; cursor: pointer; transition: all 0.3s ease; font-size: 0.7rem; font-weight: 600; }
-        .hostel-type-selector button.active { background: #d6ad4b; color: #10233f; border-color: #d6ad4b; }
-        .hostel-type-selector button:hover:not(.active) { background: #f5f1e8; }
     </style>
 </head>
 <body>
@@ -681,7 +674,6 @@
                     totalBeds += roomCount * bedsPerRoom;
                 });
 
-                // If no hostels, show message
                 if (hostels.length === 0 && !isLoading) {
                     container.innerHTML = `
                         <div class="page-heading">
@@ -819,22 +811,29 @@
                 `;
                 
                 try {
-                    // Load all data in parallel
-                    const [floorsData, roomsData, bedsData] = await Promise.all([
-                        loadFloorsFlatsForHostel(hostelId),
-                        loadRoomsForHostel(hostelId),
-                        loadBedSpacesForHostel(hostelId)
-                    ]);
-                    
+                    // Load all data
+                    const floorsData = await loadFloorsFlatsForHostel(hostelId);
                     allFloorsFlats = floorsData;
+                    
+                    const roomsData = await loadRoomsForHostel(hostelId);
                     allRooms = roomsData;
+                    
+                    const bedsData = await loadBedSpacesForHostel(hostelId);
                     allBedSpaces = bedsData;
                     
-                    // If no rooms exist, try using the hostel's total_rooms from the database
-                    if (allRooms.length === 0 && hostel.total_rooms) {
-                        // Generate placeholder rooms based on the hostel's configuration
-                        generatePlaceholderRooms(hostel);
-                    }
+                    // Build floor_label mapping from floorsData
+                    const floorLabelMap = {};
+                    floorsData.forEach(f => {
+                        floorLabelMap[f.id] = f.name;
+                    });
+                    
+                    // Ensure each room has a floor_label
+                    allRooms = roomsData.map(room => {
+                        if (!room.floor_label && room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
+                            room.floor_label = floorLabelMap[room.floor_flat_id];
+                        }
+                        return room;
+                    });
                     
                     renderHostelDetail(hostel);
                 } catch (error) {
@@ -846,57 +845,6 @@
                             <button class="btn-primary mt-3" onclick="showHostelDetail(${hostelId})">Retry</button>
                         </div>
                     `;
-                }
-            }
-
-            // =============================================
-            // GENERATE PLACEHOLDER ROOMS
-            // =============================================
-            function generatePlaceholderRooms(hostel) {
-                const isFlat = getHostelType(hostel) === 'flat';
-                const bedsPerRoom = hostel.beds_per_room || 4;
-                
-                if (isFlat) {
-                    const totalFlats = hostel.total_flats || 9;
-                    const roomsPerFlat = hostel.rooms_per_flat || 4;
-                    for (let flat = 1; flat <= totalFlats; flat++) {
-                        const flatLabel = `F${flat}`;
-                        for (let room = 1; room <= roomsPerFlat; room++) {
-                            // Skip rooms that don't exist (some flats have 3 rooms)
-                            if (flat === 1 || flat === 4 || flat === 7) {
-                                if (room > 3) break;
-                            }
-                            const roomCode = `F${flat}R${room}`;
-                            allRooms.push({
-                                id: `placeholder_${roomCode}`,
-                                floor_flat_id: flat,
-                                room_code: roomCode,
-                                floor_label: flatLabel,
-                                capacity: bedsPerRoom,
-                                occupied: 0,
-                                available: bedsPerRoom
-                            });
-                        }
-                    }
-                } else {
-                    const totalFloors = hostel.floors || hostel.total_floors || 3;
-                    const roomsPerFloor = hostel.rooms_per_floor || 18;
-                    const letters = ['A', 'B', 'C'];
-                    for (let f = 0; f < totalFloors; f++) {
-                        const floorLabel = letters[f] || String.fromCharCode(65 + f);
-                        for (let room = 1; room <= roomsPerFloor; room++) {
-                            const roomCode = `${floorLabel}${String(room).padStart(2, '0')}`;
-                            allRooms.push({
-                                id: `placeholder_${roomCode}`,
-                                floor_flat_id: f + 1,
-                                room_code: roomCode,
-                                floor_label: floorLabel,
-                                capacity: bedsPerRoom,
-                                occupied: 0,
-                                available: bedsPerRoom
-                            });
-                        }
-                    }
                 }
             }
 
@@ -1053,43 +1001,36 @@
                 const bedsPerRoom = hostel.beds_per_room || 4;
                 
                 // Get unique floor labels from rooms
-                const floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor || 'A'))].sort();
+                const floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor).filter(Boolean))].sort();
                 
                 let floorData = [];
                 
                 if (floorLabels.length === 0) {
-                    // If no rooms exist yet, show all floors/flats as empty
-                    const count = isFlat ? (hostel.total_flats || 9) : (hostel.floors || hostel.total_floors || 3);
-                    for (let i = 1; i <= count; i++) {
-                        const label = isFlat ? `F${i}` : String.fromCharCode(64 + i);
-                        floorData.push({
-                            label: isFlat ? `Flat ${i}` : `Floor ${label}`,
-                            value: label,
-                            rooms: 0,
-                            totalBeds: 0,
-                            occupied: 0,
-                            available: 0,
-                            pct: 0
-                        });
-                    }
-                } else {
-                    floorLabels.forEach(label => {
-                        const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
-                        const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
-                        const occupied = allBedSpaces.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
-                        const available = totalBeds - occupied;
-                        const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
-                        floorData.push({
-                            label: isFlat ? `Flat ${label.replace('F', '')}` : `Floor ${label}`,
-                            value: label,
-                            rooms: floorRooms.length,
-                            totalBeds: totalBeds,
-                            occupied: occupied,
-                            available: available,
-                            pct: pct
-                        });
-                    });
+                    // No rooms with floor labels - show message
+                    container.innerHTML = `
+                        <div class="text-center text-muted p-3" style="grid-column:1/-1;">
+                            <i class="fas fa-info-circle"></i> No floors/flats found. Add a room to get started.
+                        </div>
+                    `;
+                    return;
                 }
+                
+                floorLabels.forEach(label => {
+                    const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
+                    const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
+                    const occupied = allBedSpaces.filter(b => b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied').length;
+                    const available = totalBeds - occupied;
+                    const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
+                    floorData.push({
+                        label: isFlat ? `Flat ${label.replace('F', '')}` : `Floor ${label}`,
+                        value: label,
+                        rooms: floorRooms.length,
+                        totalBeds: totalBeds,
+                        occupied: occupied,
+                        available: available,
+                        pct: pct
+                    });
+                });
                 
                 container.innerHTML = floorData.map(f => `
                     <div class="floor-card ${selectedFloor === f.value ? 'active' : ''}" onclick="selectFloor('${f.value}')">
@@ -1207,7 +1148,6 @@
                 const subtitle = document.getElementById('roomDrawerSubtitle');
                 const body = document.getElementById('roomDrawerBody');
                 
-                // Show loading
                 body.innerHTML = `<div class="loading-spinner"><i class="fas fa-spinner"></i></div>`;
                 drawer.classList.add('open');
                 
@@ -1219,18 +1159,6 @@
                     } catch (e) {
                         roomBeds = [];
                     }
-                }
-                
-                if (roomBeds.length === 0) {
-                    const capacity = room.capacity || 4;
-                    const bedLabels = getBedLabels(capacity);
-                    roomBeds = bedLabels.slice(0, capacity).map(label => ({
-                        id: `bed_${roomId}_${label}`,
-                        room_id: roomId,
-                        bed_code: label,
-                        status: 'available',
-                        student_id: null
-                    }));
                 }
                 
                 const totalBeds = roomBeds.length || room.capacity || 4;
@@ -1309,22 +1237,33 @@
                 const hostel = selectedHostelForRoom;
                 if (hostel) {
                     const isFlat = getHostelType(hostel) === 'flat';
-                    if (isFlat) {
-                        const totalFlats = hostel.total_flats || 9;
-                        for (let i = 1; i <= totalFlats; i++) {
+                    // Use actual floors from allFloorsFlats
+                    if (allFloorsFlats && allFloorsFlats.length > 0) {
+                        allFloorsFlats.forEach(floor => {
                             const opt = document.createElement('option');
-                            opt.value = `F${i}`;
-                            opt.textContent = `Flat ${i}`;
+                            opt.value = floor.name;
+                            opt.textContent = isFlat ? `Flat ${floor.name.replace('F', '')}` : `Floor ${floor.name}`;
                             floorSelect.appendChild(opt);
-                        }
+                        });
                     } else {
-                        const letters = ['A', 'B', 'C'];
-                        const totalFloors = hostel.floors || hostel.total_floors || 3;
-                        for (let i = 0; i < totalFloors; i++) {
-                            const opt = document.createElement('option');
-                            opt.value = letters[i];
-                            opt.textContent = `Floor ${letters[i]}`;
-                            floorSelect.appendChild(opt);
+                        // Fallback to config values
+                        if (isFlat) {
+                            const totalFlats = hostel.total_flats || 9;
+                            for (let i = 1; i <= totalFlats; i++) {
+                                const opt = document.createElement('option');
+                                opt.value = `F${i}`;
+                                opt.textContent = `Flat ${i}`;
+                                floorSelect.appendChild(opt);
+                            }
+                        } else {
+                            const letters = ['A', 'B', 'C'];
+                            const totalFloors = hostel.floors || hostel.total_floors || 3;
+                            for (let i = 0; i < totalFloors; i++) {
+                                const opt = document.createElement('option');
+                                opt.value = letters[i];
+                                opt.textContent = `Floor ${letters[i]}`;
+                                floorSelect.appendChild(opt);
+                            }
                         }
                     }
                 }
@@ -1363,12 +1302,10 @@
                 }
                 
                 try {
-                    // Find if floor/flat already exists
                     const floorData = allFloorsFlats.find(f => f.name === floorFlat);
                     let floorFlatId = floorData?.id;
                     
                     if (!floorData) {
-                        // Create new floor/flat
                         const newFloor = await apiCall('/floors_flats', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1381,7 +1318,6 @@
                         allFloorsFlats.push(newFloor.data);
                     }
                     
-                    // Create room
                     const response = await apiCall('/rooms', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -1391,7 +1327,6 @@
                     });
                     
                     const newRoom = response.data;
-                    // Add floor label to room for display
                     newRoom.floor_label = floorFlat;
                     newRoom.capacity = capacity;
                     newRoom.occupied = 0;
@@ -1416,7 +1351,6 @@
                     showToast(`Room ${roomCode} created successfully!`);
                     closeAddRoomModal();
                     
-                    // Refresh data
                     const refreshedRooms = await loadRoomsForHostel(editingHostelId);
                     allRooms = refreshedRooms;
                     const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
