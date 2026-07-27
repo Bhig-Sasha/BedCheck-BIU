@@ -103,34 +103,6 @@ function getStaffId(req) {
   return null;
 }
 
-async function tableExists(tableName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_name', tableName)
-      .eq('table_schema', 'public')
-      .maybeSingle();
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function columnExists(tableName, columnName) {
-  try {
-    const { data, error } = await supabase
-      .from('information_schema.columns')
-      .select('column_name')
-      .eq('table_name', tableName)
-      .eq('column_name', columnName)
-      .maybeSingle();
-    return !error && data;
-  } catch (e) {
-    return false;
-  }
-}
-
 // =====================================================
 // AUDIT SERVICE - Integrated
 // =====================================================
@@ -454,23 +426,6 @@ const auditEvents = {
       tone: 'blue',
       hostel_id: hostel?.id,
       room_id: student?.room_id,
-      student_id: student?.id
-    });
-  },
-
-  async studentTransferred(student, fromHostel, toHostel, actor) {
-    return auditService.log({
-      actor: actor?.name || 'Admin',
-      actor_id: actor?.id,
-      actor_role: actor?.role || 'Admin',
-      action: 'Student Transferred',
-      module: 'students',
-      details: `${student?.name} (${student?.matric}) transferred from ${fromHostel?.name} to ${toHostel?.name}`,
-      context: `Student ID: ${student?.id}`,
-      result: 'success',
-      category: 'student',
-      tone: 'gold',
-      hostel_id: toHostel?.id,
       student_id: student?.id
     });
   },
@@ -1969,7 +1924,7 @@ app.delete('/api/floors-flats/:id', async (req, res) => {
 });
 
 // =====================================================
-// ROOMS - UPDATED WITH ENRICHMENT
+// ROOMS - UPDATED WITH ENRICHMENT AND CAPACITY
 // =====================================================
 
 app.get('/api/rooms', async (req, res) => {
@@ -2007,7 +1962,7 @@ app.get('/api/rooms', async (req, res) => {
     const { data, error } = await query.order('room_code', { ascending: true });
     if (error) throw error;
     
-    // Enrich with floor/flat label and hostel_id
+    // Enrich with floor/flat label and capacity
     const enrichedData = await Promise.all(data.map(async (room) => {
       const { data: floorData } = await supabase
         .from('floors_flats')
@@ -2015,10 +1970,22 @@ app.get('/api/rooms', async (req, res) => {
         .eq('id', room.floor_flat_id)
         .maybeSingle();
       
+      // Get bed count for this room
+      const { data: bedData } = await supabase
+        .from('bed_spaces')
+        .select('id, status')
+        .eq('room_id', room.id);
+      
+      const capacity = bedData?.length || 4;
+      const occupiedCount = bedData?.filter(b => b.status === 'occupied').length || 0;
+      
       return {
         ...room,
         floor_label: floorData?.name || null,
-        hostel_id: floorData?.hostel_id || null
+        hostel_id: floorData?.hostel_id || null,
+        capacity: capacity,
+        occupied: occupiedCount,
+        available: capacity - occupiedCount
       };
     }));
     
@@ -2035,19 +2002,30 @@ app.get('/api/rooms/:id', async (req, res) => {
     const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single();
     if (error || !data) return res.status(404).json({ success: false, message: 'Room not found' });
     
-    // Enrich with floor/flat label
+    // Enrich with floor/flat label and capacity
     const { data: floorData } = await supabase
       .from('floors_flats')
       .select('name, hostel_id')
       .eq('id', data.floor_flat_id)
       .maybeSingle();
     
+    const { data: bedData } = await supabase
+      .from('bed_spaces')
+      .select('id, status')
+      .eq('room_id', id);
+    
+    const capacity = bedData?.length || 4;
+    const occupiedCount = bedData?.filter(b => b.status === 'occupied').length || 0;
+    
     res.json({ 
       success: true, 
       data: {
         ...data,
         floor_label: floorData?.name || null,
-        hostel_id: floorData?.hostel_id || null
+        hostel_id: floorData?.hostel_id || null,
+        capacity: capacity,
+        occupied: occupiedCount,
+        available: capacity - occupiedCount
       }
     });
   } catch (error) {
@@ -2076,7 +2054,10 @@ app.post('/api/rooms', async (req, res) => {
       data: {
         ...data,
         floor_label: floorData?.name || null,
-        hostel_id: floorData?.hostel_id || null
+        hostel_id: floorData?.hostel_id || null,
+        capacity: 4,
+        occupied: 0,
+        available: 4
       }
     });
   } catch (error) {
@@ -2143,31 +2124,49 @@ app.get('/api/bed-spaces', async (req, res) => {
     }
     
     if (hostel_id) {
-      // First get all room IDs for this hostel
-      const { data: hostelRooms, error: roomsError } = await supabase
-        .from('rooms')
+      // First get all floors for this hostel
+      const { data: hostelFloors, error: floorsError } = await supabase
+        .from('floors_flats')
         .select('id')
         .eq('hostel_id', parseInt(hostel_id));
       
-      if (roomsError) {
-        console.error('Error fetching hostel rooms:', roomsError);
+      if (floorsError) {
+        console.error('Error fetching hostel floors:', floorsError);
         return res.status(500).json({ 
           success: false, 
-          message: 'Database error: ' + roomsError.message 
+          message: 'Database error: ' + floorsError.message 
         });
       }
       
-      if (hostelRooms && hostelRooms.length > 0) {
-        const roomIds = hostelRooms.map(r => r.id);
-        query = query.in('room_id', roomIds);
+      if (hostelFloors && hostelFloors.length > 0) {
+        const floorIds = hostelFloors.map(f => f.id);
+        
+        // Then get all rooms for these floors
+        const { data: hostelRooms, error: roomsError } = await supabase
+          .from('rooms')
+          .select('id')
+          .in('floor_flat_id', floorIds);
+        
+        if (roomsError) {
+          console.error('Error fetching hostel rooms:', roomsError);
+          return res.status(500).json({ 
+            success: false, 
+            message: 'Database error: ' + roomsError.message 
+          });
+        }
+        
+        if (hostelRooms && hostelRooms.length > 0) {
+          const roomIds = hostelRooms.map(r => r.id);
+          query = query.in('room_id', roomIds);
+        } else {
+          return res.json({ success: true, data: [] });
+        }
       } else {
-        // No rooms found for this hostel, return empty
         return res.json({ success: true, data: [] });
       }
     }
     
     const { data, error } = await query.order('bed_code', { ascending: true });
-    
     if (error) throw error;
     res.json({ success: true, data: data });
   } catch (error) {
@@ -2254,7 +2253,7 @@ app.delete('/api/bed-spaces/:id', async (req, res) => {
 });
 
 // =====================================================
-// HOSTELS
+// HOSTELS - FIXED with computed fields
 // =====================================================
 
 app.get('/api/hostels', async (req, res) => {
@@ -2262,14 +2261,105 @@ app.get('/api/hostels', async (req, res) => {
     const { data: hostelsData, error: hostelsError } = await supabase.from('hostels').select('*').order('name', { ascending: true });
     if (hostelsError) throw hostelsError;
     if (!hostelsData || hostelsData.length === 0) return res.json({ success: true, data: [] });
-    const { data: staffData, error: staffError } = await supabase.from('staff').select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level').eq('status', 'Active');
+    
+    // Get all floors/flats
+    const { data: floorsData, error: floorsError } = await supabase
+      .from('floors_flats')
+      .select('id, hostel_id, name, type');
+    if (floorsError) throw floorsError;
+    
+    // Get all rooms
+    const { data: roomsData, error: roomsError } = await supabase
+      .from('rooms')
+      .select('id, floor_flat_id');
+    if (roomsError) throw roomsError;
+    
+    // Get all bed spaces
+    const { data: bedSpacesData, error: bedError } = await supabase
+      .from('bed_spaces')
+      .select('id, room_id, status');
+    if (bedError) throw bedError;
+    
+    // Get staff data
+    const { data: staffData, error: staffError } = await supabase
+      .from('staff')
+      .select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level')
+      .eq('status', 'Active');
     if (staffError) throw staffError;
+    
+    // Calculate counts per hostel
     const enrichedHostels = hostelsData.map(hostel => {
+      // Get floors for this hostel
+      const hostelFloors = floorsData?.filter(f => f.hostel_id === hostel.id) || [];
+      const totalFloors = hostelFloors.length;
+      
+      // Get rooms for this hostel via floors
+      let totalRooms = 0;
+      const floorIds = hostelFloors.map(f => f.id);
+      if (floorIds.length > 0) {
+        const hostelRooms = roomsData?.filter(r => floorIds.includes(r.floor_flat_id)) || [];
+        totalRooms = hostelRooms.length;
+      }
+      
+      // Get bed spaces for this hostel via rooms
+      let totalBeds = 0;
+      let occupiedBeds = 0;
+      if (totalRooms > 0) {
+        const roomIds = roomsData?.filter(r => floorIds.includes(r.floor_flat_id)).map(r => r.id) || [];
+        if (roomIds.length > 0) {
+          const hostelBeds = bedSpacesData?.filter(b => roomIds.includes(b.room_id)) || [];
+          totalBeds = hostelBeds.length;
+          occupiedBeds = hostelBeds.filter(b => b.status === 'occupied').length;
+        }
+      }
+      
       const hostelStaff = staffData.filter(s => s.hostel_id === hostel.id);
       const hraStaff = hostelStaff.find(s => s.role === 'HRA');
       const raStaff = hostelStaff.filter(s => s.role === 'RA');
-      return { ...hostel, hra_name: hraStaff ? hraStaff.name : null, hra_id: hraStaff ? hraStaff.id : null, hra: hraStaff ? hraStaff.name : hostel.hra || null, ra_names: raStaff.map(s => s.name).join(', '), ra_list: raStaff.map(s => ({ id: s.id, name: s.name, username: s.username, email: s.email, phone: s.phone, assigned_floor: s.assigned_floor || null, assigned_room: s.assigned_room || null, submission_status: s.submission_status || 'Not Started', level: s.level || null })), ra_count: raStaff.length, staff: hostelStaff.map(s => ({ id: s.id, name: s.name, role: s.role, username: s.username, assigned_floor: s.assigned_floor || null, assigned_room: s.assigned_room || null, submission_status: s.submission_status || 'Not Started' })) };
+      
+      // Compute beds per room based on gender
+      const bedsPerRoom = hostel.beds_per_room || (hostel.gender === 'female' ? 6 : 4);
+      
+      return {
+        ...hostel,
+        floors: totalFloors || hostel.total_floors || 0,
+        total_floors: totalFloors || hostel.total_floors || 0,
+        room_count: totalRooms,
+        total_rooms: totalRooms,
+        total_beds: totalBeds,
+        beds_per_room: bedsPerRoom,
+        occupied_beds: occupiedBeds,
+        available_beds: totalBeds - occupiedBeds,
+        rooms_per_floor: hostel.rooms_per_floor || (hostel.gender === 'female' ? 24 : 18),
+        rooms_per_flat: hostel.rooms_per_flat || 4,
+        hra_name: hraStaff ? hraStaff.name : null,
+        hra_id: hraStaff ? hraStaff.id : null,
+        hra: hraStaff ? hraStaff.name : hostel.hra || null,
+        ra_names: raStaff.map(s => s.name).join(', '),
+        ra_list: raStaff.map(s => ({
+          id: s.id,
+          name: s.name,
+          username: s.username,
+          email: s.email,
+          phone: s.phone,
+          assigned_floor: s.assigned_floor || null,
+          assigned_room: s.assigned_room || null,
+          submission_status: s.submission_status || 'Not Started',
+          level: s.level || null
+        })),
+        ra_count: raStaff.length,
+        staff: hostelStaff.map(s => ({
+          id: s.id,
+          name: s.name,
+          role: s.role,
+          username: s.username,
+          assigned_floor: s.assigned_floor || null,
+          assigned_room: s.assigned_room || null,
+          submission_status: s.submission_status || 'Not Started'
+        }))
+      };
     });
+    
     res.json({ success: true, data: enrichedHostels });
   } catch (error) {
     console.error('Error fetching hostels:', error);
@@ -2282,11 +2372,88 @@ app.get('/api/hostels/:id', async (req, res) => {
   try {
     const { data: hostelData, error: hostelError } = await supabase.from('hostels').select('*').eq('id', id).single();
     if (hostelError || !hostelData) return res.status(404).json({ success: false, message: 'Hostel not found' });
-    const { data: staffData, error: staffError } = await supabase.from('staff').select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level').eq('hostel_id', id).eq('status', 'Active');
+    
+    // Get floors for this hostel
+    const { data: floorsData, error: floorsError } = await supabase
+      .from('floors_flats')
+      .select('*')
+      .eq('hostel_id', id);
+    if (floorsError) throw floorsError;
+    
+    // Get rooms for this hostel
+    const floorIds = floorsData?.map(f => f.id) || [];
+    let roomsData = [];
+    if (floorIds.length > 0) {
+      const { data: rooms, error: roomsError } = await supabase
+        .from('rooms')
+        .select('*')
+        .in('floor_flat_id', floorIds);
+      if (roomsError) throw roomsError;
+      roomsData = rooms || [];
+    }
+    
+    // Get bed spaces for this hostel
+    const roomIds = roomsData.map(r => r.id);
+    let bedSpacesData = [];
+    if (roomIds.length > 0) {
+      const { data: beds, error: bedError } = await supabase
+        .from('bed_spaces')
+        .select('*')
+        .in('room_id', roomIds);
+      if (bedError) throw bedError;
+      bedSpacesData = beds || [];
+    }
+    
+    // Get staff
+    const { data: staffData, error: staffError } = await supabase
+      .from('staff')
+      .select('id, name, role, hostel_id, assigned_floor, assigned_room, status, username, email, phone, submission_status, level')
+      .eq('hostel_id', id)
+      .eq('status', 'Active');
     if (staffError) throw staffError;
+    
     const hraStaff = staffData.find(s => s.role === 'HRA');
     const raStaff = staffData.filter(s => s.role === 'RA');
-    const enrichedHostel = { ...hostelData, hra_name: hraStaff ? hraStaff.name : null, hra_id: hraStaff ? hraStaff.id : null, hra: hraStaff ? hraStaff.name : hostelData.hra || null, ra_names: raStaff.map(s => s.name).join(', '), ra_list: raStaff.map(s => ({ id: s.id, name: s.name, username: s.username, email: s.email, phone: s.phone, assigned_floor: s.assigned_floor || null, assigned_room: s.assigned_room || null, submission_status: s.submission_status || 'Not Started', level: s.level || null })), ra_count: raStaff.length, staff: staffData };
+    
+    const bedsPerRoom = hostelData.beds_per_room || (hostelData.gender === 'female' ? 6 : 4);
+    const totalRooms = roomsData.length;
+    const totalBeds = bedSpacesData.length;
+    const occupiedBeds = bedSpacesData.filter(b => b.status === 'occupied').length;
+    
+    const enrichedHostel = {
+      ...hostelData,
+      floors: floorsData?.length || hostelData.total_floors || 0,
+      total_floors: floorsData?.length || hostelData.total_floors || 0,
+      room_count: totalRooms,
+      total_rooms: totalRooms,
+      total_beds: totalBeds,
+      beds_per_room: bedsPerRoom,
+      occupied_beds: occupiedBeds,
+      available_beds: totalBeds - occupiedBeds,
+      rooms_per_floor: hostelData.rooms_per_floor || (hostelData.gender === 'female' ? 24 : 18),
+      rooms_per_flat: hostelData.rooms_per_flat || 4,
+      hra_name: hraStaff ? hraStaff.name : null,
+      hra_id: hraStaff ? hraStaff.id : null,
+      hra: hraStaff ? hraStaff.name : hostelData.hra || null,
+      ra_names: raStaff.map(s => s.name).join(', '),
+      ra_list: raStaff.map(s => ({
+        id: s.id,
+        name: s.name,
+        username: s.username,
+        email: s.email,
+        phone: s.phone,
+        assigned_floor: s.assigned_floor || null,
+        assigned_room: s.assigned_room || null,
+        submission_status: s.submission_status || 'Not Started',
+        level: s.level || null
+      })),
+      ra_count: raStaff.length,
+      staff: staffData,
+      floors_list: floorsData || [],
+      rooms_list: roomsData || [],
+      bed_spaces: bedSpacesData || []
+    };
+    
     res.json({ success: true, data: enrichedHostel });
   } catch (error) {
     console.error('Error fetching hostel:', error);
