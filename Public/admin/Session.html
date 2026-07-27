@@ -213,6 +213,12 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* Session row highlight */
+        .session-row-active { background: #fbf7ef; border-left: 3px solid #d6ad4b; }
+        .session-row-scheduled { border-left: 3px solid #1e3a5f; }
+        .session-row-closed { border-left: 3px solid #8a3328; }
+        .session-row-archived { opacity: 0.7; }
     </style>
 </head>
 <body>
@@ -365,7 +371,6 @@
             let currentSession = null;
             let sessionCheckerInterval = null;
 
-            // ALLOWED STATUS VALUES - Matches database constraint
             const ALLOWED_STATUSES = ['Scheduled', 'Open', 'Running', 'Closed', 'Locked', 'Submitted', 'Review', 'Approved', 'Archived'];
 
             function showToast(message, type = 'success') {
@@ -423,6 +428,14 @@
                 return map[status] || '🟡';
             }
 
+            function getRowClass(status) {
+                if (status === 'Open' || status === 'Running') return 'session-row-active';
+                if (status === 'Scheduled') return 'session-row-scheduled';
+                if (status === 'Closed') return 'session-row-closed';
+                if (status === 'Archived') return 'session-row-archived';
+                return '';
+            }
+
             async function apiCall(endpoint, options = {}) {
                 try {
                     const headers = {
@@ -458,7 +471,6 @@
                 try {
                     const data = await apiCall('/sessions');
                     sessions = data.data || [];
-                    // Find the current active session (Open or Running)
                     currentSession = sessions.find(s => s.status === 'Open' || s.status === 'Running') || null;
                     return sessions;
                 } catch (error) {
@@ -469,17 +481,14 @@
             }
 
             async function updateSessionStatus(sessionId, status) {
-                // Validate status is allowed
                 if (!ALLOWED_STATUSES.includes(status)) {
-                    throw new Error(`Invalid status: ${status}. Allowed values: ${ALLOWED_STATUSES.join(', ')}`);
+                    throw new Error(`Invalid status: ${status}`);
                 }
-
                 try {
                     const result = await apiCall(`/sessions/${sessionId}`, {
                         method: 'PUT',
                         body: JSON.stringify({ status })
                     });
-                    // Also update global submission state
                     await apiCall('/submission', {
                         method: 'PUT',
                         body: JSON.stringify({ state: status })
@@ -538,7 +547,7 @@
                         end_time: endTime,
                         repeat: repeat,
                         hostel_ids: selectedHostels,
-                        status: 'Scheduled'  // Valid status from the constraint
+                        status: 'Scheduled'
                     };
 
                     await apiCall('/sessions', {
@@ -620,11 +629,8 @@
                 const activeSessions = sessions.filter(s => s.status === 'Open' || s.status === 'Running');
                 const hasActive = activeSessions.length > 0;
                 const currentActive = activeSessions[0] || null;
-                const sessionStatus = currentActive ? currentActive.status : 'Scheduled';
                 const totalSessions = sessions.length;
                 const archived = sessions.filter(s => s.status === 'Archived').length;
-
-                const firstSession = sessions.length > 0 ? sessions[0] : null;
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -647,9 +653,9 @@
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon gold"><i class="fas fa-moon"></i></div>
-                            <div class="metric-value">${firstSession ? formatDate(firstSession.date) : formatDate(now)}</div>
+                            <div class="metric-value">${sessions.length > 0 ? formatDate(sessions[0].date) : formatDate(now)}</div>
                             <div class="metric-title">Next Session</div>
-                            <div class="metric-detail">${firstSession ? getSessionStatusDisplay(firstSession.status) : '—'}</div>
+                            <div class="metric-detail">${sessions.length > 0 ? getSessionStatusDisplay(sessions[0].status) : '—'}</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon green"><i class="fas fa-play-circle"></i></div>
@@ -720,8 +726,8 @@
                                 <span class="status-badge" style="background:${hasActive ? '#d6ad4b' : '#e8edf2'};color:${hasActive ? '#10233f' : '#536274'};">${hasActive ? '🟢 ACTIVE' : '⏸ INACTIVE'}</span>
                             </div>
                             <div class="grid-2 mt-3" style="color:#b9c7db;font-size:0.8rem;">
-                                <div><span style="color:#b9c7db;">Start</span><br><strong style="color:white;">${firstSession ? formatTime(firstSession.start_time) || '10:00 PM' : '10:00 PM'}</strong></div>
-                                <div><span style="color:#b9c7db;">End</span><br><strong style="color:white;">${firstSession ? formatTime(firstSession.end_time) || '11:30 PM' : '11:30 PM'}</strong></div>
+                                <div><span style="color:#b9c7db;">Start</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].start_time) || '10:00 PM' : '10:00 PM'}</strong></div>
+                                <div><span style="color:#b9c7db;">End</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].end_time) || '11:30 PM' : '11:30 PM'}</strong></div>
                             </div>
                         </div>
 
@@ -744,7 +750,7 @@
                     <!-- All Sessions Table -->
                     <div class="card mt-4">
                         <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> All Sessions</div>
+                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> Sessions</div>
                             <span class="text-xs text-muted">${totalSessions} sessions</span>
                         </div>
                         <div class="table-wrap mt-2">
@@ -752,22 +758,27 @@
                                 <thead><tr>
                                     <th>Date</th>
                                     <th>Session</th>
-                                    <th>Start</th>
-                                    <th>End</th>
+                                    <th>Scheduled Start</th>
+                                    <th>Actual Start</th>
+                                    <th>End Time</th>
                                     <th>Status</th>
                                     <th>Action</th>
                                 </tr></thead>
                                 <tbody>
                                     ${sessions.length === 0 ? `
-                                        <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No sessions created yet</td></tr>
+                                        <tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">No sessions created yet</td></tr>
                                     ` : sessions.slice().reverse().map(s => {
                                         const isActive = s.status === 'Open' || s.status === 'Running';
+                                        const isClosed = s.status === 'Closed' || s.status === 'Locked' || s.status === 'Archived';
+                                        const actualStart = s.created_at || s.started_at;
+                                        const endTime = isClosed ? (s.closed_at || s.updated_at || s.end_time) : '—';
                                         return `
-                                            <tr style="${isActive ? 'background:#fbf7ef;' : ''}">
+                                            <tr class="${getRowClass(s.status)}">
                                                 <td style="font-weight:600;">${formatDate(s.date)}</td>
                                                 <td>${s.name || 'Night BedCheck'}</td>
                                                 <td>${formatTime(s.start_time) || '10:00 PM'}</td>
-                                                <td>${formatTime(s.end_time) || '11:30 PM'}</td>
+                                                <td>${isActive || isClosed ? formatTime(actualStart) : '—'}</td>
+                                                <td>${isClosed ? formatTime(endTime) : '—'}</td>
                                                 <td><span class="badge ${getStatusBadge(s.status)}">${getStatusDot(s.status)} ${s.status}</span></td>
                                                 <td>
                                                     ${s.status === 'Scheduled' ? `
