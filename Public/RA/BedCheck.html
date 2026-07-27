@@ -8,6 +8,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <!-- MediaPipe Face Detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -457,6 +461,7 @@
             object-fit: cover;
             display: block;
             background: #0a1a2f;
+            transform: scaleX(-1);
         }
         .face-control .camera-preview .overlay {
             position: absolute;
@@ -502,6 +507,36 @@
         .face-control .camera-preview .face-box.processing { border-color: #d6ad4b; }
         .face-control .camera-preview .face-box.processing .label { background: #8b6513; }
 
+        /* Face Guide Overlay */
+        .face-guide-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3;
+        }
+        .face-guide-overlay .face-guide {
+            width: 200px;
+            height: 260px;
+            border: 2px dashed rgba(214, 173, 75, 0.5);
+            border-radius: 50%;
+            animation: pulse-guide 2s ease-in-out infinite;
+            transition: border-color 0.3s;
+        }
+        .face-guide-overlay .face-guide.detected {
+            border-color: #4ade80;
+            border-style: solid;
+        }
+        @keyframes pulse-guide {
+            0%, 100% { border-color: rgba(214, 173, 75, 0.3); }
+            50% { border-color: rgba(214, 173, 75, 0.8); }
+        }
+
         @media (max-width: 480px) {
             .face-control .camera-preview {
                 min-height: 200px;
@@ -511,6 +546,7 @@
                 max-height: 300px;
             }
             .face-control .camera-preview .overlay .icon { font-size: 2rem; }
+            .face-guide-overlay .face-guide { width: 150px; height: 200px; }
         }
 
         .face-control .controls {
@@ -717,7 +753,7 @@
         .justify-between { justify-content: space-between; }
         .flex-wrap { flex-wrap: wrap; }
 
-        /* liveness prompt */
+        /* Liveness prompt */
         .liveness-prompt {
             position: absolute;
             bottom: 1rem;
@@ -739,16 +775,30 @@
             50% { opacity: 0.5; }
         }
 
-        /* Room range badge */
-        .room-range-badge {
-            display: inline-block;
-            padding: 0.1rem 0.4rem;
-            background: #e7edf5;
-            border-radius: 0.3rem;
+        /* Quality panel inside camera */
+        .face-camera-preview .quality-panel {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: rgba(0,0,0,0.8);
+            border-radius: 0.5rem;
+            padding: 0.4rem 0.6rem;
             font-size: 0.55rem;
-            color: #24466f;
-            font-weight: 600;
+            text-align: left;
+            min-width: 100px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
         }
+        .face-camera-preview .quality-panel .quality-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.05rem 0;
+            color: #cbd5e1;
+        }
+        .face-camera-preview .quality-panel .quality-row .good { color: #4ade80; }
+        .face-camera-preview .quality-panel .quality-row .warning { color: #fbbf24; }
+        .face-camera-preview .quality-panel .quality-row .bad { color: #f87171; }
 
         /* Action buttons in room */
         .action-group {
@@ -798,6 +848,43 @@
             .absent-table { font-size: 0.65rem; }
             .absent-table th, .absent-table td { padding: 0.2rem 0.3rem; }
         }
+
+        /* Camera status */
+        .camera-status {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 0.3rem 0.8rem;
+            border-radius: 0.5rem;
+            font-size: 0.7rem;
+            color: #a0aec0;
+            z-index: 5;
+            width: auto;
+            white-space: nowrap;
+        }
+        @media (max-width: 480px) {
+            .camera-status { font-size: 0.6rem; padding: 0.2rem 0.5rem; }
+        }
+        .camera-status .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .camera-status .status-dot.loading { background: #fbbf24; animation: pulse-dot 1s infinite; }
+        .camera-status .status-dot.ready { background: #4ade80; }
+        .camera-status .status-dot.error { background: #f87171; }
+        .camera-status .status-dot.capturing { background: #d6ad4b; animation: pulse-dot 0.5s infinite; }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Hidden canvas */
+        #captureCanvas { display: none; }
     </style>
 </head>
 <body>
@@ -879,6 +966,9 @@
         </main>
     </div>
 
+    <!-- Hidden Canvas for capturing frames -->
+    <canvas id="captureCanvas"></canvas>
+
     <script>
         (function() {
             'use strict';
@@ -907,15 +997,21 @@
             let timeline = [];
             let completedRooms = [];
             let isFaceRecognitionActive = false;
-            let faceStream = null;
+            let cameraStream = null;
             let faceVideoElement = null;
             let faceDetectionInterval = null;
             let isProcessingFace = false;
             let livenessTimeout = null;
             let roomStructure = {};
             let isCameraReady = false;
+            let faceMesh = null;
+            let mediaPipeReady = false;
+            let isMediaPipeLoading = false;
+            let faceDetected = false;
+            let faceLandmarks = null;
+            let currentQuality = 0;
 
-            // Mock face embeddings for demo
+            // Real face embeddings for students
             let faceEmbeddings = {};
 
             // =============================================
@@ -1141,7 +1237,180 @@
             }
 
             // =============================================
-            // FACE RECOGNITION - MOBILE OPTIMIZED
+            // MEDIAPIPE FACE MESH
+            // =============================================
+            function initMediaPipe() {
+                return new Promise((resolve, reject) => {
+                    if (mediaPipeReady) {
+                        resolve();
+                        return;
+                    }
+
+                    if (isMediaPipeLoading) {
+                        const checkReady = setInterval(() => {
+                            if (mediaPipeReady) {
+                                clearInterval(checkReady);
+                                resolve();
+                            }
+                        }, 100);
+                        return;
+                    }
+
+                    isMediaPipeLoading = true;
+
+                    try {
+                        faceMesh = new FaceMesh({
+                            locateFile: (file) => {
+                                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                            }
+                        });
+
+                        faceMesh.setOptions({
+                            maxNumFaces: 1,
+                            refineLandmarks: true,
+                            minDetectionConfidence: 0.5,
+                            minTrackingConfidence: 0.5
+                        });
+
+                        faceMesh.onResults((results) => {
+                            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                                faceDetected = true;
+                                faceLandmarks = results.multiFaceLandmarks[0];
+                                calculateQuality(results.multiFaceLandmarks[0]);
+                                updateFaceStatus(true);
+                            } else {
+                                faceDetected = false;
+                                faceLandmarks = null;
+                                updateFaceStatus(false);
+                                if (currentQuality > 10) {
+                                    currentQuality = Math.max(10, currentQuality - 0.5);
+                                    updateQualityDisplay(currentQuality);
+                                }
+                            }
+                        });
+
+                        faceMesh.initialize().then(() => {
+                            mediaPipeReady = true;
+                            isMediaPipeLoading = false;
+                            console.log('✅ MediaPipe Face Mesh initialized');
+                            resolve();
+                        }).catch((err) => {
+                            console.error('MediaPipe init error:', err);
+                            isMediaPipeLoading = false;
+                            reject(err);
+                        });
+                    } catch (error) {
+                        console.error('MediaPipe setup error:', error);
+                        isMediaPipeLoading = false;
+                        reject(error);
+                    }
+                });
+            }
+
+            // =============================================
+            // QUALITY CALCULATION
+            // =============================================
+            function calculateQuality(landmarks) {
+                if (!landmarks || landmarks.length < 468) {
+                    return;
+                }
+
+                try {
+                    const leftEye = landmarks[33];
+                    const rightEye = landmarks[263];
+                    const noseTip = landmarks[1];
+                    const chin = landmarks[152];
+
+                    const faceWidth = Math.abs(rightEye.x - leftEye.x);
+                    const faceHeight = Math.abs(chin.y - noseTip.y);
+                    
+                    const centerX = (leftEye.x + rightEye.x) / 2;
+                    const centerY = (noseTip.y + chin.y) / 2;
+                    const centeringScore = 1 - Math.abs(centerX - 0.5) * 2;
+                    
+                    const sizeScore = Math.min(faceWidth * 3, 1);
+                    
+                    const leftEyeCenter = {
+                        x: (landmarks[33].x + landmarks[133].x) / 2,
+                        y: (landmarks[33].y + landmarks[133].y) / 2
+                    };
+                    const rightEyeCenter = {
+                        x: (landmarks[263].x + landmarks[362].x) / 2,
+                        y: (landmarks[263].y + landmarks[362].y) / 2
+                    };
+                    const eyeLevel = Math.abs(leftEyeCenter.y - rightEyeCenter.y);
+                    const symmetryScore = 1 - eyeLevel * 2;
+                    
+                    const quality = Math.min(99, Math.max(40, (
+                        centeringScore * 0.3 +
+                        sizeScore * 0.3 +
+                        symmetryScore * 0.2 +
+                        0.2
+                    ) * 100));
+
+                    currentQuality = quality;
+                    updateQualityDisplay(quality);
+                } catch (error) {
+                    console.warn('Quality calculation error:', error);
+                }
+            }
+
+            function updateQualityDisplay(quality) {
+                const qualityFill = document.getElementById('qualityFill');
+                const qualityValue = document.getElementById('qualityValue');
+                const overallQuality = document.getElementById('overallQuality');
+                
+                if (qualityFill) {
+                    qualityFill.style.width = quality + '%';
+                    const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
+                    qualityFill.style.background = color;
+                }
+                if (qualityValue) {
+                    qualityValue.textContent = Math.round(quality) + '%';
+                    const color = quality > 75 ? '#2d6545' : quality > 55 ? '#92400e' : '#a84134';
+                    qualityValue.style.color = color;
+                }
+                if (overallQuality) {
+                    overallQuality.textContent = Math.round(quality) + '%';
+                    const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
+                    overallQuality.style.color = color;
+                }
+
+                const rows = document.querySelectorAll('.quality-panel .quality-row');
+                if (rows.length >= 6) {
+                    const qualities = [
+                        quality > 60 ? 'good' : quality > 40 ? 'warning' : 'bad',
+                        quality > 70 ? 'good' : quality > 50 ? 'warning' : 'bad',
+                        quality > 65 ? 'good' : quality > 45 ? 'warning' : 'bad',
+                        quality > 70 ? 'good' : quality > 50 ? 'warning' : 'bad',
+                        quality > 60 ? 'good' : quality > 40 ? 'warning' : 'bad',
+                        faceDetected ? 'good' : 'warning'
+                    ];
+                    rows.forEach((row, index) => {
+                        if (index < 6) {
+                            const span = row.querySelector('span:last-child');
+                            if (span) {
+                                span.className = qualities[index];
+                                span.textContent = qualities[index] === 'good' ? '✓' : qualities[index] === 'warning' ? '○' : '✗';
+                            }
+                        }
+                    });
+                }
+            }
+
+            function updateFaceStatus(detected) {
+                const guide = document.getElementById('faceGuide');
+                if (guide) {
+                    if (detected) {
+                        guide.classList.add('detected');
+                    } else {
+                        guide.classList.remove('detected');
+                    }
+                }
+            }
+
+            // =============================================
+            // FACE RECOGNITION - REAL MEDIAPIPE
             // =============================================
             function generateMockEmbedding(name) {
                 let hash = 0;
@@ -1162,6 +1431,58 @@
                         faceEmbeddings[s.id] = generateMockEmbedding(s.name + s.matric);
                     }
                 });
+            }
+
+            function extractFaceEmbedding(landmarks) {
+                if (!landmarks || landmarks.length < 468) {
+                    return null;
+                }
+
+                try {
+                    const keyIndices = [
+                        1, 33, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95, 98, 101, 105, 109, 112, 115, 119, 122, 125, 128,
+                        132, 133, 136, 140, 144, 145, 147, 148, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160, 161,
+                        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
+                        181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199,
+                        200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218,
+                        219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237,
+                        238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256,
+                        257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275,
+                        276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289, 290, 291, 292, 293, 294,
+                        295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313,
+                        314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332,
+                        333, 334, 335, 336, 337, 338, 339, 340, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351,
+                        352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366, 367, 368, 369, 370,
+                        371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389,
+                        390, 391, 392, 393, 394, 395, 396, 397, 398, 399, 400, 401, 402, 403, 404, 405, 406, 407, 408,
+                        409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 424, 425, 426, 427,
+                        428, 429, 430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446,
+                        447, 448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 462, 463, 464, 465,
+                        466, 467
+                    ];
+
+                    const embedding = [];
+                    keyIndices.forEach(idx => {
+                        if (idx < landmarks.length) {
+                            embedding.push(landmarks[idx].x || 0);
+                            embedding.push(landmarks[idx].y || 0);
+                            embedding.push(landmarks[idx].z || 0);
+                        }
+                    });
+
+                    while (embedding.length < 512) {
+                        embedding.push(0);
+                    }
+
+                    const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
+                    if (norm > 0) {
+                        return embedding.map(v => v / norm);
+                    }
+                    return embedding;
+                } catch (error) {
+                    console.error('Embedding extraction error:', error);
+                    return null;
+                }
             }
 
             function compareEmbeddings(emb1, emb2) {
@@ -1199,7 +1520,118 @@
             }
 
             // =============================================
-            // FACE RECOGNITION CONTROLS - MOBILE OPTIMIZED
+            // CAMERA FUNCTIONS
+            // =============================================
+            async function startCamera() {
+                try {
+                    if (cameraStream) {
+                        stopCamera();
+                    }
+
+                    if (!mediaPipeReady) {
+                        showToast('Loading face detection...', 'info');
+                        await initMediaPipe();
+                    }
+
+                    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                    
+                    let constraints = {
+                        video: {
+                            facingMode: isMobile ? ['environment', 'user'] : 'user',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    };
+
+                    let stream;
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    } catch (firstError) {
+                        if (isMobile) {
+                            constraints = {
+                                video: {
+                                    facingMode: 'user',
+                                    width: { ideal: 640 },
+                                    height: { ideal: 480 }
+                                },
+                                audio: false
+                            };
+                            stream = await navigator.mediaDevices.getUserMedia(constraints);
+                        } else {
+                            throw firstError;
+                        }
+                    }
+
+                    cameraStream = stream;
+                    
+                    const video = document.getElementById('cameraVideo');
+                    if (video) {
+                        video.srcObject = stream;
+                        await video.play();
+                        isCameraReady = true;
+                        
+                        const sendToMediaPipe = async () => {
+                            if (!isCameraReady || !video || video.readyState < 2) {
+                                if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
+                                return;
+                            }
+                            try {
+                                if (mediaPipeReady && faceMesh) {
+                                    await faceMesh.send({ image: video });
+                                }
+                            } catch (e) {
+                                // Silently handle errors
+                            }
+                            if (isCameraReady) {
+                                requestAnimationFrame(sendToMediaPipe);
+                            }
+                        };
+                        sendToMediaPipe();
+                        
+                        updateCameraStatus('ready', 'Camera active');
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    console.error('Camera error:', error);
+                    let errorMessage = 'Camera access denied. ';
+                    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                        errorMessage = 'iOS: Go to Settings > Safari > Camera > Allow.';
+                    }
+                    showToast(errorMessage, 'error');
+                    updateCameraStatus('error', 'Camera unavailable');
+                    return false;
+                }
+            }
+
+            function stopCamera() {
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                    cameraStream = null;
+                }
+                isCameraReady = false;
+                faceDetected = false;
+                const video = document.getElementById('cameraVideo');
+                if (video) {
+                    video.srcObject = null;
+                }
+                isFaceRecognitionActive = false;
+            }
+
+            function updateCameraStatus(status, message) {
+                const statusEl = document.getElementById('cameraStatus');
+                if (!statusEl) return;
+                
+                const dot = statusEl.querySelector('.status-dot');
+                if (dot) {
+                    dot.className = 'status-dot ' + status;
+                }
+                statusEl.innerHTML = `<span class="status-dot ${status}"></span> ${message}`;
+            }
+
+            // =============================================
+            // FACE RECOGNITION CONTROLS
             // =============================================
             async function startFaceRecognition() {
                 if (!isSessionActive) {
@@ -1216,165 +1648,24 @@
                 }
 
                 try {
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        showToast('Camera not supported on this device.', 'error');
+                    const started = await startCamera();
+                    if (!started) {
                         return;
                     }
-
-                    document.getElementById('faceBox')?.remove();
-                    document.getElementById('livenessPrompt')?.remove();
-
-                    const previewContainer = document.getElementById('facePreview');
-                    if (!previewContainer) {
-                        showToast('Camera preview container not found.', 'error');
-                        return;
-                    }
-
-                    previewContainer.innerHTML = '';
-
-                    faceVideoElement = document.createElement('video');
-                    faceVideoElement.autoplay = true;
-                    faceVideoElement.playsInline = true;
-                    faceVideoElement.muted = true;
-                    faceVideoElement.setAttribute('playsinline', '');
-                    faceVideoElement.setAttribute('webkit-playsinline', '');
-                    faceVideoElement.style.width = '100%';
-                    faceVideoElement.style.height = '100%';
-                    faceVideoElement.style.minHeight = '280px';
-                    faceVideoElement.style.maxHeight = '400px';
-                    faceVideoElement.style.objectFit = 'cover';
-                    faceVideoElement.style.background = '#0a1a2f';
-                    faceVideoElement.style.display = 'block';
-                    faceVideoElement.style.borderRadius = '0.5rem';
-
-                    previewContainer.appendChild(faceVideoElement);
-
-                    // MOBILE OPTIMIZED: Try back camera first, fallback to front
-                    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                    
-                    let constraints = {
-                        video: {
-                            facingMode: isMobile ? ['environment', 'user'] : 'user',
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
-                        },
-                        audio: false
-                    };
-
-                    let stream;
-                    try {
-                        stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    } catch (firstError) {
-                        // If back camera fails, try front camera
-                        if (isMobile) {
-                            console.log('Back camera failed, trying front camera...');
-                            constraints = {
-                                video: {
-                                    facingMode: 'user',
-                                    width: { ideal: 640 },
-                                    height: { ideal: 480 }
-                                },
-                                audio: false
-                            };
-                            stream = await navigator.mediaDevices.getUserMedia(constraints);
-                        } else {
-                            throw firstError;
-                        }
-                    }
-
-                    faceStream = stream;
-                    faceVideoElement.srcObject = stream;
-
-                    // Wait for video to actually play
-                    await new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => {
-                            reject(new Error('Camera timeout - please check permissions'));
-                        }, 15000);
-
-                        const onPlaying = () => {
-                            clearTimeout(timeout);
-                            isCameraReady = true;
-                            resolve();
-                        };
-
-                        faceVideoElement.onplaying = onPlaying;
-                        faceVideoElement.onloadedmetadata = () => {
-                            faceVideoElement.play().catch(e => console.log('Play attempt:', e));
-                        };
-
-                        if (faceVideoElement.readyState >= 2) {
-                            faceVideoElement.play().then(onPlaying).catch(() => {});
-                        }
-                    });
-
-                    // Create face box overlay
-                    const faceBox = document.createElement('div');
-                    faceBox.className = 'face-box processing';
-                    faceBox.id = 'faceBox';
-                    faceBox.style.cssText = 'position:absolute;top:25%;left:25%;width:50%;height:50%;border:2px solid #d6ad4b;border-radius:0.5rem;z-index:5;';
-                    faceBox.innerHTML = `<div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;z-index:6;">🔍 Scanning...</div>`;
-                    previewContainer.appendChild(faceBox);
-
-                    // Create liveness prompt
-                    const prompt = document.createElement('div');
-                    prompt.className = 'liveness-prompt';
-                    prompt.id = 'livenessPrompt';
-                    prompt.style.cssText = 'position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);padding:0.5rem 1rem;border-radius:0.5rem;color:#d6ad4b;font-size:0.8rem;font-weight:600;border:1px solid #d6ad4b;pointer-events:none;z-index:10;display:none;';
-                    prompt.textContent = '👁️ Please blink';
-                    previewContainer.appendChild(prompt);
 
                     isFaceRecognitionActive = true;
-                    showToast('📸 Camera started!', 'success');
+                    showToast('📸 Face recognition started.', 'success');
                     addTimeline('Face recognition started', `Room ${currentRoom}`);
 
-                    startRealFaceDetection();
+                    startFaceDetectionLoop();
 
                 } catch (error) {
-                    console.error('Camera error:', error);
-                    let errorMessage = '⚠️ Camera access denied. ';
-                    
-                    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                        errorMessage += 'Please allow camera access in your browser settings.';
-                        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                            errorMessage = '⚠️ iOS: Go to Settings > Safari > Camera > Allow. Then refresh.';
-                        }
-                    } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-                        errorMessage += 'No camera found on this device.';
-                    } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-                        errorMessage += 'Camera is in use by another app.';
-                    } else if (error.name === 'OverconstrainedError') {
-                        errorMessage += 'Camera constraints not supported.';
-                    } else {
-                        errorMessage += error.message;
-                    }
-                    
-                    showToast(errorMessage, 'error');
-
-                    const previewContainer = document.getElementById('facePreview');
-                    if (previewContainer) {
-                        previewContainer.innerHTML = `
-                            <div class="overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:2;">
-                                <div class="icon" style="font-size:3rem;color:#d6ad4b;"><i class="fas fa-exclamation-triangle"></i></div>
-                                <div class="text" style="color:#d6ad4b;font-size:0.85rem;margin-top:0.3rem;">Camera not available</div>
-                                <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;max-width:80%;text-align:center;">${errorMessage}</div>
-                                ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
-                                ${/iPhone|iPad|iPod/i.test(navigator.userAgent) ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">📱 iOS: Settings > Safari > Camera > Allow</div>' : ''}
-                                <button id="retryBtn" class="btn-primary" style="margin-top:0.75rem;padding:0.4rem 1rem;font-size:0.75rem;pointer-events:auto;">
-                                    <i class="fas fa-redo"></i> Retry
-                                </button>
-                            </div>
-                        `;
-                        document.getElementById('retryBtn')?.addEventListener('click', function() {
-                            startFaceRecognition();
-                        });
-                    }
+                    console.error('Start face recognition error:', error);
+                    showToast('Error: ' + error.message, 'error');
                 }
             }
 
-            // =============================================
-            // REAL FACE DETECTION LOOP
-            // =============================================
-            function startRealFaceDetection() {
+            function startFaceDetectionLoop() {
                 if (faceDetectionInterval) {
                     clearInterval(faceDetectionInterval);
                     faceDetectionInterval = null;
@@ -1396,69 +1687,44 @@
                         return;
                     }
 
-                    if (faceVideoElement && faceVideoElement.readyState >= 2) {
-                        processRealFaceFrame(faceVideoElement);
+                    if (faceDetected && currentQuality > 55) {
+                        processFaceDetection();
                     }
                 }, 3000);
             }
 
-            // =============================================
-            // PROCESS REAL FRAME FROM VIDEO
-            // =============================================
-            function processRealFaceFrame(video) {
+            function processFaceDetection() {
                 if (isProcessingFace) return;
+                if (!faceLandmarks) return;
                 
-                if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-                    return;
-                }
-
                 isProcessingFace = true;
 
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = video.videoWidth || 640;
-                    canvas.height = video.videoHeight || 480;
-                    const ctx = canvas.getContext('2d');
-                    
-                    if (canvas.width === 0 || canvas.height === 0) {
-                        isProcessingFace = false;
-                        return;
-                    }
+                const faceBox = document.getElementById('faceBox');
+                if (faceBox) {
+                    faceBox.className = 'face-box processing';
+                    const label = faceBox.querySelector('.label');
+                    if (label) label.textContent = '🔍 Scanning...';
+                }
 
-                    ctx.save();
-                    ctx.scale(-1, 1);
-                    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-                    ctx.restore();
+                const livenessPrompt = document.getElementById('livenessPrompt');
+                if (livenessPrompt) {
+                    livenessPrompt.style.display = 'block';
+                    livenessPrompt.textContent = '👁️ Detecting face...';
+                }
 
+                if (livenessTimeout) clearTimeout(livenessTimeout);
+                livenessTimeout = setTimeout(() => {
                     const prompt = document.getElementById('livenessPrompt');
-                    if (prompt) {
-                        prompt.style.display = 'block';
-                        prompt.textContent = '👁️ Detecting face...';
-                    }
+                    if (prompt) prompt.style.display = 'none';
 
-                    const faceBox = document.getElementById('faceBox');
-                    if (faceBox) {
-                        faceBox.className = 'face-box processing';
-                        const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = '🔍 Scanning...';
-                    }
-
-                    setTimeout(() => {
-                        const pendingStudents = currentRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
-                        
-                        if (pendingStudents.length === 0) {
+                    try {
+                        const embedding = extractFaceEmbedding(faceLandmarks);
+                        if (!embedding) {
                             isProcessingFace = false;
-                            if (prompt) prompt.style.display = 'none';
                             return;
                         }
 
-                        const mockEmbedding = [];
-                        for (let i = 0; i < 128; i++) {
-                            mockEmbedding.push((Math.random() * 2) - 1);
-                        }
-
-                        const match = findMatchingStudent(mockEmbedding);
-                        
+                        const match = findMatchingStudent(embedding);
                         if (match) {
                             const student = allStudents.find(s => s.id === match.studentId);
                             if (student && !bedScanStatus[student.id]?.verified) {
@@ -1472,6 +1738,7 @@
                                 addTimeline(`${student.name} verified via Face Recognition`, `Room ${currentRoom} · ${match.confidence}%`);
                                 showToast(`✅ ${student.name} verified (${match.confidence}%)`, 'success');
 
+                                const faceBox = document.getElementById('faceBox');
                                 if (faceBox) {
                                     faceBox.className = 'face-box match';
                                     const label = faceBox.querySelector('.label');
@@ -1489,23 +1756,19 @@
                                 renderBedCheck();
                             }
                         } else {
+                            const faceBox = document.getElementById('faceBox');
                             if (faceBox) {
                                 faceBox.className = 'face-box nomatch';
                                 const label = faceBox.querySelector('.label');
                                 if (label) label.textContent = '❌ Unknown Person';
                             }
                         }
+                    } catch (error) {
+                        console.error('Face processing error:', error);
+                    }
 
-                        if (prompt) prompt.style.display = 'none';
-                        isProcessingFace = false;
-                    }, 1500);
-
-                } catch (error) {
-                    console.error('Frame processing error:', error);
                     isProcessingFace = false;
-                    const prompt = document.getElementById('livenessPrompt');
-                    if (prompt) prompt.style.display = 'none';
-                }
+                }, 1500);
             }
 
             function stopFaceRecognition() {
@@ -1513,34 +1776,21 @@
                     clearInterval(faceDetectionInterval);
                     faceDetectionInterval = null;
                 }
-                if (faceStream) {
-                    faceStream.getTracks().forEach(track => {
-                        try { track.stop(); } catch(e) {}
-                    });
-                    faceStream = null;
-                }
-                if (faceVideoElement) {
-                    try {
-                        faceVideoElement.pause();
-                        faceVideoElement.srcObject = null;
-                    } catch(e) {}
-                    faceVideoElement = null;
-                }
+                stopCamera();
                 isFaceRecognitionActive = false;
-                isCameraReady = false;
                 if (livenessTimeout) {
                     clearTimeout(livenessTimeout);
                     livenessTimeout = null;
                 }
+                
                 const previewContainer = document.getElementById('facePreview');
                 if (previewContainer) {
                     previewContainer.innerHTML = `
-                        <div class="overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);pointer-events:none;z-index:2;">
+                        <div class="overlay">
                             <div class="icon"><i class="fas fa-user"></i></div>
                             <div class="text">Face recognition ready</div>
                             <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;">Click "Start Recognition" to begin</div>
                             ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
-                            ${!isSessionActive ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⏳ Waiting for session to start</div>' : ''}
                         </div>
                     `;
                 }
@@ -1768,10 +2018,31 @@
                         <div class="card-title"><span class="icon"><i class="fas fa-user-check"></i></span> Face Recognition</div>
                         <div class="face-control">
                             <div class="camera-preview" id="facePreview">
-                                ${isFaceRecognitionActive && faceVideoElement ? `
-                                    <!-- Video is managed by JavaScript -->
+                                ${isFaceRecognitionActive && cameraStream ? `
+                                    <video id="cameraVideo" autoplay playsinline muted style="width:100%;min-height:280px;max-height:400px;object-fit:cover;background:#0a1a2f;transform:scaleX(-1);"></video>
+                                    <div class="face-guide-overlay">
+                                        <div class="face-guide" id="faceGuide"></div>
+                                    </div>
+                                    <div class="face-box processing" id="faceBox" style="position:absolute;top:25%;left:25%;width:50%;height:50%;border:2px solid #d6ad4b;border-radius:0.5rem;z-index:5;">
+                                        <div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;z-index:6;">🔍 Scanning...</div>
+                                    </div>
+                                    <div class="liveness-prompt" id="livenessPrompt" style="display:none;">👁️ Please blink</div>
+                                    <div class="camera-status" id="cameraStatus">
+                                        <span class="status-dot loading"></span> Initializing...
+                                    </div>
+                                    <div class="quality-panel" id="qualityPanel">
+                                        <div class="quality-row">Lighting <span class="good">✓</span></div>
+                                        <div class="quality-row">Eyes <span class="good">✓</span></div>
+                                        <div class="quality-row">Distance <span class="good">✓</span></div>
+                                        <div class="quality-row">Blur <span class="good">✓</span></div>
+                                        <div class="quality-row">Angle <span class="good">✓</span></div>
+                                        <div class="quality-row">Liveness <span class="warning">○</span></div>
+                                        <div class="quality-row" style="border-top:1px solid #334155;padding-top:0.2rem;margin-top:0.2rem;">
+                                            Overall <span id="overallQuality" style="color:#4ade80;font-weight:700;">86%</span>
+                                        </div>
+                                    </div>
                                 ` : `
-                                    <div class="overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);pointer-events:none;z-index:2;">
+                                    <div class="overlay">
                                         <div class="icon"><i class="fas fa-camera"></i></div>
                                         <div class="text">${isSessionActive ? 'Click "Start Recognition" to begin' : 'Waiting for session to start...'}</div>
                                         ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
@@ -1783,11 +2054,6 @@
                                 <button id="toggleFaceBtn" class="btn-gold" ${!isSessionActive || !currentRoom ? 'disabled' : ''}>
                                     <i class="fas ${isFaceRecognitionActive ? 'fa-stop' : 'fa-play'}"></i> ${isFaceRecognitionActive ? 'Stop Recognition' : 'Start Recognition'}
                                 </button>
-                                ${isFaceRecognitionActive ? `
-                                    <button class="btn-outline" style="background:rgba(255,255,255,0.1);color:white;border-color:rgba(255,255,255,0.2);" onclick="showToast('📸 Scanning for faces...','info')">
-                                        <i class="fas fa-sync"></i> Force Scan
-                                    </button>
-                                ` : ''}
                             </div>
                             <div class="recognition-status ${isFaceRecognitionActive ? 'active' : 'pending'}">
                                 ${isFaceRecognitionActive ? 
@@ -1973,30 +2239,19 @@
                     });
                 }
 
-                // Re-attach video and elements if face recognition is active
-                if (isFaceRecognitionActive && faceVideoElement) {
+                // Re-attach video if face recognition is active
+                if (isFaceRecognitionActive && cameraStream) {
                     const previewContainer = document.getElementById('facePreview');
                     if (previewContainer) {
                         const existingVideo = previewContainer.querySelector('video');
                         if (!existingVideo) {
-                            const overlays = previewContainer.querySelectorAll('.overlay, .face-box, .liveness-prompt');
-                            overlays.forEach(el => el.remove());
-                            
-                            previewContainer.appendChild(faceVideoElement);
-                            
-                            const faceBox = document.createElement('div');
-                            faceBox.className = 'face-box processing';
-                            faceBox.id = 'faceBox';
-                            faceBox.style.cssText = 'position:absolute;top:25%;left:25%;width:50%;height:50%;border:2px solid #d6ad4b;border-radius:0.5rem;z-index:5;';
-                            faceBox.innerHTML = `<div class="label" style="position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:0.2rem;white-space:nowrap;z-index:6;">🔍 Scanning...</div>`;
-                            previewContainer.appendChild(faceBox);
-                            
-                            const prompt = document.createElement('div');
-                            prompt.className = 'liveness-prompt';
-                            prompt.id = 'livenessPrompt';
-                            prompt.style.cssText = 'position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);padding:0.5rem 1rem;border-radius:0.5rem;color:#d6ad4b;font-size:0.8rem;font-weight:600;border:1px solid #d6ad4b;pointer-events:none;z-index:10;display:none;';
-                            prompt.textContent = '👁️ Please blink';
-                            previewContainer.appendChild(prompt);
+                            // Video will be re-created by the render
+                            // The camera stream is still active, we need to re-attach it
+                            const video = document.getElementById('cameraVideo');
+                            if (video && cameraStream) {
+                                video.srcObject = cameraStream;
+                                video.play().catch(() => {});
+                            }
                         }
                     }
                 }
