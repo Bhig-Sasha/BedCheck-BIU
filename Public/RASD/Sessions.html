@@ -81,9 +81,7 @@
     .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
     .notice-banner .session-status { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.65rem; margin-left: auto; }
     .session-status.active { background: #2d6545; color: white; }
-    .session-status.scheduled { background: #1e3a5f; color: white; }
-    .session-status.closed { background: #8a3328; color: white; }
-    .session-status.locked { background: #8a6413; color: white; }
+    .session-status.archived { background: #8a3328; color: white; }
 
     .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
     @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
@@ -129,10 +127,8 @@
     .badge-present { background: #e1f0e5; color: #2d6545; }
     .badge-absent { background: #f8e1dc; color: #9b3c31; }
     .badge-late { background: #fff0cb; color: #8a6413; }
-    .badge-scheduled { background: #e7edf5; color: #1e3a5f; }
     .badge-active { background: #2d6545; color: white; }
-    .badge-closed { background: #8a3328; color: white; }
-    .badge-locked { background: #8a6413; color: white; }
+    .badge-archived { background: #8a3328; color: white; }
 
     .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
     @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
@@ -208,6 +204,9 @@
     ::-webkit-scrollbar-track { background: #e8e4de; }
     ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+    .session-name { font-weight: 600; }
+    .text-ellipsis { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
   </style>
 </head>
 <body>
@@ -298,7 +297,7 @@
         <div class="notice-banner" id="noticeBanner">
           <i class="fas fa-clock"></i>
           <span id="noticeText">Loading sessions...</span>
-          <span id="sessionStatusBadge" class="session-status scheduled">● Scheduled</span>
+          <span id="sessionStatusBadge" class="session-status active">● Active</span>
         </div>
         <div id="screenContent">
           <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
@@ -325,7 +324,7 @@
       window.showToast = showToast;
 
       // ========== STATE ==========
-      let sessionStatus = 'scheduled';
+      let sessionStatus = 'active';
       let hostels = [];
       let students = [];
       let sessions = [];
@@ -355,6 +354,10 @@
       function formatTime(d) {
         if (!d) return '—';
         try {
+          if (typeof d === 'string' && d.includes(':')) {
+            // Already formatted time
+            return d;
+          }
           const date = new Date(d);
           if (isNaN(date)) return d;
           return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -372,32 +375,26 @@
 
       function getStatusClass(s) {
         const map = {
-          'scheduled': 'badge-scheduled',
           'active': 'badge-active',
-          'closed': 'badge-closed',
-          'locked': 'badge-locked'
+          'archived': 'badge-archived'
         };
         return map[s?.toLowerCase()] || 'badge-draft';
       }
 
       function getSessionStatusClass(s) {
         const map = {
-          'scheduled': 'scheduled',
           'active': 'active',
-          'closed': 'closed',
-          'locked': 'locked'
+          'archived': 'archived'
         };
-        return map[s?.toLowerCase()] || 'scheduled';
+        return map[s?.toLowerCase()] || 'active';
       }
 
       function getStatusDot(s) {
         const map = { 
-          'scheduled': '🟡', 
           'active': '🟢', 
-          'closed': '🔴', 
-          'locked': '🔴'
+          'archived': '🔴'
         };
-        return map[s?.toLowerCase()] || '🟡';
+        return map[s?.toLowerCase()] || '🟢';
       }
 
       // ========== GET USER ==========
@@ -471,6 +468,35 @@
         try {
           const d = await apiCall('/sessions');
           sessions = d.data || [];
+          
+          // Sort by date descending (most recent first)
+          sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
+          
+          // If no sessions exist, create a default one
+          if (sessions.length === 0) {
+            const today = new Date().toISOString().split('T')[0];
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dayName = dayNames[new Date().getDay()];
+            
+            const newSession = await apiCall('/sessions', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: `${dayName} Night BedCheck`,
+                date: today,
+                start_time: '22:00:00',
+                end_time: '23:30:00',
+                status: 'active',
+                hostels_completed: 0,
+                total_hostels: hostels.length || 11,
+                completion: 0,
+                academic_session: '2026/2027',
+                grace_period: 15
+              })
+            });
+            if (newSession.success) {
+              sessions = [newSession.data];
+            }
+          }
         } catch (e) {
           sessions = [];
           console.warn('Failed to load sessions:', e);
@@ -480,40 +506,38 @@
 
       async function loadSessionStatus() {
         try {
-          // Check if there's an active session
+          // Find active session
           const activeSession = sessions.find(s => s.status?.toLowerCase() === 'active');
           if (activeSession) {
             sessionStatus = activeSession.status;
           } else {
-            // Check submission state as fallback
-            try {
-              const d = await apiCall('/submission');
-              sessionStatus = d.data?.state?.toLowerCase() || 'scheduled';
-            } catch (e) {
-              sessionStatus = 'scheduled';
-            }
+            sessionStatus = 'archived';
           }
         } catch (e) {
-          sessionStatus = 'scheduled';
+          sessionStatus = 'active';
           console.warn('Failed to load session status:', e);
         }
         return sessionStatus;
       }
 
-      // ========== CREATE NEW SESSION (FIXED - uses lowercase status) ==========
+      // ========== CREATE NEW SESSION ==========
       async function createNewSession() {
         try {
           const today = new Date().toISOString().split('T')[0];
+          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const dayName = dayNames[new Date().getDay()];
           
-          // Use lowercase status values that match the database constraint
           const sessionData = {
+            name: `${dayName} Night BedCheck`,
             date: today,
-            start_time: '22:00',
-            end_time: '23:59',
-            status: 'scheduled',  // lowercase to match DB constraint
+            start_time: '22:00:00',
+            end_time: '23:30:00',
+            status: 'active',
             hostels_completed: 0,
             total_hostels: hostels.length || 11,
-            completion: 0
+            completion: 0,
+            academic_session: '2026/2027',
+            grace_period: 15
           };
 
           console.log('Creating session with data:', sessionData);
@@ -538,10 +562,9 @@
       }
       window.createNewSession = createNewSession;
 
-      // ========== UPDATE SESSION STATUS (FIXED - uses lowercase status) ==========
+      // ========== UPDATE SESSION STATUS ==========
       async function updateSessionStatus(sessionId, newStatus) {
         try {
-          // Ensure status is lowercase to match DB constraint
           const statusLower = newStatus.toLowerCase();
           console.log(`Updating session ${sessionId} to ${statusLower}`);
           
@@ -578,10 +601,8 @@
         
         const noticeText = document.getElementById('noticeText');
         const statusMessages = {
-          'scheduled': 'BedCheck session is SCHEDULED. Waiting for start time.',
           'active': 'BedCheck session is ACTIVE. RAs can conduct checks.',
-          'closed': 'BedCheck session is CLOSED. No further submissions allowed.',
-          'locked': 'BedCheck session is LOCKED. Contact administrator.'
+          'archived': 'BedCheck session is ARCHIVED. No further submissions allowed.'
         };
         noticeText.textContent = statusMessages[sessionStatus?.toLowerCase()] || `Session: ${sessionStatus}`;
       }
@@ -592,8 +613,8 @@
         const title = document.getElementById('modalTitle');
         const body = document.getElementById('modalBody');
         
-        const status = session.status || 'scheduled';
-        title.textContent = `Session #${session.id}`;
+        const status = session.status || 'active';
+        title.textContent = `${session.name || 'Session'} #${session.id}`;
         
         const sessionStudents = students.filter(s => s.hostel_id === session.hostel_id || !session.hostel_id);
         const present = sessionStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
@@ -603,20 +624,28 @@
         body.innerHTML = `
           <div class="grid-2">
             <div>
-              <p class="text-xs text-muted">Date</p>
-              <p class="font-bold">${formatDate(session.date)}</p>
+              <p class="text-xs text-muted">Name</p>
+              <p class="font-bold">${session.name || 'BedCheck'}</p>
             </div>
             <div>
               <p class="text-xs text-muted">Status</p>
               <p><span class="badge ${getStatusClass(status)}">${getStatusDot(status)} ${status}</span></p>
             </div>
             <div>
-              <p class="text-xs text-muted">Start Time</p>
-              <p class="font-bold">${formatTime(session.start_time) || '22:00'}</p>
+              <p class="text-xs text-muted">Date</p>
+              <p class="font-bold">${formatDate(session.date)}</p>
             </div>
             <div>
-              <p class="text-xs text-muted">End Time</p>
-              <p class="font-bold">${formatTime(session.end_time) || '23:59'}</p>
+              <p class="text-xs text-muted">Time</p>
+              <p class="font-bold">${formatTime(session.start_time) || '22:00'} - ${formatTime(session.end_time) || '23:30'}</p>
+            </div>
+            <div>
+              <p class="text-xs text-muted">Academic Session</p>
+              <p class="font-bold">${session.academic_session || '2026/2027'}</p>
+            </div>
+            <div>
+              <p class="text-xs text-muted">Grace Period</p>
+              <p class="font-bold">${session.grace_period || 15} min</p>
             </div>
             <div>
               <p class="text-xs text-muted">Hostels Completed</p>
@@ -643,13 +672,10 @@
             <p class="text-xs text-muted">Session Controls</p>
             <div class="session-controls mt-2">
               <button class="btn-primary success" onclick="window.handleSessionAction(${session.id}, 'active')" ${status === 'active' ? 'disabled' : ''}>
-                <i class="fas fa-play"></i> Start
+                <i class="fas fa-play"></i> Activate
               </button>
-              <button class="btn-primary danger" onclick="window.handleSessionAction(${session.id}, 'closed')" ${status === 'closed' ? 'disabled' : ''}>
-                <i class="fas fa-stop"></i> Close
-              </button>
-              <button class="btn-primary" onclick="window.handleSessionAction(${session.id}, 'locked')" ${status === 'locked' ? 'disabled' : ''}>
-                <i class="fas fa-lock"></i> Lock
+              <button class="btn-primary danger" onclick="window.handleSessionAction(${session.id}, 'archived')" ${status === 'archived' ? 'disabled' : ''}>
+                <i class="fas fa-archive"></i> Archive
               </button>
             </div>
           </div>
@@ -666,9 +692,8 @@
       // ========== HANDLE SESSION ACTION ==========
       window.handleSessionAction = function(sessionId, action) {
         const confirmMsg = {
-          'active': 'Start the BedCheck session? RAs will be able to conduct checks.',
-          'closed': 'Close the BedCheck session? No further submissions allowed.',
-          'locked': 'Lock the BedCheck session? This will prevent all submissions.'
+          'active': 'Activate this BedCheck session? RAs will be able to conduct checks.',
+          'archived': 'Archive this BedCheck session? This will prevent further submissions.'
         };
         
         if (confirm(confirmMsg[action] || `Change session to ${action}?`)) {
@@ -687,14 +712,15 @@
         const now = new Date();
 
         const activeSessions = sessions.filter(s => s.status?.toLowerCase() === 'active').length;
-        const archivedSessions = sessions.filter(s => s.status?.toLowerCase() === 'closed').length;
+        const archivedSessions = sessions.filter(s => s.status?.toLowerCase() === 'archived').length;
+        const totalSessions = sessions.length;
 
         container.innerHTML = `
           <div class="page-heading">
             <div>
               <p class="eyebrow"><i class="fas fa-clipboard-check"></i> RASD · Nightly Operations</p>
               <h1>BedCheck Sessions</h1>
-              <p class="desc">Monitor all active and scheduled BedCheck sessions.</p>
+              <p class="desc">Monitor all active and archived BedCheck sessions.</p>
             </div>
             <div class="action-group">
               <button class="btn-primary success" onclick="window.createNewSession()"><i class="fas fa-plus"></i> New Session</button>
@@ -712,17 +738,17 @@
             </div>
             <div class="metric-card">
               <div class="metric-icon gold"><i class="fas fa-list"></i></div>
-              <div class="metric-value">${sessions.length}</div>
+              <div class="metric-value">${totalSessions}</div>
               <div class="metric-title">Total Sessions</div>
               <div class="metric-detail">All time</div>
             </div>
-            <div class="metric-card" style="border-left:4px solid ${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : sessionStatus?.toLowerCase() === 'closed' ? '#8a3328' : '#1e3a5f'};">
-              <div class="metric-icon ${sessionStatus?.toLowerCase() === 'active' ? 'green' : sessionStatus?.toLowerCase() === 'closed' ? 'red' : 'gray'}">
-                <i class="fas fa-${sessionStatus?.toLowerCase() === 'active' ? 'play-circle' : sessionStatus?.toLowerCase() === 'closed' ? 'stop-circle' : 'clock'}"></i>
+            <div class="metric-card" style="border-left:4px solid ${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : '#8a3328'};">
+              <div class="metric-icon ${sessionStatus?.toLowerCase() === 'active' ? 'green' : 'red'}">
+                <i class="fas fa-${sessionStatus?.toLowerCase() === 'active' ? 'play-circle' : 'archive'}"></i>
               </div>
-              <div class="metric-value" style="color:${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : sessionStatus?.toLowerCase() === 'closed' ? '#8a3328' : '#1e3a5f'};">${sessionStatus || 'scheduled'}</div>
+              <div class="metric-value" style="color:${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : '#8a3328'};">${sessionStatus || 'active'}</div>
               <div class="metric-title">Current Status</div>
-              <div class="metric-detail">${getStatusDot(sessionStatus)} ${sessionStatus || 'scheduled'}</div>
+              <div class="metric-detail">${getStatusDot(sessionStatus)} ${sessionStatus || 'active'}</div>
             </div>
             <div class="metric-card">
               <div class="metric-icon green"><i class="fas fa-play-circle"></i></div>
@@ -734,7 +760,7 @@
               <div class="metric-icon gray"><i class="fas fa-archive"></i></div>
               <div class="metric-value">${archivedSessions}</div>
               <div class="metric-title">Archived</div>
-              <div class="metric-detail">Closed sessions</div>
+              <div class="metric-detail">Archived sessions</div>
             </div>
           </div>
 
@@ -749,23 +775,23 @@
                   <thead>
                     <tr>
                       <th>ID</th>
+                      <th>Name</th>
                       <th>Date</th>
-                      <th>Start</th>
-                      <th>End</th>
+                      <th>Time</th>
                       <th>Status</th>
                       <th>Progress</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${sessions.length > 0 ? sessions.slice(0, 10).map(s => {
-                      const status = s.status || 'scheduled';
+                    ${sessions.length > 0 ? sessions.map(s => {
+                      const status = s.status || 'active';
                       return `
                       <tr>
                         <td style="font-weight:600;">#${s.id}</td>
+                        <td><span class="text-ellipsis" title="${s.name || 'BedCheck'}">${s.name || 'BedCheck'}</span></td>
                         <td>${formatDate(s.date)}</td>
                         <td>${formatTime(s.start_time) || '22:00'}</td>
-                        <td>${formatTime(s.end_time) || '23:59'}</td>
                         <td><span class="badge ${getStatusClass(status)}">${getStatusDot(status)} ${status}</span></td>
                         <td>
                           <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -794,13 +820,6 @@
                   </tbody>
                 </table>
               </div>
-              ${sessions.length > 10 ? `
-                <div class="mt-3 text-center">
-                  <button class="btn-ghost" onclick="window.viewAllSessions()" style="font-size:0.8rem;">
-                    View All ${sessions.length} Sessions
-                  </button>
-                </div>
-              ` : ''}
             </div>
 
             <div>
@@ -808,7 +827,7 @@
                 <p class="label">Current Time</p>
                 <div class="time" id="liveTime">${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div>
                 <p class="label mt-3">Session Status</p>
-                <div class="value" style="color:${sessionStatus?.toLowerCase() === 'active' ? '#d6ad4b' : sessionStatus?.toLowerCase() === 'closed' ? '#b34a3b' : '#b9c7db'};">${sessionStatus || 'scheduled'}</div>
+                <div class="value" style="color:${sessionStatus?.toLowerCase() === 'active' ? '#d6ad4b' : '#b34a3b'};">${sessionStatus || 'active'}</div>
                 <p class="label mt-3">Active Sessions</p>
                 <div class="value">${activeSessions}</div>
                 <div class="mt-3 pt-3" style="border-top:1px solid rgba(255,255,255,0.1);">
@@ -826,7 +845,7 @@
                 <div class="mt-3" style="display:flex;flex-direction:column;gap:0.5rem;">
                   ${sessions.length > 0 ? `
                     <button class="btn-primary success" onclick="window.handleSessionAction(${sessions[0].id}, 'active')" style="width:100%;justify-content:center;" ${sessions[0].status?.toLowerCase() === 'active' ? 'disabled' : ''}>
-                      <i class="fas fa-play"></i> Start Latest Session
+                      <i class="fas fa-play"></i> Activate Latest Session
                     </button>
                   ` : ''}
                   <button class="btn-outline" onclick="window.createNewSession()" style="width:100%;justify-content:center;">
@@ -844,7 +863,7 @@
             <p class="text-xs text-muted">
               BIU BedCheck System v1.0 · © Benson Idahosa University 
               <span class="ml-4"><span class="status-dot green"></span> System Online</span>
-              <span class="ml-4"><span class="status-dot" style="background:${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : sessionStatus?.toLowerCase() === 'closed' ? '#8a3328' : '#1e3a5f'};"></span> ${sessionStatus || 'scheduled'}</span>
+              <span class="ml-4"><span class="status-dot" style="background:${sessionStatus?.toLowerCase() === 'active' ? '#2d6545' : '#8a3328'};"></span> ${sessionStatus || 'active'}</span>
             </p>
           </div>
         `;
@@ -901,6 +920,7 @@
 
       // ========== INIT ==========
       async function init() {
+        // Mobile menu handlers
         document.getElementById('menuToggle').addEventListener('click', () => {
           document.getElementById('mobileDrawer').classList.add('open');
           document.getElementById('drawerOverlay').classList.add('show');
@@ -919,10 +939,12 @@
           window.location.replace('../Login.html');
         });
 
+        // Set date
         document.getElementById('currentDate').textContent =
           new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         try {
+          // Load data
           await Promise.all([loadHostels(), loadStudents(), loadSessions(), loadSessionStatus()]);
           
           const user = getUser();
@@ -933,7 +955,6 @@
           document.getElementById('noticeText').textContent =
             `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${sessions.length} sessions`;
           
-          setInterval(refreshData, 60000);
         } catch (e) {
           document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
           showToast('Error: ' + e.message, 'error');
