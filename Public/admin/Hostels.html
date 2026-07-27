@@ -509,6 +509,15 @@
         let isLoading = true;
 
         // =============================================
+        // ALLOWED BED STATUSES
+        // =============================================
+        const ALLOWED_BED_STATUSES = ['available', 'occupied', 'maintenance', 'reserved'];
+
+        function isValidBedStatus(status) {
+            return ALLOWED_BED_STATUSES.includes(status);
+        }
+
+        // =============================================
         // API HELPER
         // =============================================
         async function apiCall(endpoint, options = {}) {
@@ -523,6 +532,7 @@
                 
                 const url = `${API_BASE_URL}${fixedEndpoint}`;
                 console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
+                console.log('📦 Request Body:', options.body);
                 
                 const response = await fetch(url, {
                     ...options,
@@ -1299,7 +1309,7 @@
         }
 
         // =============================================
-        // SAVE ROOM - FIXED: Only use valid bed statuses
+        // SAVE ROOM - FIXED: Always use 'available' for new beds
         // =============================================
         async function saveRoom() {
             const floorFlat = document.getElementById('roomFloorFlat').value;
@@ -1351,14 +1361,14 @@
                 if (autoCreateBeds) {
                     const bedLabels = getBedLabels(capacity);
                     for (const label of bedLabels.slice(0, capacity)) {
-                        // Always use 'available' for new beds - this is a valid status
+                        // ALWAYS use 'available' for new beds - this is the only valid status for new beds
                         await apiCall('/bed-spaces', {
                             method: 'POST',
                             body: JSON.stringify({
                                 room_id: newRoom.id,
                                 bed_code: label,
                                 full_bed_code: `${roomCode}-${label}`,
-                                status: 'available'  // ✅ Valid status
+                                status: 'available'
                             })
                         });
                     }
@@ -1372,7 +1382,6 @@
                 const refreshedBeds = await loadBedSpacesForHostel(editingHostelId);
                 allBedSpaces = refreshedBeds;
                 
-                // Re-render the floor selector and room table
                 renderFloorSelector();
                 if (selectedFloor) {
                     renderRoomTable(selectedFloor);
@@ -1413,7 +1422,7 @@
         }
 
         // =============================================
-        // ASSIGN STUDENT TO BED - FIXED: Uses valid statuses
+        // ASSIGN STUDENT TO BED - FIXED: Uses 'occupied' (valid)
         // =============================================
         async function assignStudentToBed() {
             const studentId = document.getElementById('studentSelect').value;
@@ -1444,7 +1453,7 @@
                             room_id: selectedRoom.id,
                             bed_code: selectedBed,
                             full_bed_code: `${selectedRoom.room_code}-${selectedBed}`,
-                            status: 'occupied'  // ✅ Valid status
+                            status: 'occupied'
                         })
                     });
                     bed = bedResponse.data;
@@ -1459,7 +1468,7 @@
                     await apiCall(`/bed-spaces/${bed.id}`, {
                         method: 'PUT',
                         body: JSON.stringify({
-                            status: 'occupied',  // ✅ Valid status
+                            status: 'occupied',
                             student_id: student.id
                         })
                     });
@@ -1485,7 +1494,7 @@
         }
 
         // =============================================
-        // REMOVE STUDENT FROM BED - FIXED: Uses valid statuses
+        // REMOVE STUDENT FROM BED - FIXED: Uses 'available' (valid)
         // =============================================
         async function removeStudentFromBed(roomId, bedLabel) {
             const room = allRooms.find(r => String(r.id) === String(roomId));
@@ -1507,7 +1516,7 @@
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        status: 'available',  // ✅ Valid status
+                        status: 'available',
                         student_id: null
                     })
                 });
@@ -1532,7 +1541,7 @@
         }
 
         // =============================================
-        // MARK BED MAINTENANCE - FIXED: Uses valid statuses
+        // MARK BED MAINTENANCE - FIXED: Uses 'available' or 'maintenance' (both valid)
         // =============================================
         async function markBedMaintenance(roomId, bedLabel) {
             const room = allRooms.find(r => String(r.id) === String(roomId));
@@ -1546,12 +1555,23 @@
             
             try {
                 // Toggle between 'available' and 'maintenance' (both valid)
-                const newStatus = bed.status === 'maintenance' ? 'available' : 'maintenance';
+                let newStatus;
+                if (bed.status === 'maintenance') {
+                    newStatus = 'available';
+                } else if (bed.status === 'available') {
+                    newStatus = 'maintenance';
+                } else {
+                    // If status is something else (like 'occupied' or 'reserved'), don't change
+                    showToast('This bed cannot be marked for maintenance', 'warning');
+                    return;
+                }
+                
+                console.log(`🔄 Changing bed ${bedLabel} status from '${bed.status}' to '${newStatus}'`);
                 
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        status: newStatus,  // ✅ Valid status: 'available' or 'maintenance'
+                        status: newStatus,
                         student_id: newStatus === 'available' ? null : bed.student_id
                     })
                 });
@@ -1569,6 +1589,7 @@
                 closeRoomDrawer();
                 setTimeout(() => openRoomDrawer(room.id), 300);
             } catch (error) {
+                console.error('Maintenance error:', error);
                 showToast('Error updating bed: ' + error.message, 'error');
             }
         }
