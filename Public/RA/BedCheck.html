@@ -914,6 +914,7 @@
             let livenessCheckActive = false;
             let livenessTimeout = null;
             let roomStructure = {};
+            let isCameraReady = false;
 
             // Mock face embeddings for demo
             let faceEmbeddings = {};
@@ -1150,7 +1151,7 @@
             }
 
             // =============================================
-            // FACE RECOGNITION (Mock with real camera)
+            // FACE RECOGNITION (Mock with real camera - FIXED)
             // =============================================
             function generateMockEmbedding(name) {
                 let hash = 0;
@@ -1231,21 +1232,9 @@
                         return;
                     }
 
-                    // Use 'user' for front camera
-                    const facingMode = 'user';
-                    
-                    const constraints = {
-                        video: {
-                            facingMode: facingMode,
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
-                        },
-                        audio: false
-                    };
-
-                    // Request camera permission and get stream
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    faceStream = stream;
+                    // Remove old overlays
+                    document.getElementById('faceBox')?.remove();
+                    document.getElementById('livenessPrompt')?.remove();
 
                     const previewContainer = document.getElementById('facePreview');
                     if (!previewContainer) {
@@ -1253,15 +1242,11 @@
                         return;
                     }
 
-                    // Remove existing children except video
-                    const existingVideo = previewContainer.querySelector('video');
-                    if (existingVideo) {
-                        existingVideo.remove();
-                    }
+                    // Clear container
+                    previewContainer.innerHTML = '';
 
-                    // Create video element
+                    // Create video element FIRST before setting srcObject
                     faceVideoElement = document.createElement('video');
-                    faceVideoElement.srcObject = stream;
                     faceVideoElement.autoplay = true;
                     faceVideoElement.playsInline = true;
                     faceVideoElement.muted = true;
@@ -1276,44 +1261,48 @@
                     faceVideoElement.style.display = 'block';
                     faceVideoElement.style.borderRadius = '0.5rem';
 
-                    // Wait for video to be ready
+                    // APPEND TO DOM FIRST - THIS IS CRITICAL
+                    previewContainer.appendChild(faceVideoElement);
+
+                    // Now set the stream
+                    const constraints = {
+                        video: {
+                            facingMode: 'user',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    };
+
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    faceStream = stream;
+                    faceVideoElement.srcObject = stream;
+
+                    // Wait for video to actually play
                     await new Promise((resolve, reject) => {
-                        let resolved = false;
                         const timeout = setTimeout(() => {
-                            if (!resolved) {
-                                reject(new Error('Camera timeout - please check permissions'));
-                            }
+                            reject(new Error('Camera timeout - please check permissions'));
                         }, 15000);
 
-                        const onReady = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                clearTimeout(timeout);
-                                faceVideoElement.play().catch(e => console.log('Play error:', e));
-                                resolve();
-                            }
+                        const onPlaying = () => {
+                            clearTimeout(timeout);
+                            isCameraReady = true;
+                            resolve();
                         };
 
-                        faceVideoElement.onloadedmetadata = onReady;
-                        faceVideoElement.onloadeddata = onReady;
-                        faceVideoElement.oncanplay = onReady;
-                        
-                        // Try to play immediately
-                        faceVideoElement.play().catch(e => {
-                            console.log('Autoplay error:', e);
-                            // Still resolve after a delay if video is loaded
-                            setTimeout(() => {
-                                if (!resolved) {
-                                    resolved = true;
-                                    clearTimeout(timeout);
-                                    resolve();
-                                }
-                            }, 2000);
-                        });
-                    });
+                        faceVideoElement.onplaying = onPlaying;
+                        faceVideoElement.onloadedmetadata = () => {
+                            // Once metadata is loaded, try to play
+                            faceVideoElement.play().catch(e => {
+                                console.log('Play attempt:', e);
+                            });
+                        };
 
-                    // Append video to preview container
-                    previewContainer.appendChild(faceVideoElement);
+                        // If it's already playing
+                        if (faceVideoElement.readyState >= 2) {
+                            faceVideoElement.play().then(onPlaying).catch(() => {});
+                        }
+                    });
 
                     // Create face box overlay
                     const faceBox = document.createElement('div');
@@ -1362,11 +1351,15 @@
                                 <div class="text" style="color:#d6ad4b;font-size:0.85rem;margin-top:0.3rem;">Camera not available</div>
                                 <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;max-width:80%;text-align:center;">${errorMessage}</div>
                                 ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
-                                <button class="btn-primary" style="margin-top:0.75rem;padding:0.4rem 1rem;font-size:0.75rem;" onclick="window.startFaceRecognition()">
+                                <button id="retryBtn" class="btn-primary" style="margin-top:0.75rem;padding:0.4rem 1rem;font-size:0.75rem;pointer-events:auto;">
                                     <i class="fas fa-redo"></i> Retry
                                 </button>
                             </div>
                         `;
+                        // Fix retry button
+                        document.getElementById('retryBtn')?.addEventListener('click', function() {
+                            startFaceRecognition();
+                        });
                     }
                 }
             }
@@ -1407,10 +1400,16 @@
             }
 
             // =============================================
-            // PROCESS REAL FRAME FROM VIDEO
+            // PROCESS REAL FRAME FROM VIDEO - FIXED
             // =============================================
             function processRealFaceFrame(video) {
                 if (isProcessingFace) return;
+                
+                // Check if video is actually ready
+                if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+                    return;
+                }
+
                 isProcessingFace = true;
 
                 try {
@@ -1420,6 +1419,12 @@
                     canvas.height = video.videoHeight || 480;
                     const ctx = canvas.getContext('2d');
                     
+                    // Check that we have valid dimensions
+                    if (canvas.width === 0 || canvas.height === 0) {
+                        isProcessingFace = false;
+                        return;
+                    }
+
                     // Draw the current video frame (mirrored for natural look)
                     ctx.save();
                     ctx.scale(-1, 1);
@@ -1525,11 +1530,13 @@
                 }
                 if (faceVideoElement) {
                     try {
+                        faceVideoElement.pause();
                         faceVideoElement.srcObject = null;
                     } catch(e) {}
                     faceVideoElement = null;
                 }
                 isFaceRecognitionActive = false;
+                isCameraReady = false;
                 if (livenessTimeout) {
                     clearTimeout(livenessTimeout);
                     livenessTimeout = null;
@@ -1537,18 +1544,15 @@
                 const previewContainer = document.getElementById('facePreview');
                 if (previewContainer) {
                     previewContainer.innerHTML = `
-                        <div class="overlay">
+                        <div class="overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);pointer-events:none;z-index:2;">
                             <div class="icon"><i class="fas fa-user"></i></div>
                             <div class="text">Face recognition ready</div>
                             <div class="text" style="font-size:0.7rem;color:#b9c7db;margin-top:0.3rem;">Click "Start Recognition" to begin</div>
                             ${location.protocol === 'http:' ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⚠️ Use HTTPS for camera access</div>' : ''}
+                            ${!isSessionActive ? '<div class="text" style="font-size:0.6rem;color:#d6ad4b;margin-top:0.3rem;">⏳ Waiting for session to start</div>' : ''}
                         </div>
                     `;
                 }
-                const faceBox = document.getElementById('faceBox');
-                if (faceBox) faceBox.remove();
-                const livenessPrompt = document.getElementById('livenessPrompt');
-                if (livenessPrompt) livenessPrompt.style.display = 'none';
                 showToast('Face recognition stopped.', 'info');
                 renderBedCheck();
             }
@@ -1775,7 +1779,7 @@
                         <div class="face-control">
                             <div class="camera-preview" id="facePreview">
                                 ${isFaceRecognitionActive && faceVideoElement ? `
-                                    <!-- Video will be re-attached by JavaScript -->
+                                    <!-- Video is managed by JavaScript -->
                                 ` : `
                                     <div class="overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);pointer-events:none;z-index:2;">
                                         <div class="icon"><i class="fas fa-camera"></i></div>
@@ -1786,7 +1790,7 @@
                                 `}
                             </div>
                             <div class="controls">
-                                <button class="btn-gold" onclick="toggleFaceRecognition()" ${!isSessionActive || !currentRoom ? 'disabled' : ''}>
+                                <button id="toggleFaceBtn" class="btn-gold" ${!isSessionActive || !currentRoom ? 'disabled' : ''}>
                                     <i class="fas ${isFaceRecognitionActive ? 'fa-stop' : 'fa-play'}"></i> ${isFaceRecognitionActive ? 'Stop Recognition' : 'Start Recognition'}
                                 </button>
                                 ${isFaceRecognitionActive ? `
@@ -1971,6 +1975,14 @@
 
                 container.innerHTML = html;
 
+                // Attach toggle button event listener
+                const toggleBtn = document.getElementById('toggleFaceBtn');
+                if (toggleBtn) {
+                    toggleBtn.addEventListener('click', function() {
+                        toggleFaceRecognition();
+                    });
+                }
+
                 // Re-attach video and elements if face recognition is active
                 if (isFaceRecognitionActive && faceVideoElement) {
                     const previewContainer = document.getElementById('facePreview');
@@ -2078,7 +2090,7 @@
             }
 
             // =============================================
-            // EXPOSE
+            // EXPOSE FUNCTIONS TO WINDOW
             // =============================================
             window.showToast = showToast;
             window.toggleFaceRecognition = toggleFaceRecognition;
