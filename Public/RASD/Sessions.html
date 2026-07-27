@@ -577,12 +577,13 @@
             return;
           }
 
+          // Custom confirmation message based on status
+          let confirmMsg = `Are you sure you want to delete "${session.name || 'Session'}"? This action cannot be undone.`;
           if (session.status?.toLowerCase() === 'active') {
-            showToast('Cannot delete an active session. Archive it first.', 'error');
-            return;
+            confirmMsg = `⚠️ WARNING: This is an ACTIVE session!\n\nDeleting it will remove all associated data.\n\nAre you sure you want to delete "${session.name || 'Session'}"?`;
           }
 
-          if (!confirm(`Are you sure you want to delete "${session.name || 'Session'}"? This action cannot be undone.`)) {
+          if (!confirm(confirmMsg)) {
             return;
           }
 
@@ -625,6 +626,7 @@
         const body = document.getElementById('modalBody');
         
         const status = session.status || 'active';
+        const isActive = status?.toLowerCase() === 'active';
         title.textContent = `${session.name || 'Session'} #${session.id}`;
         
         const sessionStudents = students.filter(s => s.hostel_id === session.hostel_id || !session.hostel_id);
@@ -682,17 +684,15 @@
           <div class="mt-4 border-t pt-4">
             <p class="text-xs text-muted">Session Controls</p>
             <div class="session-controls mt-2">
-              <button class="btn-primary success" onclick="window.handleSessionAction(${session.id}, 'active')" ${status === 'active' ? 'disabled' : ''}>
+              <button class="btn-primary success" onclick="window.handleSessionAction(${session.id}, 'active')" ${isActive ? 'disabled' : ''}>
                 <i class="fas fa-play"></i> Activate
               </button>
-              <button class="btn-primary danger" onclick="window.handleSessionAction(${session.id}, 'archived')" ${status === 'archived' ? 'disabled' : ''}>
+              <button class="btn-primary danger" onclick="window.handleSessionAction(${session.id}, 'archived')" ${!isActive ? 'disabled' : ''}>
                 <i class="fas fa-archive"></i> Archive
               </button>
-              ${status !== 'active' ? `
-                <button class="btn-primary danger-outline" onclick="window.deleteSession(${session.id})">
-                  <i class="fas fa-trash"></i> Delete
-                </button>
-              ` : ''}
+              <button class="btn-primary danger-outline" onclick="window.deleteSession(${session.id})">
+                <i class="fas fa-trash"></i> Delete
+              </button>
             </div>
           </div>
         `;
@@ -834,11 +834,9 @@
                             <button class="btn-ghost" onclick="window.viewSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.4rem;" title="View Details">
                               <i class="fas fa-eye"></i>
                             </button>
-                            ${!isActive ? `
-                              <button class="btn-ghost danger" onclick="window.deleteSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.4rem;" title="Delete Session">
-                                <i class="fas fa-trash"></i>
-                              </button>
-                            ` : ''}
+                            <button class="btn-ghost danger" onclick="window.deleteSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.4rem;" title="${isActive ? '⚠️ Delete Active Session' : 'Delete Session'}">
+                              <i class="fas fa-trash"></i>
+                            </button>
                           </div>
                         </td>
                       </tr>
