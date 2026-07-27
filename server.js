@@ -3076,25 +3076,54 @@ app.put('/api/sessions/:id', async (req, res) => {
   }
 });
 
+// =====================================================
+// DELETE SESSION - FIXED ENDPOINT
+// =====================================================
+
 app.delete('/api/sessions/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
-    // Get session info for audit
+    // First check if session exists
     const { data: session, error: fetchError } = await supabase
       .from('sessions')
-      .select('name, date')
+      .select('name, date, status')
       .eq('id', id)
       .single();
     
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      console.error('Session fetch error:', fetchError);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Session not found' 
+      });
+    }
 
-    const { error } = await supabase
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Session not found' 
+      });
+    }
+
+    // Check if session is active and warn
+    if (session.status?.toLowerCase() === 'active') {
+      console.log(`⚠️ Deleting active session: ${session.name} (ID: ${id})`);
+    }
+
+    // Delete the session
+    const { error: deleteError } = await supabase
       .from('sessions')
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (deleteError) {
+      console.error('Session delete error:', deleteError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database error: ' + deleteError.message 
+      });
+    }
 
     // Audit log
     await auditService.log({
@@ -3103,26 +3132,31 @@ app.delete('/api/sessions/:id', async (req, res) => {
       actor_role: req.headers['x-staff-role'] || 'Admin',
       action: 'Deleted BedCheck Session',
       module: 'sessions',
-      details: `Deleted session: ${session?.name} (${session?.date})`,
+      details: `Deleted session: ${session.name} (${session.date}) - Status: ${session.status}`,
       context: `Session ID: ${id}`,
       result: 'success',
       category: 'bedcheck',
-      tone: 'red'
+      tone: 'red',
+      session_id: id
     });
+
+    console.log(`✅ Session ${id} deleted successfully`);
 
     res.json({ 
       success: true, 
-      message: 'Session deleted successfully' 
+      message: 'Session deleted successfully',
+      data: { id, name: session.name, date: session.date }
     });
   } catch (error) {
-    console.error('Error deleting session:', error);
+    console.error('❌ Error deleting session:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Database error: ' + error.message 
+      message: 'Server error: ' + error.message 
     });
   }
 });
 
+// =====================================================
 // GET active session
 app.get('/api/sessions/active', async (req, res) => {
   try {
