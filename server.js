@@ -2699,7 +2699,7 @@ app.get('/api/hostels/:id/summary', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SESSIONS
+// BEDCHECK SESSIONS (per-hostel sessions)
 // =====================================================
 
 app.get('/api/bedcheck/sessions', async (req, res) => {
@@ -2861,12 +2861,16 @@ app.post('/api/bedcheck/submit', async (req, res) => {
 });
 
 // =====================================================
-// SESSIONS
+// SESSIONS - Global sessions (updated to match full table structure)
 // =====================================================
 
 app.get('/api/sessions', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('sessions').select('*').order('date', { ascending: false });
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .order('date', { ascending: false });
+    
     if (error) throw error;
     res.json({ success: true, data: data });
   } catch (error) {
@@ -2875,35 +2879,319 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-app.post('/api/sessions', async (req, res) => {
-  const { date, start_time, end_time, status, hostels_completed, total_hostels, completion } = req.body;
+app.get('/api/sessions/:id', async (req, res) => {
   try {
-    const newSession = { date, start_time, end_time, status: status || 'active', hostels_completed: hostels_completed || 0, total_hostels: total_hostels || 11, completion: completion || 0 };
-    const { data, error } = await supabase.from('sessions').insert(newSession).select().single();
+    const id = parseInt(req.params.id);
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
     if (error) throw error;
-    await auditService.log({ actor: req.headers['x-staff-name'] || 'Admin', actor_id: parseInt(req.headers['x-staff-id']) || null, actor_role: req.headers['x-staff-role'] || 'Admin', action: 'Created Global Session', module: 'sessions', details: `Created global session for ${date}`, context: `Session ID: ${data.id}`, result: 'success', category: 'system', tone: 'blue' });
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Session not found' });
+    }
     res.json({ success: true, data: data });
   } catch (error) {
-    console.error('Error creating session:', error);
+    console.error('Error fetching session:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
   }
 });
 
-app.put('/api/sessions/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { status, hostels_completed, completion } = req.body;
+app.post('/api/sessions', async (req, res) => {
   try {
+    const { 
+      name,
+      date, 
+      start_time, 
+      end_time, 
+      status, 
+      hostels_completed, 
+      total_hostels, 
+      completion,
+      academic_session,
+      grace_period,
+      created_by
+    } = req.body;
+
+    // Get the staff name if created_by is provided
+    let creatorName = null;
+    if (created_by) {
+      const { data: staff } = await supabase
+        .from('staff')
+        .select('name')
+        .eq('id', parseInt(created_by))
+        .maybeSingle();
+      if (staff) creatorName = staff.name;
+    }
+
+    // Get the day name for the session name if not provided
+    let sessionName = name;
+    if (!sessionName && date) {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const d = new Date(date);
+      const dayName = dayNames[d.getDay()] || 'Night';
+      sessionName = `${dayName} Night BedCheck`;
+    }
+
+    const newSession = {
+      name: sessionName || 'Night BedCheck',
+      date: date || new Date().toISOString().split('T')[0],
+      start_time: start_time || '22:00:00',
+      end_time: end_time || '23:30:00',
+      status: status || 'active',
+      hostels_completed: hostels_completed || 0,
+      total_hostels: total_hostels || 11,
+      completion: completion || 0,
+      academic_session: academic_session || '2026/2027',
+      grace_period: grace_period || 15,
+      created_by: created_by || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .insert(newSession)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Session insert error:', error);
+      throw error;
+    }
+
+    // Audit log
+    await auditService.log({
+      actor: creatorName || req.headers['x-staff-name'] || 'System',
+      actor_id: created_by || parseInt(req.headers['x-staff-id']) || null,
+      actor_role: req.headers['x-staff-role'] || 'Admin',
+      action: 'Created BedCheck Session',
+      module: 'sessions',
+      details: `Created session: ${data.name} for ${data.date}`,
+      context: `Session ID: ${data.id}`,
+      result: 'success',
+      category: 'bedcheck',
+      tone: 'blue',
+      session_id: data.id
+    });
+
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error creating session:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
+  }
+});
+
+app.put('/api/sessions/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { 
+      name,
+      date, 
+      start_time, 
+      end_time, 
+      status, 
+      hostels_completed, 
+      total_hostels, 
+      completion,
+      academic_session,
+      grace_period
+    } = req.body;
+
     const updateData = {};
-    if (status !== undefined) updateData.status = status;
-    if (hostels_completed !== undefined) updateData.hostels_completed = hostels_completed;
-    if (completion !== undefined) updateData.completion = completion;
+    const changes = [];
+
+    if (name !== undefined) { updateData.name = name; changes.push('name'); }
+    if (date !== undefined) { updateData.date = date; changes.push('date'); }
+    if (start_time !== undefined) { updateData.start_time = start_time; changes.push('start_time'); }
+    if (end_time !== undefined) { updateData.end_time = end_time; changes.push('end_time'); }
+    if (status !== undefined) { 
+      // Ensure status is lowercase to match DB constraint
+      updateData.status = status.toLowerCase(); 
+      changes.push('status'); 
+      
+      // If status is 'active', set started_at
+      if (status.toLowerCase() === 'active') {
+        updateData.started_at = new Date().toISOString();
+      }
+      // If status is 'archived', set completed_at
+      if (status.toLowerCase() === 'archived') {
+        updateData.completed_at = new Date().toISOString();
+      }
+    }
+    if (hostels_completed !== undefined) { updateData.hostels_completed = hostels_completed; changes.push('hostels_completed'); }
+    if (total_hostels !== undefined) { updateData.total_hostels = total_hostels; changes.push('total_hostels'); }
+    if (completion !== undefined) { updateData.completion = completion; changes.push('completion'); }
+    if (academic_session !== undefined) { updateData.academic_session = academic_session; changes.push('academic_session'); }
+    if (grace_period !== undefined) { updateData.grace_period = grace_period; changes.push('grace_period'); }
+
     updateData.updated_at = new Date().toISOString();
-    const { data, error } = await supabase.from('sessions').update(updateData).eq('id', id).select().single();
-    if (error) throw error;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No fields to update' 
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Session update error:', error);
+      throw error;
+    }
+
+    // Audit log
+    await auditService.log({
+      actor: req.headers['x-staff-name'] || 'System',
+      actor_id: parseInt(req.headers['x-staff-id']) || null,
+      actor_role: req.headers['x-staff-role'] || 'Admin',
+      action: 'Updated BedCheck Session',
+      module: 'sessions',
+      details: `Updated session #${id}: ${changes.join(', ')}`,
+      context: `Session ID: ${id}`,
+      result: 'success',
+      category: 'bedcheck',
+      tone: 'gold',
+      session_id: id
+    });
+
     res.json({ success: true, data: data });
   } catch (error) {
     console.error('Error updating session:', error);
-    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
+  }
+});
+
+app.delete('/api/sessions/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    // Get session info for audit
+    const { data: session, error: fetchError } = await supabase
+      .from('sessions')
+      .select('name, date')
+      .eq('id', id)
+      .single();
+    
+    if (fetchError) throw fetchError;
+
+    const { error } = await supabase
+      .from('sessions')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    // Audit log
+    await auditService.log({
+      actor: req.headers['x-staff-name'] || 'System',
+      actor_id: parseInt(req.headers['x-staff-id']) || null,
+      actor_role: req.headers['x-staff-role'] || 'Admin',
+      action: 'Deleted BedCheck Session',
+      module: 'sessions',
+      details: `Deleted session: ${session?.name} (${session?.date})`,
+      context: `Session ID: ${id}`,
+      result: 'success',
+      category: 'bedcheck',
+      tone: 'red'
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Session deleted successfully' 
+    });
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
+  }
+});
+
+// GET active session
+app.get('/api/sessions/active', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('status', 'active')
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error fetching active session:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
+  }
+});
+
+// GET latest session
+app.get('/api/sessions/latest', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error fetching latest session:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
+  }
+});
+
+// GET session stats
+app.get('/api/sessions/stats', async (req, res) => {
+  try {
+    const { data: sessions, error } = await supabase
+      .from('sessions')
+      .select('status, hostels_completed, total_hostels, completion');
+
+    if (error) throw error;
+
+    const stats = {
+      total: sessions.length,
+      active: sessions.filter(s => s.status === 'active').length,
+      archived: sessions.filter(s => s.status === 'archived').length,
+      totalHostels: sessions.length > 0 ? sessions[0]?.total_hostels || 11 : 11,
+      averageCompletion: sessions.length > 0 
+        ? Math.round(sessions.reduce((sum, s) => sum + (s.completion || 0), 0) / sessions.length) 
+        : 0
+    };
+
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Error fetching session stats:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + error.message 
+    });
   }
 });
 
