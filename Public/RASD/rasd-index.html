@@ -76,8 +76,15 @@
 
         .content-container { max-width: 1280px; margin: 0 auto; padding: 1.75rem 1rem; }
         @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
-        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; }
+        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; align-items: center; flex-wrap: wrap; }
         .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
+        .notice-banner .session-status { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.65rem; margin-left: auto; }
+        .session-status.open { background: #2d6545; color: white; }
+        .session-status.active { background: #2d6545; color: white; }
+        .session-status.closed { background: #8a3328; color: white; }
+        .session-status.locked { background: #8a6413; color: white; }
+        .session-status.submitted { background: #8a6413; color: white; }
+        .session-status.completed { background: #1e3a5f; color: white; }
 
         .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
         @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
@@ -90,6 +97,10 @@
         .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
         .btn-primary:hover { background: #18345a; }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary.danger { background: #8a3328; }
+        .btn-primary.danger:hover { background: #a84134; }
+        .btn-primary.success { background: #2d6545; }
+        .btn-primary.success:hover { background: #3f755d; }
         .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
         .btn-outline:hover { background: #f5f1e8; }
         .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
@@ -103,6 +114,7 @@
         .metric-icon.gold { background: #fff1c9; color: #8b6513; }
         .metric-icon.red { background: #f9e2de; color: #9c3e32; }
         .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
         .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; }
         .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.95rem; }
         .metric-detail { margin-top: 0.15rem; font-size: 0.75rem; color: #6b778b; }
@@ -114,6 +126,7 @@
         .badge-approved { background: #e1f0e5; color: #2d6545; }
         .badge-draft { background: #e8edf2; color: #536274; }
         .badge-provisional { background: #fff0cb; color: #8a6413; }
+        .badge-danger { background: #f9e2de; color: #8a3328; }
 
         .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
         @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
@@ -159,6 +172,7 @@
         .status-badge-in-progress { background: #e7edf5; color: #315b8a; }
         .status-badge-submitted { background: #fff0cb; color: #8a6413; }
         .status-badge-approved { background: #e1f0e5; color: #2d6545; }
+        .status-badge-closed { background: #f9e2de; color: #8a3328; }
 
         .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
         .status-dot.green { background: #3f755d; }
@@ -166,7 +180,14 @@
         .status-dot.gold { background: #d4af37; }
         .status-dot.red { background: #8a3328; }
 
-        /* Scrollbar */
+        .session-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+        /* Session info card */
+        .session-info { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
+        .session-info-item { background: #f5f1e8; padding: 0.5rem; border-radius: 0.5rem; }
+        .session-info-item .label { font-size: 0.6rem; text-transform: uppercase; color: #68768a; }
+        .session-info-item .value { font-weight: 600; font-size: 0.85rem; }
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
@@ -251,6 +272,7 @@
                 <div class="notice-banner" id="noticeBanner">
                     <i class="fas fa-clock"></i>
                     <span id="noticeText">Loading...</span>
+                    <span id="sessionStatusBadge" class="session-status active">● Active</span>
                 </div>
                 <div id="screenContent">
                     <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
@@ -286,7 +308,7 @@
             // =============================================
             let currentUser = null;
             let currentRole = 'RASD';
-            let sessionStatus = 'Open';
+            let currentSession = null; // Holds the current session data from sessions table
             let hostels = [];
             let students = [];
             let auditLogs = [];
@@ -335,20 +357,130 @@
                 return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
             }
 
+            function formatDate(date) {
+                if (!date) return 'N/A';
+                const d = new Date(date);
+                return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+
             function statusBadge(status) {
                 const map = {
                     'In progress': 'status-badge-in-progress',
                     'Completed': 'status-badge-approved',
                     'In review': 'status-badge-submitted',
                     'Open': 'status-badge-active',
-                    'Active': 'status-badge-active'
+                    'Active': 'status-badge-active',
+                    'Closed': 'status-badge-closed',
+                    'Locked': 'status-badge-in-progress',
+                    'Submitted': 'status-badge-submitted'
                 };
                 return `<span class="status-badge ${map[status] || 'status-badge-in-progress'}">${status || 'In progress'}</span>`;
+            }
+
+            function getSessionStatusClass(state) {
+                const map = {
+                    'Active': 'active',
+                    'Open': 'open',
+                    'Closed': 'closed',
+                    'Locked': 'locked',
+                    'Submitted': 'submitted',
+                    'Completed': 'completed'
+                };
+                return map[state] || 'active';
+            }
+
+            function getSessionStatusIcon(state) {
+                const map = {
+                    'Active': '●',
+                    'Open': '●',
+                    'Closed': '○',
+                    'Locked': '◆',
+                    'Submitted': '◐',
+                    'Completed': '✓'
+                };
+                return map[state] || '●';
+            }
+
+            function getSessionColor(state) {
+                const map = {
+                    'Active': '#2d6545',
+                    'Open': '#2d6545',
+                    'Closed': '#8a3328',
+                    'Locked': '#8a6413',
+                    'Submitted': '#8a6413',
+                    'Completed': '#1e3a5f'
+                };
+                return map[state] || '#2d6545';
             }
 
             // =============================================
             // DATA LOADING
             // =============================================
+            
+            // Load the current/latest session from the sessions table
+            async function loadCurrentSession() {
+                try {
+                    // Get the most recent session
+                    const data = await apiCall('/sessions?limit=1');
+                    if (data.data && data.data.length > 0) {
+                        currentSession = data.data[0];
+                        return currentSession;
+                    }
+                    // If no session exists, create a default one
+                    currentSession = null;
+                    return null;
+                } catch (error) {
+                    console.error('Error loading session:', error);
+                    currentSession = null;
+                    return null;
+                }
+            }
+
+            // Create a new session
+            async function createSession(status = 'Active') {
+                try {
+                    const today = new Date().toISOString().split('T')[0];
+                    const data = await apiCall('/sessions', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            date: today,
+                            start_time: '10:00 PM',
+                            end_time: '12:00 AM',
+                            status: status,
+                            hostels_completed: 0,
+                            total_hostels: hostels.length || 11,
+                            completion: 0
+                        })
+                    });
+                    if (data.success) {
+                        currentSession = data.data;
+                        return currentSession;
+                    }
+                    return null;
+                } catch (error) {
+                    showToast('Failed to create session: ' + error.message, 'error');
+                    return null;
+                }
+            }
+
+            // Update session status
+            async function updateSessionStatus(sessionId, status) {
+                try {
+                    const data = await apiCall(`/sessions/${sessionId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: status })
+                    });
+                    if (data.success) {
+                        currentSession = data.data;
+                        return currentSession;
+                    }
+                    return null;
+                } catch (error) {
+                    showToast('Failed to update session: ' + error.message, 'error');
+                    return null;
+                }
+            }
+
             async function loadHostels() {
                 try {
                     const data = await apiCall('/hostels');
@@ -373,7 +505,7 @@
 
             async function loadAuditLogs() {
                 try {
-                    const data = await apiCall('/audit');
+                    const data = await apiCall('/audit?limit=20');
                     auditLogs = data.data || [];
                     return auditLogs;
                 } catch (error) {
@@ -390,6 +522,63 @@
                 } catch (error) {
                     notifications = [];
                     return notifications;
+                }
+            }
+
+            // =============================================
+            // UPDATE SESSION UI
+            // =============================================
+            function updateSessionUI() {
+                const badge = document.getElementById('sessionStatusBadge');
+                const noticeText = document.getElementById('noticeText');
+                
+                if (currentSession) {
+                    const status = currentSession.status || 'Active';
+                    const statusClass = getSessionStatusClass(status);
+                    const icon = getSessionStatusIcon(status);
+                    
+                    badge.className = `session-status ${statusClass}`;
+                    badge.textContent = `${icon} ${status}`;
+                    badge.style.borderColor = getSessionColor(status);
+                    
+                    // Update notice text with session info
+                    const sessionInfo = [];
+                    if (currentSession.date) sessionInfo.push(`Date: ${formatDate(currentSession.date)}`);
+                    if (currentSession.start_time) sessionInfo.push(`Start: ${currentSession.start_time}`);
+                    if (currentSession.end_time) sessionInfo.push(`End: ${currentSession.end_time}`);
+                    if (currentSession.hostels_completed !== undefined) {
+                        sessionInfo.push(`${currentSession.hostels_completed}/${currentSession.total_hostels || hostels.length} hostels completed`);
+                    }
+                    if (currentSession.completion !== undefined) {
+                        sessionInfo.push(`${currentSession.completion}% complete`);
+                    }
+                    
+                    const statusMessages = {
+                        'Active': 'BedCheck session is ACTIVE. RAs can conduct checks.',
+                        'Open': 'BedCheck session is OPEN. RAs can conduct checks.',
+                        'Closed': 'BedCheck session is CLOSED. No further submissions allowed.',
+                        'Locked': 'BedCheck session is LOCKED. Contact administrator.',
+                        'Submitted': 'BedCheck has been submitted for review.',
+                        'Completed': 'BedCheck session is COMPLETE.'
+                    };
+                    
+                    noticeText.textContent = statusMessages[status] || `Session: ${status}`;
+                    
+                    // Add session details to the notice
+                    const noticeBanner = document.getElementById('noticeBanner');
+                    let detailSpan = noticeBanner.querySelector('.session-details');
+                    if (!detailSpan) {
+                        detailSpan = document.createElement('span');
+                        detailSpan.className = 'session-details text-xs text-muted';
+                        detailSpan.style.marginLeft = '0.5rem';
+                        noticeBanner.appendChild(detailSpan);
+                    }
+                    detailSpan.textContent = sessionInfo.join(' · ');
+                    
+                } else {
+                    badge.className = 'session-status closed';
+                    badge.textContent = '○ No Session';
+                    noticeText.textContent = 'No active BedCheck session. Please start a new session.';
                 }
             }
 
@@ -419,6 +608,36 @@
             }
 
             // =============================================
+            // SESSION CONTROLS
+            // =============================================
+            async function handleSessionAction(action) {
+                try {
+                    if (!currentSession) {
+                        // No session exists, create one
+                        const newSession = await createSession(action);
+                        if (newSession) {
+                            currentSession = newSession;
+                            updateSessionUI();
+                            renderDashboard();
+                            showToast(`Session started (${action})`, 'success');
+                        }
+                        return;
+                    }
+
+                    // Update existing session
+                    const updatedSession = await updateSessionStatus(currentSession.id, action);
+                    if (updatedSession) {
+                        currentSession = updatedSession;
+                        updateSessionUI();
+                        renderDashboard();
+                        showToast(`Session ${action} successfully`, 'success');
+                    }
+                } catch (error) {
+                    showToast('Failed to update session: ' + error.message, 'error');
+                }
+            }
+
+            // =============================================
             // RENDER DASHBOARD
             // =============================================
             function renderDashboard() {
@@ -433,11 +652,26 @@
                 }, 0);
 
                 const totalStudents = students.length || 0;
-                const present = students.filter(s => s.status === 'Present').length || 0;
+                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = students.filter(s => s.status === 'Absent').length || 0;
                 const late = students.filter(s => s.status === 'Late').length || 0;
                 const completed = hostels.filter(h => h.progress === 100).length;
                 const avgProgress = hostels.length > 0 ? Math.round(hostels.reduce((sum, h) => sum + (h.progress || 0), 0) / hostels.length) : 0;
+
+                const sessionStatus = currentSession ? currentSession.status : 'No Session';
+                const isActive = sessionStatus === 'Active' || sessionStatus === 'Open';
+                const isClosed = sessionStatus === 'Closed';
+                const isLocked = sessionStatus === 'Locked';
+                const isSubmitted = sessionStatus === 'Submitted';
+                const isCompleted = sessionStatus === 'Completed';
+
+                const sessionColor = getSessionColor(sessionStatus);
+                const sessionIcon = getSessionStatusIcon(sessionStatus);
+
+                // Calculate session progress
+                const sessionProgress = currentSession ? (currentSession.completion || 0) : 0;
+                const hostelsCompleted = currentSession ? (currentSession.hostels_completed || 0) : 0;
+                const totalHostels = currentSession ? (currentSession.total_hostels || hostels.length) : hostels.length;
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -447,7 +681,20 @@
                             <p class="desc">Monitor attendance across all hostels, review sessions, and generate reports.</p>
                         </div>
                         <div class="action-group">
-                            <a href="rasd-sessions.html" class="btn-primary"><i class="fas fa-sliders-h"></i> Session controls</a>
+                            <div class="session-controls">
+                                <button class="btn-primary success" onclick="window.handleSessionAction('Active')" ${isActive ? 'disabled' : ''}>
+                                    <i class="fas fa-play"></i> Start Session
+                                </button>
+                                <button class="btn-primary" onclick="window.handleSessionAction('Submitted')" ${isSubmitted ? 'disabled' : ''}>
+                                    <i class="fas fa-paper-plane"></i> Submit
+                                </button>
+                                <button class="btn-primary danger" onclick="window.handleSessionAction('Closed')" ${isClosed ? 'disabled' : ''}>
+                                    <i class="fas fa-stop"></i> Close
+                                </button>
+                                <button class="btn-primary" onclick="window.handleSessionAction('Locked')" ${isLocked ? 'disabled' : ''}>
+                                    <i class="fas fa-lock"></i> Lock
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -464,19 +711,52 @@
                             <div class="metric-title">Total Rooms</div>
                             <div class="metric-detail">Across all hostels</div>
                         </div>
-                        <div class="metric-card">
-                            <div class="metric-icon red"><i class="fas fa-activity"></i></div>
-                            <div class="metric-value">${sessionStatus}</div>
-                            <div class="metric-title">Active BedCheck</div>
-                            <div class="metric-detail">Current session</div>
+                        <div class="metric-card" style="border-left:4px solid ${sessionColor};">
+                            <div class="metric-icon ${isActive ? 'green' : isClosed ? 'red' : isLocked ? 'gold' : 'gray'}"><i class="fas fa-${isActive ? 'play-circle' : isClosed ? 'stop-circle' : isLocked ? 'lock' : isSubmitted ? 'paper-plane' : 'circle'}"></i></div>
+                            <div class="metric-value" style="color:${sessionColor};">${sessionStatus}</div>
+                            <div class="metric-title">Session Status</div>
+                            <div class="metric-detail">${isActive ? 'Active - RAs can submit' : isClosed ? 'Closed - No submissions' : isLocked ? 'Locked - Contact admin' : isSubmitted ? 'Submitted for review' : isCompleted ? 'Complete' : 'No active session'}</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon gold"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value">${completed} / ${hostels.length}</div>
+                            <div class="metric-value">${hostelsCompleted} / ${totalHostels}</div>
                             <div class="metric-title">Hostels Completed</div>
-                            <div class="metric-detail">${avgProgress}% overall completion</div>
+                            <div class="metric-detail">${sessionProgress}% overall completion</div>
                         </div>
                     </div>
+
+                    ${currentSession ? `
+                    <div class="card mt-4" style="background:#f8f5ef;">
+                        <div class="flex-between">
+                            <div>
+                                <span class="text-xs text-muted uppercase">Current Session</span>
+                                <h3 style="font-family:'Merriweather',serif;font-size:1.1rem;margin-top:0.1rem;">Session #${currentSession.id}</h3>
+                            </div>
+                            <span class="badge ${isActive ? 'badge-approved' : isClosed ? 'badge-danger' : 'badge-provisional'}">${sessionStatus}</span>
+                        </div>
+                        <div class="session-info">
+                            <div class="session-info-item">
+                                <div class="label">Date</div>
+                                <div class="value">${formatDate(currentSession.date)}</div>
+                            </div>
+                            <div class="session-info-item">
+                                <div class="label">Time</div>
+                                <div class="value">${currentSession.start_time || 'N/A'} - ${currentSession.end_time || 'N/A'}</div>
+                            </div>
+                            <div class="session-info-item">
+                                <div class="label">Progress</div>
+                                <div class="value">${sessionProgress}%</div>
+                            </div>
+                            <div class="session-info-item">
+                                <div class="label">Hostels Done</div>
+                                <div class="value">${hostelsCompleted} / ${totalHostels}</div>
+                            </div>
+                        </div>
+                        <div class="progress-bar mt-3">
+                            <div class="fill" style="width:${sessionProgress}%;"></div>
+                        </div>
+                    </div>
+                    ` : ''}
 
                     <div class="metric-grid mt-4">
                         <div class="metric-card" style="border-left:4px solid #2d6545;">
@@ -523,7 +803,7 @@
                                 ${hostels.length > 6 ? `<p class="text-xs text-muted mt-2">+ ${hostels.length - 6} more hostels</p>` : ''}
                             </div>
                             <div class="mt-3 pt-3 border-t">
-                                <a href="rasd-hostels.html" class="btn-ghost" style="font-size:0.8rem;"><i class="fas fa-chevron-right"></i> View all hostels</a>
+                                <a href="management.html" class="btn-ghost" style="font-size:0.8rem;"><i class="fas fa-chevron-right"></i> View all hostels</a>
                             </div>
                         </div>
 
@@ -542,7 +822,7 @@
                                 `).join('') || '<p class="text-muted text-sm">No recent activity</p>'}
                             </div>
                             <div class="mt-3 pt-3 border-t">
-                                <a href="rasd-audit.html" class="btn-ghost" style="font-size:0.8rem;"><i class="fas fa-chevron-right"></i> View audit logs</a>
+                                <a href="AuditLogs.html" class="btn-ghost" style="font-size:0.8rem;"><i class="fas fa-chevron-right"></i> View audit logs</a>
                             </div>
                         </div>
                     </div>
@@ -551,23 +831,33 @@
                         <p class="text-xs text-muted">
                             BIU BedCheck System v1.0 · © Benson Idahosa University
                             <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                            <span class="ml-4"><span class="status-dot" style="background:${sessionColor};"></span> Session: ${sessionStatus}</span>
                         </p>
                     </div>
                 `;
             }
 
             // =============================================
-            // SESSION STATUS
+            // SESSION ACTION HANDLER (exposed globally)
             // =============================================
-            window.setSessionStatus = function(status) {
-                sessionStatus = status;
-                const messages = {
-                    'Open': 'Session is open.',
-                    'Closed': 'Session is closed.',
-                    'Locked': 'Session is locked.'
+            window.handleSessionAction = function(action) {
+                if (currentSession && currentSession.status === action) {
+                    showToast(`Session is already ${action}`, 'info');
+                    return;
+                }
+                
+                const confirmMsg = {
+                    'Active': 'Are you sure you want to START/ACTIVATE the BedCheck session? RAs will be able to conduct checks.',
+                    'Open': 'Are you sure you want to OPEN the BedCheck session? RAs will be able to conduct checks.',
+                    'Submitted': 'Are you sure you want to SUBMIT the BedCheck session for review?',
+                    'Closed': 'Are you sure you want to CLOSE the BedCheck session? No further submissions will be allowed.',
+                    'Locked': 'Are you sure you want to LOCK the BedCheck session? This will prevent all submissions.',
+                    'Completed': 'Are you sure you want to COMPLETE the BedCheck session?'
                 };
-                document.getElementById('noticeText').textContent = messages[status] || `Session: ${status}`;
-                renderDashboard();
+                
+                if (confirm(confirmMsg[action] || `Change session to ${action}?`)) {
+                    handleSessionAction(action);
+                }
             };
 
             // =============================================
@@ -636,6 +926,11 @@
                 // Load data
                 try {
                     document.getElementById('noticeText').textContent = 'Loading RASD dashboard...';
+                    
+                    // Load session from sessions table first
+                    await loadCurrentSession();
+                    updateSessionUI();
+                    
                     await Promise.all([
                         loadHostels(),
                         loadStudents(),
@@ -643,15 +938,17 @@
                         loadNotifications()
                     ]);
                     
-                    try {
-                        const sessionData = await apiCall('/submission');
-                        sessionStatus = sessionData.data.state || 'Open';
-                    } catch (e) {
-                        sessionStatus = 'Open';
+                    // Update session with hostel count if needed
+                    if (currentSession && hostels.length > 0) {
+                        const totalHostels = currentSession.total_hostels || hostels.length;
+                        // Update the session object with actual hostel count
+                        currentSession.total_hostels = totalHostels;
                     }
                     
                     renderDashboard();
-                    document.getElementById('noticeText').textContent = `RASD Dashboard · ${hostels.length} hostels, ${students.length} students monitored`;
+                    
+                    const sessionStatus = currentSession ? currentSession.status : 'No Session';
+                    document.getElementById('noticeText').textContent = `RASD Dashboard · ${hostels.length} hostels, ${students.length} students monitored · Session: ${sessionStatus}`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     showToast('Error loading data: ' + error.message, 'error');
@@ -662,7 +959,7 @@
             // EXPOSE GLOBALLY
             // =============================================
             window.showToast = showToast;
-            window.setSessionStatus = window.setSessionStatus;
+            window.handleSessionAction = window.handleSessionAction;
 
             // Run on load
             if (document.readyState === 'loading') {
