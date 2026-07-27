@@ -107,15 +107,12 @@
         .btn-ghost i { margin-right: 0.25rem; }
 
         .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-scheduled { background: #e7edf5; color: #1e3a5f; }
-        .badge-started { background: #d6ad4b; color: #10233f; }
-        .badge-running { background: #d6ad4b; color: #10233f; }
-        .badge-active { background: #e1f0e5; color: #2d6545; }
-        .badge-completed { background: #e1f0e5; color: #2d6545; }
         .badge-closed { background: #f8e1dc; color: #9b3c31; }
-        .badge-locked { background: #e8edf2; color: #414b5d; }
         .badge-archived { background: #e8edf2; color: #536274; }
         .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-completed { background: #e1f0e5; color: #2d6545; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -261,6 +258,18 @@
                     </div>
                 </div>
                 <div class="form-group mt-3">
+                    <label>Academic Session</label>
+                    <select id="academicSession">
+                        <option value="2026/2027">2026/2027</option>
+                        <option value="2025/2026">2025/2026</option>
+                        <option value="2024/2025">2024/2025</option>
+                    </select>
+                </div>
+                <div class="form-group mt-3">
+                    <label>Grace Period (minutes)</label>
+                    <input id="gracePeriod" type="number" value="15" />
+                </div>
+                <div class="form-group mt-3">
                     <label>Hostels</label>
                     <div class="checkbox-grid" id="hostelCheckboxes"></div>
                 </div>
@@ -369,25 +378,93 @@
             let sessionCheckerInterval = null;
 
             // =============================================
-            // FIX: Use only status values that exist in your database
-            // Based on the constraint, these are the allowed values:
-            // 'Scheduled', 'Started', 'Running', 'Completed', 'Closed', 'Locked', 'Archived'
+            // DATABASE SCHEMA MATCHING
+            // Your table columns: id, name, date, start_time, end_time,
+            // status, hostels_completed, total_hostels, completion,
+            // academic_session, grace_period, created_by, created_at, updated_at
             // =============================================
-            const ALLOWED_STATUSES = ['Scheduled', 'Started', 'Running', 'Completed', 'Closed', 'Locked', 'Archived'];
 
-            // Map for display purposes
+            // Status values from your database: 'active', 'scheduled', 'closed', 'archived'
             const STATUS_DISPLAY = {
-                'Scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-scheduled' },
-                'Started': { label: 'Started', icon: '🟢', badge: 'badge-started' },
-                'Running': { label: 'Running', icon: '🟢', badge: 'badge-running' },
-                'Completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' },
-                'Closed': { label: 'Closed', icon: '🔴', badge: 'badge-closed' },
-                'Locked': { label: 'Locked', icon: '🔒', badge: 'badge-locked' },
-                'Archived': { label: 'Archived', icon: '📦', badge: 'badge-archived' }
+                'active': { label: 'Active', icon: '🟢', badge: 'badge-active' },
+                'scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-scheduled' },
+                'closed': { label: 'Closed', icon: '🔴', badge: 'badge-closed' },
+                'archived': { label: 'Archived', icon: '📦', badge: 'badge-archived' },
+                'completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' }
             };
 
-            // Statuses that are considered "active"
-            const ACTIVE_STATUSES = ['Started', 'Running'];
+            const ACTIVE_STATUSES = ['active'];
+
+            function getStatusDisplay(status) {
+                return STATUS_DISPLAY[status] || { label: status || 'Unknown', icon: '🟡', badge: 'badge-draft' };
+            }
+
+            function isActiveStatus(status) {
+                return ACTIVE_STATUSES.includes(status);
+            }
+
+            function isClosedStatus(status) {
+                return ['closed', 'archived'].includes(status);
+            }
+
+            function getRowClass(status) {
+                if (isActiveStatus(status)) return 'session-row-active';
+                if (status === 'scheduled') return 'session-row-scheduled';
+                if (isClosedStatus(status)) return 'session-row-closed';
+                if (status === 'archived') return 'session-row-archived';
+                return '';
+            }
+
+            // =============================================
+            // FORMAT HELPERS - Match your DB format
+            // =============================================
+
+            function formatDate(dateStr) {
+                if (!dateStr) return '—';
+                try {
+                    const d = new Date(dateStr);
+                    if (isNaN(d.getTime())) return dateStr;
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                } catch (e) {
+                    return dateStr;
+                }
+            }
+
+            function formatTime(timeStr) {
+                if (!timeStr) return '—';
+                try {
+                    // Handle HH:MM:SS format
+                    if (timeStr.includes(':')) {
+                        const parts = timeStr.split(':');
+                        if (parts.length >= 2) {
+                            const hour = parseInt(parts[0]);
+                            const minute = parseInt(parts[1]);
+                            const ampm = hour >= 12 ? 'PM' : 'AM';
+                            const hour12 = hour % 12 || 12;
+                            return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+                        }
+                    }
+                    // Try parsing as date
+                    const d = new Date(timeStr);
+                    if (!isNaN(d.getTime())) {
+                        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    }
+                    return timeStr;
+                } catch (e) {
+                    return timeStr;
+                }
+            }
+
+            function formatFullDate(dateStr) {
+                if (!dateStr) return '—';
+                try {
+                    const d = new Date(dateStr);
+                    if (isNaN(d.getTime())) return dateStr;
+                    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+                } catch (e) {
+                    return dateStr;
+                }
+            }
 
             function showToast(message, type = 'success') {
                 const toast = document.getElementById('toast');
@@ -400,46 +477,6 @@
             function getInitials(name) {
                 if (!name) return 'U';
                 return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
-
-            function formatDate(date) {
-                if (!date) return '—';
-                const d = new Date(date);
-                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            }
-
-            function formatTime(date) {
-                if (!date) return '—';
-                const d = new Date(date);
-                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-            }
-
-            function getStatusBadge(status) {
-                return STATUS_DISPLAY[status]?.badge || 'badge-draft';
-            }
-
-            function getStatusDot(status) {
-                return STATUS_DISPLAY[status]?.icon || '🟡';
-            }
-
-            function getStatusLabel(status) {
-                return STATUS_DISPLAY[status]?.label || status;
-            }
-
-            function isActiveStatus(status) {
-                return ACTIVE_STATUSES.includes(status);
-            }
-
-            function isClosedStatus(status) {
-                return ['Closed', 'Locked', 'Archived'].includes(status);
-            }
-
-            function getRowClass(status) {
-                if (isActiveStatus(status)) return 'session-row-active';
-                if (status === 'Scheduled') return 'session-row-scheduled';
-                if (isClosedStatus(status)) return 'session-row-closed';
-                if (status === 'Archived') return 'session-row-archived';
-                return '';
             }
 
             async function apiCall(endpoint, options = {}) {
@@ -477,6 +514,7 @@
                 try {
                     const data = await apiCall('/sessions');
                     sessions = data.data || [];
+                    // Find active session
                     currentSession = sessions.find(s => isActiveStatus(s.status)) || null;
                     return sessions;
                 } catch (error) {
@@ -487,17 +525,12 @@
             }
 
             async function updateSessionStatus(sessionId, status) {
-                // Validate status is allowed by the database constraint
-                if (!ALLOWED_STATUSES.includes(status)) {
-                    throw new Error(`Invalid status: "${status}". Allowed values: ${ALLOWED_STATUSES.join(', ')}`);
-                }
-
                 try {
                     const result = await apiCall(`/sessions/${sessionId}`, {
                         method: 'PUT',
                         body: JSON.stringify({ status })
                     });
-                    // Also update global submission state for other pages to detect
+                    // Update global submission state for other pages
                     await apiCall('/submission', {
                         method: 'PUT',
                         body: JSON.stringify({ state: status })
@@ -531,7 +564,8 @@
                 const date = document.getElementById('sessionDate').value;
                 const startTime = document.getElementById('sessionStart').value;
                 const endTime = document.getElementById('sessionEnd').value;
-                const repeat = document.getElementById('sessionRepeat').value;
+                const academicSession = document.getElementById('academicSession').value;
+                const gracePeriod = parseInt(document.getElementById('gracePeriod').value) || 15;
 
                 const selectedHostels = [];
                 document.querySelectorAll('#hostelCheckboxes input[type="checkbox"]:checked').forEach(cb => {
@@ -554,9 +588,13 @@
                         date: date,
                         start_time: startTime,
                         end_time: endTime,
-                        repeat: repeat,
-                        hostel_ids: selectedHostels,
-                        status: 'Scheduled' // Valid status from the constraint
+                        status: 'scheduled',
+                        hostels_completed: 0,
+                        total_hostels: selectedHostels.length,
+                        completion: 0,
+                        academic_session: academicSession,
+                        grace_period: gracePeriod,
+                        hostel_ids: selectedHostels
                     };
 
                     await apiCall('/sessions', {
@@ -575,7 +613,7 @@
 
             async function startSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'Started');
+                    await updateSessionStatus(sessionId, 'active');
                     showToast('Session started! RAs can now verify students.', 'success');
                     await loadSessions();
                     renderScreen();
@@ -586,8 +624,8 @@
 
             async function closeSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'Closed');
-                    showToast('Session closed. Attendance entry is disabled.', 'info');
+                    await updateSessionStatus(sessionId, 'closed');
+                    showToast('Session closed.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -595,20 +633,9 @@
                 }
             }
 
-            async function lockSession(sessionId) {
-                try {
-                    await updateSessionStatus(sessionId, 'Locked');
-                    showToast('Session locked. Updates are paused.', 'info');
-                    await loadSessions();
-                    renderScreen();
-                } catch (error) {
-                    showToast('Error locking session: ' + error.message, 'error');
-                }
-            }
-
             async function archiveSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'Archived');
+                    await updateSessionStatus(sessionId, 'archived');
                     showToast('Session archived.', 'info');
                     await loadSessions();
                     renderScreen();
@@ -624,7 +651,7 @@
                 const hasActive = activeSessions.length > 0;
                 const currentActive = activeSessions[0] || null;
                 const totalSessions = sessions.length;
-                const archived = sessions.filter(s => s.status === 'Archived').length;
+                const archived = sessions.filter(s => s.status === 'archived').length;
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -649,7 +676,7 @@
                             <div class="metric-icon gold"><i class="fas fa-moon"></i></div>
                             <div class="metric-value">${sessions.length > 0 ? formatDate(sessions[0].date) : formatDate(now)}</div>
                             <div class="metric-title">Next Session</div>
-                            <div class="metric-detail">${sessions.length > 0 ? getStatusLabel(sessions[0].status) : '—'}</div>
+                            <div class="metric-detail">${sessions.length > 0 ? getStatusDisplay(sessions[0].status).label : '—'}</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon green"><i class="fas fa-play-circle"></i></div>
@@ -671,10 +698,10 @@
                         <div class="flex-between">
                             <div>
                                 <div class="font-bold" style="color:#10233f;">🟢 ${currentActive.name}</div>
-                                <p class="text-sm text-muted">Session is ${getStatusLabel(currentActive.status)} · Started ${formatTime(currentActive.created_at)}</p>
+                                <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label} · Started ${formatTime(currentActive.created_at)}</p>
                             </div>
                             <div>
-                                <span class="badge ${getStatusBadge(currentActive.status)}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDot(currentActive.status)} ${getStatusLabel(currentActive.status)}</span>
+                                <span class="badge ${getStatusDisplay(currentActive.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDisplay(currentActive.status).icon} ${getStatusDisplay(currentActive.status).label}</span>
                             </div>
                         </div>
                         <div class="grid-2 mt-2">
@@ -683,7 +710,6 @@
                         </div>
                         <div class="mt-2 pt-2 border-t" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                             <button class="btn-danger" onclick="closeSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-stop"></i> Close</button>
-                            <button class="btn-outline" onclick="lockSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-lock"></i> Lock</button>
                             <button class="btn-outline" onclick="archiveSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-archive"></i> Archive</button>
                         </div>
                     </div>
@@ -720,8 +746,8 @@
                                 <span class="status-badge" style="background:${hasActive ? '#d6ad4b' : '#e8edf2'};color:${hasActive ? '#10233f' : '#536274'};">${hasActive ? '🟢 ACTIVE' : '⏸ INACTIVE'}</span>
                             </div>
                             <div class="grid-2 mt-3" style="color:#b9c7db;font-size:0.8rem;">
-                                <div><span style="color:#b9c7db;">Start</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].start_time) || '10:00 PM' : '10:00 PM'}</strong></div>
-                                <div><span style="color:#b9c7db;">End</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].end_time) || '11:30 PM' : '11:30 PM'}</strong></div>
+                                <div><span style="color:#b9c7db;">Start</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].start_time) || '—' : '10:00 PM'}</strong></div>
+                                <div><span style="color:#b9c7db;">End</span><br><strong style="color:white;">${sessions.length > 0 ? formatTime(sessions[0].end_time) || '—' : '11:30 PM'}</strong></div>
                             </div>
                         </div>
 
@@ -752,9 +778,9 @@
                                 <thead><tr>
                                     <th>Date</th>
                                     <th>Session</th>
-                                    <th>Scheduled Start</th>
-                                    <th>Actual Start</th>
+                                    <th>Start Time</th>
                                     <th>End Time</th>
+                                    <th>Academic Session</th>
                                     <th>Status</th>
                                     <th>Action</th>
                                 </tr></thead>
@@ -762,30 +788,30 @@
                                     ${sessions.length === 0 ? `
                                         <tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">No sessions created yet</td></tr>
                                     ` : sessions.slice().reverse().map(s => {
+                                        const statusDisplay = getStatusDisplay(s.status);
                                         const isActive = isActiveStatus(s.status);
                                         const isClosed = isClosedStatus(s.status);
-                                        const actualStart = s.created_at || s.started_at;
-                                        const endTime = isClosed ? (s.closed_at || s.updated_at || s.end_time) : '—';
+                                        const startTime = formatTime(s.start_time);
+                                        const endTime = formatTime(s.end_time);
+                                        const displayDate = formatFullDate(s.date);
                                         return `
                                             <tr class="${getRowClass(s.status)}">
-                                                <td style="font-weight:600;">${formatDate(s.date)}</td>
+                                                <td style="font-weight:600;">${displayDate}</td>
                                                 <td>${s.name || 'Night BedCheck'}</td>
-                                                <td>${formatTime(s.start_time) || '10:00 PM'}</td>
-                                                <td>${isActive || isClosed ? formatTime(actualStart) : '—'}</td>
-                                                <td>${isClosed ? formatTime(endTime) : '—'}</td>
-                                                <td><span class="badge ${getStatusBadge(s.status)}">${getStatusDot(s.status)} ${getStatusLabel(s.status)}</span></td>
+                                                <td>${startTime}</td>
+                                                <td>${endTime}</td>
+                                                <td>${s.academic_session || '—'}</td>
+                                                <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
                                                 <td>
-                                                    ${s.status === 'Scheduled' ? `
+                                                    ${s.status === 'scheduled' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Start</button>
                                                     ` : isActive ? `
                                                         <button class="btn-danger" onclick="closeSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-stop"></i> Close</button>
-                                                        <button class="btn-outline" onclick="lockSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Lock</button>
-                                                    ` : s.status === 'Closed' || s.status === 'Locked' ? `
+                                                        <button class="btn-outline" onclick="archiveSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Archive</button>
+                                                    ` : s.status === 'closed' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Reopen</button>
                                                         <button class="btn-outline" onclick="archiveSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Archive</button>
-                                                    ` : s.status === 'Completed' ? `
-                                                        <span class="text-xs text-muted">Completed</span>
-                                                    ` : s.status === 'Archived' ? `
+                                                    ` : s.status === 'archived' ? `
                                                         <span class="text-xs text-muted">Archived</span>
                                                     ` : `
                                                         <span class="text-xs text-muted">${s.status}</span>
@@ -828,19 +854,19 @@
                         await loadSessions();
                         const now = new Date();
                         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                        const scheduledSessions = sessions.filter(s => s.status === 'Scheduled');
+                        const scheduledSessions = sessions.filter(s => s.status === 'scheduled');
                         for (const s of scheduledSessions) {
                             if (s.start_time && s.start_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'Started');
+                                await updateSessionStatus(s.id, 'active');
                                 showToast(`Session "${s.name}" started automatically!`, 'success');
                                 await loadSessions();
                                 renderScreen();
                             }
                         }
-                        const runningSessions = sessions.filter(s => isActiveStatus(s.status));
-                        for (const s of runningSessions) {
+                        const activeSessions = sessions.filter(s => isActiveStatus(s.status));
+                        for (const s of activeSessions) {
                             if (s.end_time && s.end_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'Closed');
+                                await updateSessionStatus(s.id, 'closed');
                                 showToast(`Session "${s.name}" closed automatically.`, 'info');
                                 await loadSessions();
                                 renderScreen();
@@ -905,7 +931,6 @@
             window.createSession = createSession;
             window.startSession = startSession;
             window.closeSession = closeSession;
-            window.lockSession = lockSession;
             window.archiveSession = archiveSession;
 
             async function init() {
