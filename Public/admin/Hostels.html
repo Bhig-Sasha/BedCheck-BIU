@@ -509,11 +509,22 @@
             let isLoading = true;
 
             // =============================================
-            // API HELPER
+            // API HELPER - FIXED ENDPOINTS
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
-                    const url = `${API_BASE_URL}${endpoint}`;
+                    // Fix common endpoint issues
+                    let fixedEndpoint = endpoint;
+                    // bed_spaces -> bed-spaces (hyphen, not underscore)
+                    if (endpoint.includes('/bed_spaces')) {
+                        fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
+                    }
+                    // floors_flats -> floors-flats
+                    if (endpoint.includes('/floors_flats')) {
+                        fixedEndpoint = endpoint.replace('/floors_flats', '/floors-flats');
+                    }
+                    
+                    const url = `${API_BASE_URL}${fixedEndpoint}`;
                     console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
                     
                     const response = await fetch(url, {
@@ -593,7 +604,7 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - FIXED ENDPOINT NAMES
             // =============================================
             async function loadHostels() {
                 try {
@@ -619,7 +630,7 @@
 
             async function loadFloorsFlatsForHostel(hostelId) {
                 try {
-                    const data = await apiCall(`/floors_flats?hostel_id=${hostelId}`);
+                    const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
                     console.warn('Could not load floors/flats:', error);
@@ -639,7 +650,7 @@
 
             async function loadBedSpacesForHostel(hostelId) {
                 try {
-                    const data = await apiCall(`/bed_spaces?hostel_id=${hostelId}`);
+                    const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
                     return data.data || [];
                 } catch (error) {
                     console.warn('Could not load bed spaces:', error);
@@ -649,7 +660,7 @@
 
             async function loadBedSpacesForRoom(roomId) {
                 try {
-                    const data = await apiCall(`/bed_spaces?room_id=${roomId}`);
+                    const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
                     return data.data || [];
                 } catch (error) {
                     console.warn('Could not load bed spaces for room:', error);
@@ -831,6 +842,10 @@
                     allRooms = roomsData.map(room => {
                         if (!room.floor_label && room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
                             room.floor_label = floorLabelMap[room.floor_flat_id];
+                        }
+                        // If room doesn't have floor_label but has floor property
+                        if (!room.floor_label && room.floor) {
+                            room.floor_label = room.floor;
                         }
                         return room;
                     });
@@ -1306,7 +1321,7 @@
                     let floorFlatId = floorData?.id;
                     
                     if (!floorData) {
-                        const newFloor = await apiCall('/floors_flats', {
+                        const newFloor = await apiCall('/floors-flats', {
                             method: 'POST',
                             body: JSON.stringify({
                                 hostel_id: editingHostelId,
@@ -1336,7 +1351,7 @@
                     if (autoCreateBeds) {
                         const bedLabels = getBedLabels(capacity);
                         for (const label of bedLabels.slice(0, capacity)) {
-                            await apiCall('/bed_spaces', {
+                            await apiCall('/bed-spaces', {
                                 method: 'POST',
                                 body: JSON.stringify({
                                     room_id: newRoom.id,
@@ -1417,7 +1432,7 @@
                     let bed = allBedSpaces.find(b => b.room_id === selectedRoom.id && b.bed_code === selectedBed);
                     
                     if (!bed) {
-                        const bedResponse = await apiCall('/bed_spaces', {
+                        const bedResponse = await apiCall('/bed-spaces', {
                             method: 'POST',
                             body: JSON.stringify({
                                 room_id: selectedRoom.id,
@@ -1429,7 +1444,7 @@
                         bed = bedResponse.data;
                         allBedSpaces.push(bed);
                     } else {
-                        await apiCall(`/bed_spaces/${bed.id}`, {
+                        await apiCall(`/bed-spaces/${bed.id}`, {
                             method: 'PUT',
                             body: JSON.stringify({
                                 status: 'occupied',
@@ -1473,7 +1488,7 @@
                 }
                 
                 try {
-                    await apiCall(`/bed_spaces/${bed.id}`, {
+                    await apiCall(`/bed-spaces/${bed.id}`, {
                         method: 'PUT',
                         body: JSON.stringify({
                             status: 'available',
@@ -1509,7 +1524,7 @@
                 
                 try {
                     const newStatus = bed.status === 'maintenance' ? 'available' : 'maintenance';
-                    await apiCall(`/bed_spaces/${bed.id}`, {
+                    await apiCall(`/bed-spaces/${bed.id}`, {
                         method: 'PUT',
                         body: JSON.stringify({
                             status: newStatus,
