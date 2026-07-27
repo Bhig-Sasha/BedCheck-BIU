@@ -34,27 +34,23 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
       return callback(null, true);
     }
 
-    // Get allowed origins from environment variable
     const allowedOrigins = process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
       : [];
 
-    // In production, ALLOWED_ORIGINS must be set
     if (allowedOrigins.length === 0) {
       console.error('❌ ALLOWED_ORIGINS environment variable is not set in production');
       return callback(new Error('CORS configuration error'));
     }
 
-    // Check if the origin is allowed
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`❌ CORS blocked: ${origin} - Not in allowed origins: ${allowedOrigins.join(', ')}`);
+      console.warn(`❌ CORS blocked: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -563,7 +559,6 @@ const auditEvents = {
 // AUDIT ENDPOINTS
 // =====================================================
 
-// GET audit logs with filtering
 app.get('/api/audit', async (req, res) => {
   try {
     const { 
@@ -607,7 +602,6 @@ app.get('/api/audit', async (req, res) => {
   }
 });
 
-// GET audit stats
 app.get('/api/audit/stats', async (req, res) => {
   try {
     const { hostel_id, from_date, to_date } = req.query;
@@ -623,7 +617,6 @@ app.get('/api/audit/stats', async (req, res) => {
   }
 });
 
-// GET recent activity
 app.get('/api/audit/recent', async (req, res) => {
   try {
     const { hostel_id, limit = 10 } = req.query;
@@ -641,7 +634,6 @@ app.get('/api/audit/recent', async (req, res) => {
   }
 });
 
-// GET audit log by ID
 app.get('/api/audit/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -669,7 +661,6 @@ app.get('/api/audit/:id', async (req, res) => {
   }
 });
 
-// GET audit logs for a specific hostel
 app.get('/api/audit/hostel/:hostelId', async (req, res) => {
   try {
     const hostelId = parseInt(req.params.hostelId);
@@ -693,7 +684,6 @@ app.get('/api/audit/hostel/:hostelId', async (req, res) => {
   }
 });
 
-// GET audit logs by module
 app.get('/api/audit/module/:module', async (req, res) => {
   try {
     const { module } = req.params;
@@ -715,7 +705,6 @@ app.get('/api/audit/module/:module', async (req, res) => {
   }
 });
 
-// GET audit logs by category
 app.get('/api/audit/category/:category', async (req, res) => {
   try {
     const { category } = req.params;
@@ -737,7 +726,6 @@ app.get('/api/audit/category/:category', async (req, res) => {
   }
 });
 
-// GET audit logs by actor
 app.get('/api/audit/actor/:actor', async (req, res) => {
   try {
     const { actor } = req.params;
@@ -759,7 +747,6 @@ app.get('/api/audit/actor/:actor', async (req, res) => {
   }
 });
 
-// GET audit logs by result type
 app.get('/api/audit/result/:result', async (req, res) => {
   try {
     const { result } = req.params;
@@ -781,7 +768,6 @@ app.get('/api/audit/result/:result', async (req, res) => {
   }
 });
 
-// GET audit summary for dashboard
 app.get('/api/audit/summary', async (req, res) => {
   try {
     const { hostel_id } = req.query;
@@ -817,7 +803,7 @@ app.get('/api/audit/summary', async (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION - Fixed for plain text passwords
+// AUTHENTICATION
 // =====================================================
 
 app.post('/api/auth/login', async (req, res) => {
@@ -831,7 +817,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
   
   try {
-    // First get the user with their password
     const { data, error } = await supabase
       .from('staff')
       .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, submission_status, level, password')
@@ -849,12 +834,9 @@ app.post('/api/auth/login', async (req, res) => {
     if (data && data.length > 0) {
       const user = data[0];
       
-      // Check if password is hashed or plain text
       let validPassword = false;
       
-      // Check if stored password is a bcrypt hash
       if (user.password && user.password.startsWith('$2b$')) {
-        // Hashed password - use bcrypt
         try {
           validPassword = await bcrypt.compare(password, user.password);
         } catch (e) {
@@ -862,10 +844,8 @@ app.post('/api/auth/login', async (req, res) => {
           validPassword = false;
         }
       } else {
-        // Plain text password - direct comparison
         validPassword = password === user.password;
         
-        // If valid, automatically upgrade to hashed password
         if (validPassword && user.password && !user.password.startsWith('$2b$')) {
           console.log(`🔄 Upgrading password for ${user.username} to bcrypt hash`);
           try {
@@ -962,7 +942,7 @@ app.get('/api/me', async (req, res) => {
 });
 
 // =====================================================
-// CHANGE PASSWORD - NEW ENDPOINT
+// CHANGE PASSWORD
 // =====================================================
 
 app.put('/api/staff/:id/change-password', async (req, res) => {
@@ -984,7 +964,6 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Get staff with password
     const { data: staff, error: staffError } = await supabase
       .from('staff')
       .select('id, password, name')
@@ -998,12 +977,10 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Verify current password
     let validPassword = false;
     try {
       validPassword = await bcrypt.compare(currentPassword, staff.password);
     } catch (e) {
-      // Fallback for plain text passwords (for backward compatibility)
       validPassword = currentPassword === staff.password;
     }
 
@@ -1014,10 +991,8 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-    // Update password in DB
     const { error: updateError } = await supabase
       .from('staff')
       .update({
@@ -1030,7 +1005,6 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
       throw updateError;
     }
 
-    // Audit log
     await auditService.log({
       actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
       actor_id: staffId,
@@ -1314,10 +1288,9 @@ app.get('/api/hostels/:id/recent-activity', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT - COMPLETELY FIXED (no hostels.code reference)
+// QR CODE MANAGEMENT
 // =====================================================
 
-// GET QR code by hostel ID
 app.get('/api/qr/hostel/:hostelId', async (req, res) => {
   try {
     const hostelId = parseInt(req.params.hostelId);
@@ -1331,7 +1304,6 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
 
     console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
     
-    // Get QR code for this hostel that is active - NO JOIN
     const { data: qrData, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1357,7 +1329,6 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
       });
     }
 
-    // Get hostel name separately (no code column needed)
     let hostelName = null;
     const { data: hostelInfo, error: hostelInfoError } = await supabase
       .from('hostels')
@@ -1369,7 +1340,6 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
       hostelName = hostelInfo.name;
     }
 
-    // Get creator name
     let creatorName = 'Unknown';
     if (qrData.created_by) {
       const { data: creator } = await supabase
@@ -1410,7 +1380,6 @@ app.get('/api/qr/hostel/:hostelId', async (req, res) => {
   }
 });
 
-// Generate QR code for the staff member's hostel
 app.post('/api/qr/generate', async (req, res) => {
   try {
     const staffId = getStaffId(req);
@@ -1426,7 +1395,6 @@ app.post('/api/qr/generate', async (req, res) => {
 
     console.log(`🔄 Generating QR for staff ID: ${staffId}`);
     
-    // Get staff member with their hostel
     const { data: staff, error: staffError } = await supabase
       .from('staff')
       .select('id, name, role, hostel_id')
@@ -1457,7 +1425,6 @@ app.post('/api/qr/generate', async (req, res) => {
     
     console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
     
-    // Get hostel name (no code column needed)
     const { data: hostel, error: hostelError } = await supabase
       .from('hostels')
       .select('name')
@@ -1481,7 +1448,6 @@ app.post('/api/qr/generate', async (req, res) => {
 
     console.log(`✅ Found hostel: ${hostel.name} (ID: ${staff.hostel_id})`);
 
-    // Generate unique QR code with timestamp - use hostel name for code
     const timestamp = Date.now().toString(36).toUpperCase();
     const qrCode = `BIU-${hostel.name.toUpperCase().replace(/\s/g, '-')}-${timestamp}`;
     
@@ -1495,7 +1461,6 @@ app.post('/api/qr/generate', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    // Inactivate old QR codes for this hostel
     const { error: updateError } = await supabase
       .from('qr_codes')
       .update({ 
@@ -1509,7 +1474,6 @@ app.post('/api/qr/generate', async (req, res) => {
       console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
     }
 
-    // Insert new QR code into qr_codes table
     const { data: qrDataInsert, error: qrError } = await supabase
       .from('qr_codes')
       .insert({
@@ -1535,7 +1499,6 @@ app.post('/api/qr/generate', async (req, res) => {
 
     console.log(`✅ QR generated successfully: ${qrCode}`);
 
-    // Log the QR generation
     await auditService.log({
       actor: staffName,
       actor_id: staffId,
@@ -1584,7 +1547,6 @@ app.post('/api/qr/generate', async (req, res) => {
   }
 });
 
-// Verify QR code scan - FIXED (no join)
 app.post('/api/qr/verify', async (req, res) => {
   try {
     const { qr_code, scanner_id } = req.body;
@@ -1600,7 +1562,6 @@ app.post('/api/qr/verify', async (req, res) => {
 
     console.log(`🔍 Verifying QR code: ${qr_code}`);
 
-    // Find QR code in qr_codes table - NO JOIN
     const { data: qrRecord, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
@@ -1623,7 +1584,6 @@ app.post('/api/qr/verify', async (req, res) => {
       });
     }
 
-    // Get hostel name separately
     let hostelName = 'Unknown Hostel';
     if (qrRecord.hostel_id) {
       const { data: hostelInfo } = await supabase
@@ -1634,7 +1594,6 @@ app.post('/api/qr/verify', async (req, res) => {
       if (hostelInfo) hostelName = hostelInfo.name;
     }
 
-    // Check if expired
     if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
       return res.status(400).json({
         success: false,
@@ -1642,7 +1601,6 @@ app.post('/api/qr/verify', async (req, res) => {
       });
     }
 
-    // Update usage
     try {
       await supabase
         .from('qr_codes')
@@ -1656,7 +1614,6 @@ app.post('/api/qr/verify', async (req, res) => {
       console.log('ℹ️ Error updating usage count:', e.message);
     }
 
-    // Log the scan
     await auditService.log({
       actor: staffName,
       actor_id: staffId,
@@ -1690,7 +1647,6 @@ app.post('/api/qr/verify', async (req, res) => {
   }
 });
 
-// Get all QR codes (admin only) - FIXED
 app.get('/api/qr/all', async (req, res) => {
   try {
     const { data: qrCodes, error } = await supabase
@@ -1700,7 +1656,6 @@ app.get('/api/qr/all', async (req, res) => {
 
     if (error) throw error;
 
-    // Enrich with hostel names
     const enriched = await Promise.all(qrCodes.map(async (qr) => {
       let hostelName = null;
       if (qr.hostel_id) {
@@ -1764,7 +1719,6 @@ app.post('/api/staff', async (req, res) => {
     if (existingStaff) return res.status(400).json({ success: false, message: 'Username already exists' });
     
     const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-    // Hash the password before storing
     const hashedPassword = password ? await bcrypt.hash(password, SALT_ROUNDS) : await bcrypt.hash('password1', SALT_ROUNDS);
     
     const newStaff = { 
@@ -1839,101 +1793,6 @@ app.put('/api/staff/:id/password', async (req, res) => {
   } catch (error) {
     console.error('Error updating password:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
-  }
-});
-
-// CHANGE PASSWORD - New endpoint with current password verification
-app.put('/api/staff/:id/change-password', async (req, res) => {
-  try {
-    const staffId = parseInt(req.params.id);
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password and new password are required'
-      });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'New password must be at least 6 characters'
-      });
-    }
-
-    // Get staff with password
-    const { data: staff, error: staffError } = await supabase
-      .from('staff')
-      .select('id, password, name')
-      .eq('id', staffId)
-      .maybeSingle();
-
-    if (staffError || !staff) {
-      return res.status(404).json({
-        success: false,
-        message: 'Staff not found'
-      });
-    }
-
-    // Verify current password
-    let validPassword = false;
-    try {
-      validPassword = await bcrypt.compare(currentPassword, staff.password);
-    } catch (e) {
-      // Fallback for plain text passwords (for backward compatibility)
-      validPassword = currentPassword === staff.password;
-    }
-
-    if (!validPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password is incorrect'
-      });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-
-    // Update password in DB
-    const { error: updateError } = await supabase
-      .from('staff')
-      .update({
-        password: hashedPassword,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', staffId);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    // Audit log
-    await auditService.log({
-      actor: req.headers['x-staff-name'] || staff?.name || 'Staff',
-      actor_id: staffId,
-      actor_role: req.headers['x-staff-role'] || 'HRA',
-      action: 'Password Changed',
-      module: 'security',
-      details: 'Account password updated successfully',
-      result: 'success',
-      category: 'security',
-      tone: 'blue',
-      ip_address: req.clientIp,
-      user_agent: req.userAgent
-    });
-
-    res.json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error: ' + error.message
-    });
   }
 });
 
@@ -2035,7 +1894,7 @@ app.delete('/api/students/:id', async (req, res) => {
 });
 
 // =====================================================
-// FLOORS_FLATS, ROOMS, BED_SPACES, HOSTELS, BEDCHECK SESSIONS, ETC.
+// FLOORS_FLATS, ROOMS, BED_SPACES, HOSTELS
 // =====================================================
 
 // Floors/Flats
@@ -2109,7 +1968,10 @@ app.delete('/api/floors-flats/:id', async (req, res) => {
   }
 });
 
-// Rooms
+// =====================================================
+// ROOMS - UPDATED WITH ENRICHMENT
+// =====================================================
+
 app.get('/api/rooms', async (req, res) => {
   const { floor_flat_id, hostel_id } = req.query;
   try {
@@ -2120,7 +1982,7 @@ app.get('/api/rooms', async (req, res) => {
     }
     
     if (hostel_id) {
-      // First get all floor IDs for this hostel
+      // Get all floors for this hostel
       const { data: hostelFloors, error: floorsError } = await supabase
         .from('floors_flats')
         .select('id')
@@ -2138,14 +2000,29 @@ app.get('/api/rooms', async (req, res) => {
         const floorIds = hostelFloors.map(f => f.id);
         query = query.in('floor_flat_id', floorIds);
       } else {
-        // No floors found for this hostel, return empty
         return res.json({ success: true, data: [] });
       }
     }
     
     const { data, error } = await query.order('room_code', { ascending: true });
     if (error) throw error;
-    res.json({ success: true, data: data });
+    
+    // Enrich with floor/flat label and hostel_id
+    const enrichedData = await Promise.all(data.map(async (room) => {
+      const { data: floorData } = await supabase
+        .from('floors_flats')
+        .select('name, hostel_id')
+        .eq('id', room.floor_flat_id)
+        .maybeSingle();
+      
+      return {
+        ...room,
+        floor_label: floorData?.name || null,
+        hostel_id: floorData?.hostel_id || null
+      };
+    }));
+    
+    res.json({ success: true, data: enrichedData });
   } catch (error) {
     console.error('Error fetching rooms:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -2157,7 +2034,22 @@ app.get('/api/rooms/:id', async (req, res) => {
   try {
     const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single();
     if (error || !data) return res.status(404).json({ success: false, message: 'Room not found' });
-    res.json({ success: true, data: data });
+    
+    // Enrich with floor/flat label
+    const { data: floorData } = await supabase
+      .from('floors_flats')
+      .select('name, hostel_id')
+      .eq('id', data.floor_flat_id)
+      .maybeSingle();
+    
+    res.json({ 
+      success: true, 
+      data: {
+        ...data,
+        floor_label: floorData?.name || null,
+        hostel_id: floorData?.hostel_id || null
+      }
+    });
   } catch (error) {
     console.error('Error fetching room:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -2171,7 +2063,22 @@ app.post('/api/rooms', async (req, res) => {
     const newRoom = { floor_flat_id: parseInt(floor_flat_id), room_code };
     const { data, error } = await supabase.from('rooms').insert(newRoom).select().single();
     if (error) throw error;
-    res.json({ success: true, data: data });
+    
+    // Get floor label for response
+    const { data: floorData } = await supabase
+      .from('floors_flats')
+      .select('name, hostel_id')
+      .eq('id', data.floor_flat_id)
+      .maybeSingle();
+    
+    res.json({ 
+      success: true, 
+      data: {
+        ...data,
+        floor_label: floorData?.name || null,
+        hostel_id: floorData?.hostel_id || null
+      }
+    });
   } catch (error) {
     console.error('Error creating room:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -2188,7 +2095,22 @@ app.put('/api/rooms/:id', async (req, res) => {
     if (Object.keys(updateData).length === 0) return res.status(400).json({ success: false, message: 'No fields to update' });
     const { data, error } = await supabase.from('rooms').update(updateData).eq('id', id).select().single();
     if (error) throw error;
-    res.json({ success: true, data: data });
+    
+    // Get floor label for response
+    const { data: floorData } = await supabase
+      .from('floors_flats')
+      .select('name, hostel_id')
+      .eq('id', data.floor_flat_id)
+      .maybeSingle();
+    
+    res.json({ 
+      success: true, 
+      data: {
+        ...data,
+        floor_label: floorData?.name || null,
+        hostel_id: floorData?.hostel_id || null
+      }
+    });
   } catch (error) {
     console.error('Error updating room:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -2207,7 +2129,10 @@ app.delete('/api/rooms/:id', async (req, res) => {
   }
 });
 
-// Bed Spaces - FIXED to filter by hostel_id
+// =====================================================
+// BED SPACES - Fixed to filter by hostel_id
+// =====================================================
+
 app.get('/api/bed-spaces', async (req, res) => {
   const { room_id, hostel_id } = req.query;
   try {
@@ -2328,7 +2253,10 @@ app.delete('/api/bed-spaces/:id', async (req, res) => {
   }
 });
 
-// Hostels
+// =====================================================
+// HOSTELS
+// =====================================================
+
 app.get('/api/hostels', async (req, res) => {
   try {
     const { data: hostelsData, error: hostelsError } = await supabase.from('hostels').select('*').order('name', { ascending: true });
@@ -2401,7 +2329,6 @@ app.put('/api/hostels/:id', async (req, res) => {
 // HOSTEL ALERTS & EXTRA ENDPOINTS
 // =====================================================
 
-// GET hostel alerts
 app.get('/api/hostels/:id/alerts', async (req, res) => {
   const id = parseInt(req.params.id);
   
@@ -2545,7 +2472,6 @@ app.get('/api/hostels/:id/alerts', async (req, res) => {
   }
 });
 
-// GET hostel occupancy
 app.get('/api/hostels/:id/occupancy', async (req, res) => {
   const id = parseInt(req.params.id);
   
@@ -2613,7 +2539,6 @@ app.get('/api/hostels/:id/occupancy', async (req, res) => {
   }
 });
 
-// GET hostel summary
 app.get('/api/hostels/:id/summary', async (req, res) => {
   const id = parseInt(req.params.id);
   
@@ -2861,7 +2786,7 @@ app.post('/api/bedcheck/submit', async (req, res) => {
 });
 
 // =====================================================
-// SESSIONS - Global sessions (updated to match full table structure)
+// SESSIONS - Global sessions
 // =====================================================
 
 app.get('/api/sessions', async (req, res) => {
@@ -2915,7 +2840,6 @@ app.post('/api/sessions', async (req, res) => {
       created_by
     } = req.body;
 
-    // Get the staff name if created_by is provided
     let creatorName = null;
     if (created_by) {
       const { data: staff } = await supabase
@@ -2926,7 +2850,6 @@ app.post('/api/sessions', async (req, res) => {
       if (staff) creatorName = staff.name;
     }
 
-    // Get the day name for the session name if not provided
     let sessionName = name;
     if (!sessionName && date) {
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -2962,7 +2885,6 @@ app.post('/api/sessions', async (req, res) => {
       throw error;
     }
 
-    // Audit log
     await auditService.log({
       actor: creatorName || req.headers['x-staff-name'] || 'System',
       actor_id: created_by || parseInt(req.headers['x-staff-id']) || null,
@@ -3011,15 +2933,11 @@ app.put('/api/sessions/:id', async (req, res) => {
     if (start_time !== undefined) { updateData.start_time = start_time; changes.push('start_time'); }
     if (end_time !== undefined) { updateData.end_time = end_time; changes.push('end_time'); }
     if (status !== undefined) { 
-      // Ensure status is lowercase to match DB constraint
       updateData.status = status.toLowerCase(); 
       changes.push('status'); 
-      
-      // If status is 'active', set started_at
       if (status.toLowerCase() === 'active') {
         updateData.started_at = new Date().toISOString();
       }
-      // If status is 'archived', set completed_at
       if (status.toLowerCase() === 'archived') {
         updateData.completed_at = new Date().toISOString();
       }
@@ -3051,7 +2969,6 @@ app.put('/api/sessions/:id', async (req, res) => {
       throw error;
     }
 
-    // Audit log
     await auditService.log({
       actor: req.headers['x-staff-name'] || 'System',
       actor_id: parseInt(req.headers['x-staff-id']) || null,
@@ -3076,15 +2993,10 @@ app.put('/api/sessions/:id', async (req, res) => {
   }
 });
 
-// =====================================================
-// DELETE SESSION - FIXED ENDPOINT
-// =====================================================
-
 app.delete('/api/sessions/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
-    // First check if session exists
     const { data: session, error: fetchError } = await supabase
       .from('sessions')
       .select('name, date, status')
@@ -3106,12 +3018,10 @@ app.delete('/api/sessions/:id', async (req, res) => {
       });
     }
 
-    // Check if session is active and warn
     if (session.status?.toLowerCase() === 'active') {
       console.log(`⚠️ Deleting active session: ${session.name} (ID: ${id})`);
     }
 
-    // Delete the session
     const { error: deleteError } = await supabase
       .from('sessions')
       .delete()
@@ -3125,7 +3035,6 @@ app.delete('/api/sessions/:id', async (req, res) => {
       });
     }
 
-    // Audit log
     await auditService.log({
       actor: req.headers['x-staff-name'] || 'System',
       actor_id: parseInt(req.headers['x-staff-id']) || null,
@@ -3156,8 +3065,6 @@ app.delete('/api/sessions/:id', async (req, res) => {
   }
 });
 
-// =====================================================
-// GET active session
 app.get('/api/sessions/active', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -3179,7 +3086,6 @@ app.get('/api/sessions/active', async (req, res) => {
   }
 });
 
-// GET latest session
 app.get('/api/sessions/latest', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -3200,7 +3106,6 @@ app.get('/api/sessions/latest', async (req, res) => {
   }
 });
 
-// GET session stats
 app.get('/api/sessions/stats', async (req, res) => {
   try {
     const { data: sessions, error } = await supabase
