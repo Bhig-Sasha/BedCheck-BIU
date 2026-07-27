@@ -815,7 +815,6 @@
                     }
 
                     if (isMediaPipeLoading) {
-                        // Wait for loading to complete
                         const checkReady = setInterval(() => {
                             if (mediaPipeReady) {
                                 clearInterval(checkReady);
@@ -851,7 +850,6 @@
                                 faceDetected = false;
                                 faceLandmarks = null;
                                 updateFaceStatus(false);
-                                // Gradually decrease quality when no face
                                 if (currentQuality > 10) {
                                     currentQuality = Math.max(10, currentQuality - 0.5);
                                     updateQualityDisplay(currentQuality);
@@ -859,7 +857,6 @@
                             }
                         });
 
-                        // Warm up MediaPipe
                         faceMesh.initialize().then(() => {
                             mediaPipeReady = true;
                             isMediaPipeLoading = false;
@@ -885,7 +882,6 @@
                         stopCamera();
                     }
 
-                    // Initialize MediaPipe first
                     if (!mediaPipeReady) {
                         showToast('Loading face detection...', 'info');
                         await initMediaPipe();
@@ -908,7 +904,6 @@
                         await video.play();
                         isCameraReady = true;
                         
-                        // Start MediaPipe processing
                         const sendToMediaPipe = async () => {
                             if (!isCameraReady || !video || video.readyState < 2) {
                                 if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
@@ -1176,7 +1171,6 @@
                         landmarks: faceLandmarks ? JSON.stringify(faceLandmarks.map(l => ({x: l.x, y: l.y, z: l.z}))) : null
                     });
 
-                    // Update UI
                     const stepEl = document.getElementById(`step_${faceCaptures.length - 1}`);
                     if (stepEl) {
                         stepEl.className = 'face-capture-step-inline done';
@@ -1189,18 +1183,14 @@
                     showToast(`Capture ${faceCaptures.length}/${totalCaptures} complete!`, 'success');
 
                     if (faceCaptures.length >= totalCaptures) {
-                        // All captures done!
                         document.getElementById('captureStatus').textContent = '✅ All captured!';
                         updateCameraStatus('ready', '✅ All 10 captures complete!');
                         
-                        // Show completion message
                         showCompletionMessage();
                         
-                        // Enable enroll button
                         const enrollBtn = document.querySelector('button[onclick="window.enrollFace()"]');
                         if (enrollBtn) enrollBtn.style.display = 'inline-flex';
                         
-                        // Update all steps to done
                         const stepBadges = document.querySelectorAll('.face-capture-step-inline');
                         stepBadges.forEach(el => {
                             if (!el.classList.contains('done')) {
@@ -1390,7 +1380,6 @@
                         
                         stopCamera();
                         
-                        // Show success and redirect option
                         setTimeout(() => {
                             renderRegistrationForm();
                         }, 500);
@@ -1407,14 +1396,8 @@
 
             // ---------- SAVE AND GO TO DASHBOARD ----------
             function saveAndGoToDashboard() {
-                // Save draft one last time
                 saveDraft(true);
-                
-                // Navigate to dashboard
-                // In production, this would redirect to the student dashboard
                 window.location.href = '/dashboard.html';
-                
-                // Or show a message
                 showToast('Redirecting to dashboard...', 'success');
             }
 
@@ -1507,7 +1490,6 @@
 
                 checkAutoAdvance();
 
-                // Check if we should show the completion banner
                 const showCompletion = enrollmentComplete && faceCaptures.length >= totalCaptures;
 
                 const html = `
@@ -1605,7 +1587,6 @@
                         <div class="face-enrollment">
                             <p class="text-sm text-muted mb-2">Position your face in the guide and click capture for each pose. ${totalCaptures} captures needed.</p>
                             
-                            <!-- Camera Preview -->
                             <div class="face-camera-preview" id="cameraPreview">
                                 <video id="cameraVideo" autoplay playsinline muted style="width:100%;border-radius:0.75rem;background:#0a0a15;object-fit:cover;transform:scaleX(-1);"></video>
                                 
@@ -1653,7 +1634,6 @@
                                 <span class="quality-value" id="qualityValue">86%</span>
                             </div>
 
-                            <!-- Action Buttons -->
                             <div class="flex gap-2 mt-2 flex-wrap">
                                 <button class="btn-success" id="captureBtn" onclick="window.captureFace()" ${isCapturing ? 'disabled' : ''} style="flex:1;justify-content:center;">
                                     <i class="fas fa-camera"></i> ${faceCaptures.length === 0 ? 'Start Capture' : faceCaptures.length >= totalCaptures ? '✅ Complete' : `Capture ${faceCaptures.length + 1}/${totalCaptures}`}
@@ -1737,14 +1717,12 @@
 
                 registrationContent.innerHTML = html;
 
-                // Start camera when face enrollment section is visible
                 if (currentStep >= 3 && !studentData.face_enrolled) {
                     setTimeout(() => {
                         startCamera();
                     }, 500);
                 }
 
-                // Populate hostel dropdown after render
                 if (currentStep <= 2) {
                     setTimeout(() => {
                         if (studentData.hostel_id) {
@@ -2109,8 +2087,9 @@
                     return;
                 }
 
+                // Double check if matric already exists
                 try {
-                    const existing = await apiCall(`/students?search=${studentData.matric}`);
+                    const existing = await apiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
                     if (existing.data && existing.data.length > 0) {
                         showToast('Matric number already exists!', 'error');
                         return;
@@ -2170,6 +2149,7 @@
                     showToast('Registration submitted successfully!', 'success');
 
                 } catch (error) {
+                    console.error('Submit error:', error);
                     showToast('Error submitting: ' + error.message, 'error');
                 }
             }
