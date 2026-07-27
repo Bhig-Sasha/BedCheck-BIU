@@ -13,7 +13,6 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; overflow-x: hidden; }
 
-        /* ----- PORTAL LAYOUT ----- */
         .app-wrapper { display: flex; min-height: 100vh; width: 100%; }
         .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; }
         @media (min-width: 1024px) { .sidebar { display: flex; } }
@@ -212,6 +211,10 @@
         .session-row-scheduled { border-left: 3px solid #1e3a5f; }
         .session-row-completed { border-left: 3px solid #2d6545; }
         .session-row-archived { opacity: 0.7; }
+
+        /* Session Control Buttons */
+        .session-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #f0ebe2; }
+        .session-controls .btn { font-size: 0.8rem; padding: 0.3rem 1rem; }
     </style>
 </head>
 <body>
@@ -377,9 +380,7 @@
             let sessionCheckerInterval = null;
 
             // =============================================
-            // DATABASE STATUS VALUES - MUST MATCH YOUR DB CONSTRAINT
-            // Based on your database, the allowed status values are:
-            // 'active', 'scheduled', 'completed', 'archived'
+            // DATABASE STATUS VALUES
             // =============================================
 
             const STATUS_DISPLAY = {
@@ -517,16 +518,20 @@
                 }
             }
 
-            async function updateSessionStatus(sessionId, status) {
+            async function updateSessionStatus(sessionId, status, startedAt = null, completedAt = null) {
                 // Only allow valid status values
                 if (!['active', 'scheduled', 'completed', 'archived'].includes(status)) {
                     throw new Error(`Invalid status: "${status}". Allowed: active, scheduled, completed, archived`);
                 }
 
                 try {
+                    const payload = { status };
+                    if (startedAt) payload.started_at = startedAt;
+                    if (completedAt) payload.completed_at = completedAt;
+
                     const result = await apiCall(`/sessions/${sessionId}`, {
                         method: 'PUT',
-                        body: JSON.stringify({ status })
+                        body: JSON.stringify(payload)
                     });
                     // Update global submission state for other pages
                     await apiCall('/submission', {
@@ -609,10 +614,15 @@
                 }
             }
 
+            // =============================================
+            // SESSION CONTROLS - Start/End
+            // =============================================
+
             async function startSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'active');
-                    showToast('Session started! RAs can now verify students.', 'success');
+                    const now = new Date().toISOString();
+                    await updateSessionStatus(sessionId, 'active', now, null);
+                    showToast('✅ Session started! RAs can now verify students.', 'success');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -620,27 +630,32 @@
                 }
             }
 
-            async function completeSession(sessionId) {
+            async function endSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'completed');
-                    showToast('Session completed.', 'info');
+                    const now = new Date().toISOString();
+                    await updateSessionStatus(sessionId, 'completed', null, now);
+                    showToast('✅ Session ended and completed.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
-                    showToast('Error completing session: ' + error.message, 'error');
+                    showToast('Error ending session: ' + error.message, 'error');
                 }
             }
 
             async function archiveSession(sessionId) {
                 try {
                     await updateSessionStatus(sessionId, 'archived');
-                    showToast('Session archived.', 'info');
+                    showToast('📦 Session archived.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
                     showToast('Error archiving session: ' + error.message, 'error');
                 }
             }
+
+            // =============================================
+            // RENDER
+            // =============================================
 
             function renderScreen() {
                 const container = document.getElementById('screenContent');
@@ -690,45 +705,53 @@
                         </div>
                     </div>
 
-                    <!-- Current Active Session -->
+                    <!-- Current Active Session Control Panel -->
                     ${hasActive ? `
                     <div class="card mt-4" style="border-color:#d6ad4b;background:#fbf7ef;">
                         <div class="flex-between">
                             <div>
-                                <div class="font-bold" style="color:#10233f;">🟢 ${currentActive.name}</div>
+                                <div class="font-bold" style="color:#10233f;font-size:1.1rem;">🟢 ${currentActive.name}</div>
                                 <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label}</p>
+                                <p class="text-xs text-muted">Started: ${formatTime(currentActive.started_at) || formatTime(currentActive.created_at) || 'Just now'}</p>
                             </div>
                             <div>
                                 <span class="badge ${getStatusDisplay(currentActive.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDisplay(currentActive.status).icon} ${getStatusDisplay(currentActive.status).label}</span>
                             </div>
                         </div>
                         <div class="grid-2 mt-2">
-                            <div><span class="text-muted">Start Time</span><br><span class="font-bold">${formatTime(currentActive.start_time)}</span></div>
-                            <div><span class="text-muted">End Time</span><br><span class="font-bold">${formatTime(currentActive.end_time)}</span></div>
+                            <div><span class="text-muted">Scheduled Start</span><br><span class="font-bold">${formatTime(currentActive.start_time)}</span></div>
+                            <div><span class="text-muted">Scheduled End</span><br><span class="font-bold">${formatTime(currentActive.end_time)}</span></div>
                         </div>
-                        <div class="mt-2 pt-2 border-t" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                            <button class="btn-success" onclick="completeSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-check"></i> Complete</button>
-                            <button class="btn-outline" onclick="archiveSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-archive"></i> Archive</button>
+                        <!-- Session Controls -->
+                        <div class="session-controls">
+                            <button class="btn btn-danger" onclick="endSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;background:#a84134;color:white;border:none;border-radius:0.5rem;cursor:pointer;">
+                                <i class="fas fa-stop"></i> End Session
+                            </button>
+                            <button class="btn btn-outline" onclick="archiveSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;">
+                                <i class="fas fa-archive"></i> Archive
+                            </button>
                         </div>
                     </div>
                     ` : `
                     <div class="card mt-4" style="border-color:#ded6c9;background:#fffcf6;">
                         <div class="flex-between">
                             <div>
-                                <div class="font-bold" style="color:#536274;">⏳ No Active Session</div>
-                                <p class="text-sm text-muted">Schedule a session to begin BedCheck</p>
+                                <div class="font-bold" style="color:#536274;font-size:1.1rem;">⏳ No Active Session</div>
+                                <p class="text-sm text-muted">Schedule a session or start one from the list below.</p>
                             </div>
                             <div>
                                 <span class="badge badge-draft" style="font-size:0.8rem;padding:0.3rem 1rem;">INACTIVE</span>
                             </div>
                         </div>
-                        ${sessions.length > 0 ? `
+                        ${sessions.filter(s => s.status === 'scheduled').length > 0 ? `
                         <div class="mt-2 pt-2 border-t" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                            <button class="btn-success" onclick="startSession(${sessions[0].id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-play"></i> Start Session</button>
+                            <button class="btn btn-success" onclick="startSession(${sessions.filter(s => s.status === 'scheduled')[0].id})" style="font-size:0.8rem;padding:0.3rem 1rem;background:#2d6545;color:white;border:none;border-radius:0.5rem;cursor:pointer;">
+                                <i class="fas fa-play"></i> Start Scheduled Session
+                            </button>
                         </div>
                         ` : `
                         <div class="mt-2 pt-2 border-t">
-                            <p class="text-sm text-muted">No sessions available. Create a new session first.</p>
+                            <p class="text-sm text-muted">No scheduled sessions available. Create a new session first.</p>
                         </div>
                         `}
                     </div>
@@ -799,7 +822,7 @@
                                                     ${s.status === 'scheduled' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Start</button>
                                                     ` : isActive ? `
-                                                        <button class="btn-success" onclick="completeSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-check"></i> Complete</button>
+                                                        <button class="btn-danger" onclick="endSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;background:#a84134;color:white;border:none;border-radius:0.3rem;cursor:pointer;"><i class="fas fa-stop"></i> End</button>
                                                         <button class="btn-outline" onclick="archiveSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Archive</button>
                                                     ` : s.status === 'completed' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Reopen</button>
@@ -850,7 +873,7 @@
                         const scheduledSessions = sessions.filter(s => s.status === 'scheduled');
                         for (const s of scheduledSessions) {
                             if (s.start_time && s.start_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'active');
+                                await updateSessionStatus(s.id, 'active', new Date().toISOString(), null);
                                 showToast(`Session "${s.name}" started automatically!`, 'success');
                                 await loadSessions();
                                 renderScreen();
@@ -859,7 +882,7 @@
                         const activeSessions = sessions.filter(s => isActiveStatus(s.status));
                         for (const s of activeSessions) {
                             if (s.end_time && s.end_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'completed');
+                                await updateSessionStatus(s.id, 'completed', null, new Date().toISOString());
                                 showToast(`Session "${s.name}" completed automatically.`, 'info');
                                 await loadSessions();
                                 renderScreen();
@@ -923,7 +946,7 @@
             window.closeCreateSession = closeCreateSession;
             window.createSession = createSession;
             window.startSession = startSession;
-            window.completeSession = completeSession;
+            window.endSession = endSession;
             window.archiveSession = archiveSession;
 
             async function init() {
