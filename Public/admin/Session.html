@@ -109,10 +109,9 @@
         .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
         .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-scheduled { background: #e7edf5; color: #1e3a5f; }
-        .badge-closed { background: #f8e1dc; color: #9b3c31; }
+        .badge-completed { background: #e1f0e5; color: #2d6545; }
         .badge-archived { background: #e8edf2; color: #536274; }
         .badge-draft { background: #e8edf2; color: #536274; }
-        .badge-completed { background: #e1f0e5; color: #2d6545; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -211,7 +210,7 @@
 
         .session-row-active { background: #fbf7ef; border-left: 3px solid #d6ad4b; }
         .session-row-scheduled { border-left: 3px solid #1e3a5f; }
-        .session-row-closed { border-left: 3px solid #8a3328; }
+        .session-row-completed { border-left: 3px solid #2d6545; }
         .session-row-archived { opacity: 0.7; }
     </style>
 </head>
@@ -378,19 +377,16 @@
             let sessionCheckerInterval = null;
 
             // =============================================
-            // DATABASE SCHEMA MATCHING
-            // Your table columns: id, name, date, start_time, end_time,
-            // status, hostels_completed, total_hostels, completion,
-            // academic_session, grace_period, created_by, created_at, updated_at
+            // DATABASE STATUS VALUES - MUST MATCH YOUR DB CONSTRAINT
+            // Based on your database, the allowed status values are:
+            // 'active', 'scheduled', 'completed', 'archived'
             // =============================================
 
-            // Status values from your database: 'active', 'scheduled', 'closed', 'archived'
             const STATUS_DISPLAY = {
                 'active': { label: 'Active', icon: '🟢', badge: 'badge-active' },
                 'scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-scheduled' },
-                'closed': { label: 'Closed', icon: '🔴', badge: 'badge-closed' },
-                'archived': { label: 'Archived', icon: '📦', badge: 'badge-archived' },
-                'completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' }
+                'completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' },
+                'archived': { label: 'Archived', icon: '📦', badge: 'badge-archived' }
             };
 
             const ACTIVE_STATUSES = ['active'];
@@ -403,20 +399,20 @@
                 return ACTIVE_STATUSES.includes(status);
             }
 
-            function isClosedStatus(status) {
-                return ['closed', 'archived'].includes(status);
+            function isCompletedStatus(status) {
+                return ['completed', 'archived'].includes(status);
             }
 
             function getRowClass(status) {
                 if (isActiveStatus(status)) return 'session-row-active';
                 if (status === 'scheduled') return 'session-row-scheduled';
-                if (isClosedStatus(status)) return 'session-row-closed';
+                if (status === 'completed') return 'session-row-completed';
                 if (status === 'archived') return 'session-row-archived';
                 return '';
             }
 
             // =============================================
-            // FORMAT HELPERS - Match your DB format
+            // FORMAT HELPERS
             // =============================================
 
             function formatDate(dateStr) {
@@ -433,7 +429,6 @@
             function formatTime(timeStr) {
                 if (!timeStr) return '—';
                 try {
-                    // Handle HH:MM:SS format
                     if (timeStr.includes(':')) {
                         const parts = timeStr.split(':');
                         if (parts.length >= 2) {
@@ -444,7 +439,6 @@
                             return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
                         }
                     }
-                    // Try parsing as date
                     const d = new Date(timeStr);
                     if (!isNaN(d.getTime())) {
                         return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -514,7 +508,6 @@
                 try {
                     const data = await apiCall('/sessions');
                     sessions = data.data || [];
-                    // Find active session
                     currentSession = sessions.find(s => isActiveStatus(s.status)) || null;
                     return sessions;
                 } catch (error) {
@@ -525,6 +518,11 @@
             }
 
             async function updateSessionStatus(sessionId, status) {
+                // Only allow valid status values
+                if (!['active', 'scheduled', 'completed', 'archived'].includes(status)) {
+                    throw new Error(`Invalid status: "${status}". Allowed: active, scheduled, completed, archived`);
+                }
+
                 try {
                     const result = await apiCall(`/sessions/${sessionId}`, {
                         method: 'PUT',
@@ -622,14 +620,14 @@
                 }
             }
 
-            async function closeSession(sessionId) {
+            async function completeSession(sessionId) {
                 try {
-                    await updateSessionStatus(sessionId, 'closed');
-                    showToast('Session closed.', 'info');
+                    await updateSessionStatus(sessionId, 'completed');
+                    showToast('Session completed.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
-                    showToast('Error closing session: ' + error.message, 'error');
+                    showToast('Error completing session: ' + error.message, 'error');
                 }
             }
 
@@ -698,7 +696,7 @@
                         <div class="flex-between">
                             <div>
                                 <div class="font-bold" style="color:#10233f;">🟢 ${currentActive.name}</div>
-                                <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label} · Started ${formatTime(currentActive.created_at)}</p>
+                                <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label}</p>
                             </div>
                             <div>
                                 <span class="badge ${getStatusDisplay(currentActive.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDisplay(currentActive.status).icon} ${getStatusDisplay(currentActive.status).label}</span>
@@ -709,7 +707,7 @@
                             <div><span class="text-muted">End Time</span><br><span class="font-bold">${formatTime(currentActive.end_time)}</span></div>
                         </div>
                         <div class="mt-2 pt-2 border-t" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                            <button class="btn-danger" onclick="closeSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-stop"></i> Close</button>
+                            <button class="btn-success" onclick="completeSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-check"></i> Complete</button>
                             <button class="btn-outline" onclick="archiveSession(${currentActive.id})" style="font-size:0.8rem;padding:0.3rem 1rem;"><i class="fas fa-archive"></i> Archive</button>
                         </div>
                     </div>
@@ -759,11 +757,6 @@
                                 <div class="flex-between mt-1"><span class="text-muted">Total Sessions</span><span class="font-bold">${totalSessions}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Archived</span><span class="font-bold">${archived}</span></div>
                             </div>
-                            ${hasActive ? `
-                            <div class="mt-2 pt-2 border-t">
-                                <p class="text-xs text-muted">Session started at ${formatTime(currentActive.created_at)}</p>
-                            </div>
-                            ` : ''}
                         </div>
                     </div>
 
@@ -790,7 +783,7 @@
                                     ` : sessions.slice().reverse().map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
                                         const isActive = isActiveStatus(s.status);
-                                        const isClosed = isClosedStatus(s.status);
+                                        const isCompleted = isCompletedStatus(s.status);
                                         const startTime = formatTime(s.start_time);
                                         const endTime = formatTime(s.end_time);
                                         const displayDate = formatFullDate(s.date);
@@ -806,9 +799,9 @@
                                                     ${s.status === 'scheduled' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Start</button>
                                                     ` : isActive ? `
-                                                        <button class="btn-danger" onclick="closeSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-stop"></i> Close</button>
+                                                        <button class="btn-success" onclick="completeSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-check"></i> Complete</button>
                                                         <button class="btn-outline" onclick="archiveSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Archive</button>
-                                                    ` : s.status === 'closed' ? `
+                                                    ` : s.status === 'completed' ? `
                                                         <button class="btn-success" onclick="startSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;"><i class="fas fa-play"></i> Reopen</button>
                                                         <button class="btn-outline" onclick="archiveSession(${s.id})" style="font-size:0.7rem;padding:0.2rem 0.6rem;">Archive</button>
                                                     ` : s.status === 'archived' ? `
@@ -866,8 +859,8 @@
                         const activeSessions = sessions.filter(s => isActiveStatus(s.status));
                         for (const s of activeSessions) {
                             if (s.end_time && s.end_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'closed');
-                                showToast(`Session "${s.name}" closed automatically.`, 'info');
+                                await updateSessionStatus(s.id, 'completed');
+                                showToast(`Session "${s.name}" completed automatically.`, 'info');
                                 await loadSessions();
                                 renderScreen();
                             }
@@ -930,7 +923,7 @@
             window.closeCreateSession = closeCreateSession;
             window.createSession = createSession;
             window.startSession = startSession;
-            window.closeSession = closeSession;
+            window.completeSession = completeSession;
             window.archiveSession = archiveSession;
 
             async function init() {
