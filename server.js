@@ -1,4 +1,5 @@
-// server.js - Supabase Version with Face++ Face Recognition & Full Audit System
+// server.js - BIU BedCheck with InsightFace Face Recognition
+// Complete Face ID system with liveness detection
 // Optimized for Render.com Deployment
 
 const express = require('express');
@@ -6,7 +7,6 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const bcrypt = require('bcrypt');
 const axios = require('axios');
-const FormData = require('form-data');
 require('dotenv').config();
 
 const app = express();
@@ -31,237 +31,224 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // =====================================================
-// FACE++ CONFIGURATION
+// INSIGHTFACE PYTHON API CONFIGURATION
 // =====================================================
 
-// IMPORTANT: Replace these with your regenerated keys!
-const FACE_PP_API_KEY = process.env.FACE_PP_API_KEY || '';
-const FACE_PP_API_SECRET = process.env.FACE_PP_API_SECRET || '';
-const FACE_PP_API_URL = process.env.FACE_PP_API_URL || 'https://api-us.faceplusplus.com/facepp/v3';
-const FACE_PP_FACESET_TOKEN = process.env.FACE_PP_FACESET_TOKEN || '';
+const FACE_API_URL = process.env.FACE_API_URL || 'http://localhost:8000';
+const FACE_API_TIMEOUT = 30000;
 
-console.log('🔐 Face++ API Key:', FACE_PP_API_KEY ? '✅ Configured' : '❌ Missing');
-console.log('🔐 Face++ API Secret:', FACE_PP_API_SECRET ? '✅ Configured' : '❌ Missing');
-console.log('🔐 Face++ FaceSet Token:', FACE_PP_FACESET_TOKEN ? '✅ Configured' : '❌ Missing');
+console.log('🔐 Face API URL:', FACE_API_URL);
+console.log('🔐 Face API Status:', FACE_API_URL ? '✅ Configured' : '❌ Missing');
 
 // =====================================================
-// FACE++ SERVICE
+// INSIGHTFACE SERVICE (Python API Bridge)
 // =====================================================
 
-class FacePlusPlusService {
-    constructor(apiKey, apiSecret) {
-        this.apiKey = apiKey;
-        this.apiSecret = apiSecret;
-        this.baseUrl = FACE_PP_API_URL;
+class InsightFaceService {
+    constructor(apiUrl) {
+        this.apiUrl = apiUrl;
+    }
+
+    async checkHealth() {
+        try {
+            const response = await axios.get(`${this.apiUrl}/health`, {
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Face API health check error:', error.message);
+            return { status: 'unhealthy', error: error.message };
+        }
     }
 
     async detectFace(imageBase64) {
         try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
             
-            const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-            const buffer = Buffer.from(base64Data, 'base64');
-            formData.append('image_file', buffer, {
-                filename: 'face.jpg',
-                contentType: 'image/jpeg'
-            });
-            formData.append('return_landmark', '0');
-            formData.append('return_attributes', 'gender,age,smiling,eyestatus');
-
-            const response = await axios.post(`${this.baseUrl}/detect`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
-            });
-
-            if (response.data.faces && response.data.faces.length > 0) {
-                const face = response.data.faces[0];
-                return {
-                    success: true,
-                    face_token: face.face_token,
-                    attributes: face.attributes || {},
-                    face_rectangle: face.face_rectangle || {},
-                    confidence: 1.0
-                };
-            } else {
-                return {
-                    success: false,
-                    error: 'No face detected in the image',
-                    code: 'NO_FACE_DETECTED'
-                };
-            }
-        } catch (error) {
-            console.error('Face++ detect error:', error.response?.data || error.message);
-            return {
-                success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
-            };
-        }
-    }
-
-    async addFaceToSet(faceToken, facesetToken = FACE_PP_FACESET_TOKEN) {
-        try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
-            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
-            formData.append('face_tokens', faceToken);
-
-            const response = await axios.post(`${this.baseUrl}/faceset/addface`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
-            });
-
-            return {
-                success: true,
-                data: response.data
-            };
-        } catch (error) {
-            console.error('Face++ add face error:', error.response?.data || error.message);
-            return {
-                success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
-            };
-        }
-    }
-
-    async searchFace(imageBase64, facesetToken = FACE_PP_FACESET_TOKEN) {
-        try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
-            
-            const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-            const buffer = Buffer.from(base64Data, 'base64');
-            formData.append('image_file', buffer, {
-                filename: 'face.jpg',
-                contentType: 'image/jpeg'
+            const response = await axios.post(`${this.apiUrl}/detect-face`, {
+                image: imageData
+            }, {
+                timeout: FACE_API_TIMEOUT
             });
             
-            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
-            formData.append('return_result_count', '10');
-
-            const response = await axios.post(`${this.baseUrl}/search`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
-            });
-
-            if (response.data.results && response.data.results.length > 0) {
-                return {
-                    success: true,
-                    results: response.data.results.map(result => ({
-                        face_token: result.face_token,
-                        confidence: result.confidence,
-                        threshold: response.data.thresholds || {}
-                    })),
-                    thresholds: response.data.thresholds || {}
-                };
-            } else {
-                return {
-                    success: true,
-                    results: [],
-                    message: 'No matching faces found'
-                };
-            }
+            return response.data;
         } catch (error) {
-            console.error('Face++ search error:', error.response?.data || error.message);
+            console.error('Face detection error:', error.response?.data || error.message);
             return {
                 success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
+                error: error.response?.data?.detail || error.message
             };
         }
     }
 
-    async compareFaces(faceToken1, faceToken2) {
+    async enrollFace(imageBase64, studentId, hostel, room, name) {
         try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
-            formData.append('face_token1', faceToken1);
-            formData.append('face_token2', faceToken2);
-
-            const response = await axios.post(`${this.baseUrl}/compare`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            
+            const response = await axios.post(`${this.apiUrl}/enroll-face`, {
+                image: imageData,
+                student_id: studentId,
+                hostel: hostel,
+                room: room,
+                name: name
+            }, {
+                timeout: FACE_API_TIMEOUT
             });
-
-            return {
-                success: true,
-                confidence: response.data.confidence,
-                thresholds: response.data.thresholds || {}
-            };
+            
+            return response.data;
         } catch (error) {
-            console.error('Face++ compare error:', error.response?.data || error.message);
+            console.error('Face enrollment error:', error.response?.data || error.message);
             return {
                 success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
+                error: error.response?.data?.detail || error.message
             };
         }
     }
 
-    async getFaceDetail(faceToken) {
+    async enrollBulk(frames, studentId, hostel, room, name) {
         try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
-            formData.append('face_token', faceToken);
-            formData.append('return_landmark', '0');
-            formData.append('return_attributes', 'gender,age,smiling,eyestatus');
-
-            const response = await axios.post(`${this.baseUrl}/face/getdetail`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
+            const imageDataList = frames.map(frame => 
+                frame.replace(/^data:image\/\w+;base64,/, '')
+            );
+            
+            const response = await axios.post(`${this.apiUrl}/enroll-bulk`, {
+                frames: imageDataList,
+                student_id: studentId,
+                hostel: hostel,
+                room: room,
+                name: name
+            }, {
+                timeout: FACE_API_TIMEOUT * 2
             });
-
-            return {
-                success: true,
-                data: response.data
-            };
+            
+            return response.data;
         } catch (error) {
-            console.error('Face++ get detail error:', error.response?.data || error.message);
+            console.error('Bulk enrollment error:', error.response?.data || error.message);
             return {
                 success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
+                error: error.response?.data?.detail || error.message
             };
         }
     }
 
-    async removeFaceFromSet(faceToken, facesetToken = FACE_PP_FACESET_TOKEN) {
+    async verifyFace(imageBase64, storedEmbedding, threshold = 0.55) {
         try {
-            const formData = new FormData();
-            formData.append('api_key', this.apiKey);
-            formData.append('api_secret', this.apiSecret);
-            formData.append('faceset_token', facesetToken || FACE_PP_FACESET_TOKEN);
-            formData.append('face_tokens', faceToken);
-
-            const response = await axios.post(`${this.baseUrl}/faceset/removeface`, formData, {
-                headers: { ...formData.getHeaders() },
-                timeout: 30000
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            
+            const response = await axios.post(`${this.apiUrl}/verify-face`, {
+                image: imageData,
+                stored_embedding: storedEmbedding,
+                threshold: threshold
+            }, {
+                timeout: FACE_API_TIMEOUT
             });
-
-            return {
-                success: true,
-                data: response.data
-            };
+            
+            return response.data;
         } catch (error) {
-            console.error('Face++ remove face error:', error.response?.data || error.message);
+            console.error('Face verification error:', error.response?.data || error.message);
             return {
                 success: false,
-                error: error.response?.data?.error_message || error.message,
-                code: error.response?.data?.error_code || 'API_ERROR'
+                error: error.response?.data?.detail || error.message
+            };
+        }
+    }
+
+    async verifyMultiple(imageBase64, embeddings, studentIds, threshold = 0.55) {
+        try {
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            
+            const response = await axios.post(`${this.apiUrl}/verify-multiple`, {
+                image: imageData,
+                embeddings: embeddings,
+                student_ids: studentIds,
+                threshold: threshold
+            }, {
+                timeout: FACE_API_TIMEOUT
+            });
+            
+            return response.data;
+        } catch (error) {
+            console.error('Multiple verification error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.detail || error.message
+            };
+        }
+    }
+
+    async checkLiveness(imageBase64) {
+        try {
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            
+            const response = await axios.post(`${this.apiUrl}/check-liveness`, {
+                image: imageData
+            }, {
+                timeout: FACE_API_TIMEOUT
+            });
+            
+            return response.data;
+        } catch (error) {
+            console.error('Liveness check error:', error.response?.data || error.message);
+            return {
+                is_live: false,
+                error: error.response?.data?.detail || error.message
+            };
+        }
+    }
+
+    async resetLiveness() {
+        try {
+            const response = await axios.post(`${this.apiUrl}/reset-liveness`, {}, {
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Reset liveness error:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async compareEmbeddings(embedding1, embedding2) {
+        try {
+            const response = await axios.post(`${this.apiUrl}/compare-embeddings`, {
+                embedding1: embedding1,
+                embedding2: embedding2
+            }, {
+                timeout: FACE_API_TIMEOUT
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Compare embeddings error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.detail || error.message
+            };
+        }
+    }
+
+    async extractEmbedding(imageBase64) {
+        try {
+            const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            
+            const response = await axios.post(`${this.apiUrl}/extract-embedding`, {
+                image: imageData
+            }, {
+                timeout: FACE_API_TIMEOUT
+            });
+            
+            return response.data;
+        } catch (error) {
+            console.error('Extract embedding error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.detail || error.message
             };
         }
     }
 }
 
-// Initialize Face++ service
-const faceService = new FacePlusPlusService(FACE_PP_API_KEY, FACE_PP_API_SECRET);
+// Initialize InsightFace service
+const faceService = new InsightFaceService(FACE_API_URL);
 
 // =====================================================
 // MIDDLEWARE
@@ -290,7 +277,7 @@ const corsOptions = {
     }
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Staff-ID'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Staff-ID', 'X-Staff-Name', 'X-Staff-Role'],
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -317,10 +304,11 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'BIU BedCheck API',
-    version: '2.0.0',
+    version: '3.0.0',
     status: 'running',
     endpoints: '/api/*',
-    health: '/health'
+    health: '/health',
+    face_api: FACE_API_URL
   });
 });
 
@@ -741,6 +729,59 @@ const auditEvents = {
       result: 'success',
       category: 'system',
       tone: 'gold'
+    });
+  },
+
+  async faceEnrolled(student, result, req) {
+    return auditService.log({
+      actor: req?.headers['x-staff-name'] || 'Student',
+      actor_id: student.id,
+      actor_role: req?.headers['x-staff-role'] || 'Student',
+      action: 'Face Enrolled',
+      module: 'face',
+      details: `${student.name} (${student.matric}) enrolled face successfully with ${result.confidence || 'N/A'} confidence`,
+      context: `Embedding dimension: 512`,
+      result: 'success',
+      category: 'face',
+      tone: 'green',
+      hostel_id: student.hostel_id,
+      room_id: student.room_id,
+      student_id: student.id
+    });
+  },
+
+  async faceVerified(student, result, req) {
+    return auditService.log({
+      actor: req?.headers['x-staff-name'] || 'RA',
+      actor_id: getStaffId(req),
+      actor_role: req?.headers['x-staff-role'] || 'RA',
+      action: result.success ? 'Face Verified' : 'Face Verification Failed',
+      module: 'face',
+      details: result.success 
+        ? `${student.name} (${student.matric}) verified with ${(result.confidence * 100).toFixed(1)}% confidence`
+        : `Verification failed for ${student.name} (${student.matric})`,
+      context: `Threshold: ${result.threshold || 0.55}`,
+      result: result.success ? 'success' : 'failed',
+      category: 'face',
+      tone: result.success ? 'green' : 'red',
+      hostel_id: student.hostel_id,
+      room_id: student.room_id,
+      student_id: student.id
+    });
+  },
+
+  async livenessVerified(req) {
+    return auditService.log({
+      actor: req?.headers['x-staff-name'] || 'Student',
+      actor_id: getStaffId(req),
+      actor_role: req?.headers['x-staff-role'] || 'Student',
+      action: 'Liveness Verified',
+      module: 'face',
+      details: `Liveness verified successfully`,
+      context: 'Liveness check passed',
+      result: 'success',
+      category: 'face',
+      tone: 'green'
     });
   }
 };
@@ -1224,8 +1265,27 @@ app.put('/api/staff/:id/change-password', async (req, res) => {
 });
 
 // =====================================================
-// FACE++ ENDPOINTS
+// INSIGHTFACE ENDPOINTS
 // =====================================================
+
+// Health check for Face API
+app.get('/api/face/health', async (req, res) => {
+    try {
+        const health = await faceService.checkHealth();
+        res.json({
+            success: true,
+            data: health,
+            api_url: FACE_API_URL
+        });
+    } catch (error) {
+        console.error('Face API health check error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Face API is unreachable',
+            error: error.message
+        });
+    }
+});
 
 // Detect face from image
 app.post('/api/face/detect', async (req, res) => {
@@ -1245,23 +1305,16 @@ app.post('/api/face/detect', async (req, res) => {
             if (student_id) {
                 await supabase
                     .from('students')
-                    .update({ face_token: result.face_token })
+                    .update({ 
+                        face_enrolled: true,
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', student_id);
             }
             
-            res.json({
-                success: true,
-                data: {
-                    face_token: result.face_token,
-                    attributes: result.attributes,
-                    face_rectangle: result.face_rectangle
-                }
-            });
+            res.json(result);
         } else {
-            res.status(400).json({
-                success: false,
-                message: result.error || 'Face detection failed'
-            });
+            res.status(400).json(result);
         }
     } catch (error) {
         console.error('Face detection error:', error);
@@ -1272,40 +1325,100 @@ app.post('/api/face/detect', async (req, res) => {
     }
 });
 
-// Add face to FaceSet
-app.post('/api/face/add-to-set', async (req, res) => {
+// Enroll face (single image)
+app.post('/api/face/enroll', async (req, res) => {
     try {
-        const { face_token, student_id } = req.body;
-        
-        if (!face_token) {
+        const { 
+            image,
+            student_id,
+            name,
+            matric,
+            hostel_id,
+            room_id,
+            bed_space_id
+        } = req.body;
+
+        if (!student_id && !matric) {
             return res.status(400).json({
                 success: false,
-                message: 'face_token is required'
+                message: 'student_id or matric is required'
             });
         }
 
-        const result = await faceService.addFaceToSet(face_token);
-        
-        if (result.success) {
-            if (student_id) {
-                await supabase
-                    .from('students')
-                    .update({ face_enrolled: true })
-                    .eq('id', student_id);
-            }
-            
-            res.json({
-                success: true,
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
+        if (!image) {
+            return res.status(400).json({
                 success: false,
-                message: result.error || 'Failed to add face to set'
+                message: 'Face image is required'
             });
         }
+
+        // Get student details
+        let studentQuery = supabase.from('students').select('*');
+        if (student_id) {
+            studentQuery = studentQuery.eq('id', student_id);
+        } else if (matric) {
+            studentQuery = studentQuery.eq('matric', matric);
+        }
+        
+        const { data: student, error: studentError } = await studentQuery.single();
+        
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        // Enroll face
+        const result = await faceService.enrollFace(
+            image,
+            student.id,
+            student.hostel_id,
+            student.room_id,
+            student.name
+        );
+        
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        // Update student record
+        const { data: updatedStudent, error: updateError } = await supabase
+            .from('students')
+            .update({
+                face_enrolled: true,
+                face_embedding: result.embedding,
+                face_provider: 'insightface',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', student.id)
+            .select()
+            .single();
+
+        if (updateError) {
+            console.error('Update student error:', updateError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update student record'
+            });
+        }
+
+        // Log audit
+        await auditEvents.faceEnrolled(student, result, req);
+
+        res.json({
+            success: true,
+            data: {
+                student: updatedStudent,
+                embedding: result.embedding,
+                confidence: result.confidence,
+                quality: result.quality,
+                message: result.message
+            }
+        });
+
     } catch (error) {
-        console.error('Add face to set error:', error);
+        console.error('Face enrollment error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error: ' + error.message
@@ -1313,10 +1426,303 @@ app.post('/api/face/add-to-set', async (req, res) => {
     }
 });
 
-// Search face in FaceSet
-app.post('/api/face/search', async (req, res) => {
+// Enroll face with multiple frames (iPhone Face ID style)
+app.post('/api/face/enroll-bulk', async (req, res) => {
     try {
-        const { image, room_id, hostel_id, threshold = 80 } = req.body;
+        const { 
+            frames,
+            student_id,
+            name,
+            matric,
+            hostel_id,
+            room_id
+        } = req.body;
+
+        if (!student_id && !matric) {
+            return res.status(400).json({
+                success: false,
+                message: 'student_id or matric is required'
+            });
+        }
+
+        if (!frames || !Array.isArray(frames) || frames.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one frame is required'
+            });
+        }
+
+        // Get student details
+        let studentQuery = supabase.from('students').select('*');
+        if (student_id) {
+            studentQuery = studentQuery.eq('id', student_id);
+        } else if (matric) {
+            studentQuery = studentQuery.eq('matric', matric);
+        }
+        
+        const { data: student, error: studentError } = await studentQuery.single();
+        
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        // Bulk enroll
+        const result = await faceService.enrollBulk(
+            frames,
+            student.id,
+            student.hostel_id,
+            student.room_id,
+            student.name
+        );
+        
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        // Update student record
+        const { data: updatedStudent, error: updateError } = await supabase
+            .from('students')
+            .update({
+                face_enrolled: true,
+                face_embedding: result.embedding,
+                face_provider: 'insightface',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', student.id)
+            .select()
+            .single();
+
+        if (updateError) {
+            console.error('Update student error:', updateError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update student record'
+            });
+        }
+
+        // Log audit
+        await auditEvents.faceEnrolled(student, result, req);
+
+        res.json({
+            success: true,
+            data: {
+                student: updatedStudent,
+                embedding: result.embedding,
+                confidence: result.confidence,
+                quality: result.quality,
+                frames_used: result.frames_used,
+                message: result.message
+            }
+        });
+
+    } catch (error) {
+        console.error('Bulk enrollment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Verify face against a single student
+app.post('/api/face/verify', async (req, res) => {
+    try {
+        const { 
+            image,
+            student_id,
+            matric,
+            threshold = 0.55
+        } = req.body;
+
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image is required'
+            });
+        }
+
+        // Get student and their embedding
+        let studentQuery = supabase.from('students').select('id, name, matric, face_embedding, hostel_id, room_id');
+        if (student_id) {
+            studentQuery = studentQuery.eq('id', student_id);
+        } else if (matric) {
+            studentQuery = studentQuery.eq('matric', matric);
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'student_id or matric is required'
+            });
+        }
+        
+        const { data: student, error: studentError } = await studentQuery.single();
+        
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        if (!student.face_embedding) {
+            return res.status(400).json({
+                success: false,
+                message: 'Student has no face enrolled'
+            });
+        }
+
+        // Verify face
+        const result = await faceService.verifyFace(
+            image,
+            student.face_embedding,
+            threshold
+        );
+
+        // Log audit
+        await auditEvents.faceVerified(student, result, req);
+
+        res.json({
+            success: true,
+            data: {
+                student: {
+                    id: student.id,
+                    name: student.name,
+                    matric: student.matric
+                },
+                verified: result.success,
+                confidence: result.confidence,
+                threshold: result.threshold || threshold,
+                message: result.message
+            }
+        });
+
+    } catch (error) {
+        console.error('Face verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Verify face against multiple students (for RA BedCheck)
+app.post('/api/face/verify-room', async (req, res) => {
+    try {
+        const { 
+            image,
+            room_id,
+            hostel_id,
+            threshold = 0.55
+        } = req.body;
+
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image is required'
+            });
+        }
+
+        // Get students in the room
+        let query = supabase.from('students')
+            .select('id, name, matric, face_embedding, hostel_id, room_id, room_code')
+            .eq('face_enrolled', true);
+        
+        if (room_id) {
+            query = query.eq('room_id', room_id);
+        } else if (hostel_id) {
+            query = query.eq('hostel_id', hostel_id);
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'room_id or hostel_id is required'
+            });
+        }
+        
+        const { data: students, error: studentsError } = await query;
+        
+        if (studentsError) {
+            console.error('Fetch students error:', studentsError);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error: ' + studentsError.message
+            });
+        }
+
+        if (!students || students.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No students found with face enrolled in this room'
+            });
+        }
+
+        // Prepare data for verification
+        const embeddings = students.map(s => s.face_embedding);
+        const studentIds = students.map(s => s.id);
+
+        // Verify against all students
+        const result = await faceService.verifyMultiple(
+            image,
+            embeddings,
+            studentIds,
+            threshold
+        );
+
+        let matchedStudent = null;
+        if (result.success && result.student_id) {
+            matchedStudent = students.find(s => s.id === result.student_id);
+        }
+
+        // Log audit
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'RA',
+            actor_id: getStaffId(req),
+            actor_role: req.headers['x-staff-role'] || 'RA',
+            action: matchedStudent ? 'Room Face Verified' : 'Room Face Verification Failed',
+            module: 'face',
+            details: matchedStudent 
+                ? `${matchedStudent.name} (${matchedStudent.matric}) verified in room ${matchedStudent.room_code || 'N/A'} with ${(result.confidence * 100).toFixed(1)}% confidence`
+                : `No match found in room ${room_id || hostel_id}`,
+            context: `Threshold: ${threshold}, Students checked: ${students.length}`,
+            result: matchedStudent ? 'success' : 'failed',
+            category: 'face',
+            tone: matchedStudent ? 'green' : 'red',
+            hostel_id: hostel_id || matchedStudent?.hostel_id,
+            room_id: room_id || matchedStudent?.room_id,
+            student_id: matchedStudent?.id || null
+        });
+
+        res.json({
+            success: true,
+            data: {
+                matched_student: matchedStudent ? {
+                    id: matchedStudent.id,
+                    name: matchedStudent.name,
+                    matric: matchedStudent.matric,
+                    room_code: matchedStudent.room_code
+                } : null,
+                verified: !!matchedStudent,
+                confidence: result.confidence || 0,
+                threshold: result.threshold || threshold,
+                students_checked: students.length,
+                message: matchedStudent ? 'Match found' : 'No match found'
+            }
+        });
+
+    } catch (error) {
+        console.error('Room verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Liveness detection
+app.post('/api/face/liveness', async (req, res) => {
+    try {
+        const { image } = req.body;
         
         if (!image) {
             return res.status(400).json({
@@ -1325,60 +1731,72 @@ app.post('/api/face/search', async (req, res) => {
             });
         }
 
-        const result = await faceService.searchFace(image);
+        const result = await faceService.checkLiveness(image);
         
-        if (!result.success) {
-            return res.status(400).json({
-                success: false,
-                message: result.error || 'Face search failed'
-            });
+        // Log if liveness is verified
+        if (result.is_live) {
+            await auditEvents.livenessVerified(req);
         }
 
-        let matchedStudents = [];
-        let bestMatch = null;
+        res.json(result);
+    } catch (error) {
+        console.error('Liveness check error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
 
-        if (result.results && result.results.length > 0) {
-            let query = supabase.from('students').select('id, name, matric, room_code, hostel_id, face_token, face_enrolled');
-            
-            if (room_id) {
-                query = query.eq('room_id', room_id);
-            } else if (hostel_id) {
-                query = query.eq('hostel_id', hostel_id);
-            }
-            
-            const { data: students, error } = await query;
-            
-            if (!error && students) {
-                result.results.forEach(match => {
-                    const student = students.find(s => s.face_token === match.face_token);
-                    if (student && match.confidence >= threshold) {
-                        matchedStudents.push({
-                            ...student,
-                            confidence: match.confidence
-                        });
-                    }
-                });
-                
-                if (matchedStudents.length > 0) {
-                    bestMatch = matchedStudents.reduce((a, b) => 
-                        a.confidence > b.confidence ? a : b
-                    );
-                }
-            }
+// Reset liveness detector
+app.post('/api/face/liveness/reset', async (req, res) => {
+    try {
+        const result = await faceService.resetLiveness();
+        res.json(result);
+    } catch (error) {
+        console.error('Reset liveness error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// Get face status for a student
+app.get('/api/face/status/:studentId', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.studentId);
+        
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('id, name, matric, face_enrolled, face_embedding, face_provider, updated_at')
+            .eq('id', studentId)
+            .single();
+        
+        if (error || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
         }
 
         res.json({
             success: true,
             data: {
-                results: result.results,
-                matched_students: matchedStudents,
-                best_match: bestMatch,
-                thresholds: result.thresholds,
-                total_matches: result.results.length
+                student: {
+                    id: student.id,
+                    name: student.name,
+                    matric: student.matric
+                },
+                face_enrolled: student.face_enrolled,
+                face_provider: student.face_provider || 'none',
+                has_embedding: !!student.face_embedding,
+                embedding_dimension: student.face_embedding ? student.face_embedding.length : 0,
+                updated_at: student.updated_at
             }
         });
     } catch (error) {
-        console.error('Face search error:', error);
+        console.error('Get face status error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error: ' + error.message
@@ -1386,37 +1804,22 @@ app.post('/api/face/search', async (req, res) => {
     }
 });
 
-// Compare two face tokens
+// Compare two embeddings
 app.post('/api/face/compare', async (req, res) => {
     try {
-        const { face_token1, face_token2 } = req.body;
+        const { embedding1, embedding2 } = req.body;
         
-        if (!face_token1 || !face_token2) {
+        if (!embedding1 || !embedding2) {
             return res.status(400).json({
                 success: false,
-                message: 'Both face tokens are required'
+                message: 'Both embeddings are required'
             });
         }
 
-        const result = await faceService.compareFaces(face_token1, face_token2);
-        
-        if (result.success) {
-            res.json({
-                success: true,
-                data: {
-                    confidence: result.confidence,
-                    thresholds: result.thresholds,
-                    is_match: result.confidence >= result.thresholds?.['1e-5'] || 80
-                }
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.error || 'Face comparison failed'
-            });
-        }
+        const result = await faceService.compareEmbeddings(embedding1, embedding2);
+        res.json(result);
     } catch (error) {
-        console.error('Face comparison error:', error);
+        console.error('Compare embeddings error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error: ' + error.message
@@ -1424,80 +1827,22 @@ app.post('/api/face/compare', async (req, res) => {
     }
 });
 
-// Get face details
-app.get('/api/face/detail/:faceToken', async (req, res) => {
+// Extract embedding from image
+app.post('/api/face/extract', async (req, res) => {
     try {
-        const { faceToken } = req.params;
+        const { image } = req.body;
         
-        if (!faceToken) {
+        if (!image) {
             return res.status(400).json({
                 success: false,
-                message: 'face_token is required'
+                message: 'Image is required'
             });
         }
 
-        const result = await faceService.getFaceDetail(faceToken);
-        
-        if (result.success) {
-            res.json({
-                success: true,
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.error || 'Failed to get face details'
-            });
-        }
+        const result = await faceService.extractEmbedding(image);
+        res.json(result);
     } catch (error) {
-        console.error('Get face detail error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error: ' + error.message
-        });
-    }
-});
-
-// Remove face from FaceSet
-app.delete('/api/face/remove/:faceToken', async (req, res) => {
-    try {
-        const { faceToken } = req.params;
-        const { student_id } = req.body;
-        
-        if (!faceToken) {
-            return res.status(400).json({
-                success: false,
-                message: 'face_token is required'
-            });
-        }
-
-        const result = await faceService.removeFaceFromSet(faceToken);
-        
-        if (result.success) {
-            if (student_id) {
-                await supabase
-                    .from('students')
-                    .update({ 
-                        face_token: null,
-                        face_enrolled: false,
-                        face_template_id: null
-                    })
-                    .eq('id', student_id);
-            }
-            
-            res.json({
-                success: true,
-                message: 'Face removed from set successfully',
-                data: result.data
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.error || 'Failed to remove face from set'
-            });
-        }
-    } catch (error) {
-        console.error('Remove face error:', error);
+        console.error('Extract embedding error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error: ' + error.message
@@ -1506,7 +1851,46 @@ app.delete('/api/face/remove/:faceToken', async (req, res) => {
 });
 
 // =====================================================
-// STUDENT FACE ENROLLMENT (Updated with Face++)
+// STUDENT FACE ENDPOINTS (Integrated)
+// =====================================================
+
+// Get students with face enrollment status
+app.get('/api/students/face-status', async (req, res) => {
+    try {
+        const { hostel_id, room_id } = req.query;
+        
+        let query = supabase.from('students')
+            .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, face_embedding, face_provider');
+        
+        if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
+        if (room_id) query = query.eq('room_id', parseInt(room_id));
+        
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        const stats = {
+            total: data.length,
+            enrolled: data.filter(s => s.face_enrolled).length,
+            not_enrolled: data.filter(s => !s.face_enrolled).length
+        };
+        
+        res.json({
+            success: true,
+            data: data,
+            stats: stats
+        });
+    } catch (error) {
+        console.error('Get face status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT FACE ENROLLMENT (Legacy compatible)
 // =====================================================
 
 app.post('/api/students/enroll-face', async (req, res) => {
@@ -1535,85 +1919,13 @@ app.post('/api/students/enroll-face', async (req, res) => {
             });
         }
 
-        let studentQuery = supabase.from('students').select('*');
-        if (student_id) {
-            studentQuery = studentQuery.eq('id', student_id);
-        } else if (matric) {
-            studentQuery = studentQuery.eq('matric', matric);
-        }
-        
-        const { data: student, error: studentError } = await studentQuery.single();
-        
-        if (studentError || !student) {
-            return res.status(404).json({
-                success: false,
-                message: 'Student not found'
-            });
-        }
-
-        const detectResult = await faceService.detectFace(image);
-        
-        if (!detectResult.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Face detection failed: ' + detectResult.error
-            });
-        }
-
-        const addResult = await faceService.addFaceToSet(detectResult.face_token);
-        
-        if (!addResult.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Failed to add face to set: ' + addResult.error
-            });
-        }
-
-        const { data: updatedStudent, error: updateError } = await supabase
-            .from('students')
-            .update({
-                face_token: detectResult.face_token,
-                face_enrolled: true,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', student.id)
-            .select()
-            .single();
-
-        if (updateError) {
-            console.error('Update student error:', updateError);
-            await faceService.removeFaceFromSet(detectResult.face_token);
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to update student record'
-            });
-        }
-
-        await auditService.log({
-            actor: req.headers['x-staff-name'] || 'Student',
-            actor_id: student.id,
-            actor_role: req.headers['x-staff-role'] || 'Student',
-            action: 'Face Enrolled',
-            module: 'face',
-            details: `${student.name} (${student.matric}) enrolled face successfully`,
-            context: `Face Token: ${detectResult.face_token}`,
-            result: 'success',
-            category: 'face',
-            tone: 'green',
-            hostel_id: student.hostel_id,
-            room_id: student.room_id,
-            student_id: student.id
-        });
-
-        res.json({
-            success: true,
-            data: {
-                student: updatedStudent,
-                face_token: detectResult.face_token,
-                face_attributes: detectResult.attributes
-            }
-        });
-
+        // Forward to the new enrollment endpoint
+        req.body.prefer_insightface = true;
+        return app._router.handle({
+            ...req,
+            url: '/api/face/enroll',
+            method: 'POST'
+        }, res);
     } catch (error) {
         console.error('Face enrollment error:', error);
         res.status(500).json({
@@ -1624,7 +1936,7 @@ app.post('/api/students/enroll-face', async (req, res) => {
 });
 
 // =====================================================
-// STUDENT FACE VERIFICATION (Updated with Face++)
+// STUDENT FACE VERIFICATION (Legacy compatible)
 // =====================================================
 
 app.post('/api/students/verify-face', async (req, res) => {
@@ -1644,79 +1956,19 @@ app.post('/api/students/verify-face', async (req, res) => {
             });
         }
 
-        const searchResult = await faceService.searchFace(image);
+        // Convert threshold from percentage to decimal
+        const decimalThreshold = threshold / 100;
         
-        if (!searchResult.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Face search failed: ' + searchResult.error
-            });
-        }
-
-        let query = supabase.from('students').select('id, name, matric, room_code, hostel_id, face_token, face_enrolled');
-        
-        if (student_id) {
-            query = query.eq('id', student_id);
-        } else if (room_id) {
-            query = query.eq('room_id', room_id);
-        } else if (hostel_id) {
-            query = query.eq('hostel_id', hostel_id);
-        }
-        
-        const { data: students, error } = await query;
-        
-        if (error) {
-            console.error('Fetch students error:', error);
-        }
-
-        let matchedStudent = null;
-        let bestMatch = null;
-
-        if (students && students.length > 0) {
-            searchResult.results.forEach(match => {
-                const student = students.find(s => s.face_token === match.face_token);
-                if (student && match.confidence >= threshold) {
-                    if (!bestMatch || match.confidence > bestMatch.confidence) {
-                        bestMatch = {
-                            ...student,
-                            confidence: match.confidence
-                        };
-                    }
-                }
-            });
-            
-            matchedStudent = bestMatch;
-        }
-
-        await auditService.log({
-            actor: req.headers['x-staff-name'] || 'RA',
-            actor_id: getStaffId(req),
-            actor_role: req.headers['x-staff-role'] || 'RA',
-            action: matchedStudent ? 'Face Verified' : 'Face Verification Failed',
-            module: 'face',
-            details: matchedStudent 
-                ? `${matchedStudent.name} (${matchedStudent.matric}) verified with ${matchedStudent.confidence}% confidence`
-                : `Face verification failed - no match found`,
-            context: `Room: ${room_id || 'N/A'}, Hostel: ${hostel_id || 'N/A'}`,
-            result: matchedStudent ? 'success' : 'failed',
-            category: 'face',
-            tone: matchedStudent ? 'green' : 'red',
-            hostel_id: hostel_id,
-            room_id: room_id,
-            student_id: matchedStudent?.id || null
-        });
-
-        res.json({
-            success: true,
-            data: {
-                matched_student: matchedStudent,
-                all_matches: searchResult.results,
-                is_verified: !!matchedStudent,
-                confidence: matchedStudent?.confidence || 0,
-                thresholds: searchResult.thresholds
+        // Forward to the new verification endpoint
+        return app._router.handle({
+            ...req,
+            url: '/api/face/verify-room',
+            method: 'POST',
+            body: {
+                ...req.body,
+                threshold: decimalThreshold
             }
-        });
-
+        }, res);
     } catch (error) {
         console.error('Face verification error:', error);
         res.status(500).json({
@@ -1727,7 +1979,7 @@ app.post('/api/students/verify-face', async (req, res) => {
 });
 
 // =====================================================
-// GET STUDENT FACE STATUS
+// GET STUDENT FACE STATUS (Legacy compatible)
 // =====================================================
 
 app.get('/api/students/:studentId/face-status', async (req, res) => {
@@ -1736,7 +1988,7 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
         
         const { data: student, error } = await supabase
             .from('students')
-            .select('id, name, matric, face_token, face_enrolled, face_template_id')
+            .select('id, name, matric, face_enrolled, face_embedding, face_provider, updated_at')
             .eq('id', studentId)
             .single();
         
@@ -1745,14 +1997,6 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
                 success: false,
                 message: 'Student not found'
             });
-        }
-
-        let faceDetails = null;
-        if (student.face_token) {
-            const detailResult = await faceService.getFaceDetail(student.face_token);
-            if (detailResult.success) {
-                faceDetails = detailResult.data;
-            }
         }
 
         res.json({
@@ -1764,13 +2008,163 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
                     matric: student.matric
                 },
                 face_enrolled: student.face_enrolled,
-                face_token: student.face_token,
-                face_template_id: student.face_template_id,
-                face_details: faceDetails
+                face_provider: student.face_provider || 'none',
+                has_embedding: !!student.face_embedding,
+                embedding_dimension: student.face_embedding ? student.face_embedding.length : 0
             }
         });
     } catch (error) {
         console.error('Get face status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// BEDCHECK SCANS WITH FACE VERIFICATION
+// =====================================================
+
+app.post('/api/bedcheck/scan-with-face', async (req, res) => {
+    try {
+        const { 
+            session_id,
+            image,
+            room_id,
+            threshold = 0.55,
+            scanner_id,
+            note
+        } = req.body;
+
+        if (!image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image is required'
+            });
+        }
+
+        // Get students in the room
+        let query = supabase.from('students')
+            .select('id, name, matric, face_embedding, hostel_id, room_id, room_code')
+            .eq('face_enrolled', true);
+        
+        if (room_id) {
+            query = query.eq('room_id', room_id);
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'room_id is required'
+            });
+        }
+        
+        const { data: students, error: studentsError } = await query;
+        
+        if (studentsError) {
+            console.error('Fetch students error:', studentsError);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error: ' + studentsError.message
+            });
+        }
+
+        if (!students || students.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No students found with face enrolled in this room'
+            });
+        }
+
+        // Prepare data for verification
+        const embeddings = students.map(s => s.face_embedding);
+        const studentIds = students.map(s => s.id);
+
+        // Verify against all students
+        const result = await faceService.verifyMultiple(
+            image,
+            embeddings,
+            studentIds,
+            threshold
+        );
+
+        let matchedStudent = null;
+        if (result.success && result.student_id) {
+            matchedStudent = students.find(s => s.id === result.student_id);
+        }
+
+        // Create scan record
+        let scanResult = null;
+        if (matchedStudent) {
+            const newScan = {
+                session_id: session_id || null,
+                student_id: matchedStudent.id,
+                room: matchedStudent.room_code || null,
+                bed_number: null,
+                status: 'Verified',
+                scanner_id: scanner_id || 'Face-001',
+                note: note || `Face verified with ${(result.confidence * 100).toFixed(1)}% confidence`,
+                created_at: new Date().toISOString()
+            };
+            
+            const { data: scanData, error: scanError } = await supabase
+                .from('bedcheck_scans')
+                .insert(newScan)
+                .select()
+                .single();
+            
+            if (!scanError) {
+                scanResult = scanData;
+                
+                // Update student status
+                await supabase
+                    .from('students')
+                    .update({ 
+                        status: 'Present',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', matchedStudent.id);
+            }
+        }
+
+        // Log audit
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'RA',
+            actor_id: getStaffId(req),
+            actor_role: req.headers['x-staff-role'] || 'RA',
+            action: matchedStudent ? 'Face Scan Verified' : 'Face Scan Failed',
+            module: 'bedcheck',
+            details: matchedStudent 
+                ? `${matchedStudent.name} (${matchedStudent.matric}) verified via face scan`
+                : `Face verification failed in room ${room_id}`,
+            context: `Session: ${session_id || 'N/A'}`,
+            result: matchedStudent ? 'success' : 'failed',
+            category: 'bedcheck',
+            tone: matchedStudent ? 'green' : 'red',
+            hostel_id: matchedStudent?.hostel_id,
+            room_id: room_id,
+            student_id: matchedStudent?.id || null,
+            session_id: session_id || null
+        });
+
+        res.json({
+            success: true,
+            data: {
+                verified: !!matchedStudent,
+                student: matchedStudent ? {
+                    id: matchedStudent.id,
+                    name: matchedStudent.name,
+                    matric: matchedStudent.matric,
+                    room_code: matchedStudent.room_code
+                } : null,
+                confidence: result.confidence || 0,
+                threshold: result.threshold || threshold,
+                scan: scanResult,
+                message: matchedStudent ? 'Attendance recorded' : 'No match found'
+            }
+        });
+
+    } catch (error) {
+        console.error('Face scan error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error: ' + error.message
@@ -1967,401 +2361,6 @@ app.get('/api/hra/hostel', async (req, res) => {
 });
 
 // =====================================================
-// QR CODE MANAGEMENT
-// =====================================================
-
-app.get('/api/qr/hostel/:hostelId', async (req, res) => {
-  try {
-    const hostelId = parseInt(req.params.hostelId);
-    
-    if (!hostelId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Hostel ID is required'
-      });
-    }
-
-    console.log(`🔍 Fetching QR for hostel ID: ${hostelId}`);
-    
-    const { data: qrData, error: qrError } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('hostel_id', hostelId)
-      .eq('is_active', true)
-      .order('generated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (qrError) {
-      console.error('❌ QR fetch error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Error fetching QR code: ' + qrError.message
-      });
-    }
-
-    if (!qrData) {
-      return res.json({
-        success: true,
-        data: null,
-        message: 'No active QR code found for this hostel'
-      });
-    }
-
-    let hostelName = null;
-    const { data: hostelInfo, error: hostelInfoError } = await supabase
-      .from('hostels')
-      .select('name')
-      .eq('id', hostelId)
-      .maybeSingle();
-    
-    if (!hostelInfoError && hostelInfo) {
-      hostelName = hostelInfo.name;
-    }
-
-    let creatorName = 'Unknown';
-    if (qrData.created_by) {
-      const { data: creator } = await supabase
-        .from('staff')
-        .select('name')
-        .eq('id', qrData.created_by)
-        .maybeSingle();
-      if (creator) creatorName = creator.name;
-    }
-
-    console.log(`✅ QR found: ${qrData.code} for hostel ID ${hostelId}`);
-
-    res.json({
-      success: true,
-      data: {
-        id: qrData.id,
-        hostel_id: qrData.hostel_id,
-        code: qrData.code,
-        qr_data: qrData.qr_data,
-        generated_at: qrData.generated_at,
-        expires_at: qrData.expires_at,
-        is_active: qrData.is_active,
-        last_used_at: qrData.last_used_at,
-        usage_count: qrData.usage_count || 0,
-        created_by: qrData.created_by,
-        created_by_name: creatorName,
-        created_at: qrData.created_at,
-        updated_at: qrData.updated_at,
-        hostel: hostelName ? { id: hostelId, name: hostelName } : null
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching QR by hostel:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-app.post('/api/qr/generate', async (req, res) => {
-  try {
-    const staffId = getStaffId(req);
-    const staffName = req.headers['x-staff-name'] || 'System';
-    const staffRole = req.headers['x-staff-role'] || 'System';
-    
-    if (!staffId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required. Please provide X-Staff-ID header.'
-      });
-    }
-
-    console.log(`🔄 Generating QR for staff ID: ${staffId}`);
-    
-    const { data: staff, error: staffError } = await supabase
-      .from('staff')
-      .select('id, name, role, hostel_id')
-      .eq('id', staffId)
-      .maybeSingle();
-    
-    if (staffError) {
-      console.error('❌ Staff query error:', staffError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database error: ' + staffError.message 
-      });
-    }
-    
-    if (!staff) {
-      return res.status(404).json({
-        success: false,
-        message: 'Staff member not found'
-      });
-    }
-    
-    if (!staff.hostel_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'No hostel assigned to this staff member'
-      });
-    }
-    
-    console.log(`✅ Staff ${staff.name} belongs to hostel ID: ${staff.hostel_id}`);
-    
-    const { data: hostel, error: hostelError } = await supabase
-      .from('hostels')
-      .select('name')
-      .eq('id', staff.hostel_id)
-      .maybeSingle();
-    
-    if (hostelError) {
-      console.error('❌ Hostel query error:', hostelError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database error: ' + hostelError.message 
-      });
-    }
-    
-    if (!hostel) {
-      return res.status(404).json({
-        success: false,
-        message: 'Hostel not found'
-      });
-    }
-
-    console.log(`✅ Found hostel: ${hostel.name} (ID: ${staff.hostel_id})`);
-
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const qrCode = `BIU-${hostel.name.toUpperCase().replace(/\s/g, '-')}-${timestamp}`;
-    
-    const qrData = JSON.stringify({
-      type: 'hostel_verification',
-      hostel_id: staff.hostel_id,
-      hostel_name: hostel.name,
-      code: qrCode,
-      created_by: staffId,
-      created_by_name: staff.name,
-      timestamp: new Date().toISOString()
-    });
-
-    const { error: updateError } = await supabase
-      .from('qr_codes')
-      .update({ 
-        is_active: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq('hostel_id', staff.hostel_id)
-      .eq('is_active', true);
-
-    if (updateError) {
-      console.log('ℹ️ No existing QR codes to deactivate or error:', updateError.message);
-    }
-
-    const { data: qrDataInsert, error: qrError } = await supabase
-      .from('qr_codes')
-      .insert({
-        hostel_id: staff.hostel_id,
-        code: qrCode,
-        qr_data: qrData,
-        generated_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        is_active: true,
-        created_by: staffId,
-        usage_count: 0
-      })
-      .select()
-      .single();
-
-    if (qrError) {
-      console.error('❌ QR insert error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Error inserting QR code: ' + qrError.message
-      });
-    }
-
-    console.log(`✅ QR generated successfully: ${qrCode}`);
-
-    await auditService.log({
-      actor: staffName,
-      actor_id: staffId,
-      actor_role: staffRole,
-      action: 'QR Code Generated',
-      module: 'qr_codes',
-      details: `QR code generated for ${hostel.name} by ${staff.name}`,
-      context: `Hostel ID: ${staff.hostel_id}`,
-      result: 'success',
-      category: 'qr',
-      tone: 'blue',
-      hostel_id: staff.hostel_id
-    });
-
-    res.json({
-      success: true,
-      data: {
-        id: qrDataInsert.id,
-        hostel_id: qrDataInsert.hostel_id,
-        code: qrDataInsert.code,
-        qr_data: qrDataInsert.qr_data,
-        generated_at: qrDataInsert.generated_at,
-        expires_at: qrDataInsert.expires_at,
-        is_active: qrDataInsert.is_active,
-        usage_count: qrDataInsert.usage_count,
-        created_by: qrDataInsert.created_by,
-        created_at: qrDataInsert.created_at,
-        updated_at: qrDataInsert.updated_at,
-        hostel: {
-          id: staff.hostel_id,
-          name: hostel.name
-        },
-        staff: {
-          id: staff.id,
-          name: staff.name,
-          role: staff.role
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error generating QR code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-app.post('/api/qr/verify', async (req, res) => {
-  try {
-    const { qr_code, scanner_id } = req.body;
-    const staffId = getStaffId(req);
-    const staffName = req.headers['x-staff-name'] || 'Scanner';
-
-    if (!qr_code) {
-      return res.status(400).json({
-        success: false,
-        message: 'QR code is required'
-      });
-    }
-
-    console.log(`🔍 Verifying QR code: ${qr_code}`);
-
-    const { data: qrRecord, error: qrError } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .eq('code', qr_code)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (qrError) {
-      console.error('❌ QR verification error:', qrError);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + qrError.message
-      });
-    }
-
-    if (!qrRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invalid or inactive QR code'
-      });
-    }
-
-    let hostelName = 'Unknown Hostel';
-    if (qrRecord.hostel_id) {
-      const { data: hostelInfo } = await supabase
-        .from('hostels')
-        .select('name')
-        .eq('id', qrRecord.hostel_id)
-        .maybeSingle();
-      if (hostelInfo) hostelName = hostelInfo.name;
-    }
-
-    if (qrRecord.expires_at && new Date(qrRecord.expires_at) < new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: 'QR code has expired'
-      });
-    }
-
-    try {
-      await supabase
-        .from('qr_codes')
-        .update({
-          last_used_at: new Date().toISOString(),
-          usage_count: (qrRecord.usage_count || 0) + 1
-        })
-        .eq('id', qrRecord.id);
-      console.log(`📊 Updated usage count for QR ${qrRecord.code}`);
-    } catch (e) {
-      console.log('ℹ️ Error updating usage count:', e.message);
-    }
-
-    await auditService.log({
-      actor: staffName,
-      actor_id: staffId,
-      actor_role: req.headers['x-staff-role'] || 'Staff',
-      action: 'QR Code Scanned',
-      module: 'qr_codes',
-      details: `QR code scanned for ${hostelName}`,
-      context: `Scanner ID: ${scanner_id || 'Unknown'}`,
-      result: 'success',
-      category: 'qr',
-      tone: 'green',
-      hostel_id: qrRecord.hostel_id
-    });
-
-    res.json({
-      success: true,
-      data: {
-        hostel_id: qrRecord.hostel_id,
-        hostel_name: hostelName,
-        verified: true,
-        timestamp: new Date().toISOString(),
-        scan_count: (qrRecord.usage_count || 0) + 1
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error verifying QR code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-app.get('/api/qr/all', async (req, res) => {
-  try {
-    const { data: qrCodes, error } = await supabase
-      .from('qr_codes')
-      .select('*')
-      .order('generated_at', { ascending: false });
-
-    if (error) throw error;
-
-    const enriched = await Promise.all(qrCodes.map(async (qr) => {
-      let hostelName = null;
-      if (qr.hostel_id) {
-        const { data: hostel } = await supabase
-          .from('hostels')
-          .select('name')
-          .eq('id', qr.hostel_id)
-          .maybeSingle();
-        if (hostel) hostelName = hostel.name;
-      }
-      return { ...qr, hostel_name: hostelName };
-    }));
-
-    res.json({
-      success: true,
-      data: enriched
-    });
-  } catch (error) {
-    console.error('❌ Error fetching all QR codes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error: ' + error.message
-    });
-  }
-});
-
-// =====================================================
 // STAFF - Unified CRUD
 // =====================================================
 
@@ -2490,7 +2489,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD (Updated with face fields)
+// STUDENTS - Full CRUD
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -2517,7 +2516,7 @@ app.post('/api/students', async (req, res) => {
     room_id, room_code, bed_space_id, bed_code, 
     status, notes, gender, phone, email, 
     emergency_name, emergency_relation, emergency_phone,
-    face_token, face_enrolled, face_template_id
+    face_enrolled, face_embedding, face_provider
   } = req.body;
   
   try {
@@ -2531,9 +2530,9 @@ app.post('/api/students', async (req, res) => {
       status: status || 'Present', notes: notes || null,
       emergency_name: emergency_name || null, emergency_relation: emergency_relation || null,
       emergency_phone: emergency_phone || null,
-      face_token: face_token || null,
       face_enrolled: face_enrolled || false,
-      face_template_id: face_template_id || null,
+      face_embedding: face_embedding || null,
+      face_provider: face_provider || null,
       created_at: new Date().toISOString(), 
       updated_at: new Date().toISOString()
     };
@@ -2580,11 +2579,7 @@ app.put('/api/students/:id/status', async (req, res) => {
 app.delete('/api/students/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
-    const { data: student } = await supabase.from('students').select('name, matric, bed_space_id, hostel_id, room_id, face_token').eq('id', id).single();
-    
-    if (student && student.face_token) {
-      await faceService.removeFaceFromSet(student.face_token);
-    }
+    const { data: student } = await supabase.from('students').select('name, matric, bed_space_id, hostel_id, room_id').eq('id', id).single();
     
     if (student && student.bed_space_id) {
       await supabase.from('bed_spaces').update({ status: 'available', student_id: null, updated_at: new Date().toISOString() }).eq('id', student.bed_space_id);
@@ -4174,7 +4169,7 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
         
         const { data: student, error } = await supabase
             .from('students')
-            .select('face_token, face_enrolled, face_template_id')
+            .select('face_embedding, face_enrolled, face_provider')
             .eq('id', studentId)
             .single();
         
@@ -4186,7 +4181,7 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
             });
         }
         
-        if (!student.face_token) {
+        if (!student.face_embedding) {
             return res.json({ 
                 success: true, 
                 data: null, 
@@ -4194,16 +4189,12 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
             });
         }
         
-        // Get face details from Face++
-        const faceDetail = await faceService.getFaceDetail(student.face_token);
-        
         res.json({
             success: true,
             data: {
-                face_token: student.face_token,
                 face_enrolled: student.face_enrolled,
-                face_template_id: student.face_template_id,
-                face_details: faceDetail.success ? faceDetail.data : null
+                face_provider: student.face_provider || 'insightface',
+                embedding_dimension: student.face_embedding.length
             }
         });
     } catch (error) {
@@ -4237,11 +4228,25 @@ app.use((err, req, res, next) => {
 // START SERVER
 // =====================================================
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`🚀 BedCheck API Server running on port ${PORT}`);
+  console.log(`🚀 BIU BedCheck API Server running on port ${PORT}`);
   console.log(`📋 API Endpoint: http://localhost:${PORT}/api`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`✅ Server started successfully`);
+  console.log(`🔐 Face Provider: InsightFace`);
+  
+  // Check Face API health
+  try {
+    const health = await faceService.checkHealth();
+    if (health.status === 'healthy') {
+      console.log(`✅ InsightFace API is healthy`);
+    } else {
+      console.log(`⚠️ InsightFace API is running but health check returned: ${health.status}`);
+    }
+  } catch (error) {
+    console.log(`⚠️ InsightFace API is not running or unreachable: ${error.message}`);
+    console.log(`   Please start the Python server: cd python && uvicorn app:app --reload`);
+  }
+  
   console.log(`${'='.repeat(60)}\n`);
 });
