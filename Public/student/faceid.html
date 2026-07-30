@@ -1638,7 +1638,6 @@
                     return;
                 }
 
-                // Hide any previous overlays
                 errorOverlay.classList.remove('show');
                 successOverlay.classList.remove('show');
 
@@ -1648,7 +1647,6 @@
                 loadingProgressFill.style.width = '10%';
 
                 try {
-                    // Get student ID
                     let studentId = studentData.id;
 
                     if (!studentId && studentData.matric) {
@@ -1665,19 +1663,28 @@
                         throw new Error('Student ID not found. Please complete registration first.');
                     }
 
-                    loadingText.textContent = 'Sending to InsightFace...';
+                    loadingText.textContent = 'Selecting best face capture...';
                     loadingProgressFill.style.width = '30%';
 
-                    // Get all images
-                    const images = capturedFrames.map(f => f.imageData);
+                    // Find the best quality frame
+                    let bestFrame = capturedFrames.reduce((best, current) => {
+                        return (current.quality || 0) > (best.quality || 0) ? current : best;
+                    }, capturedFrames[0]);
 
-                    // Call the Node.js API which forwards to Python
-                    const enrollResponse = await fetch(`${API_BASE}/face/enroll-bulk`, {
+                    loadingText.textContent = 'Sending to InsightFace...';
+                    loadingProgressFill.style.width = '50%';
+
+                    // Use the single-frame enrollment endpoint
+                    const enrollResponse = await fetch(`${API_BASE}/face/enroll`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             student_id: studentId,
-                            frames: images
+                            image: bestFrame.imageData,
+                            name: studentData.name,
+                            matric: studentData.matric,
+                            hostel_id: studentData.hostel_id,
+                            room_id: studentData.room_id
                         })
                     });
 
@@ -1694,21 +1701,6 @@
                         loadingText.textContent = '✅ Enrollment successful!';
                         loadingProgressFill.style.width = '100%';
 
-                        // Update student record
-                        try {
-                            await apiCall(`/students/${studentId}`, {
-                                method: 'PUT',
-                                body: JSON.stringify({
-                                    face_enrolled: true,
-                                    face_embedding: enrollResult.data.embedding,
-                                    face_provider: 'insightface',
-                                    updated_at: new Date().toISOString()
-                                })
-                            });
-                        } catch (updateError) {
-                            console.warn('Could not update student record:', updateError);
-                        }
-
                         showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
                         setTimeout(() => {
@@ -1716,7 +1708,6 @@
                             btnEnroll.disabled = true;
                             btnEnroll.innerHTML = '<i class="fas fa-check"></i> Enrolled ✓';
 
-                            // Show success overlay
                             successOverlay.classList.add('show');
                             document.querySelector('.camera-preview').classList.add('success-animation');
 
@@ -1739,7 +1730,6 @@
                     console.error('Enrollment error:', error);
                     loadingOverlay.style.display = 'none';
                     
-                    // Show error overlay
                     errorMessage.textContent = error.message || 'An error occurred during enrollment. Please try again.';
                     errorOverlay.classList.add('show');
                     
