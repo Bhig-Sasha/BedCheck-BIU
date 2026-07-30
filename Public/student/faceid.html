@@ -51,7 +51,6 @@
             background: linear-gradient(90deg, transparent, #d6ad4b, transparent);
         }
 
-        /* Header */
         .header {
             text-align: center;
             padding-bottom: 1rem;
@@ -89,7 +88,6 @@
             color: #d6ad4b;
         }
 
-        /* Student Info Bar */
         .student-info-bar {
             background: rgba(214, 173, 75, 0.08);
             border: 1px solid rgba(214, 173, 75, 0.15);
@@ -117,7 +115,6 @@
             color: #64748b;
         }
 
-        /* Time display */
         .time-display {
             text-align: center;
             font-size: 0.7rem;
@@ -126,7 +123,6 @@
             letter-spacing: 0.5px;
         }
 
-        /* Camera Preview */
         .camera-preview {
             position: relative;
             background: #0a0a15;
@@ -148,7 +144,6 @@
             display: block;
         }
 
-        /* Face Guide Overlay */
         .face-overlay {
             position: absolute;
             top: 0;
@@ -242,7 +237,6 @@
             background: rgba(74, 222, 128, 0.3);
         }
 
-        /* Direction Arrows */
         .direction-arrows {
             position: absolute;
             top: 0;
@@ -293,7 +287,6 @@
             opacity: 1;
         }
 
-        /* Capture status overlay */
         .capture-status-overlay {
             position: absolute;
             bottom: 1.5rem;
@@ -368,7 +361,6 @@
             font-weight: 700;
         }
 
-        /* Progress Circle */
         .progress-ring-container {
             position: absolute;
             top: 1rem;
@@ -416,7 +408,6 @@
             color: #e2e8f0;
         }
 
-        /* Quality indicator */
         .quality-indicator {
             position: absolute;
             top: 1rem;
@@ -454,7 +445,6 @@
             min-width: 30px;
         }
 
-        /* Bottom controls */
         .bottom-controls {
             margin-top: 1.5rem;
             display: flex;
@@ -474,6 +464,14 @@
 
         .instruction-text strong {
             color: #d6ad4b;
+        }
+
+        .instruction-text .error-text {
+            color: #f87171;
+        }
+
+        .instruction-text .success-text {
+            color: #4ade80;
         }
 
         .btn-group {
@@ -561,7 +559,6 @@
             border-color: rgba(255, 255, 255, 0.15);
         }
 
-        /* Capture positions indicator */
         .position-indicators {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -613,7 +610,6 @@
             display: none;
         }
 
-        /* Toast notification */
         .toast {
             position: fixed;
             bottom: 2rem;
@@ -649,7 +645,6 @@
             border-color: #d6ad4b;
         }
 
-        /* Responsive */
         @media (max-width: 480px) {
             .container {
                 padding: 0.75rem;
@@ -720,17 +715,14 @@
             }
         }
 
-        /* Scrollbar hide */
         ::-webkit-scrollbar {
             display: none;
         }
 
-        /* Hidden canvas */
         #captureCanvas {
             display: none;
         }
 
-        /* Enroll success animation */
         .success-animation {
             animation: success-pop 0.6s ease;
         }
@@ -747,7 +739,6 @@
             }
         }
 
-        /* Loading state */
         .loading-overlay {
             position: absolute;
             top: 0;
@@ -800,7 +791,6 @@
             transition: width 0.3s ease;
         }
 
-        /* Success overlay */
         .success-overlay {
             position: absolute;
             top: 0;
@@ -857,6 +847,67 @@
 
         .success-overlay .success-details strong {
             color: #d6ad4b;
+        }
+
+        .error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(248, 113, 113, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            border-radius: 1.5rem;
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+        }
+
+        .error-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .error-overlay .error-icon {
+            font-size: 4rem;
+            color: #f87171;
+        }
+
+        .error-overlay .error-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #f87171;
+            margin-top: 0.5rem;
+        }
+
+        .error-overlay .error-subtitle {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+            max-width: 80%;
+            text-align: center;
+        }
+
+        .error-overlay .btn-retry {
+            margin-top: 1rem;
+            padding: 0.5rem 1.5rem;
+            background: #d6ad4b;
+            color: #0a0a15;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .error-overlay .btn-retry:hover {
+            background: #c49a3a;
+            transform: scale(1.02);
         }
     </style>
 </head>
@@ -954,6 +1005,14 @@
                     <strong id="successStudentName">Student</strong> · Matric: <strong id="successMatric">---</strong>
                 </div>
             </div>
+
+            <!-- Error Overlay -->
+            <div class="error-overlay" id="errorOverlay">
+                <div class="error-icon">❌</div>
+                <div class="error-title">Enrollment Failed</div>
+                <div class="error-subtitle" id="errorMessage">An error occurred during enrollment</div>
+                <button class="btn-retry" onclick="retryEnrollment()">🔄 Retry</button>
+            </div>
         </div>
 
         <!-- Position Indicators -->
@@ -1039,14 +1098,12 @@
             let faceLandmarks = null;
             let currentQuality = 0;
 
-            // Capture state
             let isEnrolling = false;
             let capturedFrames = [];
             const TOTAL_CAPTURES = 10;
             let isSetupActive = false;
             let captureTimer = null;
 
-            // Student data from previous page
             let studentData = {
                 id: null,
                 name: '',
@@ -1079,6 +1136,8 @@
             const btnEnroll = document.getElementById('btnEnroll');
             const enrollGroup = document.getElementById('enrollGroup');
             const successOverlay = document.getElementById('successOverlay');
+            const errorOverlay = document.getElementById('errorOverlay');
+            const errorMessage = document.getElementById('errorMessage');
 
             const positionDots = document.querySelectorAll('.position-dot');
             const arrows = {
@@ -1137,19 +1196,16 @@
                     if (stored) {
                         const data = JSON.parse(stored);
                         studentData = data;
-                        
-                        // Update UI
+
                         document.getElementById('studentName').textContent = data.name || 'Unknown';
                         document.getElementById('studentMatric').textContent = data.matric || '---';
                         document.getElementById('studentHostel').textContent = data.hostel_name || data.hostel_id || '---';
-                        
-                        // Update success overlay
+
                         document.getElementById('successStudentName').textContent = data.name || 'Student';
                         document.getElementById('successMatric').textContent = data.matric || '---';
-                        
+
                         console.log('✅ Student data loaded:', studentData);
                     } else {
-                        // Try to get from URL params
                         const params = new URLSearchParams(window.location.search);
                         if (params.get('matric')) {
                             studentData.matric = params.get('matric');
@@ -1323,7 +1379,6 @@
                 qualityFill.style.width = clamped + '%';
                 qualityPercent.textContent = Math.round(clamped) + '%';
 
-                // Update progress ring
                 const progress = (capturedFrames.length / TOTAL_CAPTURES) * 100;
                 const circumference = 138.2;
                 const offset = circumference - (progress / 100) * circumference;
@@ -1583,6 +1638,10 @@
                     return;
                 }
 
+                // Hide any previous overlays
+                errorOverlay.classList.remove('show');
+                successOverlay.classList.remove('show');
+
                 showToast('Enrolling face with InsightFace...', 'info');
                 loadingOverlay.style.display = 'flex';
                 loadingText.textContent = 'Preparing enrollment...';
@@ -1592,7 +1651,6 @@
                     // Get student ID
                     let studentId = studentData.id;
 
-                    // If no ID, try to find by matric
                     if (!studentId && studentData.matric) {
                         try {
                             const searchRes = await apiCall(`/students?search=${studentData.matric}`);
@@ -1613,6 +1671,7 @@
                     // Get all images
                     const images = capturedFrames.map(f => f.imageData);
 
+                    // Call the Node.js API which forwards to Python
                     const enrollResponse = await fetch(`${API_BASE}/face/enroll-bulk`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1623,6 +1682,11 @@
                     });
 
                     loadingProgressFill.style.width = '70%';
+
+                    if (!enrollResponse.ok) {
+                        const errorData = await enrollResponse.json();
+                        throw new Error(errorData.message || `HTTP ${enrollResponse.status}`);
+                    }
 
                     const enrollResult = await enrollResponse.json();
 
@@ -1662,7 +1726,6 @@
                                 You're ready for BedCheck
                             `;
 
-                            // Clear local storage
                             localStorage.removeItem('studentForFaceID');
 
                             setTimeout(() => {
@@ -1675,9 +1738,20 @@
                 } catch (error) {
                     console.error('Enrollment error:', error);
                     loadingOverlay.style.display = 'none';
+                    
+                    // Show error overlay
+                    errorMessage.textContent = error.message || 'An error occurred during enrollment. Please try again.';
+                    errorOverlay.classList.add('show');
+                    
                     showToast('Error: ' + error.message, 'error');
                     isEnrolling = false;
                 }
+            }
+
+            // ---------- RETRY ENROLLMENT ----------
+            function retryEnrollment() {
+                errorOverlay.classList.remove('show');
+                enrollFace();
             }
 
             // ---------- RESET ----------
@@ -1691,6 +1765,8 @@
                 isSetupActive = false;
                 isEnrolling = false;
                 isCameraReady = false;
+                errorOverlay.classList.remove('show');
+                successOverlay.classList.remove('show');
 
                 if (captureTimer) {
                     clearInterval(captureTimer);
@@ -1702,7 +1778,6 @@
                 enrollGroup.style.display = 'none';
                 btnEnroll.disabled = false;
                 btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll with InsightFace';
-                successOverlay.classList.remove('show');
 
                 updateStatus('waiting', 'Reset - Position your face');
                 updateQualityDisplay(0);
@@ -1735,22 +1810,17 @@
 
             // ---------- INIT ----------
             async function init() {
-                // Load student data first
                 loadStudentData();
 
-                // Set initial time
                 const now = new Date();
                 document.getElementById('timeDisplay').textContent =
                     `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
 
-                // Start camera on load
                 await startCamera();
 
-                // Update position indicators
                 updatePositionIndicators();
                 updateQualityDisplay(0);
 
-                // Pre-populate position dots
                 positionDots.forEach((dot, i) => {
                     if (i < 5) {
                         dot.querySelector('span:last-child').textContent = ['Front', 'Right', 'Bottom', 'Left', 'Top'][i];
@@ -1762,6 +1832,7 @@
             window.startFaceSetup = startFaceSetup;
             window.enrollFace = enrollFace;
             window.resetSetup = resetSetup;
+            window.retryEnrollment = retryEnrollment;
             window.startCamera = startCamera;
             window.stopCamera = stopCamera;
             window.goBackToDetails = goBackToDetails;
