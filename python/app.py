@@ -97,9 +97,9 @@ class VerifyRequest(BaseModel):
 # Load InsightFace model
 try:
     face_model = insightface.app.FaceAnalysis(
-        name="buffalo_l",
+        name="antelopev2",
         root="./models",
-        providers=["CPUExecutionProvider"]  # Use CPU for compatibility
+        providers=["CPUExecutionProvider"]
     )
     
     # Prepare the model
@@ -150,7 +150,7 @@ def home():
     return {
         "status": "running",
         "engine": "InsightFace",
-        "model": "buffalo_l",
+        "model": "antelopev2",
         "version": "1.0.0",
         "message": "BIU BedCheck Face Engine is Online",
         "endpoints": {
@@ -177,7 +177,7 @@ def health():
 @app.get("/model-info")
 def model_info():
     return {
-        "model": "buffalo_l",
+        "model": "antelopev2",
         "embedding_size": 512,
         "detection_size": (640, 640),
         "providers": ["CPUExecutionProvider"]
