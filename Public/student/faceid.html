@@ -8,9 +8,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
         * {
             margin: 0;
@@ -909,6 +906,36 @@
             background: #c49a3a;
             transform: scale(1.02);
         }
+
+        .api-status {
+            font-size: 0.6rem;
+            color: #64748b;
+            text-align: center;
+            margin-top: 0.5rem;
+            padding: 0.3rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .api-status .status-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 0.3rem;
+        }
+
+        .api-status .status-indicator.online {
+            background: #4ade80;
+        }
+        .api-status .status-indicator.offline {
+            background: #f87171;
+        }
+        .api-status .status-indicator.checking {
+            background: #fbbf24;
+            animation: pulse-dot 0.8s infinite;
+        }
     </style>
 </head>
 <body>
@@ -1070,6 +1097,12 @@
                 <i class="fas fa-arrow-left"></i> Back to Student Details
             </button>
         </div>
+
+        <!-- API Status -->
+        <div class="api-status" id="apiStatus">
+            <span class="status-indicator checking" id="apiIndicator"></span>
+            <span id="apiStatusText">Checking API connection...</span>
+        </div>
     </div>
 
     <!-- Toast -->
@@ -1086,16 +1119,14 @@
             // FACE ID SETUP - INSIGHTFACE ENROLLMENT
             // =============================================
 
-            const API_BASE = 'https://bedcheck-biu.onrender.com/api';
+            const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ?
+                'http://localhost:8000' :
+                'https://face-api.onrender.com';
 
             // ---------- STATE ----------
             let cameraStream = null;
             let isCameraReady = false;
-            let faceMesh = null;
-            let mediaPipeReady = false;
-            let isMediaPipeLoading = false;
             let faceDetected = false;
-            let faceLandmarks = null;
             let currentQuality = 0;
 
             let isEnrolling = false;
@@ -1103,6 +1134,7 @@
             const TOTAL_CAPTURES = 10;
             let isSetupActive = false;
             let captureTimer = null;
+            let isApiOnline = false;
 
             let studentData = {
                 id: null,
@@ -1138,6 +1170,8 @@
             const successOverlay = document.getElementById('successOverlay');
             const errorOverlay = document.getElementById('errorOverlay');
             const errorMessage = document.getElementById('errorMessage');
+            const apiIndicator = document.getElementById('apiIndicator');
+            const apiStatusText = document.getElementById('apiStatusText');
 
             const positionDots = document.querySelectorAll('.position-dot');
             const arrows = {
@@ -1155,6 +1189,40 @@
                 center: document.getElementById('dotCenter')
             };
 
+            // ---------- API STATUS CHECK ----------
+            async function checkApiStatus() {
+                try {
+                    apiIndicator.className = 'status-indicator checking';
+                    apiStatusText.textContent = 'Checking API connection...';
+                    
+                    const response = await fetch(`${API_BASE}/health`, {
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        isApiOnline = data.status === 'healthy' || data.model_loaded === true;
+                        apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
+                        apiStatusText.textContent = isApiOnline ? 
+                            '✅ InsightFace API Online' : 
+                            '⚠️ API Online but model not loaded';
+                        
+                        if (!isApiOnline) {
+                            showToast('Face model is loading. Please wait...', 'info');
+                        }
+                    } else {
+                        isApiOnline = false;
+                        apiIndicator.className = 'status-indicator offline';
+                        apiStatusText.textContent = '❌ API Offline';
+                    }
+                } catch (error) {
+                    isApiOnline = false;
+                    apiIndicator.className = 'status-indicator offline';
+                    apiStatusText.textContent = '❌ Cannot connect to API';
+                    console.warn('API status check failed:', error.message);
+                }
+            }
+
             // ---------- TOAST ----------
             function showToast(message, type = 'info') {
                 toast.textContent = message;
@@ -1165,6 +1233,13 @@
 
             // ---------- API HELPERS ----------
             async function apiCall(endpoint, options = {}) {
+                if (!isApiOnline) {
+                    await checkApiStatus();
+                    if (!isApiOnline) {
+                        throw new Error('API is offline. Please try again later.');
+                    }
+                }
+
                 try {
                     const response = await fetch(`${API_BASE}${endpoint}`, {
                         ...options,
@@ -1178,13 +1253,11 @@
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
+                    
                     const data = await response.json();
-                    if (!data.success) {
-                        throw new Error(data.message || 'API error');
-                    }
                     return data;
                 } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
+                    console.error('API call error:', error);
                     throw error;
                 }
             }
@@ -1210,6 +1283,7 @@
                         if (params.get('matric')) {
                             studentData.matric = params.get('matric');
                             studentData.name = params.get('name') || 'Student';
+                            studentData.id = params.get('id');
                             document.getElementById('studentName').textContent = studentData.name;
                             document.getElementById('studentMatric').textContent = studentData.matric;
                         } else {
@@ -1225,76 +1299,30 @@
                 }
             }
 
-            // ---------- MEDIAPIPE ----------
-            function initMediaPipe() {
-                return new Promise((resolve, reject) => {
-                    if (mediaPipeReady) { resolve(); return; }
-                    if (isMediaPipeLoading) {
-                        const checkReady = setInterval(() => {
-                            if (mediaPipeReady) { clearInterval(checkReady);
-                                resolve(); }
-                        }, 100);
-                        return;
-                    }
+            // ---------- FACE DETECTION USING SIMPLE APPROACH ----------
+            // Since we can't use MediaPipe CDN reliably, we'll use a simpler approach
+            // with the canvas API and image processing, or use the API for detection
 
-                    isMediaPipeLoading = true;
-
-                    try {
-                        faceMesh = new FaceMesh({
-                            locateFile: (file) =>
-                                `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-                        });
-
-                        faceMesh.setOptions({
-                            maxNumFaces: 1,
-                            refineLandmarks: true,
-                            minDetectionConfidence: 0.5,
-                            minTrackingConfidence: 0.5
-                        });
-
-                        faceMesh.onResults((results) => {
-                            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                                faceDetected = true;
-                                faceLandmarks = results.multiFaceLandmarks[0];
-                                calculateQuality(results.multiFaceLandmarks[0]);
-                                updateFaceStatus(true);
-                            } else {
-                                faceDetected = false;
-                                faceLandmarks = null;
-                                updateFaceStatus(false);
-                                if (currentQuality > 10) {
-                                    currentQuality = Math.max(10, currentQuality - 0.5);
-                                    updateQualityDisplay(currentQuality);
-                                }
-                            }
-                        });
-
-                        faceMesh.initialize().then(() => {
-                            mediaPipeReady = true;
-                            isMediaPipeLoading = false;
-                            console.log('✅ MediaPipe Face Mesh initialized');
-                            resolve();
-                        }).catch((err) => {
-                            console.error('MediaPipe init error:', err);
-                            isMediaPipeLoading = false;
-                            reject(err);
-                        });
-                    } catch (error) {
-                        console.error('MediaPipe setup error:', error);
-                        isMediaPipeLoading = false;
-                        reject(error);
-                    }
-                });
+            async function detectFaceWithAPI(imageData) {
+                try {
+                    const response = await fetch(`${API_BASE}/detect-face`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: imageData })
+                    });
+                    
+                    if (!response.ok) return false;
+                    const data = await response.json();
+                    return data.success && data.faces && data.faces.length > 0;
+                } catch (error) {
+                    return false;
+                }
             }
 
             // ---------- CAMERA ----------
             async function startCamera() {
                 try {
                     if (cameraStream) stopCamera();
-                    if (!mediaPipeReady) {
-                        showToast('Loading face detection...', 'info');
-                        await initMediaPipe();
-                    }
 
                     const constraints = {
                         video: {
@@ -1310,19 +1338,8 @@
                     await video.play();
                     isCameraReady = true;
 
-                    const sendToMediaPipe = async () => {
-                        if (!isCameraReady || !video || video.readyState < 2) {
-                            if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
-                            return;
-                        }
-                        try {
-                            if (mediaPipeReady && faceMesh) {
-                                await faceMesh.send({ image: video });
-                            }
-                        } catch (e) {}
-                        if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
-                    };
-                    sendToMediaPipe();
+                    // Start quality monitoring with canvas
+                    monitorVideoQuality();
 
                     updateStatus('ready', 'Camera ready - Position your face');
                     return true;
@@ -1348,6 +1365,68 @@
                 video.srcObject = null;
             }
 
+            // ---------- VIDEO QUALITY MONITORING ----------
+            function monitorVideoQuality() {
+                const context = captureCanvas.getContext('2d');
+                
+                const checkFrame = async () => {
+                    if (!isCameraReady || !video || video.readyState < 2) {
+                        if (isCameraReady) requestAnimationFrame(checkFrame);
+                        return;
+                    }
+
+                    try {
+                        // Capture frame
+                        captureCanvas.width = video.videoWidth || 640;
+                        captureCanvas.height = video.videoHeight || 480;
+                        context.save();
+                        context.scale(-1, 1);
+                        context.drawImage(video, -captureCanvas.width, 0, captureCanvas.width, captureCanvas.height);
+                        context.restore();
+
+                        const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
+
+                        // Check if face is detected via API
+                        const hasFace = await detectFaceWithAPI(imageData);
+                        
+                        if (hasFace) {
+                            faceDetected = true;
+                            faceGuideRing.classList.add('detected');
+                            faceGuideRing.classList.remove('capturing');
+                            
+                            // Simulate quality based on detection
+                            currentQuality = Math.min(99, currentQuality + 2);
+                            updateQualityDisplay(currentQuality);
+                            
+                            if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
+                                updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
+                            } else {
+                                updateStatus('ready', 'Face detected ✓');
+                            }
+                        } else {
+                            faceDetected = false;
+                            faceGuideRing.classList.remove('detected');
+                            faceGuideRing.classList.remove('capturing');
+                            
+                            if (currentQuality > 10) {
+                                currentQuality = Math.max(10, currentQuality - 0.5);
+                                updateQualityDisplay(currentQuality);
+                            }
+                            
+                            if (!isSetupActive) {
+                                updateStatus('waiting', 'Position your face');
+                            }
+                        }
+                    } catch (error) {
+                        // Silent fail for frame processing
+                    }
+
+                    if (isCameraReady) requestAnimationFrame(checkFrame);
+                };
+
+                checkFrame();
+            }
+
             // ---------- STATUS UPDATES ----------
             function updateStatus(type, message) {
                 statusDot.className = 'status-dot ' + type;
@@ -1361,16 +1440,6 @@
                     statusDot.className = 'status-dot error';
                 } else {
                     statusDot.className = 'status-dot waiting';
-                }
-            }
-
-            function updateFaceStatus(detected) {
-                if (detected) {
-                    faceGuideRing.classList.add('detected');
-                    faceGuideRing.classList.remove('capturing');
-                } else {
-                    faceGuideRing.classList.remove('detected');
-                    faceGuideRing.classList.remove('capturing');
                 }
             }
 
@@ -1420,74 +1489,8 @@
                 else if (position === 'center') dots.center.classList.add('active');
             }
 
-            // ---------- QUALITY CALCULATION ----------
-            function calculateQuality(landmarks) {
-                if (!landmarks || landmarks.length < 468) return;
-
-                try {
-                    const leftEye = landmarks[33];
-                    const rightEye = landmarks[263];
-                    const noseTip = landmarks[1];
-                    const chin = landmarks[152];
-
-                    const faceWidth = Math.abs(rightEye.x - leftEye.x);
-                    const faceHeight = Math.abs(chin.y - noseTip.y);
-
-                    const centerX = (leftEye.x + rightEye.x) / 2;
-                    const centerY = (noseTip.y + chin.y) / 2;
-                    const centeringScore = 1 - Math.abs(centerX - 0.5) * 2;
-
-                    const sizeScore = Math.min(faceWidth * 3, 1);
-
-                    const leftEyeCenter = {
-                        x: (landmarks[33].x + landmarks[133].x) / 2,
-                        y: (landmarks[33].y + landmarks[133].y) / 2
-                    };
-                    const rightEyeCenter = {
-                        x: (landmarks[263].x + landmarks[362].x) / 2,
-                        y: (landmarks[263].y + landmarks[362].y) / 2
-                    };
-                    const eyeLevel = Math.abs(leftEyeCenter.y - rightEyeCenter.y);
-                    const symmetryScore = 1 - eyeLevel * 2;
-
-                    const quality = Math.min(99, Math.max(40, (
-                        centeringScore * 0.3 +
-                        sizeScore * 0.3 +
-                        symmetryScore * 0.2 +
-                        0.2
-                    ) * 100));
-
-                    currentQuality = quality;
-                    updateQualityDisplay(quality);
-                } catch (error) {
-                    console.warn('Quality calculation error:', error);
-                }
-            }
-
             // ---------- CAPTURE LOGIC ----------
-            function getHeadDirection() {
-                if (!faceLandmarks) return 'center';
-
-                const noseTip = faceLandmarks[1];
-                const chin = faceLandmarks[152];
-                const leftEye = faceLandmarks[33];
-                const rightEye = faceLandmarks[263];
-
-                const centerX = (leftEye.x + rightEye.x) / 2;
-                const centerY = (noseTip.y + chin.y) / 2;
-
-                const offsetX = centerX - 0.5;
-                const offsetY = centerY - 0.5;
-
-                if (Math.abs(offsetX) < 0.05 && Math.abs(offsetY) < 0.05) return 'center';
-                if (Math.abs(offsetX) > Math.abs(offsetY)) {
-                    return offsetX > 0 ? 'right' : 'left';
-                } else {
-                    return offsetY > 0 ? 'down' : 'up';
-                }
-            }
-
-            function performAutoCapture() {
+            async function performAutoCapture() {
                 if (!isSetupActive || capturedFrames.length >= TOTAL_CAPTURES) {
                     if (capturedFrames.length >= TOTAL_CAPTURES) {
                         completeSetup();
@@ -1495,26 +1498,12 @@
                     return;
                 }
 
-                if (!faceDetected || currentQuality < 50) {
+                if (!faceDetected || currentQuality < 40) {
                     updateStatus('waiting', faceDetected ? 'Improve quality...' : 'Position your face');
                     return;
                 }
 
-                const direction = getHeadDirection();
-                let posIndex = capturedFrames.length % 5;
-                const directions = ['center', 'right', 'down', 'left', 'up'];
-
-                if (directions[posIndex] === direction || capturedFrames.length === 0) {
-                    captureFrame(direction);
-                } else {
-                    const hint = directions[posIndex];
-                    updateArrows(hint);
-                    updateGuideDots(hint);
-                    updateStatus('waiting', `Move head to ${hint} position`);
-                }
-            }
-
-            function captureFrame(direction) {
+                // Capture frame
                 try {
                     const context = captureCanvas.getContext('2d');
                     captureCanvas.width = video.videoWidth || 640;
@@ -1527,8 +1516,18 @@
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
 
+                    // Verify face is still detected
+                    const hasFace = await detectFaceWithAPI(imageData);
+                    if (!hasFace) {
+                        updateStatus('waiting', 'Face lost, reposition...');
+                        return;
+                    }
+
                     faceGuideRing.classList.add('capturing');
                     setTimeout(() => faceGuideRing.classList.remove('capturing'), 300);
+
+                    const directions = ['center', 'right', 'down', 'left', 'up'];
+                    const direction = directions[capturedFrames.length % 5] || 'center';
 
                     capturedFrames.push({
                         index: capturedFrames.length,
@@ -1547,6 +1546,8 @@
                         const directions = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
                         instructionText.innerHTML =
                             `<i class="fas fa-arrow-right" style="color:#d6ad4b;"></i> Move head to <strong>${directions[nextPos]}</strong> position`;
+                        updateArrows(['center', 'right', 'down', 'left', 'up'][nextPos]);
+                        updateGuideDots(['center', 'right', 'down', 'left', 'up'][nextPos]);
                     }
 
                     if (capturedFrames.length >= TOTAL_CAPTURES) {
@@ -1596,6 +1597,13 @@
                     return;
                 }
 
+                // Check API status first
+                await checkApiStatus();
+                if (!isApiOnline) {
+                    showToast('API is offline. Please try again later.', 'error');
+                    return;
+                }
+
                 isSetupActive = true;
                 btnStart.disabled = true;
                 btnStart.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing...';
@@ -1632,6 +1640,14 @@
                 if (isEnrolling) return;
                 isEnrolling = true;
 
+                // Check API status
+                await checkApiStatus();
+                if (!isApiOnline) {
+                    showToast('API is offline. Please try again later.', 'error');
+                    isEnrolling = false;
+                    return;
+                }
+
                 if (!studentData.id && !studentData.matric) {
                     showToast('Student data not found. Please register first.', 'error');
                     isEnrolling = false;
@@ -1651,12 +1667,15 @@
 
                     if (!studentId && studentData.matric) {
                         try {
+                            // Try to find student by matric
                             const searchRes = await apiCall(`/students?search=${studentData.matric}`);
                             if (searchRes.data && searchRes.data.length > 0) {
                                 studentId = searchRes.data[0].id;
                                 studentData.id = studentId;
                             }
-                        } catch (e) {}
+                        } catch (e) {
+                            console.warn('Student search failed:', e);
+                        }
                     }
 
                     if (!studentId) {
@@ -1675,16 +1694,15 @@
                     loadingProgressFill.style.width = '50%';
 
                     // Use the single-frame enrollment endpoint
-                    const enrollResponse = await fetch(`${API_BASE}/face/enroll`, {
+                    const enrollResponse = await fetch(`${API_BASE}/enroll-face`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             student_id: studentId,
                             image: bestFrame.imageData,
                             name: studentData.name,
-                            matric: studentData.matric,
-                            hostel_id: studentData.hostel_id,
-                            room_id: studentData.room_id
+                            hostel: studentData.hostel_name || studentData.hostel_id || '',
+                            room: studentData.room_code || studentData.room_id || ''
                         })
                     });
 
@@ -1692,7 +1710,7 @@
 
                     if (!enrollResponse.ok) {
                         const errorData = await enrollResponse.json();
-                        throw new Error(errorData.message || `HTTP ${enrollResponse.status}`);
+                        throw new Error(errorData.detail || errorData.message || `HTTP ${enrollResponse.status}`);
                     }
 
                     const enrollResult = await enrollResponse.json();
@@ -1806,6 +1824,9 @@
                 document.getElementById('timeDisplay').textContent =
                     `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
 
+                // Check API status first
+                await checkApiStatus();
+
                 await startCamera();
 
                 updatePositionIndicators();
@@ -1816,6 +1837,9 @@
                         dot.querySelector('span:last-child').textContent = ['Front', 'Right', 'Bottom', 'Left', 'Top'][i];
                     }
                 });
+
+                // Periodically check API status
+                setInterval(checkApiStatus, 30000);
             }
 
             // ---------- EXPOSE TO WINDOW ----------
@@ -1826,6 +1850,7 @@
             window.startCamera = startCamera;
             window.stopCamera = stopCamera;
             window.goBackToDetails = goBackToDetails;
+            window.checkApiStatus = checkApiStatus;
 
             // ---------- INIT ----------
             if (document.readyState === 'loading') {
