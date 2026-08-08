@@ -4,9 +4,9 @@ import insightface
 import time
 from collections import deque
 
-# Load InsightFace model
+# Load InsightFace model - Use antelopev2 to match app.py
 app = insightface.app.FaceAnalysis(
-    name="buffalo_l",
+    name="antelopev2",  # Changed from buffalo_l to antelopev2
     providers=["CPUExecutionProvider"]
 )
 
@@ -49,10 +49,11 @@ def cosine_similarity(a, b):
     a = np.array(a)
     b = np.array(b)
 
-    return np.dot(a, b) / (
-        np.linalg.norm(a) *
-        np.linalg.norm(b)
-    )
+    denominator = np.linalg.norm(a) * np.linalg.norm(b)
+    if denominator == 0:
+        return 0.0
+
+    return np.dot(a, b) / denominator
 
 
 # ==========================
