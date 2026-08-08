@@ -1,46 +1,19 @@
 import cv2
 import numpy as np
-import insightface
 import time
 from collections import deque
 
 # ==========================================
-# LOAD MODEL - Match app.py pattern
+# NO MODEL LOADING HERE - Model passed from app.py
+# All functions now accept face_model as first parameter
 # ==========================================
 
-# Try loading with explicit root path
-try:
-    app = insightface.app.FaceAnalysis(
-        name="antelopev2",
-        root="/opt/render/.insightface/models",  # Explicit path
-        providers=["CPUExecutionProvider"]
-    )
-    app.prepare(ctx_id=0)
-    print("✅ Model loaded successfully (antelopev2)")
-except Exception as e:
-    print(f"⚠️ Could not load antelopev2, trying buffalo_l: {e}")
-    try:
-        app = insightface.app.FaceAnalysis(
-            name="buffalo_l",
-            root="/opt/render/.insightface/models",
-            providers=["CPUExecutionProvider"]
-        )
-        app.prepare(ctx_id=0)
-        print("✅ Model loaded successfully (buffalo_l fallback)")
-    except Exception as e2:
-        print(f"❌ Failed to load any model: {e2}")
-        raise
-
-
-# ==========================
-# Get Face Embedding
-# ==========================
-def get_face_embedding(image):
+def get_face_embedding(face_model, image):
     """
-    Extract face embedding from image
+    Extract face embedding from image using the provided model
     Returns: 512-dimensional numpy array or None
     """
-    faces = app.get(image)
+    faces = face_model.get(image)
 
     if len(faces) == 0:
         return None
@@ -57,9 +30,6 @@ def get_face_embedding(image):
     return face.embedding
 
 
-# ==========================
-# Cosine Similarity
-# ==========================
 def cosine_similarity(a, b):
     """
     Calculate cosine similarity between two embeddings
@@ -75,14 +45,11 @@ def cosine_similarity(a, b):
     return np.dot(a, b) / denominator
 
 
-# ==========================
-# Verify Student (Single Frame)
-# ==========================
-def verify_student(camera_image, stored_embedding, threshold=0.55):
+def verify_student(face_model, camera_image, stored_embedding, threshold=0.55):
     """
     Verify a single frame against a stored embedding
     """
-    current_embedding = get_face_embedding(camera_image)
+    current_embedding = get_face_embedding(face_model, camera_image)
 
     if current_embedding is None:
         return {
@@ -91,28 +58,22 @@ def verify_student(camera_image, stored_embedding, threshold=0.55):
             "confidence": 0.0
         }
 
-    score = cosine_similarity(
-        current_embedding,
-        stored_embedding
-    )
+    score = cosine_similarity(current_embedding, stored_embedding)
 
     return {
-        "success": score > threshold,
+        "success": score >= threshold,
         "confidence": float(score),
         "threshold": threshold,
-        "message": "Verified" if score > threshold else "Confidence too low"
+        "message": "Verified" if score >= threshold else "Face does not match"
     }
 
 
-# ==========================
-# Verify Against Multiple Students
-# ==========================
-def verify_against_multiple(camera_image, stored_embeddings, student_ids, threshold=0.55):
+def verify_against_multiple(face_model, camera_image, stored_embeddings, student_ids, threshold=0.55):
     """
     Verify a face against multiple stored embeddings
     Returns: Best match with student ID
     """
-    current_embedding = get_face_embedding(camera_image)
+    current_embedding = get_face_embedding(face_model, camera_image)
 
     if current_embedding is None:
         return {
@@ -131,7 +92,7 @@ def verify_against_multiple(camera_image, stored_embeddings, student_ids, thresh
             best_score = score
             best_match = student_ids[i]
 
-    if best_score > threshold:
+    if best_score >= threshold:
         return {
             "success": True,
             "student_id": best_match,
@@ -149,10 +110,7 @@ def verify_against_multiple(camera_image, stored_embeddings, student_ids, thresh
         }
 
 
-# ==========================
-# Verify With Confidence Tracking
-# ==========================
-def verify_with_confidence_tracking(camera, stored_embedding, threshold=0.55, required_frames=10):
+def verify_with_confidence_tracking(face_model, camera, stored_embedding, threshold=0.55, required_frames=10):
     """
     Track confidence scores over multiple frames for stable verification
     """
@@ -167,7 +125,7 @@ def verify_with_confidence_tracking(camera, stored_embedding, threshold=0.55, re
         if not ret:
             continue
 
-        current_embedding = get_face_embedding(frame)
+        current_embedding = get_face_embedding(face_model, frame)
 
         if current_embedding is None:
             stable_frames = 0
@@ -177,26 +135,22 @@ def verify_with_confidence_tracking(camera, stored_embedding, threshold=0.55, re
             score = cosine_similarity(current_embedding, stored_embedding)
             scores.append(score)
 
-            # Check if we have enough high-confidence frames
             if len(scores) >= 10:
                 avg_score = np.mean(scores)
                 
-                if avg_score > threshold:
+                if avg_score >= threshold:
                     stable_frames += 1
                 else:
                     stable_frames = 0
 
-                # Display confidence
-                color = (0, 255, 0) if avg_score > threshold else (0, 0, 255)
+                color = (0, 255, 0) if avg_score >= threshold else (0, 0, 255)
                 cv2.putText(frame, f"Confidence: {avg_score:.2f}", (50, 50), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                 
-                # Show progress
                 progress = min(100, int((stable_frames / required_frames) * 100))
                 cv2.putText(frame, f"Verifying: {progress}%", (50, 80), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-                # Verify after stable detection
                 if stable_frames >= required_frames:
                     camera.release()
                     cv2.destroyAllWindows()
@@ -221,10 +175,7 @@ def verify_with_confidence_tracking(camera, stored_embedding, threshold=0.55, re
     }
 
 
-# ==========================
-# Verify Multiple Students With Tracking
-# ==========================
-def verify_multiple_with_tracking(camera, stored_embeddings, student_ids, threshold=0.55, required_frames=10):
+def verify_multiple_with_tracking(face_model, camera, stored_embeddings, student_ids, threshold=0.55, required_frames=10):
     """
     Track confidence scores against multiple students
     """
@@ -240,14 +191,13 @@ def verify_multiple_with_tracking(camera, stored_embeddings, student_ids, thresh
         if not ret:
             continue
 
-        current_embedding = get_face_embedding(frame)
+        current_embedding = get_face_embedding(face_model, frame)
 
         if current_embedding is None:
             stable_frames = 0
             cv2.putText(frame, "No face detected", (50, 50), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         else:
-            # Compare with all students
             best_score = 0
             best_match = None
             
@@ -260,31 +210,26 @@ def verify_multiple_with_tracking(camera, stored_embeddings, student_ids, thresh
             best_scores.append(best_score)
             best_student_id = best_match
 
-            # Check stability
             if len(best_scores) >= 10:
                 avg_score = np.mean(best_scores)
                 
-                if avg_score > threshold:
+                if avg_score >= threshold:
                     stable_frames += 1
                 else:
                     stable_frames = 0
 
-                # Display confidence
-                color = (0, 255, 0) if avg_score > threshold else (0, 0, 255)
+                color = (0, 255, 0) if avg_score >= threshold else (0, 0, 255)
                 cv2.putText(frame, f"Confidence: {avg_score:.2f}", (50, 50), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                 
-                # Show progress
                 progress = min(100, int((stable_frames / required_frames) * 100))
                 cv2.putText(frame, f"Verifying: {progress}%", (50, 80), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-                # Show student name if available
                 if best_student_id:
                     cv2.putText(frame, f"Student: {best_student_id}", (50, 110), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-                # Verify after stable detection
                 if stable_frames >= required_frames:
                     camera.release()
                     cv2.destroyAllWindows()
@@ -311,10 +256,11 @@ def verify_multiple_with_tracking(camera, stored_embeddings, student_ids, thresh
     }
 
 
-# ==========================
-# Test Functions
-# ==========================
-def test_single_verification():
+# ==========================================
+# Test Functions (Pass model from app.py)
+# ==========================================
+
+def test_single_verification(face_model):
     """
     Test verification against a single embedding
     """
@@ -340,7 +286,7 @@ def test_single_verification():
         
         key = cv2.waitKey(1)
         if key == 32:  # SPACE
-            reference_embedding = get_face_embedding(frame)
+            reference_embedding = get_face_embedding(face_model, frame)
             if reference_embedding is not None:
                 print("✓ Reference captured!")
                 break
@@ -353,11 +299,11 @@ def test_single_verification():
     
     # Now verify
     print("\nNow verifying against reference...")
-    result = verify_with_confidence_tracking(camera, reference_embedding)
+    result = verify_with_confidence_tracking(face_model, camera, reference_embedding)
     print(f"\nResult: {result}")
 
 
-def test_multiple_verification():
+def test_multiple_verification(face_model):
     """
     Test verification against multiple embeddings
     """
@@ -385,7 +331,7 @@ def test_multiple_verification():
             
             key = cv2.waitKey(1)
             if key == 32:  # SPACE
-                embedding = get_face_embedding(frame)
+                embedding = get_face_embedding(face_model, frame)
                 if embedding is not None:
                     embeddings.append(embedding)
                     student_ids.append(f"Student_{i+1}")
@@ -400,19 +346,32 @@ def test_multiple_verification():
     
     # Now verify against all
     print("\nNow verifying against all students...")
-    result = verify_multiple_with_tracking(camera, embeddings, student_ids)
+    result = verify_multiple_with_tracking(face_model, camera, embeddings, student_ids)
     print(f"\nResult: {result}")
 
 
 if __name__ == "__main__":
+    print("=" * 50)
+    print("VERIFY MODULE")
+    print("=" * 50)
+    print("This module no longer loads its own model.")
+    print("It expects face_model to be passed from app.py.")
+    print("To test, import and call test functions with a model.")
+    print("")
+    print("Example usage in app.py:")
+    print("  from verify import test_single_verification")
+    print("  test_single_verification(face_model)")
+    print("")
     print("Choose test:")
     print("1. Single verification")
     print("2. Multiple verification")
     choice = input("Enter choice (1 or 2): ")
     
     if choice == "1":
-        test_single_verification()
+        print("\n⚠️  This requires a face_model parameter.")
+        print("Please run from app.py or pass the model manually.")
     elif choice == "2":
-        test_multiple_verification()
+        print("\n⚠️  This requires a face_model parameter.")
+        print("Please run from app.py or pass the model manually.")
     else:
         print("Invalid choice")

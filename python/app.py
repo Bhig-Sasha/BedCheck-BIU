@@ -362,8 +362,9 @@ async def verify_face(request: VerifyRequest):
     try:
         frame = decode_image(request.image)
         
-        # Verify student
+        # Pass face_model as first argument
         result = verify_student(
+            face_model,  # <-- Added
             frame,
             request.stored_embedding,
             threshold=request.threshold
@@ -385,8 +386,9 @@ async def verify_multiple(request: MultipleImageRequest):
     try:
         frame = decode_image(request.image)
         
-        # Verify against multiple students
+        # Pass face_model as first argument
         result = verify_against_multiple(
+            face_model,  # <-- Added
             frame,
             request.embeddings,
             request.student_ids,
@@ -517,8 +519,8 @@ async def extract_embedding(request: ImageRequest):
     try:
         frame = decode_image(request.image)
         
-        # Get embedding
-        embedding = get_face_embedding(frame)
+        # Pass face_model as first argument
+        embedding = get_face_embedding(face_model, frame)  # <-- Added face_model
         
         if embedding is None:
             return {
