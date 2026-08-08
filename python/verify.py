@@ -4,8 +4,8 @@ import time
 from collections import deque
 
 # ==========================================
-# NO MODEL LOADING HERE - Model passed from app.py
-# All functions now accept face_model as first parameter
+# NO MODEL LOADING HERE
+# All functions accept face_model as first parameter
 # ==========================================
 
 def get_face_embedding(face_model, image):
@@ -257,7 +257,7 @@ def verify_multiple_with_tracking(face_model, camera, stored_embeddings, student
 
 
 # ==========================================
-# Test Functions (Pass model from app.py)
+# Test Functions (Require face_model parameter)
 # ==========================================
 
 def test_single_verification(face_model):
@@ -274,7 +274,6 @@ def test_single_verification(face_model):
     print("3. Then verify against it")
     print("=" * 50)
     
-    # Capture reference
     while True:
         ret, frame = camera.read()
         if not ret:
@@ -285,19 +284,18 @@ def test_single_verification(face_model):
         cv2.imshow("Capture Reference", frame)
         
         key = cv2.waitKey(1)
-        if key == 32:  # SPACE
+        if key == 32:
             reference_embedding = get_face_embedding(face_model, frame)
             if reference_embedding is not None:
                 print("✓ Reference captured!")
                 break
             else:
                 print("✗ No face detected. Try again.")
-        elif key == 27:  # ESC
+        elif key == 27:
             camera.release()
             cv2.destroyAllWindows()
             return
     
-    # Now verify
     print("\nNow verifying against reference...")
     result = verify_with_confidence_tracking(face_model, camera, reference_embedding)
     print(f"\nResult: {result}")
@@ -330,7 +328,7 @@ def test_multiple_verification(face_model):
             cv2.imshow(f"Capture Student {i+1}", frame)
             
             key = cv2.waitKey(1)
-            if key == 32:  # SPACE
+            if key == 32:
                 embedding = get_face_embedding(face_model, frame)
                 if embedding is not None:
                     embeddings.append(embedding)
@@ -339,12 +337,11 @@ def test_multiple_verification(face_model):
                     break
                 else:
                     print("✗ No face detected. Try again.")
-            elif key == 27:  # ESC
+            elif key == 27:
                 camera.release()
                 cv2.destroyAllWindows()
                 return
     
-    # Now verify against all
     print("\nNow verifying against all students...")
     result = verify_multiple_with_tracking(face_model, camera, embeddings, student_ids)
     print(f"\nResult: {result}")
@@ -357,21 +354,3 @@ if __name__ == "__main__":
     print("This module no longer loads its own model.")
     print("It expects face_model to be passed from app.py.")
     print("To test, import and call test functions with a model.")
-    print("")
-    print("Example usage in app.py:")
-    print("  from verify import test_single_verification")
-    print("  test_single_verification(face_model)")
-    print("")
-    print("Choose test:")
-    print("1. Single verification")
-    print("2. Multiple verification")
-    choice = input("Enter choice (1 or 2): ")
-    
-    if choice == "1":
-        print("\n⚠️  This requires a face_model parameter.")
-        print("Please run from app.py or pass the model manually.")
-    elif choice == "2":
-        print("\n⚠️  This requires a face_model parameter.")
-        print("Please run from app.py or pass the model manually.")
-    else:
-        print("Invalid choice")
