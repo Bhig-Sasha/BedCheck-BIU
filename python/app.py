@@ -9,9 +9,6 @@ import time
 from typing import List, Optional, Dict, Any
 import logging
 import os
-import requests
-import zipfile
-import shutil
 
 # Import our modules
 from embeddings import (
@@ -53,7 +50,7 @@ app = FastAPI(
 # ==========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to your domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,148 +60,80 @@ app.add_middleware(
 # Request/Response Models
 # ==========================
 class ImageRequest(BaseModel):
-    image: str  # Base64 encoded image
+    image: str
     student_id: Optional[str] = None
     threshold: Optional[float] = 0.55
 
 class MultipleImageRequest(BaseModel):
-    image: str  # Base64 encoded image
-    embeddings: List[List[float]]  # List of stored embeddings
-    student_ids: List[str]  # Corresponding student IDs
+    image: str
+    embeddings: List[List[float]]
+    student_ids: List[str]
     threshold: Optional[float] = 0.55
 
 class EnrollmentRequest(BaseModel):
-    image: str  # Base64 encoded image
+    image: str
     student_id: str
     hostel: str
     room: str
     name: Optional[str] = None
 
 class BulkEnrollmentRequest(BaseModel):
-    frames: List[str]  # List of base64 encoded images
+    frames: List[str]
     student_id: str
     hostel: str
     room: str
     name: Optional[str] = None
 
 class LivenessRequest(BaseModel):
-    image: str  # Base64 encoded image
+    image: str
 
 class VerifyRequest(BaseModel):
-    image: str  # Base64 encoded image
+    image: str
     stored_embedding: List[float]
     threshold: Optional[float] = 0.55
 
 # ==========================
-# Helper Function to Download Model
-# ==========================
-def download_model_if_needed():
-    """Download the InsightFace model if it's not already present"""
-    model_dir = "./models"
-    model_path = os.path.join(model_dir, "models", "antelopev2")
-    
-    os.makedirs(model_dir, exist_ok=True)
-    
-    # Check if model already exists
-    if os.path.exists(model_path) and os.listdir(model_path):
-        logger.info("Model already exists locally")
-        return True
-    
-    logger.info("Model not found. Downloading...")
-    
-    try:
-        model_url = "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip"
-        zip_path = os.path.join(model_dir, "antelopev2.zip")
-        
-        # Download
-        logger.info(f"Downloading from {model_url}")
-        response = requests.get(model_url, stream=True, timeout=120)
-        response.raise_for_status()
-        
-        total_size = int(response.headers.get('content-length', 0))
-        downloaded = 0
-        
-        with open(zip_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        progress = (downloaded / total_size) * 100
-                        if progress % 10 < 2:
-                            logger.info(f"Download progress: {progress:.1f}%")
-        
-        logger.info("Download complete. Extracting...")
-        
-        # Extract
-        extract_path = os.path.join(model_dir, "models")
-        os.makedirs(extract_path, exist_ok=True)
-        
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_path)
-        
-        # Clean up
-        os.remove(zip_path)
-        
-        logger.info(f"Model extracted to {model_path}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to download model: {e}")
-        return False
-
-# ==========================
 # Global Variables
 # ==========================
-# Load InsightFace model
 face_model = None
+MODEL_LOADED = False
 
 try:
-    # Ensure model is downloaded
-    if not download_model_if_needed():
-        logger.warning("Could not download model, attempting to load anyway...")
+    # Try to load the model (should already be downloaded during build)
+    logger.info("Loading InsightFace model...")
     
-    # Try to load the model
-    face_model = insightface.app.FaceAnalysis(
-        name="antelopev2",
-        root="./models",
-        providers=["CPUExecutionProvider"],
-        allowed_modules=['detection', 'recognition']
-    )
-    
-    # Prepare the model
-    face_model.prepare(
-        ctx_id=0,
-        det_size=(640, 640)
-    )
-    
-    logger.info("===================================")
-    logger.info(" InsightFace Loaded Successfully ")
-    logger.info("===================================")
-    
-except Exception as e:
-    logger.error(f"Failed to load InsightFace: {e}")
-    
-    # Try with buffalo_l as fallback
+    # Try antelopev2 first
     try:
-        logger.info("Attempting to load buffalo_l model as fallback...")
         face_model = insightface.app.FaceAnalysis(
-            name="buffalo_l",
+            name="antelopev2",
             root="./models",
             providers=["CPUExecutionProvider"],
             allowed_modules=['detection', 'recognition']
         )
-        face_model.prepare(
-            ctx_id=0,
-            det_size=(640, 640)
+        face_model.prepare(ctx_id=0, det_size=(640, 640))
+        MODEL_LOADED = True
+        logger.info("===================================")
+        logger.info(" InsightFace (antelopev2) Loaded ")
+        logger.info("===================================")
+    except Exception as e:
+        logger.warning(f"antelopev2 failed: {e}")
+        
+        # Try buffalo_l as fallback (smaller)
+        logger.info("Trying buffalo_l model...")
+        face_model = insightface.app.FaceAnalysis(
+            name="buffalo_l",
+            root="./models",
+            providers=["CPUExecutionProvider"]
         )
+        face_model.prepare(ctx_id=0, det_size=(320, 320))
+        MODEL_LOADED = True
         logger.info("===================================")
-        logger.info(" InsightFace (buffalo_l) Loaded Successfully ")
+        logger.info(" InsightFace (buffalo_l) Loaded ")
         logger.info("===================================")
-    except Exception as e2:
-        logger.error(f"Failed to load fallback model: {e2}")
-        # Don't raise - let the app start but with face_model = None
-        logger.warning("Face recognition features will be unavailable")
+        
+except Exception as e:
+    logger.error(f"Failed to load any model: {e}")
+    logger.warning("Face recognition features will be unavailable")
 
 # Initialize liveness detector
 liveness_detector = LivenessDetector()
@@ -213,11 +142,7 @@ liveness_detector = LivenessDetector()
 # Helper Functions
 # ==========================
 def decode_image(image_data: str) -> np.ndarray:
-    """
-    Decode base64 image to OpenCV format
-    """
     try:
-        # Remove data URL prefix if present
         if "base64," in image_data:
             image_data = image_data.split("base64,")[1]
         
@@ -241,7 +166,7 @@ def home():
     return {
         "status": "running",
         "engine": "InsightFace",
-        "model": "antelopev2" if face_model else "not loaded",
+        "model": "antelopev2" if MODEL_LOADED else "not loaded",
         "version": "1.0.0",
         "message": "BIU BedCheck Face Engine is Online",
         "endpoints": {
@@ -260,19 +185,18 @@ def home():
 @app.get("/health")
 def health():
     return {
-        "status": "healthy" if face_model else "unhealthy",
-        "model_loaded": face_model is not None,
+        "status": "healthy" if MODEL_LOADED else "degraded",
+        "model_loaded": MODEL_LOADED,
         "timestamp": time.time()
     }
 
 @app.get("/model-info")
 def model_info():
     return {
-        "model": "antelopev2",
+        "model": "antelopev2" if MODEL_LOADED else "not loaded",
         "embedding_size": 512,
         "detection_size": (640, 640),
-        "providers": ["CPUExecutionProvider"],
-        "loaded": face_model is not None
+        "loaded": MODEL_LOADED
     }
 
 # ==========================
@@ -280,26 +204,16 @@ def model_info():
 # ==========================
 @app.post("/detect-face")
 async def detect_face(request: ImageRequest):
-    """
-    Detect a face in the image and return bounding box
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
-        
-        # Detect faces
         faces = face_model.get(frame)
         
         if len(faces) == 0:
-            return {
-                "success": False,
-                "message": "No face detected",
-                "faces": []
-            }
+            return {"success": False, "message": "No face detected", "faces": []}
         
-        # Process all detected faces
         face_data = []
         for face in faces:
             bbox = face.bbox.tolist()
@@ -328,16 +242,12 @@ async def detect_face(request: ImageRequest):
 # ==========================
 @app.post("/enroll-face")
 async def enroll_face(request: EnrollmentRequest):
-    """
-    Enroll a face (single image) and generate embedding
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
         
-        # Create embedding with quality check
         result = create_embedding_with_quality(face_model, frame, min_confidence=0.5)
         
         if not result["success"]:
@@ -349,7 +259,6 @@ async def enroll_face(request: EnrollmentRequest):
                 "quality": 0.0
             }
         
-        # Prepare embedding for database
         embedding = prepare_embedding_for_db(result["embedding"])
         
         return {
@@ -369,14 +278,10 @@ async def enroll_face(request: EnrollmentRequest):
 
 @app.post("/enroll-bulk")
 async def enroll_bulk(request: BulkEnrollmentRequest):
-    """
-    Enroll a face using multiple frames for better accuracy
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
-        # Decode all frames
         frames = []
         for img_data in request.frames:
             frame = decode_image(img_data)
@@ -389,7 +294,6 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
                 "embedding": None
             }
         
-        # Process each frame
         embeddings = []
         confidence_scores = []
         quality_scores = []
@@ -409,12 +313,10 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
                 "frames_used": len(embeddings)
             }
         
-        # Average embeddings with quality weighting
         avg_embedding = average_embeddings(embeddings, weights=quality_scores)
         avg_confidence = np.mean(confidence_scores)
         avg_quality = np.mean(quality_scores)
         
-        # Prepare for database
         embedding = prepare_embedding_for_db(avg_embedding)
         
         return {
@@ -435,15 +337,10 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
 
 @app.post("/start-smart-enrollment")
 async def start_smart_enrollment(request: ImageRequest):
-    """
-    Start smart enrollment - captures multiple frames automatically
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
-        # This endpoint would typically be used with a video stream
-        # For now, we'll just return instructions
         return {
             "success": True,
             "message": "Smart enrollment ready. Please send multiple frames to /enroll-bulk",
@@ -460,16 +357,12 @@ async def start_smart_enrollment(request: ImageRequest):
 # ==========================
 @app.post("/verify-face")
 async def verify_face(request: VerifyRequest):
-    """
-    Verify a face against a stored embedding
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
         
-        # Pass face_model as first argument
         result = verify_student(
             face_model,
             frame,
@@ -487,16 +380,12 @@ async def verify_face(request: VerifyRequest):
 
 @app.post("/verify-multiple")
 async def verify_multiple(request: MultipleImageRequest):
-    """
-    Verify a face against multiple stored embeddings
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
         
-        # Pass face_model as first argument
         result = verify_against_multiple(
             face_model,
             frame,
@@ -515,9 +404,6 @@ async def verify_multiple(request: MultipleImageRequest):
 
 @app.post("/compare-embeddings")
 async def compare_embeddings(request: dict):
-    """
-    Compare two embeddings directly
-    """
     try:
         embedding1 = request.get("embedding1")
         embedding2 = request.get("embedding2")
@@ -525,7 +411,6 @@ async def compare_embeddings(request: dict):
         if not embedding1 or not embedding2:
             raise HTTPException(status_code=400, detail="Both embeddings are required")
         
-        # Calculate similarity
         similarity = cosine_similarity(embedding1, embedding2)
         
         return {
@@ -545,19 +430,12 @@ async def compare_embeddings(request: dict):
 # ==========================
 @app.post("/check-liveness")
 async def check_liveness(request: LivenessRequest):
-    """
-    Check if the person in the image is live
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
-        
-        # Detect faces
         faces = face_model.get(frame)
-        
-        # Check liveness
         is_live, message, progress = liveness_detector.check_liveness(frame, faces)
         
         return {
@@ -576,9 +454,6 @@ async def check_liveness(request: LivenessRequest):
 
 @app.post("/reset-liveness")
 async def reset_liveness():
-    """
-    Reset the liveness detector for a new student
-    """
     try:
         liveness_detector.reset()
         return {
@@ -592,9 +467,6 @@ async def reset_liveness():
 
 @app.get("/liveness-status")
 async def get_liveness_status():
-    """
-    Get current liveness detection status
-    """
     return {
         "phase": liveness_detector.phase,
         "blinks_completed": liveness_detector.blinks_completed,
@@ -607,9 +479,6 @@ async def get_liveness_status():
 # ==========================
 @app.post("/validate-embedding")
 async def validate_embedding_endpoint(request: dict):
-    """
-    Validate if an embedding is properly formatted
-    """
     try:
         embedding = request.get("embedding")
         is_valid = validate_embedding(embedding)
@@ -626,16 +495,11 @@ async def validate_embedding_endpoint(request: dict):
 
 @app.post("/extract-embedding")
 async def extract_embedding(request: ImageRequest):
-    """
-    Extract embedding from an image without saving
-    """
-    if face_model is None:
+    if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
-        
-        # Pass face_model as first argument
         embedding = get_face_embedding(face_model, frame)
         
         if embedding is None:
@@ -683,11 +547,4 @@ async def general_exception_handler(request, exc):
 # ==========================
 if __name__ == "__main__":
     import uvicorn
-    
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True, log_level="info")

@@ -36,18 +36,59 @@ services:
       cd python
       pip install --upgrade pip
       pip install -r requirements.txt
-      # Cache the model during build
+      
+      # Download model during build (not runtime)
+      echo "Downloading face model during build..."
       python -c "
       import os
       import insightface
-      from pathlib import Path
       import zipfile
       import requests
+      from pathlib import Path
       
-      # Download and cache the model
+      # Set up model directory
       model_dir = './models'
       os.makedirs(model_dir, exist_ok=True)
       
+      model_path = os.path.join(model_dir, 'models', 'antelopev2')
+      
+      # Check if model already exists
+      if os.path.exists(model_path) and os.listdir(model_path):
+          print('✅ Model already exists')
+          exit(0)
+      
+      print('📥 Downloading antelopev2 model...')
+      model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
+      zip_path = os.path.join(model_dir, 'antelopev2.zip')
+      
+      # Download with progress
+      response = requests.get(model_url, stream=True, timeout=300)
+      response.raise_for_status()
+      
+      total_size = int(response.headers.get('content-length', 0))
+      downloaded = 0
+      
+      with open(zip_path, 'wb') as f:
+          for chunk in response.iter_content(chunk_size=8192):
+              if chunk:
+                  f.write(chunk)
+                  downloaded += len(chunk)
+                  if total_size > 0:
+                      progress = (downloaded / total_size) * 100
+                      if int(progress) % 10 == 0:
+                          print(f'Download progress: {progress:.1f}%')
+      
+      print('📦 Extracting model...')
+      extract_path = os.path.join(model_dir, 'models')
+      os.makedirs(extract_path, exist_ok=True)
+      
+      with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+          zip_ref.extractall(extract_path)
+      
+      os.remove(zip_path)
+      print('✅ Model downloaded and extracted successfully')
+      
+      # Verify model loaded
       try:
           model = insightface.app.FaceAnalysis(
               name='antelopev2',
@@ -56,37 +97,19 @@ services:
               allowed_modules=['detection', 'recognition']
           )
           model.prepare(ctx_id=0, det_size=(640, 640))
-          print('✅ Model cached successfully')
+          print('✅ Model verified and ready')
       except Exception as e:
-          print(f'⚠️ Model caching failed: {e}')
-          # Try manual download
-          import zipfile
-          import requests
-          import shutil
-          
-          model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
-          zip_path = os.path.join(model_dir, 'antelopev2.zip')
-          extract_path = os.path.join(model_dir, 'models', 'antelopev2')
-          
-          os.makedirs(os.path.dirname(extract_path), exist_ok=True)
-          
-          if not os.path.exists(extract_path):
-              print('Downloading model manually...')
-              response = requests.get(model_url, stream=True)
-              response.raise_for_status()
-              
-              with open(zip_path, 'wb') as f:
-                  for chunk in response.iter_content(chunk_size=8192):
-                      f.write(chunk)
-              
-              with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                  zip_ref.extractall(extract_path)
-              
-              os.remove(zip_path)
-              print('✅ Model downloaded and extracted')
+          print(f'⚠️ Model verification failed: {e}')
       "
+      
+      # Clean up to save space
+      rm -rf /opt/render/project/src/.venv/lib/python3.11/site-packages/tensorflow* 2>/dev/null || true
+      
     startCommand: |
       cd python
+      # Set memory limit warning
+      export PYTHONUNBUFFERED=1
+      export TF_CPP_MIN_LOG_LEVEL=3
       uvicorn app:app --host 0.0.0.0 --port 8000
     envVars:
       - key: PYTHON_VERSION
@@ -99,5 +122,7 @@ services:
         value: ./models
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
+      - key: PYTHONUNBUFFERED
+        value: "1"
     healthCheckPath: /health
     autoDeploy: true
