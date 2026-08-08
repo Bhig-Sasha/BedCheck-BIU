@@ -27,15 +27,64 @@ services:
     healthCheckPath: /health
     autoDeploy: true
 
-    - type: web
+  - type: web
     name: face-api
     runtime: python
+    plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
     buildCommand: |
       cd python
       pip install --upgrade pip
       pip install -r requirements.txt
-      python -c "import insightface; insightface.app.FaceAnalysis(name='antelopev2', root='/opt/render/.insightface/models'); print('✅ Model cached successfully')"
+      # Cache the model during build
+      python -c "
+      import os
+      import insightface
+      from pathlib import Path
+      import zipfile
+      import requests
+      
+      # Download and cache the model
+      model_dir = './models'
+      os.makedirs(model_dir, exist_ok=True)
+      
+      try:
+          model = insightface.app.FaceAnalysis(
+              name='antelopev2',
+              root=model_dir,
+              providers=['CPUExecutionProvider'],
+              allowed_modules=['detection', 'recognition']
+          )
+          model.prepare(ctx_id=0, det_size=(640, 640))
+          print('✅ Model cached successfully')
+      except Exception as e:
+          print(f'⚠️ Model caching failed: {e}')
+          # Try manual download
+          import zipfile
+          import requests
+          import shutil
+          
+          model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
+          zip_path = os.path.join(model_dir, 'antelopev2.zip')
+          extract_path = os.path.join(model_dir, 'models', 'antelopev2')
+          
+          os.makedirs(os.path.dirname(extract_path), exist_ok=True)
+          
+          if not os.path.exists(extract_path):
+              print('Downloading model manually...')
+              response = requests.get(model_url, stream=True)
+              response.raise_for_status()
+              
+              with open(zip_path, 'wb') as f:
+                  for chunk in response.iter_content(chunk_size=8192):
+                      f.write(chunk)
+              
+              with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                  zip_ref.extractall(extract_path)
+              
+              os.remove(zip_path)
+              print('✅ Model downloaded and extracted')
+      "
     startCommand: |
       cd python
       uvicorn app:app --host 0.0.0.0 --port 8000
@@ -47,6 +96,8 @@ services:
       - key: PIP_NO_CACHE_DIR
         value: "true"
       - key: INSIGHTFACE_CACHE
-        value: /opt/render/.insightface
+        value: ./models
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
     healthCheckPath: /health
     autoDeploy: true
