@@ -2,804 +2,1807 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Student Management · BIU BedCheck</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Registration · BIU BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <!-- MediaPipe Face Detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
+        /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; overflow-x: hidden; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #f5f1e8 0%, #e8e0d5 100%);
+            color: #17233c;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
 
-        .app-wrapper { display: flex; min-height: 100vh; width: 100%; }
-        .sidebar { position: fixed; inset: 0 0 0 0; width: 16rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; display: none; flex-direction: column; z-index: 30; transition: transform 0.3s ease; }
-        @media (min-width: 1024px) { .sidebar { display: flex; } }
+        .register-container {
+            max-width: 950px;
+            width: 100%;
+            background: #fffcf6;
+            border-radius: 1.5rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .register-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: linear-gradient(90deg, #d6ad4b, #10233f, #d6ad4b);
+        }
 
-        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
-        .sidebar .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; transition: transform 0.3s ease; }
-        .sidebar .brand-badge:hover { transform: scale(1.05); }
-        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
-        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
-        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
-        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
-        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: all 0.3s ease; text-decoration: none; }
-        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; transition: transform 0.3s ease; }
-        .nav-item:hover { background: rgba(255,255,255,0.1); transform: translateX(4px); }
-        .nav-item:hover i { transform: scale(1.1); }
-        .nav-item.active { background: #d6ad4b; color: #10233f; }
+        .register-header {
+            text-align: center;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #eee8de;
+            margin-bottom: 1rem;
+        }
+        .register-header .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+        .register-header .logo .logo-img {
+            width: 50px;
+            height: 50px;
+            object-fit: contain;
+        }
+        .register-header .logo h1 {
+            font-family: 'Merriweather',serif;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #10233f;
+        }
+        .register-header .subtitle {
+            color: #68768a;
+            font-size: 0.85rem;
+        }
+        .register-header .subtitle i { color: #a77915; }
 
-        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; transition: all 0.3s ease; }
-        .sidebar .role-card:hover { background: rgba(255,255,255,0.1); }
-        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
-        .sidebar .role-card .role-title i { color: #e1bd65; }
-        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+        /* ----- FORM ELEMENTS ----- */
+        .card {
+            border: 1px solid #ded6c9;
+            border-radius: 0.75rem;
+            background: #fffcf6;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .card:last-child { margin-bottom: 0; }
 
-        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
-        .mobile-drawer.open { transform: translateX(0); }
-        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; transition: transform 0.3s ease; }
-        .mobile-drawer .close-btn:hover { transform: rotate(90deg); }
-        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
-        .mobile-drawer .brand-badge { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid rgba(225,189,101,0.7); background-color: #d6ad4b; border-radius: 0.5rem; font-family: 'Merriweather',serif; font-weight: 900; font-size: 1.25rem; color: #10233f; }
-        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
-        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
-        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
-        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+        .field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .field label { font-weight: 700; font-size: 0.8rem; }
+        .field label .required { color: #a84134; }
+        .field input, .field select, .field textarea {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid #cbd2db;
+            border-radius: 0.5rem;
+            background: white;
+            font-size: 0.9rem;
+            outline: none;
+            width: 100%;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: #a77915; }
+        .field textarea { resize: vertical; min-height: 3rem; }
+        .field input:disabled, .field select:disabled { background: #f5f1e8; cursor: not-allowed; }
 
-        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
-        .drawer-overlay.show { display: block; opacity: 1; }
-        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+        .grid-2 { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
 
-        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; width: 100%; overflow-x: hidden; }
-        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
-
-        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; transition: all 0.3s ease; }
-        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
-        @media (max-width: 480px) { .main-header { padding: 0.5rem 0.75rem; } }
-        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-        .header-left { display: flex; align-items: center; gap: 0.75rem; }
-        @media (max-width: 480px) { .header-left { gap: 0.4rem; } }
-        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.4rem; cursor: pointer; font-size: 1rem; color: #17233c; transition: all 0.3s ease; }
-        .menu-toggle:hover { background: rgba(0,0,0,0.05); transform: scale(1.05); }
-        @media (min-width: 1024px) { .menu-toggle { display: none; } }
-        .header-date { font-size: 0.6rem; font-weight: 600; color: #6b778b; }
-        @media (max-width: 480px) { .header-date { font-size: 0.5rem; } }
-        .header-title { font-family: 'Merriweather',serif; font-size: 1rem; font-weight: 700; }
-        @media (max-width: 480px) { .header-title { font-size: 0.85rem; } }
-
-        .header-right { display: flex; align-items: center; gap: 0.4rem; }
-        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
-        .profile-btn { display: flex; align-items: center; gap: 0.4rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.15rem 0.4rem 0.15rem 0.15rem; cursor: pointer; text-decoration: none; transition: all 0.3s ease; }
-        .profile-btn:hover { background: #f5f1e8; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        .profile-avatar { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #d6ad4b; font-size: 0.5rem; font-weight: 700; color: #10233f; transition: transform 0.3s ease; }
-        .profile-btn:hover .profile-avatar { transform: scale(1.1); }
-        .profile-name { display: none; font-weight: 700; font-size: 0.8rem; }
-        .profile-role { display: none; font-size: 0.5rem; color: #68768a; }
-        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 0.9rem; padding: 0.3rem; transition: all 0.3s ease; }
-        .logout-btn:hover { color: #17233c; transform: scale(1.1); }
-        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
-
-        .content-container { max-width: 1280px; margin: 0 auto; padding: 1rem 0.75rem; width: 100%; }
-        @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
-        @media (max-width: 480px) { .content-container { padding: 0.75rem 0.5rem; } }
-
-        .notice-banner { display: flex; gap: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 1rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.75rem; animation: slideDown 0.5s ease; }
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-        @media (max-width: 480px) { .notice-banner { font-size: 0.65rem; padding: 0.4rem 0.6rem; } }
-        .notice-banner i { margin-top: 0.1rem; font-size: 0.7rem; }
-
-        .page-heading { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; animation: fadeIn 0.6s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; gap: 1rem; } }
-        .page-heading .eyebrow { font-size: 0.65rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
-        @media (max-width: 480px) { .page-heading .eyebrow { font-size: 0.55rem; } }
-        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.4rem; font-weight: 700; margin-top: 0.1rem; }
-        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
-        @media (max-width: 480px) { .page-heading h1 { font-size: 1.2rem; } }
-        .page-heading .desc { margin-top: 0.15rem; font-size: 0.75rem; color: #5c6a7d; }
-        @media (max-width: 480px) { .page-heading .desc { font-size: 0.65rem; } }
-        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-        @media (max-width: 480px) { .page-heading .action-group { width: 100%; } }
-
-        .btn-primary { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; }
-        .btn-primary:hover { background: #18345a; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,35,63,0.3); }
-        @media (max-width: 480px) { .btn-primary { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .btn-outline { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; }
-        .btn-outline:hover { background: #f5f1e8; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        @media (max-width: 480px) { .btn-outline { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
-        .btn-success { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; }
-        .btn-success:hover { background: #1f4a32; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(45,101,69,0.3); }
-        @media (max-width: 480px) { .btn-success { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
-        .btn-danger { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #a84134; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; }
-        .btn-danger:hover { background: #8a3328; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(168,65,52,0.3); }
-        @media (max-width: 480px) { .btn-danger { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
-        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.75rem; transition: all 0.3s ease; }
-        .btn-ghost:hover { color: #a77915; transform: scale(1.05); }
-        @media (max-width: 480px) { .btn-ghost { font-size: 0.65rem; } }
-        .btn-ghost i { margin-right: 0.15rem; }
-
-        .metric-grid { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr; animation: fadeIn 0.7s ease; }
-        @media (min-width: 640px) { .metric-grid { gap: 1rem; grid-template-columns: repeat(4, 1fr); } }
-        .metric-card { padding: 0.6rem 0.75rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.3s ease; }
-        .metric-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-        @media (max-width: 480px) { .metric-card { padding: 0.4rem 0.5rem; } }
-        .metric-icon { display: inline-flex; padding: 0.3rem; border-radius: 0.5rem; font-size: 0.7rem; transition: transform 0.3s ease; }
-        .metric-card:hover .metric-icon { transform: scale(1.1); }
-        .metric-icon.navy { background: #e7edf5; color: #24466f; }
-        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
-        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
-        .metric-icon.gray { background: #eceff2; color: #536274; }
-        .metric-value { margin-top: 0.3rem; font-size: 1.2rem; font-weight: 700; transition: color 0.3s ease; }
-        @media (max-width: 480px) { .metric-value { font-size: 1rem; } }
-        .metric-card:hover .metric-value { color: #a77915; }
-        .metric-title { margin-top: 0.15rem; font-weight: 700; font-size: 0.7rem; }
-        @media (max-width: 480px) { .metric-title { font-size: 0.6rem; } }
-        .metric-detail { margin-top: 0.1rem; font-size: 0.55rem; color: #6b778b; }
-        @media (max-width: 480px) { .metric-detail { font-size: 0.5rem; } }
-
-        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 0.75rem; transition: all 0.3s ease; animation: fadeIn 0.5s ease; }
-        .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
-        @media (min-width: 640px) { .card { padding: 1.25rem; } }
-        @media (max-width: 480px) { .card { padding: 0.5rem; } }
-        .card-title { font-family: 'Merriweather',serif; font-size: 0.95rem; font-weight: 700; }
-        @media (max-width: 480px) { .card-title { font-size: 0.8rem; } }
-
-        .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; transition: all 0.3s ease; }
-        @media (max-width: 480px) { .badge { font-size: 0.45rem; padding: 0.08rem 0.35rem; } }
-        .badge-draft { background: #e8edf2; color: #536274; }
-        .badge-provisional { background: #fff0cb; color: #8a6413; }
-        .badge-approved { background: #e1f0e5; color: #2d6545; }
-        .badge-available { background: #e1f0e5; color: #2d6545; }
-        .badge-occupied { background: #f8e1dc; color: #9b3c31; }
-        .badge-full { background: #f8e1dc; color: #9b3c31; }
-        .badge-partial { background: #fff0cb; color: #8a6413; }
-        .badge-maintenance { background: #e8edf2; color: #536274; }
-
-        .grid-2 { display: grid; gap: 0.5rem; grid-template-columns: 1fr; }
-        @media (min-width: 640px) { .grid-2 { gap: 1rem; grid-template-columns: 1fr 1fr; } }
-        .grid-3 { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr; }
-        @media (min-width: 768px) { .grid-3 { gap: 1rem; grid-template-columns: repeat(3, 1fr); } }
-
-        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-        .flex-center { display: flex; align-items: center; gap: 0.4rem; }
-        .gap-2 { gap: 0.4rem; }
-        .gap-3 { gap: 0.5rem; }
-        .gap-4 { gap: 0.75rem; }
-        .mt-1 { margin-top: 0.15rem; }
-        .mt-2 { margin-top: 0.3rem; }
-        .mt-3 { margin-top: 0.5rem; }
-        .mt-4 { margin-top: 0.75rem; }
-        .mt-5 { margin-top: 1rem; }
-        .mt-6 { margin-top: 1.25rem; }
-        .text-sm { font-size: 0.75rem; }
-        @media (max-width: 480px) { .text-sm { font-size: 0.65rem; } }
-        .text-xs { font-size: 0.6rem; }
-        @media (max-width: 480px) { .text-xs { font-size: 0.5rem; } }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 0.5rem; }
+        .flex-wrap { flex-wrap: wrap; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 0.75rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mt-5 { margin-top: 1.25rem; }
+        .text-sm { font-size: 0.85rem; }
+        .text-xs { font-size: 0.7rem; }
         .text-gold { color: #a77915; }
         .text-muted { color: #68768a; }
+        .text-green { color: #2d6545; }
         .font-bold { font-weight: 700; }
         .font-serif { font-family: 'Merriweather',serif; }
+        .w-full { width: 100%; }
         .text-center { text-align: center; }
+        .border { border: 1px solid #ded6c9; }
         .border-t { border-top: 1px solid #ded6c9; }
-        .p-3 { padding: 0.5rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-2 { padding: 0.5rem; }
+        .p-3 { padding: 0.75rem; }
+        .p-4 { padding: 1rem; }
 
-        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; animation: fadeIn 0.6s ease; }
-        .table-wrap table { width: 100%; min-width: 500px; border-collapse: collapse; font-size: 0.7rem; text-align: left; }
-        @media (max-width: 480px) { .table-wrap table { font-size: 0.6rem; min-width: 400px; } }
-        .table-wrap thead { background: #fbf7ef; font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
-        .table-wrap th { padding: 0.4rem 0.6rem; }
-        .table-wrap td { padding: 0.4rem 0.6rem; border-top: 1px solid #eee8de; transition: background 0.3s ease; }
-        .table-wrap tbody tr { transition: all 0.3s ease; }
-        .table-wrap tbody tr:hover { background: #fbf7ef; }
-        @media (max-width: 480px) { .table-wrap th, .table-wrap td { padding: 0.3rem 0.4rem; } }
+        /* ----- BUTTONS ----- */
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #10233f; color: white;
+            font-weight: 700; font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .toast { position: fixed; bottom: 1rem; right: 1rem; left: 1rem; padding: 0.75rem 1rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); max-width: 400px; margin: 0 auto; }
-        @media (min-width: 640px) { .toast { bottom: 2rem; right: 2rem; left: auto; } }
+        .btn-outline {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: 1px solid #bfc8d5; border-radius: 0.5rem;
+            background: #fffcf6;
+            font-weight: 600; font-size: 0.85rem;
+            color: #17233c;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-outline:hover { background: #f5f1e8; }
+
+        .btn-success {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #2d6545; color: white;
+            font-weight: 700; font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-success:hover { background: #1f4a32; }
+        .btn-success:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-gold {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #d6ad4b; color: #10233f;
+            font-weight: 700; font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-gold:hover { background: #c49a3a; }
+
+        .btn-danger {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #a84134; color: white;
+            font-weight: 700; font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .btn-danger:hover { background: #8a3328; }
+
+        /* ----- DECLARATION ----- */
+        .declaration-item {
+            display: flex; align-items: flex-start; gap: 0.75rem;
+            padding: 0.4rem 0;
+        }
+        .declaration-item input[type="checkbox"] {
+            margin-top: 0.2rem;
+            width: 1.1rem;
+            height: 1.1rem;
+            accent-color: #2d6545;
+            cursor: pointer;
+        }
+
+        /* ----- BED VISUAL ----- */
+        .bed-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(55px, 1fr));
+            gap: 0.5rem;
+            padding: 0.5rem;
+        }
+        .bed-dot {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4rem;
+            border-radius: 0.5rem;
+            font-size: 0.65rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-height: 44px;
+            border: 2px solid #cbd2db;
+            background: #f8f9fa;
+            text-align: center;
+        }
+        .bed-dot.available {
+            background: #e1f0e5;
+            color: #2d6545;
+            border-color: #2d6545;
+        }
+        .bed-dot.available:hover { 
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(45, 101, 69, 0.3);
+        }
+        .bed-dot.occupied {
+            background: #f8e1dc;
+            color: #9b3c31;
+            border-color: #9b3c31;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .bed-dot.selected {
+            background: #10233f;
+            color: white;
+            border-color: #10233f;
+            transform: scale(1.05);
+            box-shadow: 0 2px 12px rgba(16, 35, 63, 0.4);
+        }
+        .bed-dot .bed-label { font-size: 0.6rem; font-weight: 600; }
+        .bed-dot .bed-status { font-size: 0.45rem; opacity: 0.7; }
+
+        /* ----- SUCCESS SCREEN ----- */
+        .success-screen {
+            text-align: center;
+            padding: 1.5rem;
+        }
+        .success-screen .success-icon {
+            font-size: 3.5rem;
+            color: #2d6545;
+            margin-bottom: 0.75rem;
+        }
+        .success-screen .ref-number {
+            font-family: 'Merriweather',serif;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #10233f;
+            background: #e7edf5;
+            padding: 0.4rem 1.2rem;
+            border-radius: 0.5rem;
+            display: inline-block;
+            margin: 0.5rem 0;
+        }
+        .success-screen .student-detail-card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            max-width: 400px;
+            margin: 0 auto;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            border: 1px solid #eee8de;
+        }
+        .success-screen .student-detail-card .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.3rem 0;
+            border-bottom: 1px solid #f0ebe3;
+            font-size: 0.8rem;
+        }
+        .success-screen .student-detail-card .detail-row:last-child { border-bottom: none; }
+        .success-screen .student-detail-card .detail-label { color: #68768a; }
+        .success-screen .student-detail-card .detail-value { font-weight: 600; }
+
+        /* ----- FACE ENROLLMENT ----- */
+        .face-enrollment {
+            background: #f8f6f0;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            border: 2px solid #d6ad4b;
+        }
+
+        .face-camera-preview {
+            background: #0f0f1a;
+            border-radius: 0.75rem;
+            padding: 0;
+            text-align: center;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .face-camera-preview video {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 0.75rem;
+            background: #0a0a15;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .face-camera-preview .camera-placeholder {
+            font-size: 3rem;
+            color: #d6ad4b;
+            opacity: 0.5;
+        }
+
+        .face-camera-preview .camera-status {
+            font-size: 0.75rem;
+            color: #a0aec0;
+            margin-top: 0.25rem;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.5);
+            border-radius: 0.5rem;
+            width: 100%;
+            position: absolute;
+            bottom: 0.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            z-index: 5;
+        }
+        .face-camera-preview .camera-status .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .face-camera-preview .camera-status .status-dot.loading { background: #fbbf24; animation: pulse-dot 1s infinite; }
+        .face-camera-preview .camera-status .status-dot.ready { background: #4ade80; }
+        .face-camera-preview .camera-status .status-dot.error { background: #f87171; }
+        .face-camera-preview .camera-status .status-dot.capturing { background: #d6ad4b; animation: pulse-dot 0.5s infinite; }
+        .face-camera-preview .camera-status .status-dot.done { background: #4ade80; }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Face Guide Overlay */
+        .face-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .face-guide {
+            width: 200px;
+            height: 260px;
+            border: 2px dashed rgba(214, 173, 75, 0.5);
+            border-radius: 50%;
+            animation: pulse-guide 2s ease-in-out infinite;
+            transition: border-color 0.3s;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -60%);
+        }
+        .face-guide.detected {
+            border-color: #4ade80;
+            border-style: solid;
+        }
+        .face-guide.capturing {
+            border-color: #d6ad4b;
+            border-style: solid;
+            animation: capture-flash 0.3s ease;
+        }
+        @keyframes capture-flash {
+            0%, 100% { border-color: #d6ad4b; box-shadow: none; }
+            50% { border-color: #4ade80; box-shadow: 0 0 30px rgba(74, 222, 128, 0.5); }
+        }
+        @keyframes pulse-guide {
+            0%, 100% { border-color: rgba(214, 173, 75, 0.3); }
+            50% { border-color: rgba(214, 173, 75, 0.8); }
+        }
+
+        /* Quality panel inside camera */
+        .face-camera-preview .quality-panel {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: rgba(0,0,0,0.8);
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.6rem;
+            font-size: 0.55rem;
+            text-align: left;
+            min-width: 100px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
+        }
+        .face-camera-preview .quality-panel .quality-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.05rem 0;
+            color: #cbd5e1;
+        }
+        .face-camera-preview .quality-panel .quality-row .good { color: #4ade80; }
+        .face-camera-preview .quality-panel .quality-row .warning { color: #fbbf24; }
+        .face-camera-preview .quality-panel .quality-row .bad { color: #f87171; }
+
+        /* Capture steps inside camera */
+        .face-capture-steps-inline {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.3rem;
+            width: 100%;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            border-bottom-left-radius: 0.75rem;
+            border-bottom-right-radius: 0.75rem;
+            position: absolute;
+            bottom: 3rem;
+            left: 0;
+            right: 0;
+            z-index: 4;
+        }
+        .face-capture-step-inline {
+            text-align: center;
+            padding: 0.25rem 0.1rem;
+            border-radius: 0.3rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 0.5rem;
+            background: rgba(255,255,255,0.05);
+            transition: all 0.3s;
+            color: #94a3b8;
+        }
+        .face-capture-step-inline .step-icon { font-size: 0.8rem; display: block; }
+        .face-capture-step-inline .step-label { font-weight: 600; font-size: 0.45rem; }
+        .face-capture-step-inline.done {
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.15);
+            color: #4ade80;
+        }
+        .face-capture-step-inline.active {
+            border-color: #d6ad4b;
+            background: rgba(214, 173, 75, 0.2);
+            color: #d6ad4b;
+            transform: scale(1.05);
+        }
+
+        /* Progress bar inside camera */
+        .face-progress-inline {
+            width: 100%;
+            height: 0.3rem;
+            background: rgba(255,255,255,0.15);
+            border-radius: 0;
+            overflow: hidden;
+            position: absolute;
+            bottom: 2.5rem;
+            left: 0;
+            right: 0;
+            z-index: 4;
+        }
+        .face-progress-inline .fill {
+            height: 100%;
+            background: linear-gradient(90deg, #d6ad4b, #4ade80);
+            border-radius: 0;
+            transition: width 0.5s ease;
+        }
+
+        .face-capture-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.55rem;
+            color: #94a3b8;
+            width: 100%;
+            padding: 0.2rem 0.5rem;
+            background: rgba(0,0,0,0.4);
+            position: absolute;
+            bottom: 2rem;
+            left: 0;
+            right: 0;
+            z-index: 4;
+        }
+
+        /* Quality bar outside camera */
+        .face-quality-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.5rem;
+            background: #f1f5f9;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .face-quality-bar .quality-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #475569;
+            min-width: 50px;
+        }
+        .face-quality-bar .quality-track {
+            flex: 1;
+            height: 0.35rem;
+            background: #e2e8f0;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+        .face-quality-bar .quality-track .fill {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.5s ease;
+        }
+        .face-quality-bar .quality-value {
+            font-size: 0.7rem;
+            font-weight: 700;
+            min-width: 35px;
+            text-align: right;
+        }
+
+        /* Loading spinner */
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 1.5rem; right: 1.5rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.75rem;
+            background: #10233f;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            max-width: 350px;
+            font-size: 0.85rem;
+        }
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background: #3f755d; }
         .toast.error { background: #a84134; }
-        .toast.warning { background: #d4af37; color: #10233f; }
+        .toast.info { background: #1e3a5f; }
 
-        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
-        .loading-spinner i { font-size: 1.5rem; color: #a77915; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.4rem;
+            border-bottom: 2px solid #eee8de;
+        }
+        .section-header .section-number {
+            display: grid;
+            place-items: center;
+            width: 1.8rem;
+            height: 1.8rem;
+            border-radius: 50%;
+            background: #d6ad4b;
+            color: #10233f;
+            font-weight: 700;
+            font-size: 0.7rem;
+            flex-shrink: 0;
+        }
+        .section-header h3 {
+            font-family: 'Merriweather',serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #17233c;
+        }
+        .section-header .section-badge {
+            font-size: 0.55rem;
+            padding: 0.1rem 0.5rem;
+            border-radius: 9999px;
+            background: #e7edf5;
+            color: #24466f;
+            font-weight: 600;
+            margin-left: auto;
+        }
+        .section-header .section-badge.done {
+            background: #dcfce7;
+            color: #065f46;
+        }
+        .section-header .section-badge.auto {
+            background: #d6ad4b;
+            color: #10233f;
+        }
 
-        .field { display: flex; flex-direction: column; gap: 0.2rem; }
-        .field label { font-weight: 700; font-size: 0.7rem; }
-        @media (max-width: 480px) { .field label { font-size: 0.6rem; } }
-        .field input, .field select, .field textarea { padding: 0.4rem 0.5rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.75rem; outline: none; width: 100%; font-family: inherit; transition: all 0.3s ease; }
-        @media (max-width: 480px) { .field input, .field select, .field textarea { padding: 0.35rem 0.4rem; font-size: 0.65rem; } }
-        .field input:focus, .field select:focus, .field textarea:focus { border-color: #a77915; box-shadow: 0 0 0 3px rgba(167,121,21,0.1); }
+        .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #ded6c9;
+        }
 
-        .dialog-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(16,35,63,0.45); display: none; place-items: center; padding: 0.75rem; animation: fadeInOverlay 0.3s ease; }
-        @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
-        .dialog-overlay.show { display: grid; }
-        .dialog-box { width: 100%; max-width: 32rem; background: #fffcf6; border-radius: 1.5rem; padding: 1.25rem; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-height: 95vh; overflow-y: auto; animation: slideUp 0.4s ease; }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(40px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @media (max-width: 480px) { .dialog-box { padding: 1rem; } }
-        .dialog-box .dialog-header { display: flex; justify-content: space-between; align-items: flex-start; }
-        .dialog-box .dialog-header .eyebrow { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a77915; }
-        .dialog-box .dialog-header h2 { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; margin-top: 0.1rem; }
-        .dialog-box .dialog-header .close-x { background: transparent; border: none; font-size: 1rem; cursor: pointer; color: #68768a; padding: 0.2rem; transition: all 0.3s ease; }
-        .dialog-box .dialog-header .close-x:hover { color: #17233c; transform: rotate(90deg); }
-        .dialog-box .section-divider { padding: 0.5rem 0 0.3rem; border-bottom: 1px solid #eee8de; font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: #68768a; }
+        /* Hidden canvas for capture */
+        #captureCanvas {
+            display: none;
+        }
 
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #e8e4de; }
-        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
-        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+        /* Auto-capture status */
+        .auto-capture-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: #10233f;
+            border-radius: 0.5rem;
+            color: #d6ad4b;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            justify-content: center;
+        }
+        .auto-capture-status .pulse {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse-dot 1s infinite;
+        }
+        .auto-capture-status .pulse.waiting {
+            background: #fbbf24;
+        }
+        .auto-capture-status .pulse.done {
+            background: #4ade80;
+            animation: none;
+        }
+
+        /* Enroll button */
+        .btn-enroll {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none; border-radius: 0.5rem;
+            background: #d6ad4b; color: #10233f;
+            font-weight: 700; font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .btn-enroll:hover { background: #c49a3a; transform: scale(1.02); }
+        .btn-enroll:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        @media (max-width: 640px) {
+            .register-container { padding: 0.75rem; }
+            .register-header .logo h1 { font-size: 1.1rem; }
+            .register-header .logo .logo-img { width: 35px; height: 35px; }
+            .bed-grid { grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); }
+            .bed-dot { min-height: 36px; font-size: 0.55rem; padding: 0.3rem; }
+            .section-header h3 { font-size: 0.85rem; }
+            .face-camera-preview { min-height: 220px; }
+            .face-camera-preview video { max-height: 250px; }
+            .face-capture-steps-inline { grid-template-columns: repeat(5, 1fr); gap: 0.2rem; padding: 0.3rem; }
+            .face-capture-step-inline { font-size: 0.4rem; padding: 0.15rem 0.05rem; }
+            .face-capture-step-inline .step-icon { font-size: 0.6rem; }
+            .face-capture-step-inline .step-label { font-size: 0.35rem; }
+            .quality-panel { display: none; }
+            .toast { bottom: 0.5rem; right: 0.5rem; left: 0.5rem; max-width: none; font-size: 0.8rem; }
+            .face-guide { width: 150px; height: 200px; }
+            .face-camera-preview .camera-status { font-size: 0.6rem; padding: 0.3rem; bottom: 0.3rem; }
+        }
     </style>
 </head>
 <body>
 
-    <!-- ===== TOAST NOTIFICATION ===== -->
+    <!-- Toast -->
     <div id="toast" class="toast"></div>
 
-    <!-- ===== ADD STUDENT MODAL ===== -->
-    <div class="dialog-overlay" id="addStudentModal">
-        <div class="dialog-box">
-            <div class="dialog-header">
-                <div>
-                    <p class="eyebrow"><i class="fas fa-user-plus"></i> Student Management</p>
-                    <h2>Add New Student</h2>
-                </div>
-                <button class="close-x" onclick="closeAddStudentModal()"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="grid-2 mt-3">
-                <div class="field">
-                    <label>Surname <span class="text-gold">*</span></label>
-                    <input id="studentSurname" placeholder="e.g. Okafor" />
-                </div>
-                <div class="field">
-                    <label>First Name <span class="text-gold">*</span></label>
-                    <input id="studentFirstName" placeholder="e.g. Daniel" />
-                </div>
-            </div>
-            <div class="field mt-2">
-                <label>Middle Name</label>
-                <input id="studentMiddleName" placeholder="e.g. Chibueze" />
-            </div>
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Matric Number <span class="text-gold">*</span></label>
-                    <input id="studentMatric" placeholder="e.g. SCN/CSC/230586" />
-                </div>
-                <div class="field">
-                    <label>Gender <span class="text-gold">*</span></label>
-                    <select id="studentGender">
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                    </select>
-                </div>
-            </div>
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Phone <span class="text-gold">*</span></label>
-                    <input id="studentPhone" placeholder="e.g. 0803 000 0000" />
-                </div>
-                <div class="field">
-                    <label>Email</label>
-                    <input id="studentEmail" placeholder="student@biu.edu.ng" />
-                </div>
-            </div>
-            
-            <div class="section-divider mt-4">Academic Information</div>
-            
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Faculty <span class="text-gold">*</span></label>
-                    <select id="studentFaculty">
-                        <option value="">Select Faculty</option>
-                        <option value="Science">Science</option>
-                        <option value="Engineering">Engineering</option>
-                        <option value="Law">Law</option>
-                        <option value="Allied Health">Allied Health</option>
-                        <option value="Medicine">Medicine</option>
-                        <option value="Education">Education</option>
-                        <option value="Arts">Arts</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Department <span class="text-gold">*</span></label>
-                    <select id="studentDepartment">
-                        <option value="">Select Department</option>
-                    </select>
-                </div>
-            </div>
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Level <span class="text-gold">*</span></label>
-                    <select id="studentLevel">
-                        <option value="100">100 Level</option>
-                        <option value="200">200 Level</option>
-                        <option value="300">300 Level</option>
-                        <option value="400">400 Level</option>
-                        <option value="500">500 Level</option>
-                        <option value="600">600 Level</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Session <span class="text-gold">*</span></label>
-                    <select id="studentSession">
-                        <option value="2024/2025">2024/2025</option>
-                        <option value="2025/2026" selected>2025/2026</option>
-                        <option value="2026/2027">2026/2027</option>
-                    </select>
-                </div>
-            </div>
+    <div class="register-container" id="registerContainer">
 
-            <div class="section-divider mt-4">Hostel Allocation</div>
-            
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Hostel <span class="text-gold">*</span></label>
-                    <select id="studentHostel" onchange="updateFloorsForStudent()">
-                        <option value="">Select Hostel</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Floor/Flat <span class="text-gold">*</span></label>
-                    <select id="studentFloor" onchange="updateRoomsForStudent()">
-                        <option value="">Select Floor/Flat</option>
-                    </select>
-                </div>
+        <!-- Header -->
+        <div class="register-header">
+            <div class="logo">
+                <img src="logo.webp" alt="BIU Logo" class="logo-img" />
+                <h1>BedCheck Registration</h1>
             </div>
-            <div class="grid-2 mt-2">
-                <div class="field">
-                    <label>Room <span class="text-gold">*</span></label>
-                    <select id="studentRoom" onchange="updateBedsForStudent()">
-                        <option value="">Select Room</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Bed Space <span class="text-gold">*</span></label>
-                    <select id="studentBed">
-                        <option value="">Select Bed</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="flex-between mt-4 pt-3 border-t">
-                <button class="btn-outline" onclick="closeAddStudentModal()">Cancel</button>
-                <button class="btn-success" onclick="saveStudent()"><i class="fas fa-save"></i> Register Student</button>
-            </div>
+            <p class="subtitle"><i class="fas fa-user-graduate"></i> Complete your hostel registration with Face Enrollment</p>
         </div>
-    </div>
 
-    <!-- ===== STUDENT DETAIL DRAWER ===== -->
-    <div class="drawer-right" id="studentDrawer">
-        <div class="drawer-header">
-            <div>
-                <p class="eyebrow"><i class="fas fa-user"></i> Student Details</p>
-                <h2 id="studentDrawerName">Student</h2>
-                <p class="text-sm text-muted" id="studentDrawerMatric">Loading...</p>
-            </div>
-            <button class="close-btn" onclick="closeStudentDrawer()"><i class="fas fa-times"></i></button>
-        </div>
-        <div class="drawer-body" id="studentDrawerBody">
+        <!-- Registration Content -->
+        <div id="registrationContent">
             <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
         </div>
     </div>
 
-    <!-- ===== PORTAL ===== -->
-    <div id="portalApp" class="app-wrapper">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="brand">
-                <div class="brand-badge">BIU</div>
-                <div>
-                    <div class="brand-text">BIU BedCheck</div>
-                    <div class="brand-sub">Management System</div>
-                </div>
-            </div>
-            <p class="workspace-label">Workspace</p>
-            <nav id="desktopNav">
-                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="Student.html" class="nav-item active"><i class="fas fa-users"></i> Students Management</a>
-                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
-                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
-                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
-                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
-                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
-                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
-            </nav>
-            <div class="role-card">
-                <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Administrator</span></div>
-                <div class="role-scope" id="roleScope">System-wide access</div>
-            </div>
-        </aside>
+    <!-- Hidden Canvas for capturing frames -->
+    <canvas id="captureCanvas"></canvas>
 
-        <!-- Mobile Drawer -->
-        <div class="drawer-overlay" id="drawerOverlay"></div>
-        <aside class="mobile-drawer" id="mobileDrawer">
-            <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
-            <div class="brand">
-                <div class="brand-badge">BIU</div>
-                <div>
-                    <div class="brand-text">BIU BedCheck</div>
-                    <div class="brand-sub">Management System</div>
-                </div>
-            </div>
-            <nav id="mobileNav">
-                <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="Student.html" class="nav-item active"><i class="fas fa-users"></i> Students Management</a>
-                <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
-                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
-                <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
-                <a href="Report.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
-                <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
-                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
-            </nav>
-            <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
-        </aside>
+    <script>
+        (function() {
+            'use strict';
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <header class="main-header">
-                <div class="header-inner">
-                    <div class="header-left">
-                        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
-                        <div>
-                            <p class="header-date" id="currentDate">Loading...</p>
-                            <p class="header-title">BIU BedCheck</p>
-                        </div>
-                    </div>
-                    <div class="header-right">
-                        <a href="Profile.html" class="profile-btn">
-                            <span class="profile-avatar" id="profileAvatar">IM</span>
-                            <span class="profile-name" id="profileName">Ibrahim Musa</span>
-                            <span class="profile-role" id="profileRoleLabel">Administrator</span>
-                        </a>
-                        <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
-                    </div>
-                </div>
-            </header>
-            <div class="content-container">
-                <div class="notice-banner" id="noticeBanner">
-                    <i class="fas fa-users"></i>
-                    <span id="noticeText">Loading students...</span>
-                </div>
-                <div id="screenContent">
-                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
-                </div>
-            </div>
-        </main>
-    </div>
+            // =============================================
+            // STUDENT REGISTRATION - INSIGHTFACE ENROLLMENT
+            // =============================================
 
-<script>
-    (function() {
-        'use strict';
+            const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
-        // =============================================
-        // CONFIGURATION
-        // =============================================
-        const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+            // ---------- STATE ----------
+            let hostels = [];
+            let floorsFlats = [];
+            let rooms = [];
+            let bedSpaces = [];
+            let isLoading = true;
+            let submitted = false;
+            let occupiedBedIds = [];
+            let currentStep = 0;
+            let faceCaptures = [];
+            let isCapturing = false;
+            let isEnrolling = false;
+            let cameraStream = null;
+            let isCameraReady = false;
+            let faceMesh = null;
+            let mediaPipeReady = false;
+            let currentQuality = 0;
+            let faceDetected = false;
+            let faceLandmarks = null;
+            let isMediaPipeLoading = false;
+            let enrollmentComplete = false;
+            let autoCaptureInterval = null;
+            let isAutoCapturing = false;
+            
+            const totalCaptures = 10;
+            const captureInstructions = [
+                'Straight', 'Left', 'Right', 'Up', 'Down',
+                'Blink', 'Smile', 'Neutral', 'Turn', 'Straight'
+            ];
 
-        // =============================================
-        // TOAST NOTIFICATION
-        // =============================================
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = `toast ${type}`;
-            setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => toast.classList.remove('show'), 4000);
-        }
+            let studentData = {
+                surname: '',
+                firstName: '',
+                middleName: '',
+                gender: '',
+                dob: '',
+                phone: '',
+                email: '',
+                matric: '',
+                faculty: '',
+                department: '',
+                level: '',
+                session: '2025/2026',
+                hostel_id: '',
+                floor_flat_id: '',
+                room_id: '',
+                bed_space_id: '',
+                hostel_name: '',
+                floor_name: '',
+                room_code: '',
+                bed_code: '',
+                status: 'Active',
+                notes: '',
+                declaration: false,
+                face_embedding: null,
+                face_enrolled: false,
+                face_provider: 'insightface'
+            };
 
-        // =============================================
-        // STATE
-        // =============================================
-        let currentUser = null;
-        let currentRole = 'Administrator';
-        let students = [];
-        let hostels = [];
-        let floorsFlats = [];
-        let rooms = [];
-        let bedSpaces = [];
-        let isLoading = true;
+            const facultyDepartments = {
+                'Science': ['Computer Science', 'Microbiology', 'Geography', 'Mathematics', 'Physics', 'Chemistry', 'Biochemistry'],
+                'Engineering': ['Electrical/Electronic', 'Mechanical', 'Civil', 'Chemical', 'Computer Engineering'],
+                'Law': ['Law', 'International Law', 'Commercial Law'],
+                'Allied Health': ['Nursing', 'Medical Lab Science', 'Public Health', 'Physiotherapy'],
+                'Medicine': ['Medicine', 'Surgery', 'Pharmacology'],
+                'Education': ['Instructional Design', 'Educational Technology', 'Curriculum Studies', 'Education Administration'],
+                'Arts': ['English', 'History', 'Philosophy', 'Theatre Arts', 'Mass Communication']
+            };
 
-        const facultyDepartments = {
-            'Science': ['Computer Science', 'Microbiology', 'Geography', 'Mathematics', 'Physics', 'Chemistry', 'Biochemistry'],
-            'Engineering': ['Electrical/Electronic', 'Mechanical', 'Civil', 'Chemical', 'Computer Engineering'],
-            'Law': ['Law', 'International Law', 'Commercial Law'],
-            'Allied Health': ['Nursing', 'Medical Lab Science', 'Public Health', 'Physiotherapy'],
-            'Medicine': ['Medicine', 'Surgery', 'Pharmacology'],
-            'Education': ['Instructional Design', 'Educational Technology', 'Curriculum Studies', 'Education Administration'],
-            'Arts': ['English', 'History', 'Philosophy', 'Theatre Arts', 'Mass Communication']
-        };
+            // ---------- DOM REFS ----------
+            const registrationContent = document.getElementById('registrationContent');
+            const captureCanvas = document.getElementById('captureCanvas');
 
-        // =============================================
-        // API HELPER
-        // =============================================
-        async function apiCall(endpoint, options = {}) {
-            try {
-                let fixedEndpoint = endpoint;
-                if (endpoint.includes('/bed_spaces')) {
-                    fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
+            // ---------- TOAST ----------
+            function showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type}`;
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => { toast.classList.remove('show'); }, 4000);
+            }
+
+            // ---------- API HELPERS ----------
+            async function apiCall(endpoint, options = {}) {
+                try {
+                    const response = await fetch(`${API_BASE}${endpoint}`, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(options.headers || {})
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.message || 'API error');
+                    }
+                    return data;
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                    throw error;
                 }
-                if (endpoint.includes('/floors_flats')) {
-                    fixedEndpoint = endpoint.replace('/floors_flats', '/floors-flats');
-                }
-                
-                const url = `${API_BASE_URL}${fixedEndpoint}`;
-                console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
-                
-                const response = await fetch(url, {
-                    ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(options.headers || {})
+            }
+
+            // ---------- MEDIAPIPE FACE MESH ----------
+            function initMediaPipe() {
+                return new Promise((resolve, reject) => {
+                    if (mediaPipeReady) {
+                        resolve();
+                        return;
+                    }
+
+                    if (isMediaPipeLoading) {
+                        const checkReady = setInterval(() => {
+                            if (mediaPipeReady) {
+                                clearInterval(checkReady);
+                                resolve();
+                            }
+                        }, 100);
+                        return;
+                    }
+
+                    isMediaPipeLoading = true;
+
+                    try {
+                        faceMesh = new FaceMesh({
+                            locateFile: (file) => {
+                                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                            }
+                        });
+
+                        faceMesh.setOptions({
+                            maxNumFaces: 1,
+                            refineLandmarks: true,
+                            minDetectionConfidence: 0.5,
+                            minTrackingConfidence: 0.5
+                        });
+
+                        faceMesh.onResults((results) => {
+                            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                                faceDetected = true;
+                                faceLandmarks = results.multiFaceLandmarks[0];
+                                calculateQuality(results.multiFaceLandmarks[0]);
+                                updateFaceStatus(true);
+                            } else {
+                                faceDetected = false;
+                                faceLandmarks = null;
+                                updateFaceStatus(false);
+                                if (currentQuality > 10) {
+                                    currentQuality = Math.max(10, currentQuality - 0.5);
+                                    updateQualityDisplay(currentQuality);
+                                }
+                            }
+                        });
+
+                        faceMesh.initialize().then(() => {
+                            mediaPipeReady = true;
+                            isMediaPipeLoading = false;
+                            console.log('✅ MediaPipe Face Mesh initialized');
+                            resolve();
+                        }).catch((err) => {
+                            console.error('MediaPipe init error:', err);
+                            isMediaPipeLoading = false;
+                            reject(err);
+                        });
+                    } catch (error) {
+                        console.error('MediaPipe setup error:', error);
+                        isMediaPipeLoading = false;
+                        reject(error);
                     }
                 });
-                
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-                
-                const data = await response.json();
-                if (!data.success) {
-                    throw new Error(data.message || 'API error');
-                }
-                return data;
-            } catch (error) {
-                console.error('API Error:', error);
-                showToast('Error: ' + error.message, 'error');
-                throw error;
             }
-        }
 
-        // =============================================
-        // DATA LOADING
-        // =============================================
-        async function loadAllData() {
-            try {
-                isLoading = true;
-                document.getElementById('noticeText').textContent = 'Loading data...';
+            // ---------- CAMERA FUNCTIONS ----------
+            async function startCamera() {
+                try {
+                    if (cameraStream) {
+                        stopCamera();
+                    }
 
-                const [studentsRes, hostelsRes, floorsRes, roomsRes, bedsRes] = await Promise.all([
-                    apiCall('/students'),
-                    apiCall('/hostels'),
-                    apiCall('/floors-flats'),
-                    apiCall('/rooms'),
-                    apiCall('/bed-spaces')
-                ]);
+                    if (!mediaPipeReady) {
+                        showToast('Loading face detection...', 'info');
+                        await initMediaPipe();
+                    }
 
-                students = studentsRes.data || [];
-                hostels = hostelsRes.data || [];
-                floorsFlats = floorsRes.data || [];
-                rooms = roomsRes.data || [];
-                bedSpaces = bedsRes.data || [];
+                    const constraints = {
+                        video: {
+                            facingMode: 'user',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    };
 
-                console.log(`✅ Loaded: ${students.length} students, ${hostels.length} hostels, ${floorsFlats.length} floors, ${rooms.length} rooms, ${bedSpaces.length} beds`);
-
-                isLoading = false;
-                renderScreen();
-                document.getElementById('noticeText').textContent = `Loaded ${students.length} students across ${hostels.length} hostels.`;
-            } catch (error) {
-                isLoading = false;
-                document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                showToast('Error loading data: ' + error.message, 'error');
-                renderScreen();
+                    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    const video = document.getElementById('cameraVideo');
+                    if (video) {
+                        video.srcObject = cameraStream;
+                        await video.play();
+                        isCameraReady = true;
+                        
+                        const sendToMediaPipe = async () => {
+                            if (!isCameraReady || !video || video.readyState < 2) {
+                                if (isCameraReady) requestAnimationFrame(sendToMediaPipe);
+                                return;
+                            }
+                            try {
+                                if (mediaPipeReady && faceMesh) {
+                                    await faceMesh.send({ image: video });
+                                }
+                            } catch (e) {
+                                // Silently handle errors
+                            }
+                            if (isCameraReady) {
+                                requestAnimationFrame(sendToMediaPipe);
+                            }
+                        };
+                        sendToMediaPipe();
+                        
+                        updateCameraStatus('ready', 'Camera active - Auto-capture ready');
+                        
+                        // Start auto-capture when camera is ready
+                        if (faceCaptures.length < totalCaptures) {
+                            startAutoCapture();
+                        }
+                        
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    console.error('Camera error:', error);
+                    showToast('Camera access denied: ' + error.message, 'error');
+                    updateCameraStatus('error', 'Camera unavailable');
+                    return false;
+                }
             }
-        }
 
-        // =============================================
-        // RENDER SCREEN
-        // =============================================
-        function renderScreen() {
-            const container = document.getElementById('screenContent');
-            
-            const total = students.length;
-            const male = students.filter(s => s.gender === 'Male').length;
-            const female = students.filter(s => s.gender === 'Female').length;
-            const faceEnrolled = students.filter(s => s.face_enrolled === true).length;
-            const assigned = students.filter(s => s.bed_space_id && s.bed_space_id > 0).length;
-            const present = students.filter(s => s.status === 'Present').length;
+            function stopCamera() {
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                    cameraStream = null;
+                }
+                isCameraReady = false;
+                faceDetected = false;
+                stopAutoCapture();
+                const video = document.getElementById('cameraVideo');
+                if (video) {
+                    video.srcObject = null;
+                }
+            }
 
-            if (students.length === 0 && !isLoading) {
-                container.innerHTML = `
-                    <div class="page-heading">
-                        <div>
-                            <p class="eyebrow"><i class="fas fa-users"></i> Student Records</p>
-                            <h1>Student Management</h1>
-                            <p class="desc">Manage all registered students and their hostel allocations.</p>
+            function updateCameraStatus(status, message) {
+                const statusEl = document.getElementById('cameraStatus');
+                if (!statusEl) return;
+                
+                const dot = statusEl.querySelector('.status-dot');
+                if (dot) {
+                    dot.className = 'status-dot ' + status;
+                }
+                statusEl.innerHTML = `<span class="status-dot ${status}"></span> ${message}`;
+            }
+
+            function updateFaceStatus(detected) {
+                const guide = document.getElementById('faceGuide');
+                if (guide) {
+                    if (detected) {
+                        guide.classList.add('detected');
+                    } else {
+                        guide.classList.remove('detected');
+                    }
+                }
+            }
+
+            // ---------- QUALITY CALCULATION ----------
+            function calculateQuality(landmarks) {
+                if (!landmarks || landmarks.length < 468) {
+                    return;
+                }
+
+                try {
+                    const leftEye = landmarks[33];
+                    const rightEye = landmarks[263];
+                    const noseTip = landmarks[1];
+                    const chin = landmarks[152];
+
+                    const faceWidth = Math.abs(rightEye.x - leftEye.x);
+                    const faceHeight = Math.abs(chin.y - noseTip.y);
+                    
+                    const centerX = (leftEye.x + rightEye.x) / 2;
+                    const centerY = (noseTip.y + chin.y) / 2;
+                    const centeringScore = 1 - Math.abs(centerX - 0.5) * 2;
+                    
+                    const sizeScore = Math.min(faceWidth * 3, 1);
+                    
+                    const leftEyeCenter = {
+                        x: (landmarks[33].x + landmarks[133].x) / 2,
+                        y: (landmarks[33].y + landmarks[133].y) / 2
+                    };
+                    const rightEyeCenter = {
+                        x: (landmarks[263].x + landmarks[362].x) / 2,
+                        y: (landmarks[263].y + landmarks[362].y) / 2
+                    };
+                    const eyeLevel = Math.abs(leftEyeCenter.y - rightEyeCenter.y);
+                    const symmetryScore = 1 - eyeLevel * 2;
+                    
+                    const quality = Math.min(99, Math.max(40, (
+                        centeringScore * 0.3 +
+                        sizeScore * 0.3 +
+                        symmetryScore * 0.2 +
+                        0.2
+                    ) * 100));
+
+                    currentQuality = quality;
+                    updateQualityDisplay(quality);
+                } catch (error) {
+                    console.warn('Quality calculation error:', error);
+                }
+            }
+
+            function updateQualityDisplay(quality) {
+                const qualityFill = document.getElementById('qualityFill');
+                const qualityValue = document.getElementById('qualityValue');
+                const overallQuality = document.getElementById('overallQuality');
+                
+                if (qualityFill) {
+                    qualityFill.style.width = quality + '%';
+                    const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
+                    qualityFill.style.background = color;
+                }
+                if (qualityValue) {
+                    qualityValue.textContent = Math.round(quality) + '%';
+                    const color = quality > 75 ? '#2d6545' : quality > 55 ? '#92400e' : '#a84134';
+                    qualityValue.style.color = color;
+                }
+                if (overallQuality) {
+                    overallQuality.textContent = Math.round(quality) + '%';
+                    const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
+                    overallQuality.style.color = color;
+                    overallQuality.style.fontWeight = '700';
+                }
+
+                const rows = document.querySelectorAll('.quality-panel .quality-row');
+                if (rows.length >= 6) {
+                    const qualities = [
+                        quality > 60 ? 'good' : quality > 40 ? 'warning' : 'bad',
+                        quality > 70 ? 'good' : quality > 50 ? 'warning' : 'bad',
+                        quality > 65 ? 'good' : quality > 45 ? 'warning' : 'bad',
+                        quality > 70 ? 'good' : quality > 50 ? 'warning' : 'bad',
+                        quality > 60 ? 'good' : quality > 40 ? 'warning' : 'bad',
+                        faceDetected ? 'good' : 'warning'
+                    ];
+                    rows.forEach((row, index) => {
+                        if (index < 6) {
+                            const span = row.querySelector('span:last-child');
+                            if (span) {
+                                span.className = qualities[index];
+                                span.textContent = qualities[index] === 'good' ? '✓' : qualities[index] === 'warning' ? '○' : '✗';
+                            }
+                        }
+                    });
+                }
+            }
+
+            // ---------- AUTO CAPTURE ----------
+            function startAutoCapture() {
+                if (autoCaptureInterval) {
+                    clearInterval(autoCaptureInterval);
+                    autoCaptureInterval = null;
+                }
+
+                if (faceCaptures.length >= totalCaptures) {
+                    return;
+                }
+
+                updateCameraStatus('capturing', 'Auto-capturing...');
+
+                autoCaptureInterval = setInterval(() => {
+                    if (faceCaptures.length >= totalCaptures) {
+                        stopAutoCapture();
+                        return;
+                    }
+
+                    if (!faceDetected || currentQuality < 55) {
+                        const statusEl = document.getElementById('captureStatus');
+                        if (statusEl) {
+                            statusEl.textContent = faceDetected ? 'Waiting for better quality...' : 'Position your face in the guide';
+                        }
+                        return;
+                    }
+
+                    performAutoCapture();
+                }, 2000);
+            }
+
+            function stopAutoCapture() {
+                if (autoCaptureInterval) {
+                    clearInterval(autoCaptureInterval);
+                    autoCaptureInterval = null;
+                }
+                isAutoCapturing = false;
+                
+                if (faceCaptures.length >= totalCaptures) {
+                    updateCameraStatus('done', '✅ All captures complete!');
+                }
+            }
+
+            function performAutoCapture() {
+                if (isAutoCapturing || faceCaptures.length >= totalCaptures) return;
+                if (!isCameraReady || !faceDetected || currentQuality < 55) return;
+
+                isAutoCapturing = true;
+
+                try {
+                    const video = document.getElementById('cameraVideo');
+                    const canvas = document.getElementById('captureCanvas');
+                    const context = canvas.getContext('2d');
+                    
+                    canvas.width = video.videoWidth || 640;
+                    canvas.height = video.videoHeight || 480;
+                    
+                    context.save();
+                    context.scale(-1, 1);
+                    context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+                    context.restore();
+                    
+                    const imageData = canvas.toDataURL('image/jpeg', 0.9);
+
+                    const guide = document.getElementById('faceGuide');
+                    if (guide) {
+                        guide.classList.add('capturing');
+                        setTimeout(() => {
+                            guide.classList.remove('capturing');
+                        }, 300);
+                    }
+
+                    faceCaptures.push({
+                        index: faceCaptures.length,
+                        timestamp: Date.now(),
+                        imageData: imageData,
+                        quality: currentQuality || 70,
+                        liveness: faceDetected ? 92 + Math.random() * 6 : 70
+                    });
+
+                    const stepEl = document.getElementById(`step_${faceCaptures.length - 1}`);
+                    if (stepEl) {
+                        stepEl.className = 'face-capture-step-inline done';
+                        stepEl.querySelector('.step-icon').textContent = '✅';
+                    }
+                    
+                    document.getElementById('captureCount').textContent = `${faceCaptures.length} / ${totalCaptures}`;
+                    document.getElementById('faceProgressFill').style.width = `${(faceCaptures.length / totalCaptures) * 100}%`;
+                    document.getElementById('captureStatus').textContent = `Captured ${faceCaptures.length}/${totalCaptures}`;
+
+                    showToast(`Auto-captured ${faceCaptures.length}/${totalCaptures}`, 'success');
+
+                    if (faceCaptures.length >= totalCaptures) {
+                        document.getElementById('captureStatus').textContent = '✅ All captured!';
+                        updateCameraStatus('done', '✅ All 10 captures complete!');
+                        
+                        showCompletionMessage();
+                        
+                        const enrollBtn = document.querySelector('#enrollFaceBtn');
+                        if (enrollBtn) enrollBtn.style.display = 'inline-flex';
+                        
+                        const stepBadges = document.querySelectorAll('.face-capture-step-inline');
+                        stepBadges.forEach(el => {
+                            if (!el.classList.contains('done')) {
+                                el.className = 'face-capture-step-inline done';
+                                el.querySelector('.step-icon').textContent = '✅';
+                            }
+                        });
+                        
+                        enrollmentComplete = true;
+                        stopAutoCapture();
+                        
+                        setTimeout(() => {
+                            enrollFace();
+                        }, 1500);
+                    }
+
+                } catch (error) {
+                    console.error('Auto-capture error:', error);
+                } finally {
+                    isAutoCapturing = false;
+                }
+            }
+
+            // ---------- SHOW COMPLETION MESSAGE ----------
+            function showCompletionMessage() {
+                const container = document.getElementById('captureStepsInline');
+                if (container) {
+                    const msg = document.createElement('div');
+                    msg.style.cssText = 'grid-column: span 5; text-align: center; padding: 0.5rem; background: rgba(74, 222, 128, 0.15); border-radius: 0.3rem; border: 1px solid #4ade80;';
+                    msg.innerHTML = `
+                        <div style="color: #4ade80; font-weight: 700; font-size: 0.8rem;">
+                            <i class="fas fa-check-circle"></i> All 10 captures complete!
                         </div>
-                        <div class="action-group">
-                            <button class="btn-primary" onclick="openAddStudentModal()"><i class="fas fa-plus"></i> Add Student</button>
+                        <div style="color: #94a3b8; font-size: 0.6rem; margin-top: 0.2rem;">
+                            Auto-enrolling with InsightFace...
                         </div>
-                    </div>
-                    <div class="card mt-4">
+                    `;
+                    container.appendChild(msg);
+                }
+            }
+
+            // ---------- ENROLL FACE (InsightFace) ----------
+            async function enrollFace() {
+                if (faceCaptures.length < totalCaptures) {
+                    showToast(`Please capture all ${totalCaptures} faces first.`, 'error');
+                    return;
+                }
+
+                if (isEnrolling) return;
+                isEnrolling = true;
+
+                if (!studentData.matric) {
+                    showToast('Please complete academic information first.', 'error');
+                    isEnrolling = false;
+                    return;
+                }
+
+                showToast('Enrolling face with InsightFace...', 'info');
+                
+                try {
+                    const statusEl = document.getElementById('captureStatus');
+                    const progressFill = document.getElementById('faceProgressFill');
+                    
+                    // Get all capture images
+                    const images = faceCaptures.map(c => c.imageData);
+                    
+                    // First, create or get student record
+                    let existingStudent = null;
+                    let studentId = 0;
+
+                    try {
+                        const searchRes = await apiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
+                        if (searchRes.data && searchRes.data.length > 0) {
+                            existingStudent = searchRes.data[0];
+                            studentId = existingStudent.id;
+                        }
+                    } catch (e) {}
+
+                    // If student doesn't exist, create them first
+                    if (!existingStudent) {
+                        showToast('Creating student record...', 'info');
+                        const hostel = hostels.find(h => h.id == parseInt(studentData.hostel_id));
+                        const floor = floorsFlats.find(f => f.id == parseInt(studentData.floor_flat_id));
+                        const room = rooms.find(r => r.id == parseInt(studentData.room_id));
+                        const bed = bedSpaces.find(b => b.id == parseInt(studentData.bed_space_id));
+
+                        const newStudent = {
+                            name: `${studentData.surname} ${studentData.firstName} ${studentData.middleName}`.trim(),
+                            matric: studentData.matric,
+                            gender: studentData.gender,
+                            phone: studentData.phone,
+                            email: studentData.email || null,
+                            faculty: studentData.faculty,
+                            department: studentData.department,
+                            level: studentData.level,
+                            session: studentData.session,
+                            hostel_id: parseInt(studentData.hostel_id) || null,
+                            hostel_name: hostel?.name || null,
+                            floor_flat_id: parseInt(studentData.floor_flat_id) || null,
+                            floor_name: floor?.name || null,
+                            room_id: parseInt(studentData.room_id) || null,
+                            room_code: room?.room_code || studentData.room_code || null,
+                            bed_space_id: parseInt(studentData.bed_space_id) || null,
+                            bed_code: bed?.bed_code || studentData.bed_code || null,
+                            status: 'Active',
+                            notes: studentData.notes || null,
+                            face_provider: 'insightface'
+                        };
+
+                        try {
+                            const createResult = await apiCall('/students', {
+                                method: 'POST',
+                                body: JSON.stringify(newStudent)
+                            });
+                            studentId = createResult.data.id;
+                            
+                            if (studentData.bed_space_id) {
+                                await apiCall(`/bed-spaces/${studentData.bed_space_id}`, {
+                                    method: 'PATCH',
+                                    body: JSON.stringify({ 
+                                        status: 'occupied',
+                                        student_id: studentId
+                                    })
+                                });
+                            }
+                            showToast('Student record created!', 'success');
+                        } catch (createError) {
+                            showToast('Error creating student: ' + createError.message, 'error');
+                            isEnrolling = false;
+                            return;
+                        }
+                    }
+
+                    // Enroll with InsightFace using bulk enrollment
+                    showToast('Enrolling face with InsightFace...', 'info');
+                    
+                    const enrollResponse = await fetch(`${API_BASE}/face/enroll-bulk`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            student_id: studentId,
+                            frames: images
+                        })
+                    });
+
+                    const enrollResult = await enrollResponse.json();
+
+                    if (enrollResult.success) {
+                        studentData.face_enrolled = true;
+                        studentData.face_embedding = enrollResult.data.embedding;
+                        
+                        if (progressFill) progressFill.style.width = '100%';
+                        if (statusEl) statusEl.textContent = '✅ Enrolled with InsightFace!';
+                        
+                        showToast('✅ Face successfully enrolled with InsightFace!', 'success');
+                        
+                        // Update student record with face data
+                        await apiCall(`/students/${studentId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                                face_enrolled: true,
+                                face_embedding: enrollResult.data.embedding,
+                                face_provider: 'insightface'
+                            })
+                        });
+                        
+                        saveDraft(true);
+                        stopCamera();
+                        
+                        setTimeout(() => {
+                            renderRegistrationForm();
+                        }, 500);
+                    } else {
+                        showToast('Face enrollment failed: ' + (enrollResult.message || enrollResult.error), 'error');
+                    }
+                } catch (error) {
+                    console.error('Enrollment error:', error);
+                    showToast('Error during face enrollment: ' + error.message, 'error');
+                } finally {
+                    isEnrolling = false;
+                }
+            }
+
+            // ---------- SAVE AND GO TO DASHBOARD ----------
+            function saveAndGoToDashboard() {
+                saveDraft(true);
+                window.location.href = '/dashboard.html';
+            }
+
+            function resetFaceCaptures() {
+                if (faceCaptures.length === 0 && !studentData.face_enrolled) return;
+                if (confirm('Are you sure you want to reset all face captures?')) {
+                    stopCamera();
+                    faceCaptures = [];
+                    studentData.face_enrolled = false;
+                    studentData.face_embedding = null;
+                    enrollmentComplete = false;
+                    currentStep = 3;
+                    renderRegistrationForm();
+                    showToast('Face captures reset', 'info');
+                }
+            }
+
+            // ---------- DATA LOADING ----------
+            async function loadAllData() {
+                try {
+                    isLoading = true;
+                    renderLoading();
+
+                    const savedDraft = localStorage.getItem('studentRegistrationDraft');
+                    if (savedDraft) {
+                        try {
+                            const parsed = JSON.parse(savedDraft);
+                            if (Object.values(parsed).some(v => v !== '' && v !== false && v !== null)) {
+                                studentData = parsed;
+                                if (studentData.face_embedding) {
+                                    studentData.face_enrolled = true;
+                                }
+                                showToast('Draft loaded. Continue where you left off.', 'info');
+                            }
+                        } catch (e) {
+                            console.warn('Could not parse draft:', e);
+                        }
+                    }
+
+                    const [hostelsRes, floorsRes, roomsRes, bedRes] = await Promise.all([
+                        apiCall('/hostels'),
+                        apiCall('/floors-flats'),
+                        apiCall('/rooms'),
+                        apiCall('/bed-spaces')
+                    ]);
+
+                    hostels = hostelsRes.data || [];
+                    floorsFlats = floorsRes.data || [];
+                    rooms = roomsRes.data || [];
+                    bedSpaces = bedRes.data || [];
+
+                    isLoading = false;
+                    renderRegistrationForm();
+
+                } catch (error) {
+                    console.error('Load error:', error);
+                    isLoading = false;
+                    showToast('Error loading data: ' + error.message, 'error');
+                    renderError();
+                }
+            }
+
+            // ---------- RENDER FUNCTIONS ----------
+            function renderLoading() {
+                registrationContent.innerHTML = `
+                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                    <p class="text-center text-muted">Loading registration form...</p>
+                `;
+            }
+
+            function renderError() {
+                registrationContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
                         <div class="text-center p-4">
-                            <i class="fas fa-user-graduate" style="font-size:3rem;color:#b9c7db;"></i>
-                            <p class="text-muted mt-3">No students found. Click "Add Student" to register one.</p>
+                            <i class="fas fa-exclamation-triangle" style="font-size:2.5rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading the registration form. Please refresh the page.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
                         </div>
                     </div>
                 `;
-                return;
             }
 
-            container.innerHTML = `
-                <div class="page-heading">
-                    <div>
-                        <p class="eyebrow"><i class="fas fa-users"></i> Student Records</p>
-                        <h1>Student Management</h1>
-                        <p class="desc">Manage all registered students and their hostel allocations.</p>
-                    </div>
-                    <div class="action-group">
-                        <button class="btn-outline"><i class="fas fa-file-export"></i> Export</button>
-                        <button class="btn-primary" onclick="openAddStudentModal()"><i class="fas fa-plus"></i> Add Student</button>
-                    </div>
-                </div>
+            function renderRegistrationForm() {
+                if (submitted) {
+                    renderSuccessScreen();
+                    return;
+                }
 
-                <div class="metric-grid">
-                    <div class="metric-card">
-                        <div class="metric-icon navy"><i class="fas fa-user-graduate"></i></div>
-                        <div class="metric-value">${total}</div>
-                        <div class="metric-title">Total Students</div>
-                        <div class="metric-detail">All registered</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-icon gold"><i class="fas fa-venus-mars"></i></div>
-                        <div class="metric-value">${male} / ${female}</div>
-                        <div class="metric-title">Gender</div>
-                        <div class="metric-detail">Male / Female</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-icon green"><i class="fas fa-bed"></i></div>
-                        <div class="metric-value">${assigned}</div>
-                        <div class="metric-title">Assigned</div>
-                        <div class="metric-detail">${Math.round((assigned / total) * 100) || 0}% allocated</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-icon gold"><i class="fas fa-user-check"></i></div>
-                        <div class="metric-value">${faceEnrolled}</div>
-                        <div class="metric-title">Face Enrolled</div>
-                        <div class="metric-detail">${Math.round((faceEnrolled / total) * 100) || 0}% enrolled</div>
-                    </div>
-                </div>
+                checkAutoAdvance();
 
-                <div class="card mt-4">
-                    <div class="flex-between">
-                        <div class="card-title">Student Records</div>
-                        <div class="flex-center gap-2">
-                            <input id="searchStudents" placeholder="Search by name or matric..." style="padding:0.3rem 0.5rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.7rem;width:180px;" oninput="filterStudents()" />
-                            <select id="filterHostel" onchange="filterStudents()" style="padding:0.3rem 0.5rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.7rem;">
-                                <option value="">All Hostels</option>
-                                ${hostels.map(h => `<option value="${h.id}">${h.name}</option>`).join('')}
-                            </select>
+                const html = `
+                    <!-- Section 1: Personal Information -->
+                    <div class="card" style="${currentStep > 0 ? 'border-color:#4ade80;' : ''}">
+                        <div class="section-header">
+                            <span class="section-number">1</span>
+                            <h3><i class="fas fa-user text-gold"></i> Personal Information</h3>
+                            <span class="section-badge ${currentStep > 0 ? 'done' : ''}">${currentStep > 0 ? '✓ Done' : 'Required'}</span>
                         </div>
+                        ${currentStep <= 0 ? `
+                        <p class="text-sm text-muted mb-3">Provide your personal details</p>
+                        <div class="grid-2">
+                            <div class="field"><label>Surname <span class="required">*</span></label><input id="surname" value="${studentData.surname || ''}" placeholder="e.g. Okafor" oninput="window.updateField('surname', this.value);window.checkAutoAdvance();" /></div>
+                            <div class="field"><label>First Name <span class="required">*</span></label><input id="firstName" value="${studentData.firstName || ''}" placeholder="e.g. Daniel" oninput="window.updateField('firstName', this.value);window.checkAutoAdvance();" /></div>
+                            <div class="field"><label>Middle Name</label><input id="middleName" value="${studentData.middleName || ''}" placeholder="e.g. Chibueze" oninput="window.updateField('middleName', this.value)" /></div>
+                            <div class="field"><label>Gender <span class="required">*</span></label><select id="gender" onchange="window.updateField('gender', this.value);window.checkAutoAdvance();"><option value="">Select Gender</option><option value="Male" ${studentData.gender === 'Male' ? 'selected' : ''}>Male</option><option value="Female" ${studentData.gender === 'Female' ? 'selected' : ''}>Female</option></select></div>
+                            <div class="field"><label>Date of Birth <span class="required">*</span></label><input id="dob" type="date" value="${studentData.dob || ''}" onchange="window.updateField('dob', this.value);window.checkAutoAdvance();" /></div>
+                            <div class="field"><label>Phone Number <span class="required">*</span></label><input id="phone" value="${studentData.phone || ''}" placeholder="e.g. 0803 000 0000" oninput="window.updateField('phone', this.value);window.checkAutoAdvance();" /></div>
+                            <div class="field" style="grid-column: span 2;"><label>Email Address <span class="text-muted">(Optional)</span></label><input id="email" value="${studentData.email || ''}" type="email" placeholder="student@biu.edu.ng" oninput="window.updateField('email', this.value)" /></div>
+                        </div>
+                        ` : `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;">
+                            <div><span class="text-muted">Name:</span> <strong>${studentData.surname} ${studentData.firstName} ${studentData.middleName}</strong></div>
+                            <div><span class="text-muted">Gender:</span> <strong>${studentData.gender || '—'}</strong></div>
+                            <div><span class="text-muted">DOB:</span> <strong>${studentData.dob || '—'}</strong></div>
+                            <div><span class="text-muted">Phone:</span> <strong>${studentData.phone || '—'}</strong></div>
+                        </div>
+                        `}
                     </div>
-                    <div class="table-wrap mt-3">
-                        <table>
-                            <thead><tr>
-                                <th>Name</th>
-                                <th>Matric</th>
-                                <th>Gender</th>
-                                <th>Hostel</th>
-                                <th>Room</th>
-                                <th>Bed</th>
-                                <th>Status</th>
-                                <th>Face</th>
-                                <th>Action</th>
-                            </tr></thead>
-                            <tbody id="studentTableBody"></tbody>
-                        </table>
+
+                    <!-- Section 2: Academic Information -->
+                    <div class="card" style="${currentStep > 1 ? 'border-color:#4ade80;' : ''}">
+                        <div class="section-header">
+                            <span class="section-number">2</span>
+                            <h3><i class="fas fa-graduation-cap text-gold"></i> Academic Information</h3>
+                            <span class="section-badge ${currentStep > 1 ? 'done' : ''}">${currentStep > 1 ? '✓ Done' : 'Required'}</span>
+                        </div>
+                        ${currentStep <= 1 ? `
+                        <p class="text-sm text-muted mb-3">Enter your academic details</p>
+                        <div class="grid-2">
+                            <div class="field"><label>Matric Number <span class="required">*</span></label><input id="matric" value="${studentData.matric || ''}" placeholder="e.g. SCN/CSC/230586" oninput="window.updateField('matric', this.value);window.checkAutoAdvance();" /></div>
+                            <div class="field"><label>Faculty <span class="required">*</span></label><select id="faculty" onchange="window.updateFacultyDepartments();window.checkAutoAdvance();"><option value="">Select Faculty</option>${Object.keys(facultyDepartments).map(f => `<option value="${f}" ${studentData.faculty === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+                            <div class="field"><label>Department <span class="required">*</span></label><select id="department" onchange="window.updateField('department', this.value);window.checkAutoAdvance();"><option value="">Select Department</option>${studentData.faculty ? facultyDepartments[studentData.faculty]?.map(d => `<option value="${d}" ${studentData.department === d ? 'selected' : ''}>${d}</option>`).join('') : ''}</select></div>
+                            <div class="field"><label>Level <span class="required">*</span></label><select id="level" onchange="window.updateField('level', this.value);window.checkAutoAdvance();"><option value="">Select Level</option><option value="100" ${studentData.level === '100' ? 'selected' : ''}>100 Level</option><option value="200" ${studentData.level === '200' ? 'selected' : ''}>200 Level</option><option value="300" ${studentData.level === '300' ? 'selected' : ''}>300 Level</option><option value="400" ${studentData.level === '400' ? 'selected' : ''}>400 Level</option><option value="500" ${studentData.level === '500' ? 'selected' : ''}>500 Level</option><option value="600" ${studentData.level === '600' ? 'selected' : ''}>600 Level</option></select></div>
+                            <div class="field" style="grid-column: span 2;"><label>Academic Session <span class="required">*</span></label><select id="session" onchange="window.updateField('session', this.value);window.checkAutoAdvance();"><option value="2024/2025" ${studentData.session === '2024/2025' ? 'selected' : ''}>2024/2025</option><option value="2025/2026" ${studentData.session === '2025/2026' ? 'selected' : ''}>2025/2026</option><option value="2026/2027" ${studentData.session === '2026/2027' ? 'selected' : ''}>2026/2027</option></select></div>
+                        </div>
+                        ` : `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;">
+                            <div><span class="text-muted">Matric:</span> <strong>${studentData.matric || '—'}</strong></div>
+                            <div><span class="text-muted">Faculty:</span> <strong>${studentData.faculty || '—'}</strong></div>
+                            <div><span class="text-muted">Department:</span> <strong>${studentData.department || '—'}</strong></div>
+                            <div><span class="text-muted">Level:</span> <strong>${studentData.level || '—'}</strong></div>
+                            <div style="grid-column:span 2;"><span class="text-muted">Session:</span> <strong>${studentData.session || '—'}</strong></div>
+                        </div>
+                        `}
                     </div>
-                </div>
-            `;
 
-            renderStudentTable();
-        }
+                    <!-- Section 3: Hostel Information -->
+                    <div class="card" style="${currentStep > 2 ? 'border-color:#4ade80;' : ''}">
+                        <div class="section-header">
+                            <span class="section-number">3</span>
+                            <h3><i class="fas fa-building text-gold"></i> Hostel Information</h3>
+                            <span class="section-badge ${currentStep > 2 ? 'done' : ''}">${currentStep > 2 ? '✓ Done' : 'Required'}</span>
+                        </div>
+                        ${currentStep <= 2 ? `
+                        <p class="text-sm text-muted mb-3">Select your allocated hostel, floor/flat, room and bed space</p>
+                        <div class="grid-2">
+                            <div class="field"><label>Hostel <span class="required">*</span></label><select id="hostelSelect" onchange="window.updateHostelDependencies();window.checkAutoAdvance();"><option value="">Select Hostel</option>${hostels.map(h => `<option value="${h.id}" ${studentData.hostel_id == h.id ? 'selected' : ''}>${h.name}</option>`).join('')}</select></div>
+                            <div class="field"><label>Floor / Flat <span class="required">*</span></label><select id="floorSelect" onchange="window.updateRoomDependencies();window.checkAutoAdvance();"><option value="">Select Floor/Flat</option></select></div>
+                            <div class="field"><label>Room Number <span class="required">*</span></label><select id="roomSelect" onchange="window.updateBedDependencies();window.checkAutoAdvance();"><option value="">Select Room</option></select></div>
+                            <div class="field"><label>Bed Space <span class="required">*</span></label><select id="bedSelect" onchange="window.onBedSelect();window.checkAutoAdvance();"><option value="">Select Bed</option></select></div>
+                        </div>
+                        <div id="bedVisualContainer" class="mt-3 p-2 border rounded-lg" style="background:#fff9e9;display:none;">
+                            <div class="flex-between"><p class="text-sm font-bold">Bed Layout</p><span id="bedCountInfo" class="text-xs text-muted"></span></div>
+                            <div id="bedVisual" class="bed-grid mt-2"></div>
+                        </div>
+                        ` : `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;">
+                            <div><span class="text-muted">Hostel:</span> <strong>${hostels.find(h => h.id == studentData.hostel_id)?.name || '—'}</strong></div>
+                            <div><span class="text-muted">Room:</span> <strong>${rooms.find(r => r.id == studentData.room_id)?.room_code || '—'}</strong></div>
+                            <div style="grid-column:span 2;"><span class="text-muted">Bed:</span> <strong>${bedSpaces.find(b => b.id == studentData.bed_space_id)?.bed_code || '—'}</strong></div>
+                        </div>
+                        `}
+                    </div>
 
-        // =============================================
-        // RENDER STUDENT TABLE
-        // =============================================
-        function renderStudentTable() {
-            const tbody = document.getElementById('studentTableBody');
-            if (!tbody) return;
+                    <!-- Section 4: Face Enrollment (Auto) -->
+                    <div class="card" style="${studentData.face_enrolled ? 'border-color:#4ade80;' : ''}">
+                        <div class="section-header">
+                            <span class="section-number">4</span>
+                            <h3><i class="fas fa-user-circle text-gold"></i> Face Enrollment</h3>
+                            <span class="section-badge ${studentData.face_enrolled ? 'done' : 'auto'}">${studentData.face_enrolled ? '✓ Enrolled' : 'Auto-capture'}</span>
+                        </div>
+                        ${!studentData.face_enrolled ? `
+                        <div class="face-enrollment">
+                            <p class="text-sm text-muted mb-2">Look at the camera. Face will be auto-captured. ${totalCaptures} captures needed.</p>
+                            
+                            <div class="face-camera-preview" id="cameraPreview">
+                                <video id="cameraVideo" autoplay playsinline muted style="width:100%;border-radius:0.75rem;background:#0a0a15;object-fit:cover;transform:scaleX(-1);"></video>
+                                
+                                <div class="face-overlay">
+                                    <div class="face-guide" id="faceGuide"></div>
+                                </div>
+                                
+                                <div class="camera-status" id="cameraStatus">
+                                    <span class="status-dot loading"></span> Initializing camera...
+                                </div>
+                                
+                                <div class="quality-panel" id="qualityPanel">
+                                    <div class="quality-row">Lighting <span class="good">✓</span></div>
+                                    <div class="quality-row">Eyes <span class="good">✓</span></div>
+                                    <div class="quality-row">Distance <span class="good">✓</span></div>
+                                    <div class="quality-row">Blur <span class="good">✓</span></div>
+                                    <div class="quality-row">Angle <span class="good">✓</span></div>
+                                    <div class="quality-row">Liveness <span class="warning">○</span></div>
+                                    <div class="quality-row" style="border-top:1px solid #334155;padding-top:0.2rem;margin-top:0.2rem;">
+                                        Overall <span id="overallQuality" style="color:#4ade80;font-weight:700;">86%</span>
+                                    </div>
+                                </div>
 
-            const search = document.getElementById('searchStudents')?.value?.toLowerCase() || '';
-            const hostelFilter = document.getElementById('filterHostel')?.value || '';
+                                <div class="face-capture-steps-inline" id="captureStepsInline">
+                                    ${captureInstructions.map((label, i) => `
+                                        <div class="face-capture-step-inline ${i < faceCaptures.length ? 'done' : i === faceCaptures.length ? 'active' : ''}" id="step_${i}">
+                                            <span class="step-icon">${i < faceCaptures.length ? '✅' : i === faceCaptures.length ? '📸' : '○'}</span>
+                                            <span class="step-label">${label}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
 
-            let filtered = students;
+                                <div class="face-progress-inline">
+                                    <div class="fill" id="faceProgressFill" style="width:${(faceCaptures.length / totalCaptures) * 100}%;"></div>
+                                </div>
+                                <div class="face-capture-info">
+                                    <span id="captureCount">${faceCaptures.length} / ${totalCaptures}</span>
+                                    <span id="captureStatus">${faceCaptures.length === 0 ? 'Waiting for face...' : faceCaptures.length >= totalCaptures ? '✅ Complete!' : 'Auto-capturing...'}</span>
+                                </div>
+                            </div>
 
-            if (search) {
-                filtered = filtered.filter(s => 
-                    s.name?.toLowerCase().includes(search) || 
-                    s.matric?.toLowerCase().includes(search)
-                );
+                            <div class="face-quality-bar">
+                                <span class="quality-label">Quality</span>
+                                <div class="quality-track"><div class="fill" id="qualityFill" style="width:86%;background:#4ade80;"></div></div>
+                                <span class="quality-value" id="qualityValue">86%</span>
+                            </div>
+
+                            <div class="auto-capture-status">
+                                <span class="pulse ${faceCaptures.length >= totalCaptures ? 'done' : faceDetected ? '' : 'waiting'}"></span>
+                                ${faceCaptures.length >= totalCaptures ? 
+                                    '✅ All captures complete! Auto-enrolling with InsightFace...' : 
+                                    faceDetected ? 
+                                    '📸 Face detected - Auto-capturing...' : 
+                                    '⏳ Waiting for face...'
+                                }
+                            </div>
+
+                            <div class="flex gap-2 mt-2 flex-wrap">
+                                ${faceCaptures.length > 0 ? `<button class="btn-outline" onclick="window.resetFaceCaptures()"><i class="fas fa-undo"></i> Reset</button>` : ''}
+                                <button class="btn-enroll" id="enrollFaceBtn" ${faceCaptures.length >= totalCaptures ? '' : 'disabled'} onclick="window.enrollFace()" style="${faceCaptures.length >= totalCaptures ? '' : 'opacity:0.5;pointer-events:none;'}">
+                                    <i class="fas fa-user-check"></i> Enroll with InsightFace
+                                </button>
+                            </div>
+                            
+                            <p class="text-xs text-muted mt-2">
+                                <i class="fas fa-info-circle"></i> 
+                                ${faceDetected ? '✅ Face detected - Good quality!' : '⏳ Position your face in the guide for auto-capture'}
+                                ${faceCaptures.length >= totalCaptures ? ' 🎉 All captures complete! Click Enroll.' : ` (${faceCaptures.length}/${totalCaptures})`}
+                            </p>
+                        </div>
+                        ` : `
+                        <div style="text-align:center;padding:0.75rem;">
+                            <div style="font-size:2.5rem;color:#4ade80;">✅</div>
+                            <h3 class="font-bold text-green">Face Successfully Enrolled with InsightFace</h3>
+                            <p class="text-sm text-muted">${totalCaptures} captures · Quality: ${Math.round(faceCaptures.reduce((sum, c) => sum + c.quality, 0) / faceCaptures.length || 0)}%</p>
+                            ${studentData.face_embedding ? `<p class="text-xs text-muted">Embedding: 512-dimensional vector</p>` : ''}
+                            <button class="btn-outline mt-2" onclick="window.resetFaceCaptures()"><i class="fas fa-redo"></i> Re-enroll</button>
+                        </div>
+                        `}
+                    </div>
+
+                    <!-- Section 5: Complete -->
+                    <div class="card" style="${studentData.face_enrolled ? 'border-color:#4ade80;' : 'opacity:0.6;'}">
+                        <div class="section-header">
+                            <span class="section-number">5</span>
+                            <h3><i class="fas fa-clipboard-check text-gold"></i> Complete Registration</h3>
+                            <span class="section-badge">Final</span>
+                        </div>
+                        
+                        ${studentData.face_enrolled ? `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;margin-bottom:0.5rem;">
+                            <div style="color:#065f46;">✅ Personal</div>
+                            <div style="color:#065f46;">✅ Academic</div>
+                            <div style="color:#065f46;">✅ Hostel</div>
+                            <div style="color:#065f46;">✅ Face (InsightFace)</div>
+                            <div style="grid-column:span 2;text-align:center;padding:0.4rem;background:#dcfce7;border-radius:0.5rem;color:#065f46;font-weight:700;">✅ Ready for BedCheck</div>
+                        </div>
+
+                        <div class="mt-2 pt-2 border-t">
+                            <div class="declaration-item">
+                                <input type="checkbox" id="declaration" ${studentData.declaration ? 'checked' : ''} onchange="window.updateField('declaration', this.checked);window.checkAutoAdvance();" />
+                                <label for="declaration" class="text-sm">I confirm that the information provided is accurate and complete.</label>
+                            </div>
+                        </div>
+
+                        <div class="mt-2">
+                            <button class="btn-success" onclick="window.submitRegistration()" style="width:100%;justify-content:center;padding:0.75rem;font-size:1rem;">
+                                <i class="fas fa-check-circle"></i> Finish Registration & Save to Database
+                            </button>
+                        </div>
+                        ` : `
+                        <p class="text-muted text-sm">Please complete all previous steps including Face Enrollment.</p>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.8rem;margin-top:0.5rem;">
+                            <div>${studentData.surname ? '✅' : '⬜'} Personal</div>
+                            <div>${studentData.matric ? '✅' : '⬜'} Academic</div>
+                            <div>${studentData.hostel_id ? '✅' : '⬜'} Hostel</div>
+                            <div>${studentData.face_enrolled ? '✅' : '⬜'} Face</div>
+                        </div>
+                        `}
+                    </div>
+
+                    <!-- Form Actions -->
+                    <div class="form-actions">
+                        <button class="btn-outline" onclick="window.saveDraft()"><i class="fas fa-save"></i> Save Draft</button>
+                        <button class="btn-outline" onclick="window.resetForm()"><i class="fas fa-undo"></i> Reset</button>
+                        ${studentData.face_enrolled ? `<button class="btn-gold" onclick="window.saveAndGoToDashboard()"><i class="fas fa-arrow-right"></i> Save & Go to Dashboard</button>` : ''}
+                    </div>
+                `;
+
+                registrationContent.innerHTML = html;
+
+                if (currentStep >= 3 && !studentData.face_enrolled) {
+                    setTimeout(() => {
+                        startCamera();
+                    }, 500);
+                }
+
+                if (currentStep <= 2) {
+                    setTimeout(() => {
+                        if (studentData.hostel_id) {
+                            document.getElementById('hostelSelect').value = studentData.hostel_id;
+                            populateHostelDropdowns();
+                            if (studentData.floor_flat_id) {
+                                setTimeout(() => {
+                                    document.getElementById('floorSelect').value = studentData.floor_flat_id;
+                                    updateRoomDependencies();
+                                    if (studentData.room_id) {
+                                        setTimeout(() => {
+                                            document.getElementById('roomSelect').value = studentData.room_id;
+                                            updateBedDependencies();
+                                            if (studentData.bed_space_id) {
+                                                setTimeout(() => {
+                                                    document.getElementById('bedSelect').value = studentData.bed_space_id;
+                                                }, 100);
+                                            }
+                                        }, 100);
+                                    }
+                                }, 100);
+                            }
+                        }
+                    }, 100);
+                }
             }
 
-            if (hostelFilter) {
-                filtered = filtered.filter(s => String(s.hostel_id) === hostelFilter);
-            }
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No students found</td></tr>`;
-                return;
-            }
-
-            tbody.innerHTML = filtered.map(s => {
-                const hostel = hostels.find(h => h.id === s.hostel_id);
-                const room = rooms.find(r => r.id === s.room_id);
-                const bed = bedSpaces.find(b => b.id === s.bed_space_id);
+            // ---------- AUTO ADVANCE ----------
+            function checkAutoAdvance() {
+                if (currentStep === 0) {
+                    const surname = document.getElementById('surname')?.value?.trim();
+                    const firstName = document.getElementById('firstName')?.value?.trim();
+                    const gender = document.getElementById('gender')?.value;
+                    const dob = document.getElementById('dob')?.value;
+                    const phone = document.getElementById('phone')?.value?.trim();
+                    if (surname && firstName && gender && dob && phone) {
+                        currentStep = 1;
+                        renderRegistrationForm();
+                        return;
+                    }
+                }
                 
-                return `
-                    <tr>
-                        <td><span class="font-bold">${s.name || '—'}</span></td>
-                        <td>${s.matric || '—'}</td>
-                        <td>${s.gender || '—'}</td>
-                        <td>${hostel?.name || 'Not assigned'}</td>
-                        <td>${room?.room_code || s.room_code || '—'}</td>
-                        <td>${bed?.bed_code || s.bed_code || '—'}</td>
-                        <td><span class="badge ${s.status === 'Present' ? 'badge-available' : s.status === 'Absent' ? 'badge-occupied' : 'badge-draft'}">${s.status || '—'}</span></td>
-                        <td>${s.face_enrolled ? '✅' : '⬜'}</td>
-                        <td>
-                            <button class="btn-ghost" onclick="viewStudent('${s.id}')"><i class="fas fa-eye"></i></button>
-                            <button class="btn-ghost" onclick="editStudent('${s.id}')"><i class="fas fa-edit"></i></button>
-                            <button class="btn-ghost" style="color:#a84134;" onclick="deleteStudent('${s.id}')"><i class="fas fa-trash"></i></button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
+                if (currentStep === 1) {
+                    const matric = document.getElementById('matric')?.value?.trim();
+                    const faculty = document.getElementById('faculty')?.value;
+                    const department = document.getElementById('department')?.value;
+                    const level = document.getElementById('level')?.value;
+                    const session = document.getElementById('session')?.value;
+                    if (matric && faculty && department && level && session) {
+                        apiCall(`/students?search=${matric}`).then(res => {
+                            if (res.data && res.data.length > 0) {
+                                showToast('Matric number already exists!', 'error');
+                                return;
+                            }
+                            currentStep = 2;
+                            renderRegistrationForm();
+                        }).catch(() => {
+                            currentStep = 2;
+                            renderRegistrationForm();
+                        });
+                        return;
+                    }
+                }
+                
+                if (currentStep === 2) {
+                    const hostel = document.getElementById('hostelSelect')?.value;
+                    const floor = document.getElementById('floorSelect')?.value;
+                    const room = document.getElementById('roomSelect')?.value;
+                    const bed = document.getElementById('bedSelect')?.value;
+                    if (hostel && floor && room && bed) {
+                        currentStep = 3;
+                        renderRegistrationForm();
+                        return;
+                    }
+                }
+            }
 
-        function filterStudents() {
-            renderStudentTable();
-        }
+            // ---------- FORM INTERACTIONS ----------
+            function updateField(field, value) {
+                studentData[field] = value;
+                clearTimeout(window._draftTimeout);
+                window._draftTimeout = setTimeout(() => {
+                    saveDraft(true);
+                }, 2000);
+            }
 
-        // =============================================
-        // ADD STUDENT MODAL
-        // =============================================
-        function openAddStudentModal() {
-            const modal = document.getElementById('addStudentModal');
-            
-            // Reset form
-            document.getElementById('studentSurname').value = '';
-            document.getElementById('studentFirstName').value = '';
-            document.getElementById('studentMiddleName').value = '';
-            document.getElementById('studentMatric').value = '';
-            document.getElementById('studentGender').value = 'Male';
-            document.getElementById('studentPhone').value = '';
-            document.getElementById('studentEmail').value = '';
-            document.getElementById('studentFaculty').value = '';
-            document.getElementById('studentDepartment').innerHTML = '<option value="">Select Department</option>';
-            document.getElementById('studentLevel').value = '100';
-            document.getElementById('studentSession').value = '2025/2026';
-            
-            // Populate hostel dropdown
-            const hostelSelect = document.getElementById('studentHostel');
-            hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
-            hostels.forEach(h => {
-                const opt = document.createElement('option');
-                opt.value = h.id;
-                opt.textContent = h.name;
-                hostelSelect.appendChild(opt);
-            });
-            
-            document.getElementById('studentFloor').innerHTML = '<option value="">Select Floor/Flat</option>';
-            document.getElementById('studentRoom').innerHTML = '<option value="">Select Room</option>';
-            document.getElementById('studentBed').innerHTML = '<option value="">Select Bed</option>';
-            
-            modal.classList.add('show');
-        }
+            function updateFacultyDepartments() {
+                const faculty = document.getElementById('faculty')?.value;
+                studentData.faculty = faculty;
+                studentData.department = '';
 
-        function closeAddStudentModal() {
-            document.getElementById('addStudentModal').classList.remove('show');
-        }
-
-        // =============================================
-        // FACULTY DEPARTMENTS
-        // =============================================
-        document.addEventListener('change', function(e) {
-            if (e.target.id === 'studentFaculty') {
-                const faculty = e.target.value;
-                const deptSelect = document.getElementById('studentDepartment');
+                const deptSelect = document.getElementById('department');
                 deptSelect.innerHTML = '<option value="">Select Department</option>';
                 if (faculty && facultyDepartments[faculty]) {
                     facultyDepartments[faculty].forEach(dept => {
@@ -810,338 +1813,414 @@
                     });
                 }
             }
-        });
 
-        // =============================================
-        // HOSTEL DEPENDENT DROPDOWNS FOR STUDENT
-        // =============================================
-        function updateFloorsForStudent() {
-            const hostelId = document.getElementById('studentHostel').value;
-            const floorSelect = document.getElementById('studentFloor');
-            floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
-            document.getElementById('studentRoom').innerHTML = '<option value="">Select Room</option>';
-            document.getElementById('studentBed').innerHTML = '<option value="">Select Bed</option>';
+            // ---------- HOSTEL DEPENDENT DROPDOWNS ----------
+            function populateHostelDropdowns() {
+                const hostelId = document.getElementById('hostelSelect')?.value;
+                if (!hostelId) return;
 
-            if (hostelId) {
                 const hostelFloors = floorsFlats.filter(f => f.hostel_id == parseInt(hostelId));
+                const floorSelect = document.getElementById('floorSelect');
+                floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
+
                 hostelFloors.sort((a, b) => {
                     const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.name.replace(/[^0-9]/g, '')) || 0;
                     return aNum - bNum;
                 });
+
                 hostelFloors.forEach(floor => {
                     const opt = document.createElement('option');
                     opt.value = floor.id;
                     const roomCount = rooms.filter(r => r.floor_flat_id === floor.id).length;
                     opt.textContent = `${floor.name} (${roomCount} rooms)`;
+                    if (studentData.floor_flat_id == floor.id) opt.selected = true;
                     floorSelect.appendChild(opt);
                 });
+
+                if (studentData.floor_flat_id) {
+                    setTimeout(updateRoomDependencies, 50);
+                }
             }
-        }
 
-        function updateRoomsForStudent() {
-            const floorId = document.getElementById('studentFloor').value;
-            const roomSelect = document.getElementById('studentRoom');
-            roomSelect.innerHTML = '<option value="">Select Room</option>';
-            document.getElementById('studentBed').innerHTML = '<option value="">Select Bed</option>';
+            function updateHostelDependencies() {
+                const hostelId = document.getElementById('hostelSelect')?.value;
+                studentData.hostel_id = hostelId;
+                studentData.floor_flat_id = '';
+                studentData.room_id = '';
+                studentData.bed_space_id = '';
+                studentData.room_code = '';
+                studentData.bed_code = '';
 
-            if (floorId) {
+                const floorSelect = document.getElementById('floorSelect');
+                floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
+                const roomSelect = document.getElementById('roomSelect');
+                roomSelect.innerHTML = '<option value="">Select Room</option>';
+                const bedSelect = document.getElementById('bedSelect');
+                bedSelect.innerHTML = '<option value="">Select Bed</option>';
+                document.getElementById('bedVisualContainer').style.display = 'none';
+
+                if (hostelId) {
+                    populateHostelDropdowns();
+                }
+                checkAutoAdvance();
+            }
+
+            function updateRoomDependencies() {
+                const floorId = document.getElementById('floorSelect')?.value;
+                studentData.floor_flat_id = floorId;
+                if (!floorId) return;
+
                 const floorRooms = rooms.filter(r => r.floor_flat_id == parseInt(floorId));
+                const roomSelect = document.getElementById('roomSelect');
+                roomSelect.innerHTML = '<option value="">Select Room</option>';
+
                 floorRooms.sort((a, b) => {
                     const aNum = parseInt(a.room_code.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.room_code.replace(/[^0-9]/g, '')) || 0;
                     return aNum - bNum;
                 });
+
                 floorRooms.forEach(room => {
                     const opt = document.createElement('option');
                     opt.value = room.id;
                     const bedCount = bedSpaces.filter(b => b.room_id === room.id).length;
                     opt.textContent = `${room.room_code} (${bedCount} beds)`;
+                    if (studentData.room_id == room.id) opt.selected = true;
                     roomSelect.appendChild(opt);
                 });
+
+                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
+                document.getElementById('bedVisualContainer').style.display = 'none';
+                studentData.bed_space_id = '';
+                studentData.bed_code = '';
+
+                if (studentData.room_id) {
+                    updateBedDependencies();
+                }
+                checkAutoAdvance();
             }
-        }
 
-        function updateBedsForStudent() {
-            const roomId = document.getElementById('studentRoom').value;
-            const bedSelect = document.getElementById('studentBed');
-            bedSelect.innerHTML = '<option value="">Select Bed</option>';
+            async function updateBedDependencies() {
+                const roomId = document.getElementById('roomSelect')?.value;
+                studentData.room_id = roomId;
+                if (!roomId) return;
 
-            if (roomId) {
-                const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId) && b.status === 'available');
+                const selectedRoom = rooms.find(r => r.id == parseInt(roomId));
+                if (selectedRoom) studentData.room_code = selectedRoom.room_code;
+
+                const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId));
+                const bedSelect = document.getElementById('bedSelect');
+                bedSelect.innerHTML = '<option value="">Select Bed</option>';
+
+                if (roomBeds.length === 0) {
+                    document.getElementById('bedVisualContainer').style.display = 'none';
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'No bed spaces available';
+                    opt.disabled = true;
+                    bedSelect.appendChild(opt);
+                    return;
+                }
+
+                occupiedBedIds = [];
+                try {
+                    const studentsRes = await apiCall(`/students?room_id=${roomId}`);
+                    if (studentsRes.data && studentsRes.data.length > 0) {
+                        occupiedBedIds = studentsRes.data.map(s => s.bed_space_id).filter(id => id !== null);
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch occupied beds:', e);
+                }
+
                 roomBeds.sort((a, b) => {
                     const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
                     const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
                     return aNum - bNum;
                 });
+
+                const availableBeds = roomBeds.filter(b => !occupiedBedIds.includes(b.id));
+                const occupiedCount = roomBeds.filter(b => occupiedBedIds.includes(b.id)).length;
+
                 roomBeds.forEach(bed => {
                     const opt = document.createElement('option');
                     opt.value = bed.id;
-                    opt.textContent = `${bed.bed_code} (Available)`;
+                    const isOccupied = occupiedBedIds.includes(bed.id);
+                    if (isOccupied) {
+                        opt.textContent = `${bed.bed_code} (Occupied)`;
+                        opt.disabled = true;
+                    } else {
+                        opt.textContent = `${bed.bed_code} (Available)`;
+                    }
+                    if (studentData.bed_space_id == bed.id && !isOccupied) opt.selected = true;
                     bedSelect.appendChild(opt);
                 });
-            }
-        }
 
-        // =============================================
-        // SAVE STUDENT
-        // =============================================
-        async function saveStudent() {
-            const surname = document.getElementById('studentSurname').value.trim();
-            const firstName = document.getElementById('studentFirstName').value.trim();
-            const middleName = document.getElementById('studentMiddleName').value.trim();
-            const matric = document.getElementById('studentMatric').value.trim().toUpperCase();
-            const gender = document.getElementById('studentGender').value;
-            const phone = document.getElementById('studentPhone').value.trim();
-            const email = document.getElementById('studentEmail').value.trim();
-            const faculty = document.getElementById('studentFaculty').value;
-            const department = document.getElementById('studentDepartment').value;
-            const level = document.getElementById('studentLevel').value;
-            const session = document.getElementById('studentSession').value;
-            const hostelId = document.getElementById('studentHostel').value;
-            const floorId = document.getElementById('studentFloor').value;
-            const roomId = document.getElementById('studentRoom').value;
-            const bedId = document.getElementById('studentBed').value;
-
-            if (!surname || !firstName || !matric || !phone || !faculty || !department || !hostelId || !roomId || !bedId) {
-                showToast('Please fill in all required fields', 'error');
-                return;
+                renderBedVisual(roomBeds, occupiedBedIds);
+                document.getElementById('bedCountInfo').textContent = 
+                    `${availableBeds.length} available · ${occupiedCount} occupied · ${roomBeds.length} total`;
+                checkAutoAdvance();
             }
 
-            try {
-                const hostel = hostels.find(h => h.id == parseInt(hostelId));
-                const floor = floorsFlats.find(f => f.id == parseInt(floorId));
-                const room = rooms.find(r => r.id == parseInt(roomId));
-                const bed = bedSpaces.find(b => b.id == parseInt(bedId));
+            function renderBedVisual(beds, occupiedBeds) {
+                const container = document.getElementById('bedVisualContainer');
+                const visual = document.getElementById('bedVisual');
+                if (beds.length === 0) { container.style.display = 'none'; return; }
+                container.style.display = 'block';
+                visual.innerHTML = '';
 
-                const studentData = {
-                    name: `${surname} ${firstName} ${middleName}`.trim(),
-                    matric: matric,
-                    gender: gender,
-                    phone: phone,
-                    email: email || null,
-                    faculty: faculty,
-                    department: department,
-                    level: level,
-                    session: session,
-                    hostel_id: parseInt(hostelId),
+                beds.sort((a, b) => {
+                    const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
+                    const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
+                    return aNum - bNum;
+                });
+
+                beds.forEach(bed => {
+                    const dot = document.createElement('div');
+                    dot.className = 'bed-dot';
+                    const isOccupied = occupiedBeds.includes(bed.id);
+                    if (isOccupied) {
+                        dot.classList.add('occupied');
+                        dot.innerHTML = `<span class="bed-label">${bed.bed_code}</span><span class="bed-status">⛔</span>`;
+                    } else {
+                        dot.classList.add('available');
+                        dot.innerHTML = `<span class="bed-label">${bed.bed_code}</span><span class="bed-status">✓</span>`;
+                        dot.onclick = function() {
+                            document.getElementById('bedSelect').value = bed.id;
+                            document.querySelectorAll('.bed-dot').forEach(d => d.classList.remove('selected'));
+                            this.classList.add('selected');
+                            studentData.bed_space_id = bed.id;
+                            studentData.bed_code = bed.bed_code;
+                            showToast(`Selected ${bed.bed_code}`, 'success');
+                            checkAutoAdvance();
+                        };
+                        if (studentData.bed_space_id == bed.id) dot.classList.add('selected');
+                    }
+                    visual.appendChild(dot);
+                });
+            }
+
+            function onBedSelect() {
+                const bedSelect = document.getElementById('bedSelect');
+                const selectedId = bedSelect.value;
+                if (selectedId) {
+                    const bed = bedSpaces.find(b => b.id == parseInt(selectedId));
+                    if (bed) {
+                        studentData.bed_space_id = bed.id;
+                        studentData.bed_code = bed.bed_code;
+                        document.querySelectorAll('.bed-dot').forEach(d => d.classList.remove('selected'));
+                        const dots = document.querySelectorAll('.bed-dot');
+                        dots.forEach(d => {
+                            if (d.textContent.includes(bed.bed_code)) d.classList.add('selected');
+                        });
+                    }
+                }
+                checkAutoAdvance();
+            }
+
+            // ---------- SAVE DRAFT ----------
+            function saveDraft(silent = false) {
+                const fields = ['surname', 'firstName', 'middleName', 'gender', 'dob', 'phone', 'email', 'matric', 'faculty', 'department', 'level', 'session', 'notes'];
+                fields.forEach(f => {
+                    const el = document.getElementById(f);
+                    if (el) studentData[f] = el.value;
+                });
+                const hostelSelect = document.getElementById('hostelSelect');
+                if (hostelSelect) studentData.hostel_id = hostelSelect.value;
+                const floorSelect = document.getElementById('floorSelect');
+                if (floorSelect) studentData.floor_flat_id = floorSelect.value;
+                const roomSelect = document.getElementById('roomSelect');
+                if (roomSelect) studentData.room_id = roomSelect.value;
+                const bedSelect = document.getElementById('bedSelect');
+                if (bedSelect) studentData.bed_space_id = bedSelect.value;
+                studentData.face_enrolled = faceCaptures.length >= totalCaptures;
+
+                localStorage.setItem('studentRegistrationDraft', JSON.stringify(studentData));
+                if (!silent) showToast('Draft saved!', 'success');
+            }
+
+            // ---------- RESET FORM ----------
+            function resetForm() {
+                if (confirm('Are you sure you want to reset all fields?')) {
+                    stopCamera();
+                    studentData = {
+                        surname: '', firstName: '', middleName: '', gender: '', dob: '', phone: '', email: '',
+                        matric: '', faculty: '', department: '', level: '', session: '2025/2026',
+                        hostel_id: '', floor_flat_id: '', room_id: '', bed_space_id: '',
+                        hostel_name: '', floor_name: '', room_code: '', bed_code: '',
+                        status: 'Active', notes: '',
+                        declaration: false,
+                        face_embedding: null,
+                        face_enrolled: false,
+                        face_provider: 'insightface'
+                    };
+                    faceCaptures = [];
+                    enrollmentComplete = false;
+                    currentStep = 0;
+                    localStorage.removeItem('studentRegistrationDraft');
+                    renderRegistrationForm();
+                    showToast('Form reset', 'success');
+                }
+            }
+
+            // ---------- SUBMIT REGISTRATION ----------
+            async function submitRegistration() {
+                if (!studentData.face_enrolled) {
+                    showToast('Please complete face enrollment first', 'error');
+                    return;
+                }
+                if (!studentData.declaration) {
+                    showToast('Please agree to the declaration', 'error');
+                    document.getElementById('declaration')?.focus();
+                    return;
+                }
+
+                try {
+                    const existing = await apiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
+                    if (existing.data && existing.data.length > 0) {
+                        showToast('Matric number already exists!', 'error');
+                        return;
+                    }
+                } catch (e) {}
+
+                const hostel = hostels.find(h => h.id == parseInt(studentData.hostel_id));
+                const floor = floorsFlats.find(f => f.id == parseInt(studentData.floor_flat_id));
+                const room = rooms.find(r => r.id == parseInt(studentData.room_id));
+                const bed = bedSpaces.find(b => b.id == parseInt(studentData.bed_space_id));
+
+                const newStudent = {
+                    name: `${studentData.surname} ${studentData.firstName} ${studentData.middleName}`.trim(),
+                    matric: studentData.matric,
+                    gender: studentData.gender,
+                    phone: studentData.phone,
+                    email: studentData.email || null,
+                    faculty: studentData.faculty,
+                    department: studentData.department,
+                    level: studentData.level,
+                    session: studentData.session,
+                    hostel_id: parseInt(studentData.hostel_id) || null,
                     hostel_name: hostel?.name || null,
-                    floor_flat_id: parseInt(floorId) || null,
+                    floor_flat_id: parseInt(studentData.floor_flat_id) || null,
                     floor_name: floor?.name || null,
-                    room_id: parseInt(roomId),
-                    room_code: room?.room_code || null,
-                    bed_space_id: parseInt(bedId),
-                    bed_code: bed?.bed_code || null,
-                    status: 'Present',
-                    face_enrolled: false
+                    room_id: parseInt(studentData.room_id) || null,
+                    room_code: room?.room_code || studentData.room_code || null,
+                    bed_space_id: parseInt(studentData.bed_space_id) || null,
+                    bed_code: bed?.bed_code || studentData.bed_code || null,
+                    status: 'Active',
+                    notes: studentData.notes || null,
+                    face_embedding: studentData.face_embedding || null,
+                    face_enrolled: true,
+                    face_provider: 'insightface',
+                    enrollment_date: new Date().toISOString()
                 };
 
-                const result = await apiCall('/students', {
-                    method: 'POST',
-                    body: JSON.stringify(studentData)
-                });
-
-                // Update bed space status
-                if (bedId) {
-                    await apiCall(`/bed-spaces/${bedId}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({
-                            status: 'occupied',
-                            student_id: result.data.id
-                        })
+                try {
+                    const result = await apiCall('/students', {
+                        method: 'POST',
+                        body: JSON.stringify(newStudent)
                     });
+
+                    if (studentData.bed_space_id) {
+                        await apiCall(`/bed-spaces/${studentData.bed_space_id}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ 
+                                status: 'occupied',
+                                student_id: result.data.id
+                            })
+                        });
+                    }
+
+                    submitted = true;
+                    localStorage.removeItem('studentRegistrationDraft');
+                    renderSuccessScreen(result.data);
+                    showToast('Registration submitted successfully!', 'success');
+
+                } catch (error) {
+                    console.error('Submit error:', error);
+                    showToast('Error submitting: ' + error.message, 'error');
                 }
-
-                showToast(`Student ${studentData.name} registered successfully!`, 'success');
-                closeAddStudentModal();
-                await loadAllData();
-
-            } catch (error) {
-                showToast('Error saving student: ' + error.message, 'error');
-            }
-        }
-
-        // =============================================
-        // VIEW STUDENT
-        // =============================================
-        async function viewStudent(studentId) {
-            const student = students.find(s => String(s.id) === String(studentId));
-            if (!student) {
-                showToast('Student not found', 'error');
-                return;
             }
 
-            const drawer = document.getElementById('studentDrawer');
-            const title = document.getElementById('studentDrawerName');
-            const matric = document.getElementById('studentDrawerMatric');
-            const body = document.getElementById('studentDrawerBody');
+            // ---------- SUCCESS SCREEN ----------
+            function renderSuccessScreen(data) {
+                const refNumber = data?.id ? `BC-2026-${String(data.id).padStart(6, '0')}` : 'BC-2026-000245';
+                const studentName = data?.name || `${studentData.surname} ${studentData.firstName}`.trim();
+                const hostelName = data?.hostel_name || hostels.find(h => h.id == parseInt(studentData.hostel_id))?.name || '—';
+                const roomCode = data?.room_code || studentData.room_code || '—';
+                const bedCode = data?.bed_code || studentData.bed_code || '—';
 
-            title.textContent = student.name || 'Unknown';
-            matric.textContent = student.matric || 'No matric number';
+                registrationContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#2d6545;background:#e1f0e5;">
+                        <div class="success-screen">
+                            <div class="success-icon"><i class="fas fa-check-circle"></i></div>
+                            <h2 class="font-serif" style="font-size:1.5rem;color:#14532d;">Registration Successful!</h2>
+                            <p class="text-sm text-muted">Face enrolled with InsightFace for BedCheck verification</p>
 
-            const hostel = hostels.find(h => h.id === student.hostel_id);
-            const room = rooms.find(r => r.id === student.room_id);
-            const bed = bedSpaces.find(b => b.id === student.bed_space_id);
+                            <div class="student-detail-card mt-3">
+                                <div style="font-size:2.5rem;">😊</div>
+                                <h4 style="font-size:1rem;font-weight:700;color:#17233c;">${studentName}</h4>
+                                <p style="font-size:0.8rem;color:#68768a;">${data?.matric || studentData.matric}</p>
+                                <div style="display:flex;justify-content:center;gap:0.5rem;margin:0.3rem 0;">
+                                    <span style="background:#dcfce7;color:#065f46;padding:0.1rem 0.5rem;border-radius:9999px;font-size:0.55rem;font-weight:600;">✅ InsightFace Enrolled</span>
+                                    <span style="background:#dbeafe;color:#1e40af;padding:0.1rem 0.5rem;border-radius:9999px;font-size:0.55rem;font-weight:600;">✅ Active</span>
+                                </div>
+                                <div class="mt-2" style="border-top:1px solid #eee8de;padding-top:0.5rem;">
+                                    <div class="detail-row"><span class="detail-label">Hostel</span><span class="detail-value">${hostelName}</span></div>
+                                    <div class="detail-row"><span class="detail-label">Room</span><span class="detail-value">${roomCode}</span></div>
+                                    <div class="detail-row"><span class="detail-label">Bed</span><span class="detail-value">${bedCode}</span></div>
+                                    <div class="detail-row"><span class="detail-label">Face Provider</span><span class="detail-value" style="color:#d6ad4b;font-weight:700;">InsightFace</span></div>
+                                    <div class="detail-row"><span class="detail-label">Reference</span><span class="detail-value" style="font-size:0.75rem;">${refNumber}</span></div>
+                                </div>
+                            </div>
 
-            body.innerHTML = `
-                <div class="info-box">
-                    <i class="fas fa-info-circle"></i> Student Details
-                </div>
-                
-                <div class="grid-2 mt-3">
-                    <div class="field"><label>Name</label><input value="${student.name || '—'}" disabled /></div>
-                    <div class="field"><label>Matric</label><input value="${student.matric || '—'}" disabled /></div>
-                    <div class="field"><label>Gender</label><input value="${student.gender || '—'}" disabled /></div>
-                    <div class="field"><label>Phone</label><input value="${student.phone || '—'}" disabled /></div>
-                    <div class="field"><label>Email</label><input value="${student.email || '—'}" disabled /></div>
-                    <div class="field"><label>Status</label><input value="${student.status || '—'}" disabled /></div>
-                    <div class="field"><label>Faculty</label><input value="${student.faculty || '—'}" disabled /></div>
-                    <div class="field"><label>Department</label><input value="${student.department || '—'}" disabled /></div>
-                    <div class="field"><label>Level</label><input value="${student.level || '—'}" disabled /></div>
-                    <div class="field"><label>Session</label><input value="${student.session || '—'}" disabled /></div>
-                    <div class="field"><label>Hostel</label><input value="${hostel?.name || 'Not assigned'}" disabled /></div>
-                    <div class="field"><label>Room</label><input value="${room?.room_code || student.room_code || '—'}" disabled /></div>
-                    <div class="field"><label>Bed</label><input value="${bed?.bed_code || student.bed_code || '—'}" disabled /></div>
-                    <div class="field"><label>Face Enrolled</label><input value="${student.face_enrolled ? '✅ Yes' : '⬜ No'}" disabled /></div>
-                </div>
-                
-                <div class="drawer-actions mt-3 pt-3 border-t">
-                    <button class="btn-outline" onclick="closeStudentDrawer()">Close</button>
-                    <button class="btn-primary" onclick="editStudent('${student.id}')"><i class="fas fa-edit"></i> Edit</button>
-                </div>
-            `;
+                            <div class="flex gap-2 mt-4 justify-center flex-wrap">
+                                <button class="btn-success" onclick="window.printSlip()"><i class="fas fa-print"></i> Print</button>
+                                <button class="btn-primary" onclick="window.saveAndGoToDashboard()"><i class="fas fa-arrow-right"></i> Go to Dashboard</button>
+                            </div>
 
-            drawer.classList.add('open');
-        }
-
-        function closeStudentDrawer() {
-            document.getElementById('studentDrawer').classList.remove('open');
-        }
-
-        // =============================================
-        // EDIT STUDENT
-        // =============================================
-        function editStudent(studentId) {
-            showToast('Edit student feature coming soon!', 'warning');
-        }
-
-        // =============================================
-        // DELETE STUDENT
-        // =============================================
-        async function deleteStudent(studentId) {
-            const student = students.find(s => String(s.id) === String(studentId));
-            if (!student) return;
-
-            if (!confirm(`Are you sure you want to delete ${student.name}?`)) return;
-
-            try {
-                await apiCall(`/students/${studentId}`, {
-                    method: 'DELETE'
-                });
-
-                showToast(`Student ${student.name} deleted successfully`, 'success');
-                await loadAllData();
-            } catch (error) {
-                showToast('Error deleting student: ' + error.message, 'error');
+                            <p class="text-sm text-muted mt-3">
+                                <i class="fas fa-info-circle"></i> Your face is enrolled for BedCheck verification using InsightFace.
+                            </p>
+                        </div>
+                    </div>
+                `;
             }
-        }
 
-        // =============================================
-        // AUTHENTICATION
-        // =============================================
-        function checkAuth() {
-            const userData = sessionStorage.getItem('bedcheck_user');
-            if (!userData) {
-                window.location.replace('../Login.html');
-                return false;
+            function printSlip() { window.print(); }
+
+            // ---------- INIT ----------
+            function init() {
+                loadAllData();
             }
-            currentUser = JSON.parse(userData);
-            currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
-            
-            document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
-            document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
-            document.getElementById('profileRoleLabel').textContent = currentRole;
-            document.getElementById('roleLabel').textContent = currentRole;
-            document.getElementById('roleScope').textContent = 'System-wide access';
-            document.getElementById('mobileRoleFooter').textContent = `${currentRole} · System-wide access`;
-            
-            return true;
-        }
 
-        function handleLogout(e) {
-            e.preventDefault();
-            sessionStorage.removeItem('bedcheck_user');
-            sessionStorage.removeItem('bedcheck_role');
-            window.location.replace('../Login.html');
-        }
+            // expose to window
+            window.showToast = showToast;
+            window.updateField = updateField;
+            window.updateFacultyDepartments = updateFacultyDepartments;
+            window.updateHostelDependencies = updateHostelDependencies;
+            window.updateRoomDependencies = updateRoomDependencies;
+            window.updateBedDependencies = updateBedDependencies;
+            window.onBedSelect = onBedSelect;
+            window.saveDraft = saveDraft;
+            window.submitRegistration = submitRegistration;
+            window.populateHostelDropdowns = populateHostelDropdowns;
+            window.resetRegistration = resetForm;
+            window.resetForm = resetForm;
+            window.checkAutoAdvance = checkAutoAdvance;
+            window.resetFaceCaptures = resetFaceCaptures;
+            window.enrollFace = enrollFace;
+            window.saveAndGoToDashboard = saveAndGoToDashboard;
+            window.printSlip = printSlip;
+            window.startCamera = startCamera;
+            window.stopCamera = stopCamera;
 
-        // =============================================
-        // SET DATE
-        // =============================================
-        function setDate() {
-            const now = new Date();
-            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
-        }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
 
-        // =============================================
-        // MOBILE DRAWER
-        // =============================================
-        function openMobileDrawer() {
-            document.getElementById('mobileDrawer').classList.add('open');
-            document.getElementById('drawerOverlay').classList.add('show');
-        }
-
-        function closeMobileDrawer() {
-            document.getElementById('mobileDrawer').classList.remove('open');
-            document.getElementById('drawerOverlay').classList.remove('show');
-        }
-
-        // =============================================
-        // EXPOSE GLOBALLY
-        // =============================================
-        window.showToast = showToast;
-        window.openAddStudentModal = openAddStudentModal;
-        window.closeAddStudentModal = closeAddStudentModal;
-        window.saveStudent = saveStudent;
-        window.viewStudent = viewStudent;
-        window.closeStudentDrawer = closeStudentDrawer;
-        window.editStudent = editStudent;
-        window.deleteStudent = deleteStudent;
-        window.filterStudents = filterStudents;
-        window.updateFloorsForStudent = updateFloorsForStudent;
-        window.updateRoomsForStudent = updateRoomsForStudent;
-        window.updateBedsForStudent = updateBedsForStudent;
-
-        // =============================================
-        // INIT
-        // =============================================
-        async function init() {
-            if (!checkAuth()) return;
-            setDate();
-
-            document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-            document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-            document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-            await loadAllData();
-
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    closeStudentDrawer();
-                    closeAddStudentModal();
-                }
-            });
-        }
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-        } else {
-            init();
-        }
-
-    })();
-</script>
+        })();
+    </script>
 </body>
 </html>
