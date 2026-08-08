@@ -4,13 +4,32 @@ import insightface
 import time
 from collections import deque
 
-# Load InsightFace model - Use antelopev2 to match app.py
-app = insightface.app.FaceAnalysis(
-    name="antelopev2",  # Changed from buffalo_l to antelopev2
-    providers=["CPUExecutionProvider"]
-)
+# ==========================================
+# LOAD MODEL - Match app.py pattern
+# ==========================================
 
-app.prepare(ctx_id=0)
+# Try loading with explicit root path
+try:
+    app = insightface.app.FaceAnalysis(
+        name="antelopev2",
+        root="/opt/render/.insightface/models",  # Explicit path
+        providers=["CPUExecutionProvider"]
+    )
+    app.prepare(ctx_id=0)
+    print("✅ Model loaded successfully (antelopev2)")
+except Exception as e:
+    print(f"⚠️ Could not load antelopev2, trying buffalo_l: {e}")
+    try:
+        app = insightface.app.FaceAnalysis(
+            name="buffalo_l",
+            root="/opt/render/.insightface/models",
+            providers=["CPUExecutionProvider"]
+        )
+        app.prepare(ctx_id=0)
+        print("✅ Model loaded successfully (buffalo_l fallback)")
+    except Exception as e2:
+        print(f"❌ Failed to load any model: {e2}")
+        raise
 
 
 # ==========================
