@@ -1420,7 +1420,6 @@
             entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
             debugLogs.appendChild(entry);
             debugInfo.classList.add('show');
-            // Keep only last 20 entries
             while (debugLogs.children.length > 20) {
                 debugLogs.removeChild(debugLogs.firstChild);
             }
@@ -2010,7 +2009,9 @@
             addDebugLog('Face setup started', 'info');
         }
 
-        // ---------- ENROLL WITH INSIGHTFACE ----------
+        // =============================================
+        // ENROLL WITH INSIGHTFACE - UPDATED
+        // =============================================
         async function enrollFace() {
             if (capturedFrames.length < TOTAL_CAPTURES) {
                 showToast(`Please capture all ${TOTAL_CAPTURES} positions first.`, 'error');
@@ -2059,7 +2060,7 @@
                 }
 
                 loadingText.textContent = 'Selecting best face capture...';
-                loadingProgressFill.style.width = '30%';
+                loadingProgressFill.style.width = '20%';
 
                 // Find the best quality frame
                 let bestFrame = capturedFrames.reduce((best, current) => {
@@ -2069,15 +2070,15 @@
                 addDebugLog(`Best frame quality: ${Math.round(bestFrame.quality)}%`, 'info');
 
                 loadingText.textContent = 'Enrolling with InsightFace...';
-                loadingProgressFill.style.width = '50%';
+                loadingProgressFill.style.width = '40%';
 
-                // ✅ FIX: Use /enroll-face endpoint directly
+                // STEP 1: Enroll with Face API
                 const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         student_id: studentId,
-                        image: bestFrame.imageData,  // Send the full data URL
+                        image: bestFrame.imageData,
                         name: studentData.name || '',
                         matric: studentData.matric || '',
                         hostel: studentData.hostel_id || '',
@@ -2085,7 +2086,7 @@
                     })
                 });
 
-                loadingProgressFill.style.width = '70%';
+                loadingProgressFill.style.width = '60%';
 
                 if (!enrollResponse.ok) {
                     let errorMsg = `HTTP ${enrollResponse.status}`;
@@ -2102,28 +2103,135 @@
                 const enrollResult = await enrollResponse.json();
                 addDebugLog(`Enrollment result: ${JSON.stringify(enrollResult).substring(0, 200)}...`, 'success');
 
-                loadingProgressFill.style.width = '85%';
+                loadingProgressFill.style.width = '75%';
 
                 // Check if enrollment was successful
                 if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified) {
+                    
+                    // STEP 2: Extract embedding from the image
+                    loadingText.textContent = 'Extracting face embedding...';
+                    loadingProgressFill.style.width = '80%';
+                    
+                    let embedding = null;
+                    
+                    // Try to get embedding from the enroll response first
+                    if (enrollResult.embedding) {
+                        embedding = enrollResult.embedding;
+                        addDebugLog(`✅ Embedding found in enrollment response (dimension: ${embedding.length})`, 'success');
+                    } else {
+                        // Use the extract-embedding endpoint
+                        try {
+                            addDebugLog('Extracting embedding from best frame...', 'info');
+                            
+                            // Prepare base64 image (remove data URL prefix if present)
+                            let imageData = bestFrame.imageData;
+                            if (imageData.startsWith('data:image')) {
+                                imageData = imageData.split(',')[1];
+                            }
+                            
+                            const extractResponse = await fetch(`${FACE_API_URL}/extract-embedding`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ image: imageData })
+                            });
+                            
+                            if (extractResponse.ok) {
+                                const extractData = await extractResponse.json();
+                                if (extractData.embedding) {
+                                    embedding = extractData.embedding;
+                                    addDebugLog(`✅ Embedding extracted successfully (dimension: ${embedding.length})`, 'success');
+                                } else {
+                                    addDebugLog(`⚠️ Extract response missing embedding: ${JSON.stringify(extractData)}`, 'error');
+                                }
+                            } else {
+                                const errorText = await extractResponse.text();
+                                addDebugLog(`⚠️ Extract embedding failed: ${extractResponse.status} - ${errorText}`, 'error');
+                            }
+                        } catch (e) {
+                            addDebugLog(`❌ Could not extract embedding: ${e.message}`, 'error');
+                        }
+                    }
+
+                    // STEP 3: Save to your database
+                    loadingText.textContent = 'Saving to database...';
+                    loadingProgressFill.style.width = '90%';
+                    
+                    let saveSuccess = false;
+                    
+                    if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+                        // Save embedding using the face endpoint
+                        try {
+                            addDebugLog(`💾 Saving embedding (${embedding.length} dimensions) to database...`, 'info');
+                            
+                            const saveResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    embedding: embedding,
+                                    image_data: bestFrame.imageData
+                                })
+                            });
+                            
+                            if (saveResponse.ok) {
+                                const saveResult = await saveResponse.json();
+                                addDebugLog(`✅ Database save successful: ${JSON.stringify(saveResult).substring(0, 150)}`, 'success');
+                                saveSuccess = true;
+                            } else {
+                                const errorText = await saveResponse.text();
+                                addDebugLog(`⚠️ Database save failed: ${saveResponse.status} - ${errorText}`, 'error');
+                                
+                                // Try alternative: update student directly
+                                addDebugLog('Attempting alternative save method...', 'info');
+                                const altResponse = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        face_enrolled: true,
+                                        face_embedding: embedding
+                                    })
+                                });
+                                
+                                if (altResponse.ok) {
+                                    const altResult = await altResponse.json();
+                                    addDebugLog(`✅ Alternative save successful: ${JSON.stringify(altResult).substring(0, 150)}`, 'success');
+                                    saveSuccess = true;
+                                } else {
+                                    const altError = await altResponse.text();
+                                    addDebugLog(`❌ Alternative save failed: ${altResponse.status} - ${altError}`, 'error');
+                                }
+                            }
+                        } catch (saveError) {
+                            addDebugLog(`❌ Save error: ${saveError.message}`, 'error');
+                        }
+                    } else {
+                        // No embedding available, just mark as enrolled
+                        addDebugLog('⚠️ No embedding available, marking as enrolled only', 'warning');
+                        try {
+                            const response = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    face_enrolled: true
+                                })
+                            });
+                            if (response.ok) {
+                                saveSuccess = true;
+                                addDebugLog('✅ Student marked as face_enrolled', 'success');
+                            }
+                        } catch (e) {
+                            addDebugLog(`❌ Failed to update student: ${e.message}`, 'error');
+                        }
+                    }
+
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
-                    addDebugLog('Face enrollment successful!', 'success');
-
-                    // Update student's face_enrolled status in your database
-                    try {
-                        await nodeApiCall(`/students/${studentId}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({
-                                face_enrolled: true,
-                                face_embedding: enrollResult.embedding || null
-                            })
-                        });
-                        addDebugLog('Student record updated in database', 'success');
-                    } catch (updateError) {
-                        addDebugLog(`Warning: Could not update student record: ${updateError.message}`, 'error');
-                        // Continue even if update fails - enrollment was successful
-                    }
+                    addDebugLog('🎉 Face enrollment process complete!', 'success');
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2155,7 +2263,7 @@
                     throw new Error(enrollResult.message || 'Enrollment failed');
                 }
             } catch (error) {
-                addDebugLog(`Enrollment error: ${error.message}`, 'error');
+                addDebugLog(`❌ Enrollment error: ${error.message}`, 'error');
                 console.error('Enrollment error:', error);
                 loadingOverlay.style.display = 'none';
                 
