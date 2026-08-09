@@ -390,7 +390,7 @@
         <!-- Header -->
         <div class="header">
             <div class="logo">
-                <img src="logo.webp" alt="BIU Logo" />
+                <img src="../BIU.jpg" alt="BIU Logo" />
                 <h1>Student Registration</h1>
             </div>
             <p class="subtitle"><i class="fas fa-user-graduate"></i> Complete your details before Face ID setup</p>
@@ -611,7 +611,7 @@
             'use strict';
 
             // =============================================
-            // STUDENT DETAILS - HOSTEL CONFIGURATION
+            // STUDENT DETAILS - REDIRECT TO FACEID.HTML
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -654,7 +654,6 @@
             // ---------- API HELPERS ----------
             async function apiCall(endpoint, options = {}) {
                 try {
-                    // Fix endpoint paths to match the API
                     let fixedEndpoint = endpoint;
                     if (endpoint.includes('/bed_spaces')) {
                         fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
@@ -696,7 +695,6 @@
                 try {
                     isLoading = true;
 
-                    // Load all data in parallel like the hostel page
                     const [hostelsRes, floorsRes, roomsRes, bedsRes, studentsRes] = await Promise.all([
                         apiCall('/hostels'),
                         apiCall('/floors-flats'),
@@ -713,7 +711,6 @@
 
                     console.log(`✅ Loaded: ${hostels.length} hostels, ${floorsFlats.length} floors, ${rooms.length} rooms, ${bedSpaces.length} beds, ${students.length} students`);
 
-                    // Populate hostel dropdown
                     const hostelSelect = document.getElementById('hostelSelect');
                     hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
                     hostels.forEach(h => {
@@ -756,7 +753,6 @@
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
                 if (hostelId) {
-                    // Get floors for this hostel - same as hostel page
                     const hostelFloors = floorsFlats.filter(f => f.hostel_id == parseInt(hostelId));
                     hostelFloors.sort((a, b) => {
                         const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
@@ -804,7 +800,6 @@
                 bedSelect.innerHTML = '<option value="">Select Bed</option>';
 
                 if (roomId) {
-                    // Get beds for this room - only show available beds
                     const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId) && b.status === 'available');
                     roomBeds.sort((a, b) => {
                         const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
@@ -861,7 +856,6 @@
                     }
                 });
 
-                // Declaration
                 const declaration = document.getElementById('declaration');
                 const declarationError = document.getElementById('declarationError');
                 if (!declaration.checked) {
@@ -871,7 +865,6 @@
                     declarationError.style.display = 'none';
                 }
 
-                // Phone validation (basic)
                 const phone = document.getElementById('phone').value.trim();
                 if (phone && !/^[0-9+\-\s]{10,15}$/.test(phone)) {
                     document.getElementById('phoneGroup').classList.add('error');
@@ -883,7 +876,7 @@
                 return isValid;
             }
 
-            // ---------- SAVE & CONTINUE ----------
+            // ---------- SAVE & CONTINUE (Redirects to faceid.html) ----------
             async function saveAndContinue() {
                 if (isSubmitting) return;
 
@@ -898,7 +891,6 @@
                 document.getElementById('loadingIndicator').style.display = 'block';
 
                 try {
-                    // Collect data
                     const studentData = {
                         surname: document.getElementById('surname').value.trim(),
                         firstName: document.getElementById('firstName').value.trim(),
@@ -924,7 +916,6 @@
                     const room = rooms.find(r => r.id === studentData.room_id);
                     const bed = bedSpaces.find(b => b.id === studentData.bed_space_id);
 
-                    // Check if student already exists
                     const existing = students.filter(s => s.matric === studentData.matric);
                     let studentId = null;
 
@@ -932,7 +923,6 @@
                         showToast('Student already registered. Updating details...', 'info');
                         studentId = existing[0].id;
 
-                        // Update existing student
                         await apiCall(`/students/${studentId}`, {
                             method: 'PUT',
                             body: JSON.stringify({
@@ -958,7 +948,6 @@
                             })
                         });
                     } else {
-                        // Create new student
                         const createResult = await apiCall('/students', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -986,7 +975,6 @@
                         });
                         studentId = createResult.data.id;
 
-                        // Update bed space status
                         if (studentData.bed_space_id) {
                             await apiCall(`/bed-spaces/${studentData.bed_space_id}`, {
                                 method: 'PATCH',
@@ -998,7 +986,6 @@
                         }
                     }
 
-                    // Save to local storage for Face ID page
                     const studentForFaceID = {
                         id: studentId,
                         name: `${studentData.surname} ${studentData.firstName} ${studentData.middleName}`.trim(),
@@ -1016,8 +1003,9 @@
 
                     showToast('✅ Student details saved successfully!', 'success');
 
+                    // === REDIRECT TO FACEID.HTML ===
                     setTimeout(() => {
-                        window.location.href = 'face-id-setup.html';
+                        window.location.href = 'faceid.html';
                     }, 1000);
 
                 } catch (error) {
