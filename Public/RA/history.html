@@ -134,6 +134,9 @@
         .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-inactive { background: #e8edf2; color: #536274; }
         .badge-floor { background: #e7edf5; color: #24466f; }
+        .badge-available { background: #e1f0e5; color: #2d6545; }
+        .badge-occupied { background: #f8e1dc; color: #9b3c31; }
+        .badge-maintenance { background: #e8edf2; color: #536274; }
 
         /* ----- CARDS ----- */
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
@@ -327,12 +330,87 @@
         .room-range-item:last-child { border-bottom: none; }
         .room-range-item .range-name { font-weight: 600; }
         .room-range-item .range-stats { font-size: 0.65rem; color: #6b778b; }
+
+        /* ----- HOSTEL STRUCTURE STYLES ----- */
+        .structure-viewer .floor-section { margin-bottom: 1rem; }
+        .structure-viewer .floor-section .floor-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: #fbf7ef;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .structure-viewer .floor-section .floor-header:hover { background: #f5f1e8; }
+        .structure-viewer .floor-section .floor-header .floor-label { font-weight: 700; font-size: 0.9rem; }
+        .structure-viewer .floor-section .floor-header .floor-stats { font-size: 0.7rem; color: #68768a; }
+        .structure-viewer .room-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+        }
+        .structure-viewer .room-card {
+            border: 1px solid #ded6c9;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fffcf6;
+            text-align: center;
+        }
+        .structure-viewer .room-card:hover { border-color: #d6ad4b; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transform: translateY(-2px); }
+        .structure-viewer .room-card .room-code { font-weight: 700; font-size: 0.8rem; }
+        .structure-viewer .room-card .room-info { font-size: 0.6rem; color: #68768a; }
+        .structure-viewer .room-card .room-badge { font-size: 0.5rem; padding: 0.1rem 0.3rem; border-radius: 9999px; }
+        .room-badge.full { background: #f8e1dc; color: #9b3c31; }
+        .room-badge.partial { background: #fff0cb; color: #8a6413; }
+        .room-badge.available { background: #e1f0e5; color: #2d6545; }
+        .room-badge.maintenance { background: #e8edf2; color: #536274; }
+
+        /* ----- DRAWER RIGHT ----- */
+        .drawer-right { position: fixed; top: 0; right: 0; bottom: 0; width: 100%; max-width: 480px; background: #fffcf6; z-index: 60; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: -10px 0 40px rgba(0,0,0,0.15); overflow-y: auto; }
+        .drawer-right.open { transform: translateX(0); }
+        .drawer-right .drawer-header { position: sticky; top: 0; background: #fffcf6; padding: 1rem 1.25rem; border-bottom: 1px solid #ded6c9; display: flex; justify-content: space-between; align-items: flex-start; z-index: 2; }
+        .drawer-right .drawer-header .close-btn { background: transparent; border: none; font-size: 1rem; color: #68768a; cursor: pointer; padding: 0.2rem; transition: all 0.3s ease; }
+        .drawer-right .drawer-header .close-btn:hover { color: #17233c; transform: rotate(90deg); }
+        .drawer-right .drawer-body { padding: 1rem; }
+
+        .bed-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border: 1px solid #eee8de; border-radius: 0.5rem; margin-bottom: 0.3rem; transition: all 0.3s ease; flex-wrap: wrap; gap: 0.3rem; }
+        .bed-item:hover { background: #fbf7ef; }
+        .bed-item .bed-label { font-weight: 700; font-size: 0.85rem; min-width: 2.5rem; }
+        .bed-item .bed-student { flex: 1; margin: 0 0.5rem; min-width: 80px; }
+        .bed-item .bed-student .name { font-weight: 600; font-size: 0.75rem; }
+        .bed-item .bed-student .matric { font-size: 0.6rem; color: #68768a; }
+        .bed-item .bed-status { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 9999px; }
+        .bed-status.available { background: #e1f0e5; color: #2d6545; }
+        .bed-status.occupied { background: #f8e1dc; color: #9b3c31; }
+        .bed-status.maintenance { background: #e8edf2; color: #536274; }
+        .bed-status.reserved { background: #fff0cb; color: #8a6413; }
     </style>
 </head>
 <body>
 
     <!-- ===== TOAST ===== -->
     <div id="toast" class="toast"></div>
+
+    <!-- ===== ROOM DRAWER (Right) ===== -->
+    <div class="drawer-right" id="roomDrawer">
+        <div class="drawer-header">
+            <div>
+                <p class="eyebrow"><i class="fas fa-door-open"></i> Room Details</p>
+                <h2 id="roomDrawerTitle">Room</h2>
+                <p class="text-sm text-muted" id="roomDrawerSubtitle">Loading...</p>
+            </div>
+            <button class="close-btn" onclick="closeRoomDrawer()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="drawer-body" id="roomDrawerBody">
+            <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+        </div>
+    </div>
 
     <!-- ===== PORTAL ===== -->
     <div class="app-wrapper">
@@ -501,7 +579,7 @@
                     }
                 });
 
-                // If no rooms found, create defaults based on hostel students
+                // If no rooms found, create defaults
                 if (roomStructure.areas.length === 0) {
                     const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
                     for (let i = 0; i < 3; i++) {
@@ -600,6 +678,38 @@
                     'Excused': 'excused'
                 };
                 return `<span class="status-tag ${map[status] || 'draft'}">${status || 'Unknown'}</span>`;
+            }
+
+            function roomStatusBadge(status) {
+                const map = {
+                    'available': 'available',
+                    'full': 'full',
+                    'partial': 'partial',
+                    'maintenance': 'maintenance'
+                };
+                const labels = {
+                    'available': 'Available',
+                    'full': 'Full',
+                    'partial': 'Partially occupied',
+                    'maintenance': 'Maintenance'
+                };
+                return `<span class="room-badge ${map[status] || 'available'}">${labels[status] || status}</span>`;
+            }
+
+            function bedStatusBadge(status) {
+                const map = {
+                    'available': 'available',
+                    'occupied': 'occupied',
+                    'maintenance': 'maintenance',
+                    'reserved': 'reserved'
+                };
+                const labels = {
+                    'available': 'Available',
+                    'occupied': 'Occupied',
+                    'maintenance': 'Maintenance',
+                    'reserved': 'Reserved'
+                };
+                return `<span class="bed-status ${map[status] || 'available'}">${labels[status] || status}</span>`;
             }
 
             // =============================================
@@ -746,6 +856,133 @@
                     const entry = entries.find(e => e.bed === bed);
                     return entry || null;
                 });
+            }
+
+            // =============================================
+            // OPEN ROOM DRAWER
+            // =============================================
+            function openRoomDrawer(roomCode) {
+                const drawer = document.getElementById('roomDrawer');
+                const title = document.getElementById('roomDrawerTitle');
+                const subtitle = document.getElementById('roomDrawerSubtitle');
+                const body = document.getElementById('roomDrawerBody');
+
+                // Find students in this room
+                const studentsInRoom = hostelStudents.filter(s => s.room_code === roomCode || s.room === roomCode);
+                
+                title.textContent = `Room ${roomCode}`;
+                subtitle.textContent = `${studentsInRoom.length} students assigned`;
+
+                body.innerHTML = `
+                    <div class="info-box">
+                        <i class="fas fa-info-circle"></i> ${studentsInRoom.length} students in this room
+                    </div>
+                    
+                    <div class="mt-3">
+                        <p class="font-bold text-sm">Students</p>
+                        ${studentsInRoom.length === 0 ? `
+                            <div class="text-center text-muted p-3">
+                                <i class="fas fa-user-slash"></i> No students assigned to this room
+                            </div>
+                        ` : studentsInRoom.map(s => {
+                            // Check if student has a scan record
+                            const scan = roomHistory.find(h => h.student === s.name || h.matric === s.matric);
+                            const status = scan ? scan.status : 'Unknown';
+                            const statusClass = status === 'Present' ? 'occupied' : 'available';
+                            return `
+                                <div class="bed-item">
+                                    <span class="bed-label">${s.bed_code || '—'}</span>
+                                    <div class="bed-student">
+                                        <div class="name">${s.name}</div>
+                                        <div class="matric">${s.matric || '—'}</div>
+                                    </div>
+                                    ${bedStatusBadge(status === 'Present' ? 'occupied' : 'available')}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    
+                    <div class="drawer-actions mt-3 pt-3 border-t">
+                        <button class="btn-outline" onclick="closeRoomDrawer()">Close</button>
+                    </div>
+                `;
+
+                drawer.classList.add('open');
+            }
+
+            function closeRoomDrawer() {
+                document.getElementById('roomDrawer').classList.remove('open');
+            }
+
+            // =============================================
+            // RENDER HOSTEL STRUCTURE VIEW
+            // =============================================
+            function renderHostelStructure() {
+                const container = document.getElementById('structureContainer');
+                if (!container) return;
+
+                // Group students by floor
+                const floorMap = {};
+                hostelStudents.forEach(s => {
+                    const floor = s.floor_name || s.floor || 'Unknown';
+                    if (!floorMap[floor]) floorMap[floor] = [];
+                    floorMap[floor].push(s);
+                });
+
+                const sortedFloors = Object.keys(floorMap).sort();
+
+                let html = `<div class="structure-viewer mt-4">`;
+                
+                if (sortedFloors.length === 0) {
+                    html += `<div class="text-center text-muted p-3">No floors found in your hostel</div>`;
+                } else {
+                    sortedFloors.forEach(floor => {
+                        const students = floorMap[floor];
+                        const roomMap = {};
+                        students.forEach(s => {
+                            const room = s.room_code || s.room || 'Unknown';
+                            if (!roomMap[room]) roomMap[room] = [];
+                            roomMap[room].push(s);
+                        });
+
+                        const sortedRooms = Object.keys(roomMap).sort();
+
+                        html += `
+                            <div class="floor-section">
+                                <div class="floor-header">
+                                    <span class="floor-label">🏢 ${floor}</span>
+                                    <span class="floor-stats">${students.length} students · ${sortedRooms.length} rooms</span>
+                                </div>
+                                <div class="room-grid">
+                                    ${sortedRooms.map(room => {
+                                        const roomStudents = roomMap[room];
+                                        // Check if any of these students have scan records
+                                        const hasScans = roomStudents.some(s => {
+                                            return roomHistory.some(h => h.student === s.name || h.matric === s.matric);
+                                        });
+                                        const occupied = roomStudents.filter(s => s.status === 'Present').length;
+                                        const total = roomStudents.length;
+                                        let status = 'available';
+                                        if (occupied === total && total > 0) status = 'full';
+                                        else if (occupied > 0) status = 'partial';
+                                        
+                                        return `
+                                            <div class="room-card" onclick="openRoomDrawer('${room}')">
+                                                <div class="room-code">${room}</div>
+                                                <div class="room-info">${occupied}/${total} occupied</div>
+                                                ${roomStatusBadge(status)}
+                                                ${hasScans ? `<div style="font-size:0.5rem;color:#68768a;margin-top:0.15rem;">📋 History</div>` : ''}
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                html += `</div>`;
+                container.innerHTML = html;
             }
 
             function renderRoomHistory() {
@@ -1070,6 +1307,14 @@
                         </div>
                     `}
 
+                    <!-- Hostel Structure Viewer -->
+                    <div class="mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Structure</div>
+                        <div class="card mt-2" id="structureContainer">
+                            <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                        </div>
+                    </div>
+
                     <!-- All History Table -->
                     <div class="card mt-4">
                         <div class="flex-between">
@@ -1135,6 +1380,7 @@
                 `;
 
                 updatePagination();
+                renderHostelStructure();
             }
 
             function selectRoom(room) {
@@ -1276,6 +1522,8 @@
             window.changePage = changePage;
             window.exportHistory = exportHistory;
             window.refreshHistory = refreshHistory;
+            window.openRoomDrawer = openRoomDrawer;
+            window.closeRoomDrawer = closeRoomDrawer;
 
             async function init() {
                 if (!checkAuth()) return;
