@@ -46,7 +46,6 @@
             background: linear-gradient(90deg, #d6ad4b, #10233f, #d6ad4b);
         }
 
-        /* Header */
         .header {
             text-align: center;
             margin-bottom: 1.5rem;
@@ -82,7 +81,6 @@
             color: #a77915;
         }
 
-        /* Progress Steps */
         .progress-steps {
             display: flex;
             justify-content: center;
@@ -155,7 +153,6 @@
             background: #2d6545;
         }
 
-        /* Form */
         .form-title {
             font-family: 'Merriweather', serif;
             font-size: 1.1rem;
@@ -222,7 +219,6 @@
             }
         }
 
-        /* Hostel Selection */
         .hostel-select-group {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -240,7 +236,6 @@
             font-size: 0.8rem;
         }
 
-        /* Buttons */
         .btn-group {
             display: flex;
             gap: 0.75rem;
@@ -302,7 +297,6 @@
             box-shadow: 0 4px 12px rgba(45, 101, 69, 0.3);
         }
 
-        /* Toast */
         .toast {
             position: fixed;
             bottom: 2rem;
@@ -336,7 +330,6 @@
             background: #1e3a5f;
         }
 
-        /* Loading Spinner */
         .loading-spinner {
             display: flex;
             align-items: center;
@@ -360,7 +353,6 @@
             }
         }
 
-        /* Validation error */
         .field-error {
             color: #a84134;
             font-size: 0.7rem;
@@ -381,7 +373,6 @@
             display: block;
         }
 
-        /* Status options hint */
         .status-hint {
             font-size: 0.7rem;
             color: #68768a;
@@ -399,7 +390,7 @@
         <!-- Header -->
         <div class="header">
             <div class="logo">
-                <img src="../logo.webp" alt="BIU Logo" />
+                <img src="logo.webp" alt="BIU Logo" />
                 <h1>Student Registration</h1>
             </div>
             <p class="subtitle"><i class="fas fa-user-graduate"></i> Complete your details before Face ID setup</p>
@@ -620,7 +611,7 @@
             'use strict';
 
             // =============================================
-            // STUDENT DETAILS - INSIGHTFACE ENROLLMENT
+            // STUDENT DETAILS - HOSTEL CONFIGURATION
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -630,6 +621,7 @@
             let floorsFlats = [];
             let rooms = [];
             let bedSpaces = [];
+            let students = [];
             let isLoading = true;
             let isSubmitting = false;
 
@@ -662,7 +654,19 @@
             // ---------- API HELPERS ----------
             async function apiCall(endpoint, options = {}) {
                 try {
-                    const response = await fetch(`${API_BASE}${endpoint}`, {
+                    // Fix endpoint paths to match the API
+                    let fixedEndpoint = endpoint;
+                    if (endpoint.includes('/bed_spaces')) {
+                        fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
+                    }
+                    if (endpoint.includes('/floors_flats')) {
+                        fixedEndpoint = endpoint.replace('/floors_flats', '/floors-flats');
+                    }
+
+                    const url = `${API_BASE}${fixedEndpoint}`;
+                    console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
+
+                    const response = await fetch(url, {
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
@@ -674,12 +678,14 @@
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
+
                     const data = await response.json();
                     if (!data.success) {
                         throw new Error(data.message || 'API error');
                     }
                     return data;
                 } catch (error) {
+                    console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
                     throw error;
                 }
@@ -690,17 +696,22 @@
                 try {
                     isLoading = true;
 
-                    const [hostelsRes, floorsRes, roomsRes, bedRes] = await Promise.all([
+                    // Load all data in parallel like the hostel page
+                    const [hostelsRes, floorsRes, roomsRes, bedsRes, studentsRes] = await Promise.all([
                         apiCall('/hostels'),
                         apiCall('/floors-flats'),
                         apiCall('/rooms'),
-                        apiCall('/bed-spaces')
+                        apiCall('/bed-spaces'),
+                        apiCall('/students')
                     ]);
 
                     hostels = hostelsRes.data || [];
                     floorsFlats = floorsRes.data || [];
                     rooms = roomsRes.data || [];
-                    bedSpaces = bedRes.data || [];
+                    bedSpaces = bedsRes.data || [];
+                    students = studentsRes.data || [];
+
+                    console.log(`✅ Loaded: ${hostels.length} hostels, ${floorsFlats.length} floors, ${rooms.length} rooms, ${bedSpaces.length} beds, ${students.length} students`);
 
                     // Populate hostel dropdown
                     const hostelSelect = document.getElementById('hostelSelect');
@@ -741,8 +752,11 @@
                 const hostelId = document.getElementById('hostelSelect').value;
                 const floorSelect = document.getElementById('floorSelect');
                 floorSelect.innerHTML = '<option value="">Select Floor</option>';
+                document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
+                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
                 if (hostelId) {
+                    // Get floors for this hostel - same as hostel page
                     const hostelFloors = floorsFlats.filter(f => f.hostel_id == parseInt(hostelId));
                     hostelFloors.sort((a, b) => {
                         const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
@@ -752,13 +766,11 @@
                     hostelFloors.forEach(floor => {
                         const opt = document.createElement('option');
                         opt.value = floor.id;
-                        opt.textContent = floor.name;
+                        const roomCount = rooms.filter(r => r.floor_flat_id === floor.id).length;
+                        opt.textContent = `${floor.name} (${roomCount} rooms)`;
                         floorSelect.appendChild(opt);
                     });
                 }
-
-                document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
-                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
             }
 
             // ---------- UPDATE ROOMS ----------
@@ -766,6 +778,7 @@
                 const floorId = document.getElementById('floorSelect').value;
                 const roomSelect = document.getElementById('roomSelect');
                 roomSelect.innerHTML = '<option value="">Select Room</option>';
+                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
                 if (floorId) {
                     const floorRooms = rooms.filter(r => r.floor_flat_id == parseInt(floorId));
@@ -777,12 +790,11 @@
                     floorRooms.forEach(room => {
                         const opt = document.createElement('option');
                         opt.value = room.id;
-                        opt.textContent = room.room_code;
+                        const bedCount = bedSpaces.filter(b => b.room_id === room.id).length;
+                        opt.textContent = `${room.room_code} (${bedCount} beds)`;
                         roomSelect.appendChild(opt);
                     });
                 }
-
-                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
             }
 
             // ---------- UPDATE BEDS ----------
@@ -792,7 +804,8 @@
                 bedSelect.innerHTML = '<option value="">Select Bed</option>';
 
                 if (roomId) {
-                    const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId));
+                    // Get beds for this room - only show available beds
+                    const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId) && b.status === 'available');
                     roomBeds.sort((a, b) => {
                         const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
                         const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
@@ -801,11 +814,17 @@
                     roomBeds.forEach(bed => {
                         const opt = document.createElement('option');
                         opt.value = bed.id;
-                        const isOccupied = bed.status === 'occupied';
-                        opt.textContent = `${bed.bed_code} ${isOccupied ? '(Occupied)' : '(Available)'}`;
-                        if (isOccupied) opt.disabled = true;
+                        opt.textContent = `${bed.bed_code} (Available)`;
                         bedSelect.appendChild(opt);
                     });
+
+                    if (roomBeds.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'No beds available';
+                        opt.disabled = true;
+                        bedSelect.appendChild(opt);
+                    }
                 }
             }
 
@@ -868,7 +887,6 @@
             async function saveAndContinue() {
                 if (isSubmitting) return;
 
-                // Validate
                 if (!validateForm()) {
                     showToast('Please fill in all required fields correctly', 'error');
                     return;
@@ -898,22 +916,21 @@
                         floor_flat_id: parseInt(document.getElementById('floorSelect').value),
                         room_id: parseInt(document.getElementById('roomSelect').value),
                         bed_space_id: parseInt(document.getElementById('bedSelect').value),
-                        status: 'Present' // Valid status for the check constraint
+                        status: 'Present'
                     };
 
-                    // Get names for display
                     const hostel = hostels.find(h => h.id === studentData.hostel_id);
                     const floor = floorsFlats.find(f => f.id === studentData.floor_flat_id);
                     const room = rooms.find(r => r.id === studentData.room_id);
                     const bed = bedSpaces.find(b => b.id === studentData.bed_space_id);
 
                     // Check if student already exists
-                    const existing = await apiCall(`/students?search=${studentData.matric}`);
+                    const existing = students.filter(s => s.matric === studentData.matric);
                     let studentId = null;
 
-                    if (existing.data && existing.data.length > 0) {
+                    if (existing.length > 0) {
                         showToast('Student already registered. Updating details...', 'info');
-                        studentId = existing.data[0].id;
+                        studentId = existing[0].id;
 
                         // Update existing student
                         await apiCall(`/students/${studentId}`, {
@@ -999,7 +1016,6 @@
 
                     showToast('✅ Student details saved successfully!', 'success');
 
-                    // Redirect to Face ID page
                     setTimeout(() => {
                         window.location.href = 'face-id-setup.html';
                     }, 1000);
@@ -1028,7 +1044,6 @@
                 document.querySelectorAll('.form-group').forEach(g => g.classList.remove('error'));
                 document.getElementById('declarationError').style.display = 'none';
 
-                // Reset dropdowns
                 updateDepartments();
                 document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
                 document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
@@ -1082,13 +1097,10 @@
 
             // ---------- INIT ----------
             async function init() {
-                // Load data
                 await loadData();
 
-                // Load draft
                 loadDraft();
 
-                // Set default date
                 if (!document.getElementById('dob').value) {
                     const today = new Date();
                     const year = today.getFullYear() - 18;
@@ -1097,15 +1109,12 @@
                     document.getElementById('dob').value = `${year}-${month}-${day}`;
                 }
 
-                // Setup department dropdown
                 updateDepartments();
 
-                // Auto-save on change
                 document.querySelectorAll('input, select').forEach(el => {
                     el.addEventListener('change', saveDraft);
                 });
 
-                // Enter key to submit
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') {
                         e.preventDefault();
