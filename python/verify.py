@@ -48,24 +48,53 @@ def cosine_similarity(a, b):
 def verify_student(face_model, camera_image, stored_embedding, threshold=0.55):
     """
     Verify a single frame against a stored embedding
+    
+    Args:
+        face_model: The InsightFace model
+        camera_image: The image to verify (numpy array)
+        stored_embedding: The stored embedding to compare against
+        threshold: The similarity threshold (default 0.55)
+    
+    Returns:
+        dict: {
+            "success": bool,
+            "verified": bool,
+            "confidence": float,
+            "threshold": float,
+            "reason": str (optional)
+        }
     """
     current_embedding = get_face_embedding(face_model, camera_image)
 
     if current_embedding is None:
         return {
             "success": False,
-            "message": "No face detected",
-            "confidence": 0.0
+            "verified": False,
+            "confidence": 0.0,
+            "threshold": threshold,
+            "reason": "No face detected in the image"
         }
 
     score = cosine_similarity(current_embedding, stored_embedding)
+    
+    is_verified = score >= threshold
 
-    return {
-        "success": score >= threshold,
-        "confidence": float(score),
-        "threshold": threshold,
-        "message": "Verified" if score >= threshold else "Face does not match"
-    }
+    if is_verified:
+        return {
+            "success": True,
+            "verified": True,
+            "confidence": float(score),
+            "threshold": threshold,
+            "reason": "Face verified successfully"
+        }
+    else:
+        return {
+            "success": False,
+            "verified": False,
+            "confidence": float(score),
+            "threshold": threshold,
+            "reason": f"Similarity {score:.2f} below threshold {threshold}"
+        }
 
 
 def verify_against_multiple(face_model, camera_image, stored_embeddings, student_ids, threshold=0.55):
@@ -78,9 +107,12 @@ def verify_against_multiple(face_model, camera_image, stored_embeddings, student
     if current_embedding is None:
         return {
             "success": False,
+            "verified": False,
             "message": "No face detected",
             "student_id": None,
-            "confidence": 0.0
+            "confidence": 0.0,
+            "threshold": threshold,
+            "reason": "No face detected"
         }
 
     best_match = None
@@ -95,18 +127,100 @@ def verify_against_multiple(face_model, camera_image, stored_embeddings, student
     if best_score >= threshold:
         return {
             "success": True,
+            "verified": True,
             "student_id": best_match,
             "confidence": float(best_score),
             "threshold": threshold,
-            "message": "Match found"
+            "reason": "Match found"
         }
     else:
         return {
             "success": False,
+            "verified": False,
             "student_id": None,
             "confidence": float(best_score),
             "threshold": threshold,
-            "message": "No match found"
+            "reason": f"No match found. Best score {best_score:.2f} below threshold {threshold}"
+        }
+
+
+def detect_face(face_model, image):
+    """
+    Detect if a face is present in the image
+    
+    Args:
+        face_model: The InsightFace model
+        image: The image to detect faces in
+    
+    Returns:
+        dict: {
+            "detected": bool,
+            "bbox": [x1, y1, x2, y2] (optional),
+            "num_faces": int,
+            "confidence": float (optional)
+        }
+    """
+    try:
+        faces = face_model.get(image)
+        
+        if len(faces) > 0:
+            face = faces[0]
+            bbox = face.bbox
+            
+            return {
+                "detected": True,
+                "bbox": [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                "num_faces": len(faces),
+                "confidence": float(face.det_score)
+            }
+        else:
+            return {
+                "detected": False,
+                "num_faces": 0
+            }
+    except Exception as e:
+        return {
+            "detected": False,
+            "num_faces": 0,
+            "error": str(e)
+        }
+
+
+def extract_face_embedding(face_model, image):
+    """
+    Extract face embedding from an image
+    
+    Args:
+        face_model: The InsightFace model
+        image: The image to extract embedding from
+    
+    Returns:
+        dict: {
+            "success": bool,
+            "embedding": list (optional),
+            "message": str (optional)
+        }
+    """
+    try:
+        embedding = get_face_embedding(face_model, image)
+        
+        if embedding is not None:
+            return {
+                "success": True,
+                "embedding": embedding.tolist(),
+                "dimension": len(embedding)
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No face detected",
+                "embedding": None
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "embedding": None
         }
 
 
@@ -156,8 +270,10 @@ def verify_with_confidence_tracking(face_model, camera, stored_embedding, thresh
                     cv2.destroyAllWindows()
                     return {
                         "success": True,
+                        "verified": True,
                         "confidence": float(avg_score),
-                        "message": "Verified successfully"
+                        "threshold": threshold,
+                        "reason": "Verified successfully"
                     }
 
         cv2.imshow("Face Verification", frame)
@@ -170,8 +286,11 @@ def verify_with_confidence_tracking(face_model, camera, stored_embedding, thresh
 
     return {
         "success": False,
+        "verified": False,
         "message": "Verification cancelled",
-        "confidence": 0.0
+        "confidence": 0.0,
+        "threshold": threshold,
+        "reason": "Verification cancelled"
     }
 
 
@@ -235,9 +354,11 @@ def verify_multiple_with_tracking(face_model, camera, stored_embeddings, student
                     cv2.destroyAllWindows()
                     return {
                         "success": True,
+                        "verified": True,
                         "student_id": best_student_id,
                         "confidence": float(avg_score),
-                        "message": "Verified successfully"
+                        "threshold": threshold,
+                        "reason": "Verified successfully"
                     }
 
         cv2.imshow("Face Verification", frame)
@@ -250,9 +371,12 @@ def verify_multiple_with_tracking(face_model, camera, stored_embeddings, student
 
     return {
         "success": False,
+        "verified": False,
         "message": "Verification cancelled",
         "confidence": 0.0,
-        "student_id": None
+        "threshold": threshold,
+        "student_id": None,
+        "reason": "Verification cancelled"
     }
 
 

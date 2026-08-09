@@ -9,6 +9,11 @@ import time
 from typing import List, Optional, Dict, Any
 import logging
 import os
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# Load environment variables
+load_dotenv()
 
 # Import our modules
 from embeddings import (
@@ -35,6 +40,13 @@ from liveness import LivenessDetector
 # ==========================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ==========================
+# Supabase Configuration
+# ==========================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 # ==========================
 # FastAPI App
@@ -91,6 +103,9 @@ class VerifyRequest(BaseModel):
     image: str
     stored_embedding: List[float]
     threshold: Optional[float] = 0.55
+
+class StudentEmbeddingRequest(BaseModel):
+    student_id: int
 
 # ==========================
 # Global Variables
@@ -178,7 +193,8 @@ def home():
             "verify-multiple": "/verify-multiple",
             "liveness": "/check-liveness",
             "reset-liveness": "/reset-liveness",
-            "compare": "/compare-embeddings"
+            "compare": "/compare-embeddings",
+            "student-embedding": "/api/student/{student_id}/embedding"
         }
     }
 
@@ -198,6 +214,41 @@ def model_info():
         "detection_size": (640, 640),
         "loaded": MODEL_LOADED
     }
+
+# ==========================
+# STUDENT EMBEDDING ENDPOINT (NEW)
+# ==========================
+@app.get("/api/student/{student_id}/embedding")
+async def get_student_embedding(student_id: int):
+    """Get a student's stored face embedding from Supabase"""
+    try:
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Supabase not configured")
+        
+        # Query Supabase for the student
+        result = supabase.table("students").select("face_embedding").eq("id", student_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        student = result.data[0]
+        embedding = student.get("face_embedding")
+        
+        if embedding is None:
+            raise HTTPException(status_code=404, detail="No face embedding found for this student")
+        
+        # Return the embedding
+        return {
+            "success": True,
+            "embedding": embedding,
+            "student_id": student_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving embedding for student {student_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving embedding: {str(e)}")
 
 # ==========================
 # Face Detection Endpoint
@@ -238,7 +289,7 @@ async def detect_face(request: ImageRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================
-# Enrollment Endpoints - UPDATED WITH LOWER THRESHOLDS
+# Enrollment Endpoints
 # ==========================
 @app.post("/enroll-face")
 async def enroll_face(request: EnrollmentRequest):
