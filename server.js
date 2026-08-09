@@ -2483,7 +2483,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD (UPDATED - REMOVED notes)
+// STUDENTS - Full CRUD
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -2544,6 +2544,7 @@ app.post('/api/students', async (req, res) => {
       updated_at: new Date().toISOString()
     };
     
+    // Remove any undefined values
     Object.keys(newStudent).forEach(key => { 
       if (newStudent[key] === undefined) delete newStudent[key]; 
     });
