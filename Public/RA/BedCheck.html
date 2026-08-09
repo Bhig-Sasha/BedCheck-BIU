@@ -619,6 +619,30 @@
         .modal-actions .btn-gold:hover { background: #c49a2a; }
         .modal-actions .btn-gold:disabled { opacity: 0.4; cursor: not-allowed; }
 
+        /* Debug log styles */
+        .debug-log {
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(0,0,0,0.3);
+            border-radius: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.6rem;
+            color: #8899aa;
+            max-height: 80px;
+            overflow-y: auto;
+            border: 1px solid rgba(255,255,255,0.05);
+            display: none;
+        }
+        .debug-log.show { display: block; }
+        .debug-log .log-entry { 
+            padding: 0.1rem 0; 
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .debug-log .log-entry .time { color: #556677; margin-right: 0.5rem; }
+        .debug-log .log-entry.success { color: #35a866; }
+        .debug-log .log-entry.error { color: #d9534f; }
+        .debug-log .log-entry.info { color: #d6ad4b; }
+
         /* ----- TIMELINE ----- */
         .timeline-item {
             display: flex;
@@ -715,6 +739,11 @@
                         Secure Verification
                     </div>
                 </div>
+            </div>
+
+            <!-- Debug Log -->
+            <div class="debug-log" id="debugLog">
+                <div class="log-entry info"><span class="time">[System]</span> Debug mode active</div>
             </div>
 
             <div class="modal-result" id="modalResult">
@@ -855,6 +884,7 @@
         let isFaceDetectionRunning = false;
         let studentEmbeddingCache = {};
         let cameraFacingMode = 'user';
+        let debugLogs = [];
 
         // =============================================
         // HELPERS
@@ -879,6 +909,22 @@
         }
 
         function now() { return new Date().toISOString(); }
+
+        function addDebugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            debugLogs.unshift({ time: timestamp, message, type });
+            if (debugLogs.length > 50) debugLogs.pop();
+            
+            const logEl = document.getElementById('debugLog');
+            if (logEl) {
+                logEl.classList.add('show');
+                const entries = debugLogs.slice(0, 10).map(log => 
+                    `<div class="log-entry ${log.type}"><span class="time">[${log.time}]</span> ${log.message}</div>`
+                ).join('');
+                logEl.innerHTML = entries;
+            }
+            console.log(`[${type.toUpperCase()}]`, message);
+        }
 
         async function apiCall(endpoint, options = {}) {
             try {
@@ -1042,12 +1088,13 @@
                 
                 if (embedding) {
                     studentEmbeddingCache[studentId] = embedding;
-                    console.log(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`);
+                    addDebugLog(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`, 'success');
                     return embedding;
                 } else {
                     throw new Error(`No face embedding found for student ${studentId}`);
                 }
             } catch (error) {
+                addDebugLog(`❌ Error fetching embedding: ${error.message}`, 'error');
                 console.error('Error fetching student embedding:', error);
                 throw error;
             }
@@ -1059,6 +1106,8 @@
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
             try {
                 const base64Image = imageDataUrl.split(',')[1];
+                
+                addDebugLog(`🔍 Sending verification request to ${FACE_API_URL}/verify-face`, 'info');
                 
                 const storedEmbedding = await getStudentEmbedding(studentId);
 
@@ -1076,12 +1125,12 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('❌ API Error Response:', errorText);
+                    addDebugLog(`❌ API Error ${response.status}: ${errorText}`, 'error');
                     throw new Error(`API Error ${response.status}: ${errorText}`);
                 }
 
                 const result = await response.json();
-                console.log('✅ Verification result:', result);
+                addDebugLog(`✅ Verification result: ${JSON.stringify(result)}`, 'success');
                 
                 return {
                     success: result.success || result.verified || false,
@@ -1091,6 +1140,7 @@
                     threshold: result.threshold || 0.55
                 };
             } catch (error) {
+                addDebugLog(`❌ Verification error: ${error.message}`, 'error');
                 console.error('❌ Face verification API error:', error);
                 throw error;
             }
@@ -1104,6 +1154,8 @@
                 const imageDataUrl = captureFrame(video);
                 const base64Image = imageDataUrl.split(',')[1];
 
+                addDebugLog(`🔍 Sending detect request to ${FACE_API_URL}/detect-face`, 'info');
+
                 const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
                     headers: {
@@ -1116,16 +1168,20 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
+                    addDebugLog(`❌ Detect API Error ${response.status}: ${errorText}`, 'error');
                     throw new Error(`Face detection API error: ${response.status} - ${errorText}`);
                 }
 
                 const result = await response.json();
+                addDebugLog(`📊 Detect result: ${JSON.stringify(result)}`, 'info');
+
                 if (result.detected) {
                     modalFaceDetected = true;
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.add('hidden');
+                    addDebugLog(`✅ Face detected! (${result.num_faces || 1} faces)`, 'success');
                     
                     if (result.bbox) {
                         const faceBox = document.getElementById('modalFaceBox');
@@ -1146,8 +1202,10 @@
                     document.getElementById('statusDot').className = 'status-dot-live inactive';
                     document.getElementById('faceInstruction').classList.remove('hidden');
                     document.getElementById('modalFaceBox').style.display = 'none';
+                    addDebugLog(`⚠️ No face detected in frame`, 'info');
                 }
             } catch (error) {
+                addDebugLog(`❌ Face detection error: ${error.message}`, 'error');
                 console.error('Face detection error:', error);
                 modalFaceDetected = false;
                 document.getElementById('modalFaceGuide').className = 'face-guide';
@@ -1556,8 +1614,13 @@
             document.getElementById('faceInstruction').classList.remove('hidden');
 
             modalFaceDetected = false;
+            debugLogs = [];
+            document.getElementById('debugLog').classList.remove('show');
 
             document.getElementById('verifyModal').classList.add('show');
+
+            addDebugLog(`🔓 Opening verification for ${student.name}`, 'info');
+            addDebugLog(`📡 Face API: ${FACE_API_URL}`, 'info');
 
             setTimeout(() => {
                 startModalCamera();
@@ -1582,6 +1645,8 @@
             try {
                 if (modalCameraStream) stopModalCamera();
 
+                addDebugLog(`📷 Starting camera with facingMode: ${cameraFacingMode}`, 'info');
+
                 let constraints = {
                     video: {
                         facingMode: cameraFacingMode,
@@ -1594,7 +1659,9 @@
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    addDebugLog(`✅ Camera started successfully`, 'success');
                 } catch (firstError) {
+                    addDebugLog(`⚠️ Camera error: ${firstError.message}`, 'error');
                     const fallbackMode = cameraFacingMode === 'user' ? 'environment' : 'user';
                     constraints = {
                         video: {
@@ -1610,6 +1677,7 @@
                     if (label) {
                         label.textContent = cameraFacingMode === 'user' ? '📷 Front Camera' : '📷 Back Camera';
                     }
+                    addDebugLog(`📷 Using ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera (fallback)`, 'info');
                     showToast(`📷 Using ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera`, 'info');
                 }
 
@@ -1619,6 +1687,7 @@
                 if (video) {
                     video.srcObject = stream;
                     await video.play();
+                    addDebugLog(`🎥 Video stream started (${video.videoWidth}x${video.videoHeight})`, 'success');
 
                     document.getElementById('modalCameraStatus').textContent = 'Camera ready - detecting face...';
                     document.getElementById('statusDot').className = 'status-dot-live';
@@ -1626,17 +1695,22 @@
                     
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
+                    let detectionAttempts = 0;
                     captureInterval = setInterval(async () => {
                         if (video.readyState >= 2 && isFaceDetectionRunning) {
+                            detectionAttempts++;
                             try {
                                 await detectFaceWithAPI(video);
                             } catch (error) {
-                                console.warn('Face detection failed:', error.message);
+                                if (detectionAttempts % 3 === 0) {
+                                    addDebugLog(`⚠️ Detection attempt ${detectionAttempts} failed: ${error.message}`, 'error');
+                                }
                             }
                         }
                     }, 500);
                 }
             } catch (error) {
+                addDebugLog(`❌ Camera error: ${error.message}`, 'error');
                 console.error('Modal camera error:', error);
                 let errorMessage = 'Camera access denied. ';
                 if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
@@ -1652,6 +1726,7 @@
             if (modalCameraStream) {
                 modalCameraStream.getTracks().forEach(track => track.stop());
                 modalCameraStream = null;
+                addDebugLog(`📷 Camera stopped`, 'info');
             }
             const video = document.getElementById('modalCamera');
             if (video) video.srcObject = null;
@@ -1686,11 +1761,14 @@
 
             document.getElementById('modalResult').className = 'modal-result';
 
+            addDebugLog(`🔐 Starting verification for ${selectedStudent.name}`, 'info');
+
             const video = document.getElementById('modalCamera');
             if (video && video.readyState >= 2) {
                 const imageDataUrl = captureFrame(video);
                 performVerificationWithAPI(imageDataUrl);
             } else {
+                addDebugLog(`❌ Camera not ready for verification`, 'error');
                 showToast('Camera not ready. Please try again.', 'error');
                 isVerifying = false;
                 document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
@@ -1712,6 +1790,8 @@
                     if (label) label.textContent = '🔍 InsightFace Analyzing...';
                 }
 
+                addDebugLog(`📤 Sending verification request...`, 'info');
+
                 const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
                 
                 if (!result) {
@@ -1720,6 +1800,8 @@
 
                 const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
+
+                addDebugLog(`📊 Confidence: ${confidencePercent}%`, 'info');
 
                 if (result.verified || result.success) {
                     const student = selectedStudent;
@@ -1735,6 +1817,7 @@
                     addTimeline(`${student.name} verified via InsightFace`,
                         `Room ${currentRoom} · ${confidencePercent}%`);
                     showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
+                    addDebugLog(`✅ ${student.name} verified successfully!`, 'success');
 
                     if (faceBox) {
                         faceBox.className = 'face-box matched';
@@ -1772,6 +1855,7 @@
 
                 } else {
                     const reason = result.reason || 'Face does not match';
+                    addDebugLog(`❌ Verification failed: ${reason}`, 'error');
                     
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
@@ -1803,6 +1887,7 @@
                 }
 
             } catch (error) {
+                addDebugLog(`❌ Verification error: ${error.message}`, 'error');
                 console.error('Verification error:', error);
                 showToast('Error during verification: ' + error.message, 'error');
                 document.getElementById('modalCameraStatus').textContent = 'Error';
