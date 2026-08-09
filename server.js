@@ -1326,6 +1326,7 @@ app.post('/api/face/detect', async (req, res) => {
 });
 
 // Enroll face (single image)
+// Enroll face (single image)
 app.post('/api/face/enroll', async (req, res) => {
     try {
         const { 
@@ -1382,13 +1383,13 @@ app.post('/api/face/enroll', async (req, res) => {
             return res.status(400).json(result);
         }
 
-        // Update student record
+        // Update student record - ONLY use columns that exist
         const { data: updatedStudent, error: updateError } = await supabase
             .from('students')
             .update({
                 face_enrolled: true,
                 face_embedding: result.embedding,
-                face_provider: 'insightface',
+                // REMOVED: face_provider: 'insightface',
                 updated_at: new Date().toISOString()
             })
             .eq('id', student.id)
@@ -1426,6 +1427,7 @@ app.post('/api/face/enroll', async (req, res) => {
     }
 });
 
+// Enroll face with multiple frames (iPhone Face ID style)
 // Enroll face with multiple frames (iPhone Face ID style)
 app.post('/api/face/enroll-bulk', async (req, res) => {
     try {
@@ -1482,13 +1484,13 @@ app.post('/api/face/enroll-bulk', async (req, res) => {
             return res.status(400).json(result);
         }
 
-        // Update student record
+        // Update student record - ONLY use columns that exist
         const { data: updatedStudent, error: updateError } = await supabase
             .from('students')
             .update({
                 face_enrolled: true,
                 face_embedding: result.embedding,
-                face_provider: 'insightface',
+                // REMOVED: face_provider: 'insightface',
                 updated_at: new Date().toISOString()
             })
             .eq('id', student.id)
@@ -1763,13 +1765,14 @@ app.post('/api/face/liveness/reset', async (req, res) => {
 });
 
 // Get face status for a student
+// Get face status for a student
 app.get('/api/face/status/:studentId', async (req, res) => {
     try {
         const studentId = parseInt(req.params.studentId);
         
         const { data: student, error } = await supabase
             .from('students')
-            .select('id, name, matric, face_enrolled, face_embedding, face_provider, updated_at')
+            .select('id, name, matric, face_enrolled, face_embedding, updated_at')
             .eq('id', studentId)
             .single();
         
@@ -1789,7 +1792,6 @@ app.get('/api/face/status/:studentId', async (req, res) => {
                     matric: student.matric
                 },
                 face_enrolled: student.face_enrolled,
-                face_provider: student.face_provider || 'none',
                 has_embedding: !!student.face_embedding,
                 embedding_dimension: student.face_embedding ? student.face_embedding.length : 0,
                 updated_at: student.updated_at
@@ -1860,7 +1862,8 @@ app.get('/api/students/face-status', async (req, res) => {
         const { hostel_id, room_id } = req.query;
         
         let query = supabase.from('students')
-            .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, face_embedding, face_provider');
+            .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, face_embedding');
+            // REMOVED: face_provider
         
         if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
         if (room_id) query = query.eq('room_id', parseInt(room_id));
@@ -1988,7 +1991,7 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
         
         const { data: student, error } = await supabase
             .from('students')
-            .select('id, name, matric, face_enrolled, face_embedding, face_provider, updated_at')
+            .select('id, name, matric, face_enrolled, face_embedding, updated_at')
             .eq('id', studentId)
             .single();
         
@@ -2008,7 +2011,6 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
                     matric: student.matric
                 },
                 face_enrolled: student.face_enrolled,
-                face_provider: student.face_provider || 'none',
                 has_embedding: !!student.face_embedding,
                 embedding_dimension: student.face_embedding ? student.face_embedding.length : 0
             }
@@ -2672,7 +2674,7 @@ app.delete('/api/floors-flats/:id', async (req, res) => {
 });
 
 // =====================================================
-// ROOMS - UPDATED WITH ENRICHMENT AND CAPACITY
+// ROOMS
 // =====================================================
 
 app.get('/api/rooms', async (req, res) => {
@@ -2853,7 +2855,7 @@ app.delete('/api/rooms/:id', async (req, res) => {
 });
 
 // =====================================================
-// BED SPACES - Fixed to filter by hostel_id
+// BED SPACES - Filter By Hostel_id
 // =====================================================
 
 app.get('/api/bed-spaces', async (req, res) => {
@@ -2993,7 +2995,7 @@ app.delete('/api/bed-spaces/:id', async (req, res) => {
 });
 
 // =====================================================
-// HOSTELS - FIXED with computed fields
+// HOSTELS
 // =====================================================
 
 app.get('/api/hostels', async (req, res) => {
@@ -3574,7 +3576,7 @@ app.put('/api/bedcheck/sessions/:id', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SCANS (QR-based - NO FINGERPRINT)
+// BEDCHECK SCANS
 // =====================================================
 
 app.get('/api/bedcheck/scans', async (req, res) => {
@@ -3682,7 +3684,7 @@ app.post('/api/bedcheck/submit', async (req, res) => {
 });
 
 // =====================================================
-// SESSIONS - Global sessions
+// SESSIONS
 // =====================================================
 
 app.get('/api/sessions', async (req, res) => {
@@ -4160,7 +4162,7 @@ app.get('/api/reports/attendance', async (req, res) => {
 });
 
 // =====================================================
-// FACE TEMPLATE ENDPOINTS (Legacy - kept for compatibility)
+// FACE TEMPLATE ENDPOINTS
 // =====================================================
 
 app.get('/api/face-templates/student/:studentId', async (req, res) => {
@@ -4169,7 +4171,7 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
         
         const { data: student, error } = await supabase
             .from('students')
-            .select('face_embedding, face_enrolled, face_provider')
+            .select('face_embedding, face_enrolled')
             .eq('id', studentId)
             .single();
         
@@ -4193,7 +4195,6 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
             success: true,
             data: {
                 face_enrolled: student.face_enrolled,
-                face_provider: student.face_provider || 'insightface',
                 embedding_dimension: student.face_embedding.length
             }
         });
@@ -4207,7 +4208,7 @@ app.get('/api/face-templates/student/:studentId', async (req, res) => {
 });
 
 // =====================================================
-// CATCH-ALL FOR 404 - MUST BE LAST
+// CATCH-ALL FOR 404
 // =====================================================
 
 app.use((req, res) => {
