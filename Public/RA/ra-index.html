@@ -416,19 +416,38 @@
             }
 
             // =============================================
-            // DATA LOADING - FIXED: Use /students with query params
+            // DATA LOADING - ONLY LOAD STUDENTS FROM ASSIGNED HOSTEL
             // =============================================
             async function loadStudents() {
                 try {
-                    let endpoint = '/students';
-                    // Use query parameters to filter by hostel
-                    if (assignedHostelId) {
-                        endpoint = `/students?hostel_id=${assignedHostelId}`;
-                    } else if (assignedHostelName) {
-                        endpoint = `/students?hostel=${encodeURIComponent(assignedHostelName)}`;
+                    // First, get the current user's hostel ID
+                    if (!assignedHostelId && currentUser) {
+                        // Try to get hostel_id from current user
+                        const { data: userData } = await apiCall(`/staff/${currentUser.id}`);
+                        if (userData && userData.hostel_id) {
+                            assignedHostelId = userData.hostel_id;
+                        }
                     }
-                    const data = await apiCall(endpoint);
-                    students = data.data || [];
+
+                    // If we still don't have a hostel ID, check if we have a hostel name
+                    if (!assignedHostelId && assignedHostelName) {
+                        // Find hostel by name
+                        const hostel = hostels.find(h => h.name === assignedHostelName);
+                        if (hostel) {
+                            assignedHostelId = hostel.id;
+                        }
+                    }
+
+                    // Load students filtered by hostel_id
+                    if (assignedHostelId) {
+                        const data = await apiCall(`/students?hostel_id=${assignedHostelId}`);
+                        students = data.data || [];
+                    } else {
+                        // If no hostel assigned, show empty or all students
+                        const data = await apiCall('/students');
+                        students = data.data || [];
+                    }
+                    
                     filteredStudents = students;
                     return students;
                 } catch (error) {
@@ -443,12 +462,6 @@
                 try {
                     const data = await apiCall('/hostels');
                     hostels = data.data || [];
-                    if (assignedHostelId && !assignedHostelName) {
-                        const hostel = hostels.find(h => h.id === assignedHostelId);
-                        if (hostel) {
-                            assignedHostelName = hostel.name;
-                        }
-                    }
                     return hostels;
                 } catch (error) {
                     hostels = [];
@@ -493,19 +506,27 @@
             }
 
             // =============================================
+            // GET HOSTEL NAME FROM ID
+            // =============================================
+            function getHostelName(hostelId) {
+                const hostel = hostels.find(h => h.id === hostelId);
+                return hostel ? hostel.name : 'Unknown Hostel';
+            }
+
+            // =============================================
             // RENDER DASHBOARD
             // =============================================
             function renderDashboard() {
                 const container = document.getElementById('screenContent');
 
-                const displayHostel = assignedHostelName || currentUser?.hostel || 'Your Hostel';
+                const displayHostel = assignedHostelName || getHostelName(assignedHostelId) || currentUser?.hostel || 'Your Hostel';
                 const totalStudents = filteredStudents.length;
                 const present = filteredStudents.filter(s => s.status === 'Present').length || 0;
                 const absent = filteredStudents.filter(s => s.status === 'Absent').length || 0;
                 const late = filteredStudents.filter(s => s.status === 'Late').length || 0;
                 const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
 
-                const hostelInfo = hostels.find(h => h.name === displayHostel) || hostels.find(h => h.id === assignedHostelId);
+                const hostelInfo = hostels.find(h => h.id === assignedHostelId) || hostels.find(h => h.name === displayHostel);
 
                 let hraName = 'Not Assigned';
                 let currentRAName = currentUser?.name || 'Not Assigned';
@@ -859,6 +880,24 @@
                     document.getElementById('noticeText').textContent = 'Loading RA dashboard...';
 
                     await loadHostels();
+                    
+                    // Load the current user's full data to get hostel_id if not set
+                    if (currentUser && !assignedHostelId) {
+                        try {
+                            const userData = await apiCall(`/staff/${currentUser.id}`);
+                            if (userData.data && userData.data.hostel_id) {
+                                assignedHostelId = userData.data.hostel_id;
+                                // Also get the hostel name
+                                const hostel = hostels.find(h => h.id === assignedHostelId);
+                                if (hostel) {
+                                    assignedHostelName = hostel.name;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Could not fetch user details:', e);
+                        }
+                    }
+
                     await loadStudents();
                     await loadStaff();
 
@@ -870,8 +909,10 @@
                     }
 
                     renderDashboard();
+                    
+                    const hostelDisplay = assignedHostelName || getHostelName(assignedHostelId) || 'your hostel';
                     document.getElementById('noticeText').textContent =
-                        `RA Dashboard · ${filteredStudents.length} students in ${assignedHostelName || currentUser?.hostel || 'your hostel'}`;
+                        `RA Dashboard · ${filteredStudents.length} students in ${hostelDisplay}`;
                 } catch (error) {
                     console.error('Init error:', error);
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
