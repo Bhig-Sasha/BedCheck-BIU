@@ -1847,6 +1847,61 @@ app.post('/api/face/extract', async (req, res) => {
 });
 
 // =====================================================
+// STUDENT FACE EMBEDDING ENDPOINT (ADDED)
+// =====================================================
+
+app.get('/api/student/:id/embedding', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.id);
+        
+        if (isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID'
+            });
+        }
+
+        // Get student from Supabase
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('id, name, matric, face_embedding, face_enrolled')
+            .eq('id', studentId)
+            .single();
+        
+        if (error || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        if (!student.face_embedding) {
+            return res.status(404).json({
+                success: false,
+                message: 'No face embedding found for this student'
+            });
+        }
+
+        // Return the embedding
+        res.json({
+            success: true,
+            embedding: student.face_embedding,
+            student_id: student.id,
+            name: student.name,
+            matric: student.matric,
+            face_enrolled: student.face_enrolled
+        });
+
+    } catch (error) {
+        console.error('Error fetching student embedding:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
 // STUDENT FACE ENDPOINTS (Integrated)
 // =====================================================
 
