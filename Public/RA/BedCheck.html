@@ -698,6 +698,9 @@
                 <div class="badge-row">
                     <span class="mini-badge"><i class="fas fa-door-open"></i> <span id="modalRoomLabel">G4</span></span>
                     <span class="mini-badge"><i class="fas fa-bed"></i> <span id="modalBedLabel">BS1</span></span>
+                    <span class="mini-badge" style="background:rgba(53,168,102,0.15);color:#35a866;border-color:rgba(53,168,102,0.15);">
+                        <i class="fas fa-brain"></i> InsightFace
+                    </span>
                 </div>
             </div>
 
@@ -736,7 +739,7 @@
                     </div>
                     <div class="camera-security">
                         <i class="fas fa-shield-halved"></i>
-                        Secure Verification
+                        InsightFace Secure
                     </div>
                 </div>
             </div>
@@ -888,6 +891,9 @@
         let studentEmbeddingCache = {};
         let cameraFacingMode = 'user';
         let debugLogs = [];
+        let detectionAttempts = 0;
+        let apiHealthChecked = false;
+        let isApiHealthy = false;
 
         // =============================================
         // HELPERS
@@ -948,6 +954,31 @@
                 showToast('Error: ' + error.message, 'error');
                 throw error;
             }
+        }
+
+        // =============================================
+        // CHECK FACE API HEALTH
+        // =============================================
+        async function checkFaceApiHealth() {
+            try {
+                addDebugLog('🔍 Checking InsightFace API health...', 'info');
+                const response = await fetch(`${FACE_API_URL}/health`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    isApiHealthy = data.status === 'running' || data.status === 'healthy';
+                    addDebugLog(`✅ InsightFace API ${isApiHealthy ? 'healthy' : 'unhealthy'}`, isApiHealthy ? 'success' : 'error');
+                } else {
+                    isApiHealthy = false;
+                    addDebugLog(`❌ InsightFace API returned ${response.status}`, 'error');
+                }
+            } catch (error) {
+                isApiHealthy = false;
+                addDebugLog(`❌ InsightFace API unreachable: ${error.message}`, 'error');
+            }
+            apiHealthChecked = true;
+            return isApiHealthy;
         }
 
         // =============================================
@@ -1089,7 +1120,7 @@
                     embedding = result.data.embedding;
                 }
                 
-                if (embedding) {
+                if (embedding && Array.isArray(embedding) && embedding.length > 0) {
                     studentEmbeddingCache[studentId] = embedding;
                     addDebugLog(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`, 'success');
                     return embedding;
@@ -1110,7 +1141,7 @@
             try {
                 const base64Image = imageDataUrl.split(',')[1];
                 
-                addDebugLog(`🔍 Sending verification request to ${FACE_API_URL}/verify-face`, 'info');
+                addDebugLog(`🔍 Sending verification request to InsightFace API`, 'info');
                 
                 const storedEmbedding = await getStudentEmbedding(studentId);
 
@@ -1150,14 +1181,13 @@
         }
 
         // =============================================
-        // DETECT FACE WITH INSIGHTFACE API - FIXED URL
+        // DETECT FACE WITH INSIGHTFACE API
         // =============================================
         async function detectFaceWithAPI(video) {
             try {
                 const imageDataUrl = captureFrame(video);
                 const base64Image = imageDataUrl.split(',')[1];
 
-                // ✅ CORRECT: Using full FACE_API_URL
                 const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
                     headers: {
@@ -1175,46 +1205,52 @@
                 }
 
                 const result = await response.json();
-                addDebugLog(`📊 Detect result: ${JSON.stringify(result)}`, 'info');
-
-                if (result.detected) {
+                
+                if (result.detected || (result.faces && result.faces.length > 0)) {
                     modalFaceDetected = true;
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                    document.getElementById('modalCameraStatus').textContent = 'Face detected';
+                    document.getElementById('modalCameraStatus').textContent = '✅ Face detected';
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.add('hidden');
-                    addDebugLog(`✅ Face detected! (${result.num_faces || 1} faces)`, 'success');
                     
-                    if (result.bbox) {
+                    const numFaces = result.num_faces || (result.faces ? result.faces.length : 1);
+                    addDebugLog(`✅ Face detected! (${numFaces} faces)`, 'success');
+                    
+                    if (result.bbox || (result.faces && result.faces[0] && result.faces[0].bbox)) {
+                        const bbox = result.bbox || result.faces[0].bbox;
                         const faceBox = document.getElementById('modalFaceBox');
                         faceBox.style.display = 'block';
                         faceBox.className = 'face-box scanning';
-                        const bbox = result.bbox;
                         faceBox.style.left = (bbox[0] * 100) + '%';
                         faceBox.style.top = (bbox[1] * 100) + '%';
                         faceBox.style.width = (bbox[2] * 100) + '%';
                         faceBox.style.height = (bbox[3] * 100) + '%';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = '🔍 Face detected';
+                        if (label) label.textContent = `🔍 Face detected (${Math.round(bbox[2]*100)}%)`;
                     }
+                    
+                    detectionAttempts = 0;
                 } else {
                     modalFaceDetected = false;
                     document.getElementById('modalFaceGuide').className = 'face-guide';
-                    document.getElementById('modalCameraStatus').textContent = 'No face detected';
+                    document.getElementById('modalCameraStatus').textContent = '😊 No face detected';
                     document.getElementById('statusDot').className = 'status-dot-live inactive';
                     document.getElementById('faceInstruction').classList.remove('hidden');
                     document.getElementById('modalFaceBox').style.display = 'none';
-                    addDebugLog(`⚠️ No face detected in frame`, 'info');
+                    
+                    detectionAttempts++;
+                    if (detectionAttempts % 5 === 0) {
+                        addDebugLog(`⏳ Waiting for face... (${detectionAttempts} attempts)`, 'info');
+                    }
                 }
             } catch (error) {
                 addDebugLog(`❌ Face detection error: ${error.message}`, 'error');
                 console.error('Face detection error:', error);
                 modalFaceDetected = false;
                 document.getElementById('modalFaceGuide').className = 'face-guide';
-                document.getElementById('modalCameraStatus').textContent = 'Error detecting face';
+                document.getElementById('modalCameraStatus').textContent = '⚠️ Detection error';
                 document.getElementById('statusDot').className = 'status-dot-live error';
                 document.getElementById('modalFaceBox').style.display = 'none';
-                throw error;
             }
         }
 
@@ -1443,6 +1479,7 @@
                             <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
                             <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace (antelopev2)</strong></div>
+                            <div class="sub"><span class="label">API Status:</span> <strong style="color:${isApiHealthy ? '#35a866' : '#d9534f'};">${isApiHealthy ? '✅ Online' : '⚠️ Offline'}</strong></div>
                         ` : `
                             <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
@@ -1451,7 +1488,7 @@
                     <div class="right">
                         <div class="time">${timeStr}</div>
                         <div><span class="status-badge ${statusBadgeClass}">${isSessionActive ? 'Active' : 'Inactive'}</span></div>
-                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">InsightFace Ready</div>` : ''}
+                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">InsightFace ${isApiHealthy ? '✅' : '⚠️'}</div>` : ''}
                     </div>
                 </div>
 
@@ -1616,6 +1653,7 @@
             document.getElementById('faceInstruction').classList.remove('hidden');
 
             modalFaceDetected = false;
+            detectionAttempts = 0;
             debugLogs = [];
             document.getElementById('debugLog').classList.remove('show');
 
@@ -1624,9 +1662,16 @@
             addDebugLog(`🔓 Opening verification for ${student.name}`, 'info');
             addDebugLog(`📡 Face API: ${FACE_API_URL}`, 'info');
 
-            setTimeout(() => {
-                startModalCamera();
-            }, 300);
+            // Check API health first
+            checkFaceApiHealth().then(() => {
+                if (!isApiHealthy) {
+                    addDebugLog(`⚠️ InsightFace API is offline. Please check your connection.`, 'error');
+                    showToast('⚠️ Face API is offline. Please try again later.', 'error');
+                }
+                setTimeout(() => {
+                    startModalCamera();
+                }, 500);
+            });
         }
 
         function closeVerifyModal() {
@@ -1664,23 +1709,17 @@
                     addDebugLog(`✅ Camera started successfully`, 'success');
                 } catch (firstError) {
                     addDebugLog(`⚠️ Camera error: ${firstError.message}`, 'error');
-                    const fallbackMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+                    // Try without facingMode
                     constraints = {
                         video: {
-                            facingMode: fallbackMode,
                             width: { ideal: 640 },
                             height: { ideal: 480 }
                         },
                         audio: false
                     };
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    cameraFacingMode = fallbackMode;
-                    const label = document.getElementById('cameraModeLabel');
-                    if (label) {
-                        label.textContent = cameraFacingMode === 'user' ? '📷 Front Camera' : '📷 Back Camera';
-                    }
-                    addDebugLog(`📷 Using ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera (fallback)`, 'info');
-                    showToast(`📷 Using ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera`, 'info');
+                    addDebugLog(`📷 Using default camera (fallback)`, 'info');
+                    showToast(`📷 Using default camera`, 'info');
                 }
 
                 modalCameraStream = stream;
@@ -1697,19 +1736,15 @@
                     
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
-                    let detectionAttempts = 0;
                     captureInterval = setInterval(async () => {
                         if (video.readyState >= 2 && isFaceDetectionRunning) {
-                            detectionAttempts++;
                             try {
                                 await detectFaceWithAPI(video);
                             } catch (error) {
-                                if (detectionAttempts % 3 === 0) {
-                                    addDebugLog(`⚠️ Detection attempt ${detectionAttempts} failed: ${error.message}`, 'error');
-                                }
+                                // Silent fail - retry
                             }
                         }
-                    }, 500);
+                    }, 600);
                 }
             } catch (error) {
                 addDebugLog(`❌ Camera error: ${error.message}`, 'error');
@@ -1752,6 +1787,12 @@
             if (bedScanStatus[selectedStudent.id]?.verified) {
                 showToast(`${selectedStudent.name} is already verified!`, 'info');
                 closeVerifyModal();
+                return;
+            }
+
+            // Check API health before proceeding
+            if (!isApiHealthy) {
+                showToast('⚠️ Face API is offline. Please try again.', 'error');
                 return;
             }
 
@@ -1856,13 +1897,13 @@
                     }, 2000);
 
                 } else {
-                    const reason = result.reason || 'Face does not match';
+                    const reason = result.reason || 'Face does not match. Please try again with better lighting.';
                     addDebugLog(`❌ Verification failed: ${reason}`, 'error');
                     
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `❌ ${reason}`;
+                        if (label) label.textContent = `❌ ${reason.substring(0, 30)}...`;
                     }
                     if (faceGuide) {
                         faceGuide.className = 'face-guide failed';
@@ -2091,6 +2132,9 @@
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
+            // Check Face API health on startup
+            await checkFaceApiHealth();
+
             try {
                 const [hostelsResult, studentsResult, floorsResult, roomsResult, bedSpacesResult] = await Promise.all([
                     apiCall('/hostels'),
@@ -2151,6 +2195,9 @@
                 }
 
                 renderBedCheck();
+
+                // Re-check API health every 30 seconds
+                setInterval(checkFaceApiHealth, 30000);
 
             } catch (error) {
                 console.error('Init error:', error);
