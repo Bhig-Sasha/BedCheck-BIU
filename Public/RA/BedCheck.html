@@ -845,7 +845,7 @@
     (function() {
         'use strict';
 
-        const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+        const API_BASE_URL = 'https://bedcheck-api.onrender.com/api';
         const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
 
         // =============================================
@@ -885,6 +885,8 @@
         let studentEmbeddingCache = {};
         let cameraFacingMode = 'user';
         let debugLogs = [];
+        let lastDetectionTime = 0;
+        const DETECTION_THROTTLE_MS = 3000; // Only detect every 3 seconds
 
         // =============================================
         // HELPERS
@@ -1103,13 +1105,11 @@
         // =============================================
         // VERIFY FACE WITH INSIGHTFACE API
         // =============================================
-        async function verifyFaceWithAPI(imageDataUrl, studentId) {
+        async function verifyFaceWithAPI(imageDataUrl, storedEmbedding) {
             try {
                 const base64Image = imageDataUrl.split(',')[1];
                 
                 addDebugLog(`🔍 Sending verification request to ${FACE_API_URL}/verify-face`, 'info');
-                
-                const storedEmbedding = await getStudentEmbedding(studentId);
 
                 const response = await fetch(`${FACE_API_URL}/verify-face`, {
                     method: 'POST',
@@ -1147,14 +1147,19 @@
         }
 
         // =============================================
-        // DETECT FACE WITH INSIGHTFACE API
+        // DETECT FACE WITH INSIGHTFACE API - THROTTLED
         // =============================================
         async function detectFaceWithAPI(video) {
+            const now = Date.now();
+            // Throttle detection - only run every DETECTION_THROTTLE_MS
+            if (now - lastDetectionTime < DETECTION_THROTTLE_MS) {
+                return; // Skip this detection cycle
+            }
+            lastDetectionTime = now;
+
             try {
                 const imageDataUrl = captureFrame(video);
                 const base64Image = imageDataUrl.split(',')[1];
-
-                addDebugLog(`🔍 Sending detect request to ${FACE_API_URL}/detect-face`, 'info');
 
                 const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
@@ -1173,7 +1178,6 @@
                 }
 
                 const result = await response.json();
-                addDebugLog(`📊 Detect result: ${JSON.stringify(result)}`, 'info');
 
                 if (result.detected) {
                     modalFaceDetected = true;
@@ -1181,7 +1185,6 @@
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.add('hidden');
-                    addDebugLog(`✅ Face detected! (${result.num_faces || 1} faces)`, 'success');
                     
                     if (result.bbox) {
                         const faceBox = document.getElementById('modalFaceBox');
@@ -1198,11 +1201,10 @@
                 } else {
                     modalFaceDetected = false;
                     document.getElementById('modalFaceGuide').className = 'face-guide';
-                    document.getElementById('modalCameraStatus').textContent = 'No face detected';
+                    document.getElementById('modalCameraStatus').textContent = 'Looking for face...';
                     document.getElementById('statusDot').className = 'status-dot-live inactive';
                     document.getElementById('faceInstruction').classList.remove('hidden');
                     document.getElementById('modalFaceBox').style.display = 'none';
-                    addDebugLog(`⚠️ No face detected in frame`, 'info');
                 }
             } catch (error) {
                 addDebugLog(`❌ Face detection error: ${error.message}`, 'error');
@@ -1639,7 +1641,7 @@
         }
 
         // =============================================
-        // MODAL CAMERA
+        // MODAL CAMERA - WITH THROTTLED DETECTION
         // =============================================
         async function startModalCamera() {
             try {
@@ -1695,19 +1697,18 @@
                     
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
-                    let detectionAttempts = 0;
+                    lastDetectionTime = 0;
+                    
+                    // Only detect every 3 seconds for preview
                     captureInterval = setInterval(async () => {
-                        if (video.readyState >= 2 && isFaceDetectionRunning) {
-                            detectionAttempts++;
+                        if (video.readyState >= 2 && isFaceDetectionRunning && !isVerifying) {
                             try {
                                 await detectFaceWithAPI(video);
                             } catch (error) {
-                                if (detectionAttempts % 3 === 0) {
-                                    addDebugLog(`⚠️ Detection attempt ${detectionAttempts} failed: ${error.message}`, 'error');
-                                }
+                                // Silent fail for preview
                             }
                         }
-                    }, 500);
+                    }, 1000); // Check every second, but detectFaceWithAPI throttles to 3 seconds
                 }
             } catch (error) {
                 addDebugLog(`❌ Camera error: ${error.message}`, 'error');
@@ -1739,7 +1740,7 @@
         }
 
         // =============================================
-        // START VERIFICATION
+        // START VERIFICATION - FIXED FLOW
         // =============================================
         function startVerification() {
             if (isVerifying) return;
@@ -1765,8 +1766,26 @@
 
             const video = document.getElementById('modalCamera');
             if (video && video.readyState >= 2) {
-                const imageDataUrl = captureFrame(video);
-                performVerificationWithAPI(imageDataUrl);
+                // STEP 1: Fetch the stored embedding from Supabase
+                getStudentEmbedding(selectedStudent.id)
+                    .then(storedEmbedding => {
+                        // STEP 2: Capture a frame from the camera
+                        const imageDataUrl = captureFrame(video);
+                        // STEP 3: Send to /verify-face with the stored embedding
+                        return verifyFaceWithAPI(imageDataUrl, storedEmbedding);
+                    })
+                    .then(result => {
+                        handleVerificationResult(result);
+                    })
+                    .catch(error => {
+                        addDebugLog(`❌ Verification error: ${error.message}`, 'error');
+                        showToast('Verification error: ' + error.message, 'error');
+                        isVerifying = false;
+                        document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
+                        document.getElementById('modalVerifyBtn').disabled = false;
+                        document.getElementById('modalCameraStatus').textContent = 'Error';
+                        document.getElementById('statusDot').className = 'status-dot-live error';
+                    });
             } else {
                 addDebugLog(`❌ Camera not ready for verification`, 'error');
                 showToast('Camera not ready. Please try again.', 'error');
@@ -1778,131 +1797,101 @@
             }
         }
 
-        async function performVerificationWithAPI(imageDataUrl) {
-            try {
-                const faceBox = document.getElementById('modalFaceBox');
-                const faceGuide = document.getElementById('modalFaceGuide');
+        async function handleVerificationResult(result) {
+            const faceBox = document.getElementById('modalFaceBox');
+            const faceGuide = document.getElementById('modalFaceGuide');
+            
+            const confidence = result.confidence || 0;
+            const confidencePercent = Math.round(confidence * 100);
+
+            addDebugLog(`📊 Confidence: ${confidencePercent}%`, 'info');
+
+            if (result.verified || result.success) {
+                const student = selectedStudent;
+
+                bedScanStatus[student.id] = {
+                    verified: true,
+                    status: 'Present',
+                    time: now(),
+                    method: 'face-recognition',
+                    confidence: confidencePercent
+                };
+
+                addTimeline(`${student.name} verified via InsightFace`,
+                    `Room ${currentRoom} · ${confidencePercent}%`);
+                showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
+                addDebugLog(`✅ ${student.name} verified successfully!`, 'success');
+
+                if (faceBox) {
+                    faceBox.className = 'face-box matched';
+                    const label = faceBox.querySelector('.label');
+                    if (label) label.textContent = `✅ ${student.name} ${confidencePercent}%`;
+                }
+                if (faceGuide) {
+                    faceGuide.className = 'face-guide verified';
+                }
+
+                document.getElementById('modalResult').className = 'modal-result show success';
+                document.getElementById('modalResultIcon').textContent = '✅';
+                document.getElementById('modalResultTitle').textContent = 'Identity Verified!';
+                document.getElementById('modalResultSub').textContent = `${student.name} verified successfully`;
+                document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
+
+                document.getElementById('modalCameraStatus').textContent = '✅ Verified!';
+                document.getElementById('statusDot').className = 'status-dot-live';
+
+                renderBedCheck();
+
+                if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
+                    if (!completedRooms.includes(currentRoom)) {
+                        completedRooms.push(currentRoom);
+                    }
+                    addTimeline(`Room ${currentRoom} completed`,
+                        `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
+                    showToast(`🎉 Room ${currentRoom} complete!`, 'success');
+                    renderBedCheck();
+                }
+
+                setTimeout(() => {
+                    closeVerifyModal();
+                }, 2000);
+
+            } else {
+                const reason = result.reason || 'Face does not match';
+                addDebugLog(`❌ Verification failed: ${reason}`, 'error');
                 
                 if (faceBox) {
-                    faceBox.className = 'face-box scanning';
-                    faceBox.style.display = 'block';
+                    faceBox.className = 'face-box unknown';
                     const label = faceBox.querySelector('.label');
-                    if (label) label.textContent = '🔍 InsightFace Analyzing...';
+                    if (label) label.textContent = `❌ ${reason}`;
+                }
+                if (faceGuide) {
+                    faceGuide.className = 'face-guide failed';
                 }
 
-                addDebugLog(`📤 Sending verification request...`, 'info');
-
-                const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
-                
-                if (!result) {
-                    throw new Error('No response from verification service');
-                }
-
-                const confidence = result.confidence || 0;
-                const confidencePercent = Math.round(confidence * 100);
-
-                addDebugLog(`📊 Confidence: ${confidencePercent}%`, 'info');
-
-                if (result.verified || result.success) {
-                    const student = selectedStudent;
-
-                    bedScanStatus[student.id] = {
-                        verified: true,
-                        status: 'Present',
-                        time: now(),
-                        method: 'face-recognition',
-                        confidence: confidencePercent
-                    };
-
-                    addTimeline(`${student.name} verified via InsightFace`,
-                        `Room ${currentRoom} · ${confidencePercent}%`);
-                    showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
-                    addDebugLog(`✅ ${student.name} verified successfully!`, 'success');
-
-                    if (faceBox) {
-                        faceBox.className = 'face-box matched';
-                        const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `✅ ${student.name} ${confidencePercent}%`;
-                    }
-                    if (faceGuide) {
-                        faceGuide.className = 'face-guide verified';
-                    }
-
-                    document.getElementById('modalResult').className = 'modal-result show success';
-                    document.getElementById('modalResultIcon').textContent = '✅';
-                    document.getElementById('modalResultTitle').textContent = 'Identity Verified!';
-                    document.getElementById('modalResultSub').textContent = `${student.name} verified successfully`;
-                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
-
-                    document.getElementById('modalCameraStatus').textContent = '✅ Verified!';
-                    document.getElementById('statusDot').className = 'status-dot-live';
-
-                    renderBedCheck();
-
-                    if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
-                        if (!completedRooms.includes(currentRoom)) {
-                            completedRooms.push(currentRoom);
-                        }
-                        addTimeline(`Room ${currentRoom} completed`,
-                            `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
-                        showToast(`🎉 Room ${currentRoom} complete!`, 'success');
-                        renderBedCheck();
-                    }
-
-                    setTimeout(() => {
-                        closeVerifyModal();
-                    }, 2000);
-
-                } else {
-                    const reason = result.reason || 'Face does not match';
-                    addDebugLog(`❌ Verification failed: ${reason}`, 'error');
-                    
-                    if (faceBox) {
-                        faceBox.className = 'face-box unknown';
-                        const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `❌ ${reason}`;
-                    }
-                    if (faceGuide) {
-                        faceGuide.className = 'face-guide failed';
-                    }
-
-                    document.getElementById('modalResult').className = 'modal-result show failed';
-                    document.getElementById('modalResultIcon').textContent = '❌';
-                    document.getElementById('modalResultTitle').textContent = 'Identity Not Verified';
-                    document.getElementById('modalResultSub').textContent = reason;
-                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
-
-                    document.getElementById('modalCameraStatus').textContent = 'Verification failed';
-                    document.getElementById('statusDot').className = 'status-dot-live error';
-
-                    setTimeout(() => {
-                        if (faceBox) {
-                            faceBox.className = 'face-box';
-                            faceBox.style.display = 'none';
-                        }
-                        if (faceGuide) {
-                            faceGuide.className = 'face-guide';
-                        }
-                    }, 3000);
-                }
-
-            } catch (error) {
-                addDebugLog(`❌ Verification error: ${error.message}`, 'error');
-                console.error('Verification error:', error);
-                showToast('Error during verification: ' + error.message, 'error');
-                document.getElementById('modalCameraStatus').textContent = 'Error';
-                document.getElementById('statusDot').className = 'status-dot-live error';
-                
                 document.getElementById('modalResult').className = 'modal-result show failed';
-                document.getElementById('modalResultIcon').textContent = '⚠️';
-                document.getElementById('modalResultTitle').textContent = 'Verification Error';
-                document.getElementById('modalResultSub').textContent = error.message || 'Please try again';
-                document.getElementById('modalResultConfidence').textContent = '';
-            }
+                document.getElementById('modalResultIcon').textContent = '❌';
+                document.getElementById('modalResultTitle').textContent = 'Identity Not Verified';
+                document.getElementById('modalResultSub').textContent = reason;
+                document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
 
-            isVerifying = false;
-            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
-            document.getElementById('modalVerifyBtn').disabled = false;
+                document.getElementById('modalCameraStatus').textContent = 'Verification failed';
+                document.getElementById('statusDot').className = 'status-dot-live error';
+
+                setTimeout(() => {
+                    if (faceBox) {
+                        faceBox.className = 'face-box';
+                        faceBox.style.display = 'none';
+                    }
+                    if (faceGuide) {
+                        faceGuide.className = 'face-guide';
+                    }
+                }, 3000);
+
+                isVerifying = false;
+                document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
+                document.getElementById('modalVerifyBtn').disabled = false;
+            }
         }
 
         // =============================================
