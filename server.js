@@ -1382,7 +1382,7 @@ app.post('/api/face/enroll', async (req, res) => {
             return res.status(400).json(result);
         }
 
-        // Update student record - ONLY use columns that exist
+        // Update student record
         const { data: updatedStudent, error: updateError } = await supabase
             .from('students')
             .update({
@@ -1425,7 +1425,7 @@ app.post('/api/face/enroll', async (req, res) => {
     }
 });
 
-// Enroll face with multiple frames (iPhone Face ID style)
+// Enroll face with multiple frames
 app.post('/api/face/enroll-bulk', async (req, res) => {
     try {
         const { 
@@ -1481,7 +1481,7 @@ app.post('/api/face/enroll-bulk', async (req, res) => {
             return res.status(400).json(result);
         }
 
-        // Update student record - ONLY use columns that exist
+        // Update student record
         const { data: updatedStudent, error: updateError } = await supabase
             .from('students')
             .update({
@@ -2029,8 +2029,7 @@ app.post('/api/bedcheck/scan-with-face', async (req, res) => {
             image,
             room_id,
             threshold = 0.55,
-            scanner_id,
-            note
+            scanner_id
         } = req.body;
 
         if (!image) {
@@ -2098,7 +2097,6 @@ app.post('/api/bedcheck/scan-with-face', async (req, res) => {
                 bed_number: null,
                 status: 'Verified',
                 scanner_id: scanner_id || 'Face-001',
-                note: note || `Face verified with ${(result.confidence * 100).toFixed(1)}% confidence`,
                 created_at: new Date().toISOString()
             };
             
@@ -3618,7 +3616,7 @@ app.put('/api/bedcheck/sessions/:id', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SCANS
+// BEDCHECK SCANS (REMOVED notes field)
 // =====================================================
 
 app.get('/api/bedcheck/scans', async (req, res) => {
@@ -3638,7 +3636,7 @@ app.get('/api/bedcheck/scans', async (req, res) => {
 });
 
 app.post('/api/bedcheck/scans', async (req, res) => {
-  const { session_id, student_id, room, bed_number, status, scanner_id, note } = req.body;
+  const { session_id, student_id, room, bed_number, status, scanner_id } = req.body;
   try {
     const newScan = {
       session_id: session_id || null,
@@ -3647,7 +3645,6 @@ app.post('/api/bedcheck/scans', async (req, res) => {
       bed_number: bed_number || null,
       status: status || 'Verified',
       scanner_id: scanner_id || 'FP-027',
-      note: note || null,
       created_at: new Date().toISOString()
     };
     const { data, error } = await supabase.from('bedcheck_scans').insert(newScan).select().single();
