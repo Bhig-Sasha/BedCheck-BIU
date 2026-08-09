@@ -451,6 +451,106 @@
             margin-top: 1rem;
         }
 
+        /* Photo Upload Styles */
+        .photo-upload {
+            border: 2px dashed #cbd2db;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #faf8f4;
+            position: relative;
+        }
+
+        .photo-upload:hover {
+            border-color: #d6ad4b;
+            background: #f5f1e8;
+        }
+
+        .photo-upload .upload-icon {
+            font-size: 2.5rem;
+            color: #94a3b8;
+        }
+
+        .photo-upload .upload-text {
+            font-size: 0.8rem;
+            color: #68768a;
+            margin-top: 0.3rem;
+        }
+
+        .photo-upload .upload-hint {
+            font-size: 0.65rem;
+            color: #94a3b8;
+        }
+
+        .photo-upload .file-input {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .photo-preview {
+            display: none;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin: 0 auto 0.5rem;
+            border: 3px solid #d6ad4b;
+        }
+
+        .photo-preview.show {
+            display: block;
+        }
+
+        .photo-upload.has-image {
+            border-color: #2d6545;
+            background: #e1f0e5;
+        }
+
+        .photo-upload.has-image .upload-icon,
+        .photo-upload.has-image .upload-text,
+        .photo-upload.has-image .upload-hint {
+            display: none;
+        }
+
+        .photo-name {
+            font-size: 0.7rem;
+            color: #2d6545;
+            font-weight: 600;
+            display: none;
+        }
+
+        .photo-name.show {
+            display: block;
+        }
+
+        .btn-remove-photo {
+            display: none;
+            margin-top: 0.3rem;
+            padding: 0.2rem 0.8rem;
+            border: 1px solid #a84134;
+            border-radius: 0.3rem;
+            background: transparent;
+            color: #a84134;
+            font-size: 0.6rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-remove-photo:hover {
+            background: #fef2ef;
+        }
+
+        .btn-remove-photo.show {
+            display: inline-block;
+        }
+
         @media (max-width: 480px) {
             .container {
                 padding: 1rem;
@@ -466,6 +566,12 @@
             }
             .btn-group {
                 flex-direction: column;
+            }
+            .photo-upload {
+                padding: 1rem;
+            }
+            .photo-upload .upload-icon {
+                font-size: 2rem;
             }
         }
     </style>
@@ -484,7 +590,7 @@
 
         <!-- Back Link -->
         <a class="back-link" onclick="goBack()">
-            <i class="fas fa-arrow-left"></i> Back to Login
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </a>
 
         <!-- Progress Steps -->
@@ -615,6 +721,28 @@
                 <input type="email" id="email" placeholder="student@biu.edu.ng" />
             </div>
 
+            <!-- Photo Upload -->
+            <div class="form-title" style="margin-top:1.5rem;font-size:1rem;"><i class="fas fa-image" style="color:#d6ad4b;"></i> Profile Photo</div>
+            <div class="form-subtitle" style="margin-bottom:0.75rem;">Upload a clear photo of yourself (Optional)</div>
+
+            <div class="form-group">
+                <div class="photo-upload" id="photoUpload">
+                    <input type="file" class="file-input" id="photoFile" accept="image/*" onchange="handlePhotoUpload(event)" />
+                    <img class="photo-preview" id="photoPreview" />
+                    <div class="upload-icon"><i class="fas fa-camera"></i></div>
+                    <div class="upload-text">Click to upload photo</div>
+                    <div class="upload-hint">JPG, PNG, or GIF (max 5MB)</div>
+                    <div class="photo-name" id="photoName"></div>
+                    <button class="btn-remove-photo" id="btnRemovePhoto" onclick="removePhoto()">
+                        <i class="fas fa-times"></i> Remove Photo
+                    </button>
+                </div>
+                <input type="hidden" id="photo" value="" />
+                <div style="font-size:0.65rem;color:#94a3b8;margin-top:0.3rem;text-align:center;">
+                    <i class="fas fa-info-circle"></i> Photo will be saved as a base64 string
+                </div>
+            </div>
+
             <!-- Emergency Contacts -->
             <div class="form-title" style="margin-top:1.5rem;font-size:1rem;"><i class="fas fa-ambulance" style="color:#d6ad4b;"></i> Emergency Contact</div>
             <div class="form-subtitle" style="margin-bottom:0.75rem;">Provide emergency contact information</div>
@@ -682,12 +810,6 @@
                 <div class="field-error">Please select a bed space</div>
             </div>
 
-            <!-- Photo (optional) -->
-            <div class="form-group">
-                <label>Photo URL <span class="text-muted">(Optional)</span></label>
-                <input type="text" id="photo" placeholder="https://example.com/photo.jpg" />
-            </div>
-
             <div class="status-hint">
                 <i class="fas fa-info-circle"></i> Student will be marked as <strong>Present</strong> upon successful registration.
             </div>
@@ -728,7 +850,7 @@
         <div class="text-center">
             <p class="text-sm text-muted">Already have an account?</p>
             <button class="btn-back" onclick="goBack()" style="margin-top:0.3rem;">
-                <i class="fas fa-arrow-left"></i> Back to Login
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
             </button>
         </div>
     </div>
@@ -748,6 +870,7 @@
             let bedSpaces = [];
             let students = [];
             let isSubmitting = false;
+            let photoDataURL = '';
 
             const toast = document.getElementById('toast');
 
@@ -936,6 +1059,70 @@
                 }
             }
 
+            // ---------- PHOTO UPLOAD ----------
+            window.handlePhotoUpload = function(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Check file size (max 5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    showToast('Photo size should be less than 5MB', 'error');
+                    event.target.value = '';
+                    return;
+                }
+
+                // Check file type
+                if (!file.type.match(/image\/(jpeg|png|gif|webp)/)) {
+                    showToast('Please upload a JPG, PNG, or GIF image', 'error');
+                    event.target.value = '';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    photoDataURL = e.target.result;
+                    document.getElementById('photo').value = photoDataURL;
+
+                    // Show preview
+                    const preview = document.getElementById('photoPreview');
+                    preview.src = photoDataURL;
+                    preview.classList.add('show');
+
+                    // Update upload area
+                    const uploadArea = document.getElementById('photoUpload');
+                    uploadArea.classList.add('has-image');
+
+                    // Show photo name
+                    const nameDisplay = document.getElementById('photoName');
+                    nameDisplay.textContent = `📷 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                    nameDisplay.classList.add('show');
+
+                    // Show remove button
+                    document.getElementById('btnRemovePhoto').classList.add('show');
+
+                    showToast('Photo uploaded successfully!', 'success');
+                };
+                reader.readAsDataURL(file);
+            };
+
+            window.removePhoto = function() {
+                photoDataURL = '';
+                document.getElementById('photo').value = '';
+                document.getElementById('photoFile').value = '';
+
+                const preview = document.getElementById('photoPreview');
+                preview.src = '';
+                preview.classList.remove('show');
+
+                const uploadArea = document.getElementById('photoUpload');
+                uploadArea.classList.remove('has-image');
+
+                document.getElementById('photoName').classList.remove('show');
+                document.getElementById('btnRemovePhoto').classList.remove('show');
+
+                showToast('Photo removed', 'info');
+            };
+
             function validateForm() {
                 let isValid = true;
                 const requiredFields = [
@@ -1118,7 +1305,7 @@
 
             function goBack() {
                 if (isSubmitting) return;
-                showToast('Redirecting to login...', 'info');
+                showToast('Redirecting to dashboard...', 'info');
                 setTimeout(() => {
                     window.location.href = 'hub.html';
                 }, 300);
@@ -1135,6 +1322,7 @@
                 document.getElementById('declaration').checked = false;
                 document.querySelectorAll('.form-group').forEach(g => g.classList.remove('error'));
                 document.getElementById('declarationError').style.display = 'none';
+                removePhoto();
 
                 updateDepartments();
                 document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
@@ -1210,6 +1398,8 @@
             window.updateRooms = updateRooms;
             window.updateBeds = updateBeds;
             window.goBack = goBack;
+            window.handlePhotoUpload = handlePhotoUpload;
+            window.removePhoto = removePhoto;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
