@@ -1289,10 +1289,10 @@
         'use strict';
 
         // =============================================
-        // API CONFIGURATION - USE FACE API DIRECTLY
+        // API CONFIGURATION
         // =============================================
         const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
-        const API_BASE = 'https://bedcheck-biu.onrender.com/api';
+        const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
         // ---------- STATE ----------
         let cameraStream = null;
@@ -1516,9 +1516,7 @@
         // ---------- CAMERA ----------
         async function startModalCamera() {
             try {
-                // Check if we already have a stream and it's active
                 if (cameraStream && cameraStream.active) {
-                    // Try to reuse existing stream
                     const tracks = cameraStream.getVideoTracks();
                     if (tracks.length > 0 && tracks[0].readyState === 'live') {
                         video.srcObject = cameraStream;
@@ -1531,7 +1529,6 @@
                     }
                 }
 
-                // If we have a stream but it's not active, clean it up
                 if (cameraStream) {
                     stopModalCamera();
                 }
@@ -1561,7 +1558,6 @@
                 
                 if (cameraAttempts < MAX_CAMERA_ATTEMPTS) {
                     showToast(`Camera access attempt ${cameraAttempts + 1}/${MAX_CAMERA_ATTEMPTS}`, 'info');
-                    // Wait a moment and retry
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     return startModalCamera();
                 }
@@ -1953,6 +1949,7 @@
             loadingProgressFill.style.width = '10%';
 
             try {
+                // Get student ID if not set
                 let studentId = studentData.id;
 
                 if (!studentId && studentData.matric) {
@@ -1974,53 +1971,49 @@
                 loadingText.textContent = 'Selecting best face capture...';
                 loadingProgressFill.style.width = '30%';
 
+                // Find the best quality frame
                 let bestFrame = capturedFrames.reduce((best, current) => {
                     return (current.quality || 0) > (best.quality || 0) ? current : best;
                 }, capturedFrames[0]);
 
-                loadingText.textContent = 'Sending to InsightFace...';
+                loadingText.textContent = 'Generating face embedding...';
                 loadingProgressFill.style.width = '50%';
 
-                // Use the Face API directly for enrollment
-                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
+                // Step 1: Get face embedding from the Face API
+                const embeddingResponse = await fetch(`${FACE_API_URL}/get-embedding`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: bestFrame.imageData })
+                });
+
+                if (!embeddingResponse.ok) {
+                    const errorData = await embeddingResponse.json();
+                    throw new Error(errorData.message || errorData.detail || 'Failed to generate face embedding');
+                }
+
+                const embeddingResult = await embeddingResponse.json();
+                
+                if (!embeddingResult.success || !embeddingResult.embedding) {
+                    throw new Error('Failed to generate face embedding');
+                }
+
+                loadingText.textContent = 'Saving to database...';
+                loadingProgressFill.style.width = '70%';
+
+                // Step 2: Save the embedding to your database via Node API
+                const saveResponse = await nodeApiCall(`/students/${studentId}/face`, {
+                    method: 'POST',
                     body: JSON.stringify({
-                        student_id: studentId,
-                        image: bestFrame.imageData,
-                        name: studentData.name || '',
-                        matric: studentData.matric || '',
-                        hostel: studentData.hostel_id || '',
-                        room: studentData.room_id || ''
+                        embedding: embeddingResult.embedding,
+                        image_data: bestFrame.imageData
                     })
                 });
 
-                loadingProgressFill.style.width = '70%';
+                loadingProgressFill.style.width = '90%';
 
-                if (!enrollResponse.ok) {
-                    const errorData = await enrollResponse.json();
-                    throw new Error(errorData.message || errorData.detail || `HTTP ${enrollResponse.status}`);
-                }
-
-                const enrollResult = await enrollResponse.json();
-
-                if (enrollResult.success) {
+                if (saveResponse.success || saveResponse.status === 'success') {
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
-
-                    // Update student's face_enrolled status via Node API
-                    try {
-                        await nodeApiCall(`/students/${studentId}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({ 
-                                face_enrolled: true,
-                                face_embedding: enrollResult.embedding || null
-                            })
-                        });
-                    } catch (updateError) {
-                        console.warn('Student update warning:', updateError);
-                        // Continue even if update fails - enrollment was successful
-                    }
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2040,14 +2033,16 @@
                             </span>
                         `;
 
+                        // Clear the stored student data
                         localStorage.removeItem('studentForFaceID');
 
+                        // Redirect after success
                         setTimeout(() => {
                             window.location.href = 'hub.html';
                         }, 4000);
                     }, 1500);
                 } else {
-                    throw new Error(enrollResult.message || 'Enrollment failed');
+                    throw new Error(saveResponse.message || 'Failed to save face embedding to database');
                 }
             } catch (error) {
                 console.error('Enrollment error:', error);
