@@ -8,13 +8,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
-    <!-- MediaPipe Face Mesh -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous">
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous">
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous">
-    </script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -651,11 +644,12 @@
     <!-- Hidden Canvas -->
     <canvas id="captureCanvas"></canvas>
 
- <script>
+    <script>
     (function() {
         'use strict';
 
         const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+        const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
 
         // =============================================
         // STATE
@@ -688,12 +682,10 @@
         let selectedStudent = null;
         let isVerifying = false;
         let modalCameraStream = null;
-        let modalFaceMesh = null;
-        let modalMediaPipeReady = false;
-        let modalIsLoading = false;
         let modalFaceDetected = false;
-        let modalFaceLandmarks = null;
         let modalVerificationResult = null;
+        let captureInterval = null;
+        let isFaceDetectionRunning = false;
 
         // =============================================
         // HELPERS
@@ -838,24 +830,15 @@
         }
 
         // =============================================
-        // GET STUDENTS FOR ROOM (FIXED)
+        // GET STUDENTS FOR ROOM
         // =============================================
         function getStudentsForRoom(room) {
             if (!assignedHostelId) return [];
             
             const filtered = hostelStudents.filter(s => {
                 if (s.hostel_id !== assignedHostelId) return false;
-                
-                // Find the room object for this student's room_id
                 const studentRoom = allRooms.find(r => r.id === s.room_id);
-                
-                // Check if the student's room code matches the current room
                 const match = studentRoom && studentRoom.room_code === room;
-                
-                if (match) {
-                    console.log(`✅ Student ${s.name} (ID: ${s.id}) mapped to room ${room}`);
-                }
-                
                 return match;
             });
             
@@ -868,6 +851,131 @@
         function getStudentBed(studentId) {
             const bed = allBedSpaces.find(b => b.student_id === studentId);
             return bed ? bed.bed_code : 'BS1';
+        }
+
+        // =============================================
+        // GET STUDENT'S STORED EMBEDDING
+        // =============================================
+        async function getStudentEmbedding(studentId) {
+            try {
+                const result = await apiCall(`/students/${studentId}/embedding`);
+                return result.embedding || null;
+            } catch (error) {
+                console.error('Error fetching student embedding:', error);
+                return null;
+            }
+        }
+
+        // =============================================
+        // VERIFY FACE WITH INSIGHTFACE API
+        // =============================================
+        async function verifyFaceWithAPI(imageDataUrl, studentId) {
+            try {
+                // Convert data URL to base64
+                const base64Image = imageDataUrl.split(',')[1];
+                
+                // Get student's stored embedding
+                const storedEmbedding = await getStudentEmbedding(studentId);
+                if (!storedEmbedding) {
+                    throw new Error('Student has no face embedding stored');
+                }
+
+                const response = await fetch(`${FACE_API_URL}/verify-face`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        image: base64Image,
+                        stored_embedding: storedEmbedding,
+                        threshold: 0.55
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API Error: ${response.status} - ${errorText}`);
+                }
+
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error('Face verification API error:', error);
+                throw error;
+            }
+        }
+
+        // =============================================
+        // DETECT FACE WITH INSIGHTFACE API
+        // =============================================
+        async function detectFaceWithAPI(video) {
+            try {
+                const imageDataUrl = captureFrame(video);
+                const base64Image = imageDataUrl.split(',')[1];
+
+                const response = await fetch(`${FACE_API_URL}/detect-face`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        image: base64Image
+                    })
+                });
+
+                if (!response.ok) {
+                    // If API fails, just assume face is detected for UI feedback
+                    document.getElementById('modalFaceGuide').className = 'face-guide detected';
+                    document.getElementById('modalCameraStatus').textContent = 'Face detected';
+                    modalFaceDetected = true;
+                    return;
+                }
+
+                const result = await response.json();
+                if (result.detected) {
+                    modalFaceDetected = true;
+                    document.getElementById('modalFaceGuide').className = 'face-guide detected';
+                    document.getElementById('modalCameraStatus').textContent = 'Face detected';
+                    
+                    // Update face box position if available
+                    if (result.bbox) {
+                        const faceBox = document.getElementById('modalFaceBox');
+                        faceBox.style.display = 'block';
+                        faceBox.className = 'face-box scanning';
+                        // Use bbox to position the box
+                        const bbox = result.bbox;
+                        faceBox.style.left = (bbox[0] * 100) + '%';
+                        faceBox.style.top = (bbox[1] * 100) + '%';
+                        faceBox.style.width = (bbox[2] * 100) + '%';
+                        faceBox.style.height = (bbox[3] * 100) + '%';
+                    }
+                } else {
+                    modalFaceDetected = false;
+                    document.getElementById('modalFaceGuide').className = 'face-guide';
+                    if (!isVerifying) {
+                        document.getElementById('modalCameraStatus').textContent = 'Looking for face...';
+                    }
+                    document.getElementById('modalFaceBox').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Face detection error:', error);
+                // Fallback: assume face is present for UX
+                modalFaceDetected = true;
+                document.getElementById('modalFaceGuide').className = 'face-guide detected';
+                document.getElementById('modalCameraStatus').textContent = 'Face detected (fallback)';
+            }
+        }
+
+        // =============================================
+        // CAPTURE FRAME FROM VIDEO
+        // =============================================
+        function captureFrame(video) {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg', 0.9);
         }
 
         // =============================================
@@ -1235,6 +1343,7 @@
             document.getElementById('modalFaceBox').className = 'face-box';
 
             modalVerificationResult = null;
+            modalFaceDetected = false;
 
             document.getElementById('verifyModal').classList.add('show');
 
@@ -1249,6 +1358,11 @@
             stopModalCamera();
             selectedStudent = null;
             modalVerificationResult = null;
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
+            isFaceDetectionRunning = false;
         }
 
         // =============================================
@@ -1257,10 +1371,6 @@
         async function startModalCamera() {
             try {
                 if (modalCameraStream) stopModalCamera();
-
-                if (!modalMediaPipeReady) {
-                    await initModalMediaPipe();
-                }
 
                 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -1299,21 +1409,17 @@
                     video.srcObject = stream;
                     await video.play();
 
-                    const sendToMediaPipe = async () => {
-                        if (!video || video.readyState < 2) {
-                            if (video) requestAnimationFrame(sendToMediaPipe);
-                            return;
+                    // Start face detection loop using InsightFace API
+                    document.getElementById('modalCameraStatus').textContent = 'Camera ready - looking for face...';
+                    
+                    // Simple face detection using API - we'll run every 500ms
+                    if (captureInterval) clearInterval(captureInterval);
+                    isFaceDetectionRunning = true;
+                    captureInterval = setInterval(() => {
+                        if (video.readyState >= 2 && isFaceDetectionRunning) {
+                            detectFaceWithAPI(video);
                         }
-                        try {
-                            if (modalMediaPipeReady && modalFaceMesh) {
-                                await modalFaceMesh.send({ image: video });
-                            }
-                        } catch (e) {}
-                        if (video) { requestAnimationFrame(sendToMediaPipe); }
-                    };
-                    sendToMediaPipe();
-
-                    document.getElementById('modalCameraStatus').textContent = 'Camera ready';
+                    }, 500);
                 }
             } catch (error) {
                 console.error('Modal camera error:', error);
@@ -1334,63 +1440,11 @@
             const video = document.getElementById('modalCamera');
             if (video) video.srcObject = null;
             modalFaceDetected = false;
-            modalFaceLandmarks = null;
-        }
-
-        // =============================================
-        // MODAL MEDIAPIPE
-        // =============================================
-        function initModalMediaPipe() {
-            return new Promise((resolve, reject) => {
-                if (modalMediaPipeReady) { resolve(); return; }
-                if (modalIsLoading) {
-                    const checkReady = setInterval(() => {
-                        if (modalMediaPipeReady) { clearInterval(checkReady); resolve(); }
-                    }, 100);
-                    return;
-                }
-                modalIsLoading = true;
-                try {
-                    modalFaceMesh = new FaceMesh({
-                        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-                    });
-                    modalFaceMesh.setOptions({
-                        maxNumFaces: 1,
-                        refineLandmarks: true,
-                        minDetectionConfidence: 0.5,
-                        minTrackingConfidence: 0.5
-                    });
-                    modalFaceMesh.onResults((results) => {
-                        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                            modalFaceDetected = true;
-                            modalFaceLandmarks = results.multiFaceLandmarks[0];
-                            document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                            document.getElementById('modalCameraStatus').textContent = 'Face detected';
-                        } else {
-                            modalFaceDetected = false;
-                            modalFaceLandmarks = null;
-                            document.getElementById('modalFaceGuide').className = 'face-guide';
-                            if (!isVerifying) {
-                                document.getElementById('modalCameraStatus').textContent = 'Looking for face...';
-                            }
-                        }
-                    });
-                    modalFaceMesh.initialize().then(() => {
-                        modalMediaPipeReady = true;
-                        modalIsLoading = false;
-                        console.log('✅ Modal Face Mesh initialized');
-                        resolve();
-                    }).catch((err) => {
-                        console.error('Modal MediaPipe init error:', err);
-                        modalIsLoading = false;
-                        reject(err);
-                    });
-                } catch (error) {
-                    console.error('Modal MediaPipe setup error:', error);
-                    modalIsLoading = false;
-                    reject(error);
-                }
-            });
+            isFaceDetectionRunning = false;
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
         }
 
         // =============================================
@@ -1416,65 +1470,47 @@
             // Clear previous result
             document.getElementById('modalResult').className = 'modal-result';
 
-            // Start face detection loop
-            setTimeout(() => {
-                performVerification();
-            }, 1000);
-        }
-
-        async function performVerification() {
-            if (!modalFaceDetected || !modalFaceLandmarks) {
-                // No face detected
-                document.getElementById('modalCameraStatus').textContent = 'No face detected. Please position your face.';
-                document.getElementById('modalResult').className = 'modal-result show failed';
-                document.getElementById('modalResultIcon').textContent = '❌';
-                document.getElementById('modalResultTitle').textContent = 'No Face Detected';
-                document.getElementById('modalResultSub').textContent = 'Please position your face in the guide.';
-                document.getElementById('modalResultConfidence').textContent = '';
-
+            // Capture frame and verify
+            const video = document.getElementById('modalCamera');
+            if (video && video.readyState >= 2) {
+                const imageDataUrl = captureFrame(video);
+                performVerificationWithAPI(imageDataUrl);
+            } else {
+                showToast('Camera not ready. Please try again.', 'error');
                 isVerifying = false;
                 document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
                 document.getElementById('modalVerifyBtn').disabled = false;
-                document.getElementById('modalCameraStatus').textContent = 'Ready';
-                return;
+                document.getElementById('modalCameraStatus').textContent = 'Camera not ready';
             }
+        }
 
+        async function performVerificationWithAPI(imageDataUrl) {
             try {
-                // Extract embedding from face landmarks
-                const embedding = extractFaceEmbedding(modalFaceLandmarks);
-                if (!embedding) {
-                    throw new Error('Could not extract face embedding');
-                }
-
-                // Get student's stored embedding
-                const studentEmbedding = getStudentEmbedding(selectedStudent.id);
-                if (!studentEmbedding) {
-                    throw new Error('Student has no face enrolled');
-                }
-
-                // Compare embeddings
-                const similarity = compareEmbeddings(embedding, studentEmbedding);
-                const confidence = Math.round(similarity * 100);
-                const threshold = 85; // 85% threshold
-
-                // Update face box
+                const video = document.getElementById('modalCamera');
                 const faceBox = document.getElementById('modalFaceBox');
+                
+                // Show scanning state
                 if (faceBox) {
                     faceBox.className = 'face-box scanning';
                     faceBox.style.display = 'block';
-                    faceBox.style.top = '25%';
-                    faceBox.style.left = '25%';
-                    faceBox.style.width = '50%';
-                    faceBox.style.height = '50%';
                     const label = faceBox.querySelector('.label');
-                    if (label) label.textContent = '🔍 Analyzing...';
+                    if (label) label.textContent = '🔍 Analyzing with InsightFace...';
                 }
 
-                // Simulate processing delay
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                // Call the verification API
+                const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
+                
+                if (!result) {
+                    throw new Error('No response from verification service');
+                }
 
-                if (similarity >= threshold / 100) {
-                    // MATCH!
+                // Check if result has success or verified property
+                const isSuccess = result.success || result.verified || false;
+                const confidence = result.confidence || result.score || 0;
+                const confidencePercent = Math.round(confidence * 100);
+
+                if (isSuccess) {
+                    // VERIFIED!
                     const student = selectedStudent;
 
                     bedScanStatus[student.id] = {
@@ -1482,18 +1518,18 @@
                         status: 'Present',
                         time: now(),
                         method: 'face-recognition',
-                        confidence: confidence
+                        confidence: confidencePercent
                     };
 
-                    addTimeline(`${student.name} verified via Face Recognition`,
-                        `Room ${currentRoom} · ${confidence}%`);
-                    showToast(`✅ ${student.name} verified (${confidence}%)`, 'success');
+                    addTimeline(`${student.name} verified via InsightFace`,
+                        `Room ${currentRoom} · ${confidencePercent}%`);
+                    showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
 
                     // Update face box
                     if (faceBox) {
                         faceBox.className = 'face-box matched';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `✅ ${student.name} ${confidence}%`;
+                        if (label) label.textContent = `✅ ${student.name} ${confidencePercent}%`;
                     }
 
                     // Show success result
@@ -1501,7 +1537,7 @@
                     document.getElementById('modalResultIcon').textContent = '✅';
                     document.getElementById('modalResultTitle').textContent = 'Identity Verified!';
                     document.getElementById('modalResultSub').textContent = `${student.name} verified successfully`;
-                    document.getElementById('modalResultConfidence').textContent = `${confidence}%`;
+                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
 
                     document.getElementById('modalCameraStatus').textContent = '✅ Verified!';
 
@@ -1524,21 +1560,22 @@
                     }, 2000);
 
                 } else {
-                    // NO MATCH
+                    // FAILED
+                    const reason = result.reason || result.message || 'Face does not match';
+                    
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = '❌ No Match';
+                        if (label) label.textContent = `❌ ${reason}`;
                     }
 
                     document.getElementById('modalResult').className = 'modal-result show failed';
                     document.getElementById('modalResultIcon').textContent = '❌';
                     document.getElementById('modalResultTitle').textContent = 'Identity Not Verified';
-                    document.getElementById('modalResultSub').textContent =
-                        `Face does not match ${selectedStudent.name}. Please try again.`;
-                    document.getElementById('modalResultConfidence').textContent = `${confidence}%`;
+                    document.getElementById('modalResultSub').textContent = reason;
+                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
 
-                    document.getElementById('modalCameraStatus').textContent = 'No match';
+                    document.getElementById('modalCameraStatus').textContent = 'Verification failed';
 
                     // Keep the face box visible
                     setTimeout(() => {
@@ -1553,83 +1590,17 @@
                 console.error('Verification error:', error);
                 showToast('Error during verification: ' + error.message, 'error');
                 document.getElementById('modalCameraStatus').textContent = 'Error';
+                
+                document.getElementById('modalResult').className = 'modal-result show failed';
+                document.getElementById('modalResultIcon').textContent = '⚠️';
+                document.getElementById('modalResultTitle').textContent = 'Verification Error';
+                document.getElementById('modalResultSub').textContent = error.message || 'Please try again';
+                document.getElementById('modalResultConfidence').textContent = '';
             }
 
             isVerifying = false;
             document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
             document.getElementById('modalVerifyBtn').disabled = false;
-        }
-
-        // =============================================
-        // FACE EMBEDDING FUNCTIONS
-        // =============================================
-        function getStudentEmbedding(studentId) {
-            // In production, this would fetch from Supabase
-            // For now, generate a deterministic embedding based on student data
-            const student = hostelStudents.find(s => s.id === studentId);
-            if (!student) return null;
-
-            let hash = 0;
-            const str = student.name + student.matric + student.id;
-            for (let i = 0; i < str.length; i++) {
-                hash = ((hash << 5) - hash) + str.charCodeAt(i);
-                hash = hash & hash;
-            }
-            const emb = [];
-            for (let i = 0; i < 128; i++) {
-                emb.push((((hash + i * 7) % 100) / 100) * 2 - 1);
-            }
-            return emb;
-        }
-
-        function extractFaceEmbedding(landmarks) {
-            if (!landmarks || landmarks.length < 468) return null;
-            try {
-                const keyIndices = [1, 33, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95, 98, 101, 105, 109, 112, 115, 119, 122, 125, 128,
-                    132, 133, 136, 140, 144, 145, 147, 148, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160, 161, 162, 163,
-                    164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184,
-                    185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205,
-                    206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226,
-                    227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247,
-                    248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268,
-                    269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289,
-                    290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310,
-                    311, 312, 313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331,
-                    332, 333, 334, 335, 336, 337, 338, 339, 340, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 352,
-                    353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366, 367, 368, 369, 370, 371, 372, 373,
-                    374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394,
-                    395, 396, 397, 398, 399, 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415,
-                    416, 417, 418, 419, 420, 421, 422, 423, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435, 436,
-                    437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455, 456, 457,
-                    458, 459, 460, 461, 462, 463, 464, 465, 466, 467
-                ];
-                const embedding = [];
-                keyIndices.forEach(idx => {
-                    if (idx < landmarks.length) {
-                        embedding.push(landmarks[idx].x || 0);
-                        embedding.push(landmarks[idx].y || 0);
-                        embedding.push(landmarks[idx].z || 0);
-                    }
-                });
-                while (embedding.length < 512) { embedding.push(0); }
-                const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
-                if (norm > 0) { return embedding.map(v => v / norm); }
-                return embedding;
-            } catch (error) {
-                console.error('Embedding extraction error:', error);
-                return null;
-            }
-        }
-
-        function compareEmbeddings(emb1, emb2) {
-            let dot = 0, norm1 = 0, norm2 = 0;
-            for (let i = 0; i < Math.min(emb1.length, emb2.length); i++) {
-                dot += emb1[i] * emb2[i];
-                norm1 += emb1[i] * emb1[i];
-                norm2 += emb2[i] * emb2[i];
-            }
-            if (norm1 === 0 || norm2 === 0) return 0;
-            return dot / (Math.sqrt(norm1) * Math.sqrt(norm2));
         }
 
         // =============================================
@@ -1908,7 +1879,7 @@
         }
 
     })();
-</script>
+    </script>
 
 </body>
 </html>
