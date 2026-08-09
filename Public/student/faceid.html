@@ -240,7 +240,6 @@
             background: rgba(74, 222, 128, 0.3);
         }
 
-        /* Face size warning – updated with dynamic positioning */
         .face-size-warning {
             position: absolute;
             bottom: 7rem;
@@ -285,7 +284,6 @@
             }
         }
 
-        /* Direction Arrows */
         .direction-arrows {
             position: absolute;
             top: 0;
@@ -1051,6 +1049,7 @@
             <span class="info-item"><span class="label">👤</span> <strong id="studentName">Loading...</strong></span>
             <span class="info-item"><span class="label">🎓</span> <strong id="studentMatric">---</strong></span>
             <span class="info-item"><span class="label">🏠</span> <strong id="studentHostel">---</strong></span>
+            <span class="info-item"><span class="label">🛏️</span> <strong id="studentRoomBed">---</strong></span>
         </div>
 
         <div class="time-display" id="timeDisplay">⏱️ Face enrollment · 10 positions</div>
@@ -1070,7 +1069,7 @@
                 </div>
             </div>
 
-            <!-- Dynamic Warning (face size / guidance) -->
+            <!-- Dynamic Warning -->
             <div id="faceSizeWarning" class="face-size-warning">📏 Move closer to camera</div>
 
             <!-- Direction Arrows -->
@@ -1138,6 +1137,8 @@
                 <div class="success-subtitle">Your face is now registered with InsightFace</div>
                 <div class="success-details" id="successDetails">
                     <strong id="successStudentName">Student</strong> · Matric: <strong id="successMatric">---</strong>
+                    <br />
+                    <span id="successRoom">Room: ---</span> · <span id="successBed">Bed: ---</span>
                 </div>
             </div>
 
@@ -1201,8 +1202,8 @@
                 </button>
             </div>
 
-            <button class="btn-back" onclick="goBackToDetails()">
-                <i class="fas fa-arrow-left"></i> Back to Student Details
+            <button class="btn-back" onclick="goBackToLogin()">
+                <i class="fas fa-arrow-left"></i> Back to Login
             </button>
         </div>
 
@@ -1225,7 +1226,6 @@
 
             // =============================================
             // FACE ID SETUP - INSIGHTFACE ENROLLMENT
-            // with video quality monitoring + dynamic warnings
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -1243,13 +1243,10 @@
             let captureTimer = null;
             let isApiOnline = false;
 
-            // For warning auto-hide
             let warningTimeout = null;
 
-            // Position names
             const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
             const POSITION_DIRECTIONS = ['center', 'right', 'down', 'left', 'up'];
-            const POSITION_ARROWS = ['⬆', '➡', '⬇', '⬅', '↗'];
 
             let studentData = {
                 id: null,
@@ -1387,25 +1384,20 @@
                         document.getElementById('studentName').textContent = data.name || 'Unknown';
                         document.getElementById('studentMatric').textContent = data.matric || '---';
                         document.getElementById('studentHostel').textContent = data.hostel_name || data.hostel_id || '---';
+                        document.getElementById('studentRoomBed').textContent = 
+                            `${data.room_code || '---'} · ${data.bed_code || '---'}`;
 
                         document.getElementById('successStudentName').textContent = data.name || 'Student';
                         document.getElementById('successMatric').textContent = data.matric || '---';
+                        document.getElementById('successRoom').textContent = `Room: ${data.room_code || '---'}`;
+                        document.getElementById('successBed').textContent = `Bed: ${data.bed_code || '---'}`;
 
                         console.log('✅ Student data loaded:', studentData);
                     } else {
-                        const params = new URLSearchParams(window.location.search);
-                        if (params.get('matric')) {
-                            studentData.matric = params.get('matric');
-                            studentData.name = params.get('name') || 'Student';
-                            studentData.id = params.get('id');
-                            document.getElementById('studentName').textContent = studentData.name;
-                            document.getElementById('studentMatric').textContent = studentData.matric;
-                        } else {
-                            showToast('No student data found. Please register first.', 'error');
-                            setTimeout(() => {
-                                window.location.href = 'student-details.html';
-                            }, 2000);
-                        }
+                        showToast('No student data found. Please login first.', 'error');
+                        setTimeout(() => {
+                            window.location.href = 'login.html';
+                        }, 2000);
                     }
                 } catch (error) {
                     console.error('Error loading student data:', error);
@@ -1449,7 +1441,6 @@
                     await video.play();
                     isCameraReady = true;
 
-                    // Start the monitoring loop
                     monitorVideoQuality();
 
                     updateStatus('ready', 'Camera ready - Position your face');
@@ -1476,7 +1467,7 @@
                 video.srcObject = null;
             }
 
-            // ---------- VIDEO QUALITY MONITORING (with dynamic warning) ----------
+            // ---------- VIDEO QUALITY MONITORING ----------
             function monitorVideoQuality() {
                 const context = captureCanvas.getContext('2d');
                 
@@ -1503,11 +1494,9 @@
                             faceGuideRing.classList.add('detected');
                             faceGuideRing.classList.remove('capturing');
                             
-                            // Increase quality when face is detected
                             currentQuality = Math.min(99, currentQuality + 2);
                             updateQualityDisplay(currentQuality);
                             
-                            // --- dynamic warning based on quality ---
                             if (currentQuality < 50) {
                                 faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
                                 faceSizeWarning.className = 'face-size-warning show';
@@ -1550,7 +1539,6 @@
                                 updateStatus('waiting', 'Position your face');
                             }
                             
-                            // Show face not detected hint
                             faceSizeWarning.textContent = '😊 Please position your face in the guide';
                             faceSizeWarning.className = 'face-size-warning show';
                             faceSizeWarning.style.color = '#f87171';
@@ -1673,7 +1661,6 @@
                         return;
                     }
 
-                    // Flash effect
                     faceGuideRing.classList.add('capturing');
                     setTimeout(() => faceGuideRing.classList.remove('capturing'), 300);
 
@@ -1891,6 +1878,15 @@
                         loadingText.textContent = '✅ Enrollment successful!';
                         loadingProgressFill.style.width = '100%';
 
+                        // Update student's face_enrolled status
+                        await apiCall(`/students/${studentId}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ 
+                                face_enrolled: true,
+                                face_embedding: enrollResult.embedding || null
+                            })
+                        });
+
                         showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
                         setTimeout(() => {
@@ -1912,7 +1908,7 @@
                             localStorage.removeItem('studentForFaceID');
 
                             setTimeout(() => {
-                                window.location.href = '/hub.html';
+                                window.location.href = 'login.html';
                             }, 4000);
                         }, 1500);
                     } else {
@@ -1982,8 +1978,8 @@
                 setTimeout(() => startCamera(), 500);
             }
 
-            // ---------- GO BACK ----------
-            function goBackToDetails() {
+            // ---------- GO BACK TO LOGIN ----------
+            function goBackToLogin() {
                 if (capturedFrames.length > 0 && capturedFrames.length < TOTAL_CAPTURES) {
                     if (!confirm('You have unsaved captures. Are you sure you want to go back?')) {
                         return;
@@ -1991,7 +1987,7 @@
                 }
                 stopCamera();
                 localStorage.removeItem('studentForFaceID');
-                window.location.href = 'hub.html';
+                window.location.href = 'login.html';
             }
 
             // ---------- INIT ----------
@@ -2024,7 +2020,7 @@
             window.retryEnrollment = retryEnrollment;
             window.startCamera = startCamera;
             window.stopCamera = stopCamera;
-            window.goBackToDetails = goBackToDetails;
+            window.goBackToLogin = goBackToLogin;
             window.checkApiStatus = checkApiStatus;
 
             // ---------- INIT ----------

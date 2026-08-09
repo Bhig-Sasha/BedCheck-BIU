@@ -142,6 +142,31 @@
             color: #a77915;
         }
 
+        .quick-fill {
+            display: flex;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+            margin-top: 0.3rem;
+            justify-content: center;
+        }
+
+        .quick-fill .btn-quick {
+            padding: 0.2rem 0.5rem;
+            font-size: 0.6rem;
+            border: 1px solid #cbd2db;
+            border-radius: 0.3rem;
+            background: transparent;
+            color: #68768a;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .quick-fill .btn-quick:hover {
+            background: #f5f1e8;
+            border-color: #a77915;
+            color: #a77915;
+        }
+
         .student-found {
             border: 1px solid #2d6545;
             border-radius: 0.75rem;
@@ -217,6 +242,14 @@
         .student-found .status-badge.registered {
             background: #d6ad4b;
             color: #10233f;
+        }
+
+        .flex-center {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
         .student-not-found {
@@ -402,51 +435,12 @@
             background: #1e3a5f;
         }
 
-        .loading-spinner {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.5rem;
-        }
-
-        .loading-spinner .spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(214, 173, 75, 0.2);
-            border-top-color: #d6ad4b;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
         .divider {
             border: none;
             border-top: 1px solid #ded6c9;
             margin: 1rem 0;
         }
 
-        .flex-center {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-
-        .mt-2 {
-            margin-top: 0.5rem;
-        }
-        .mt-3 {
-            margin-top: 0.75rem;
-        }
-        .mt-4 {
-            margin-top: 1rem;
-        }
         .text-center {
             text-align: center;
         }
@@ -455,6 +449,9 @@
         }
         .text-muted {
             color: #68768a;
+        }
+        .mt-2 {
+            margin-top: 0.5rem;
         }
 
         @media (max-width: 480px) {
@@ -470,31 +467,10 @@
             .header .logo h1 {
                 font-size: 1.1rem;
             }
-        }
-
-        .quick-fill {
-            display: flex;
-            gap: 0.3rem;
-            flex-wrap: wrap;
-            margin-top: 0.3rem;
-            justify-content: center;
-        }
-
-        .quick-fill .btn-quick {
-            padding: 0.2rem 0.5rem;
-            font-size: 0.6rem;
-            border: 1px solid #cbd2db;
-            border-radius: 0.3rem;
-            background: transparent;
-            color: #68768a;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .quick-fill .btn-quick:hover {
-            background: #f5f1e8;
-            border-color: #a77915;
-            color: #a77915;
+            .flex-center {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
@@ -547,6 +523,8 @@
                 <div><span class="label">Room:</span> <span class="value" id="sRoom">G4</span></div>
                 <div><span class="label">Bed:</span> <span class="value" id="sBed">A</span></div>
                 <div><span class="label">Phone:</span> <span class="value" id="sPhone">0803 000 0000</span></div>
+                <div><span class="label">Gender:</span> <span class="value" id="sGender">Male</span></div>
+                <div><span class="label">Emergency Contact:</span> <span class="value" id="sEmergency">John Doe (Father) - 0803 000 0000</span></div>
             </div>
         </div>
 
@@ -728,6 +706,16 @@
             document.getElementById('sRoom').textContent = student.room_code || '—';
             document.getElementById('sBed').textContent = student.bed_code || '—';
             document.getElementById('sPhone').textContent = student.phone || '—';
+            document.getElementById('sGender').textContent = student.gender || '—';
+
+            // Emergency contact
+            let emergency = '—';
+            if (student.emergency_name && student.emergency_relation && student.emergency_phone) {
+                emergency = `${student.emergency_name} (${student.emergency_relation}) - ${student.emergency_phone}`;
+            } else if (student.emergency_name) {
+                emergency = student.emergency_name;
+            }
+            document.getElementById('sEmergency').textContent = emergency;
 
             // Update status badge
             const badge = document.getElementById('statusBadge');
@@ -830,14 +818,13 @@
             }, 500);
         }
 
-        // ---------- GO TO DASHBOARD (Redirects to faceid.html if enrolled) ----------
+        // ---------- GO TO DASHBOARD ----------
         function goToDashboard() {
             if (!currentStudent) {
                 showToast('No student selected', 'error');
                 return;
             }
 
-            // If face is enrolled, redirect to faceid.html (which will show success)
             if (currentStudent.face_enrolled) {
                 showToast('Face ID complete! Redirecting...', 'success');
                 setTimeout(() => {
@@ -875,7 +862,7 @@
             }
         });
 
-        // ---------- AUTO SEARCH ON INPUT (with debounce) ----------
+        // ---------- AUTO SEARCH ON INPUT ----------
         let searchTimeout = null;
         searchInput.addEventListener('input', () => {
             clearTimeout(searchTimeout);
@@ -885,7 +872,6 @@
                     searchStudent();
                 }, 500);
             } else {
-                // Hide results if query is too short
                 studentFound.classList.remove('show');
                 studentNotFound.classList.remove('show');
                 faceIdSection.classList.remove('show');
@@ -906,7 +892,6 @@
                 } catch (e) {}
             }
 
-            // Focus on search input
             searchInput.focus();
         }
 
