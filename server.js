@@ -1426,7 +1426,6 @@ app.post('/api/face/enroll', async (req, res) => {
 });
 
 // Enroll face with multiple frames (iPhone Face ID style)
-// Enroll face with multiple frames (iPhone Face ID style)
 app.post('/api/face/enroll-bulk', async (req, res) => {
     try {
         const { 
@@ -1761,7 +1760,6 @@ app.post('/api/face/liveness/reset', async (req, res) => {
     }
 });
 
-// Get face status for a student
 // Get face status for a student
 app.get('/api/face/status/:studentId', async (req, res) => {
     try {
@@ -2487,7 +2485,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD
+// STUDENTS - Full CRUD (UPDATED - REMOVED notes)
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -2512,22 +2510,36 @@ app.post('/api/students', async (req, res) => {
     name, matric, faculty, department, level, session, 
     hostel_id, hostel_name, floor_flat_id, floor_name, 
     room_id, room_code, bed_space_id, bed_code, 
-    status, notes, gender, phone, email, 
+    status, gender, phone, email, 
     emergency_name, emergency_relation, emergency_phone,
-    face_enrolled, face_embedding
+    face_enrolled, face_embedding, photo, registration_date
   } = req.body;
   
   try {
     const newStudent = {
-      name, matric, gender: gender || 'Male', phone: phone || null, email: email || null,
-      faculty: faculty || 'Engineering', department: department || 'General', level: level || '300',
-      session: session || '2025/2026', hostel_id: hostel_id || null, hostel_name: hostel_name || null,
-      floor_flat_id: floor_flat_id || null, floor_name: floor_name || null,
-      room_id: room_id || null, room_code: room_code || null,
-      bed_space_id: bed_space_id || null, bed_code: bed_code || null,
-      status: status || 'Present', notes: notes || null,
-      emergency_name: emergency_name || null, emergency_relation: emergency_relation || null,
+      name, 
+      matric, 
+      gender: gender || 'Male', 
+      phone: phone || null, 
+      email: email || null,
+      faculty: faculty || 'Engineering', 
+      department: department || 'General', 
+      level: level || '300',
+      session: session || '2025/2026', 
+      hostel_id: hostel_id || null, 
+      hostel_name: hostel_name || null,
+      floor_flat_id: floor_flat_id || null, 
+      floor_name: floor_name || null,
+      room_id: room_id || null, 
+      room_code: room_code || null,
+      bed_space_id: bed_space_id || null, 
+      bed_code: bed_code || null,
+      status: status || 'Present',
+      emergency_name: emergency_name || null, 
+      emergency_relation: emergency_relation || null,
       emergency_phone: emergency_phone || null,
+      photo: photo || null,
+      registration_date: registration_date || new Date().toISOString(),
       face_enrolled: face_enrolled || false,
       face_embedding: face_embedding || null,
       created_at: new Date().toISOString(), 
@@ -2554,6 +2566,41 @@ app.post('/api/students', async (req, res) => {
     res.json({ success: true, data: data });
   } catch (error) {
     console.error('Error creating student:', error);
+    res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+  }
+});
+
+app.put('/api/students/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const updateData = {};
+  const allowedFields = [
+    'name', 'matric', 'gender', 'phone', 'email', 'faculty', 'department', 
+    'level', 'session', 'hostel_id', 'hostel_name', 'floor_flat_id', 'floor_name',
+    'room_id', 'room_code', 'bed_space_id', 'bed_code', 'status', 'photo',
+    'emergency_name', 'emergency_relation', 'emergency_phone', 'face_enrolled',
+    'face_embedding', 'registration_date', 'updated_at'
+  ];
+  
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) {
+      updateData[field] = req.body[field];
+    }
+  }
+  
+  updateData.updated_at = new Date().toISOString();
+  
+  try {
+    const { data, error } = await supabase
+      .from('students')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.json({ success: true, data: data });
+  } catch (error) {
+    console.error('Error updating student:', error);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
   }
 });
