@@ -389,7 +389,6 @@
             border-radius: 50%;
             transition: border-color 0.3s ease;
         }
-        .face-guide.detected { border-color: #4ade80; border-style: solid; }
 
         .face-box {
             position: absolute;
@@ -523,21 +522,6 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
-
-        /* Connection status indicator */
-        .connection-status {
-            display: inline-block;
-            padding: 0.15rem 0.6rem;
-            border-radius: 9999px;
-            font-size: 0.55rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            margin-left: 0.5rem;
-        }
-        .connection-status.online { background: #e1f0e5; color: #2d6545; }
-        .connection-status.offline { background: #f8e1dc; color: #9b3c31; }
-        .connection-status.checking { background: #fff0cb; color: #8a6413; }
     </style>
 </head>
 <body>
@@ -569,7 +553,6 @@
                 <span id="cameraModeLabel" style="font-size:0.7rem; color:#6b778b; display:flex; align-items:center;">
                     📷 Front Camera
                 </span>
-                <span id="apiStatus" class="connection-status checking">Checking API...</span>
             </div>
 
             <div class="camera-container">
@@ -724,7 +707,6 @@
         let isFaceDetectionRunning = false;
         let studentEmbeddingCache = {};
         let cameraFacingMode = 'user';
-        let isApiOnline = false;
 
         // =============================================
         // HELPERS
@@ -768,42 +750,6 @@
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
                 throw error;
-            }
-        }
-
-        // =============================================
-        // CHECK API STATUS
-        // =============================================
-        async function checkApiStatus() {
-            const statusEl = document.getElementById('apiStatus');
-            try {
-                statusEl.className = 'connection-status checking';
-                statusEl.textContent = 'Checking...';
-                
-                const response = await fetch(`${FACE_API_URL}/health`, {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' },
-                    timeout: 5000
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    isApiOnline = data.status === 'healthy' || data.status === 'running';
-                } else {
-                    isApiOnline = false;
-                }
-            } catch (error) {
-                console.warn('API health check failed:', error.message);
-                isApiOnline = false;
-            }
-            
-            if (isApiOnline) {
-                statusEl.className = 'connection-status online';
-                statusEl.textContent = '✅ API Online';
-            } else {
-                statusEl.className = 'connection-status offline';
-                statusEl.textContent = '⚠️ API Offline';
-                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
             }
         }
 
@@ -951,12 +897,11 @@
                     console.log(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`);
                     return embedding;
                 } else {
-                    console.warn(`⚠️ No embedding found for student ${studentId}`);
-                    return null;
+                    throw new Error(`No face embedding found for student ${studentId}`);
                 }
             } catch (error) {
                 console.error('Error fetching student embedding:', error);
-                return null;
+                throw error;
             }
         }
 
@@ -968,17 +913,6 @@
                 const base64Image = imageDataUrl.split(',')[1];
                 
                 const storedEmbedding = await getStudentEmbedding(studentId);
-                if (!storedEmbedding) {
-                    return {
-                        success: false,
-                        verified: false,
-                        reason: 'Student has no face embedding stored. Please register first.',
-                        confidence: 0
-                    };
-                }
-
-                console.log('🔍 Sending verification request to:', `${FACE_API_URL}/verify-face`);
-                console.log('📊 Embedding dimension:', storedEmbedding.length);
 
                 const response = await fetch(`${FACE_API_URL}/verify-face`, {
                     method: 'POST',
@@ -1033,11 +967,8 @@
                 });
 
                 if (!response.ok) {
-                    // Fallback: assume face is detected
-                    document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                    document.getElementById('modalCameraStatus').textContent = 'Face detected';
-                    modalFaceDetected = true;
-                    return;
+                    const errorText = await response.text();
+                    throw new Error(`Face detection API error: ${response.status} - ${errorText}`);
                 }
 
                 const result = await response.json();
@@ -1061,16 +992,16 @@
                 } else {
                     modalFaceDetected = false;
                     document.getElementById('modalFaceGuide').className = 'face-guide';
-                    if (!isVerifying) {
-                        document.getElementById('modalCameraStatus').textContent = 'Looking for face...';
-                    }
+                    document.getElementById('modalCameraStatus').textContent = 'No face detected';
                     document.getElementById('modalFaceBox').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Face detection error:', error);
-                modalFaceDetected = true;
-                document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                document.getElementById('modalCameraStatus').textContent = 'Face detected (fallback)';
+                modalFaceDetected = false;
+                document.getElementById('modalFaceGuide').className = 'face-guide';
+                document.getElementById('modalCameraStatus').textContent = 'Error detecting face';
+                document.getElementById('modalFaceBox').style.display = 'none';
+                throw error;
             }
         }
 
@@ -1299,7 +1230,6 @@
                             <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
                             <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace (antelopev2)</strong></div>
-                            <div class="sub"><span class="label">API Status:</span> <span class="connection-status ${isApiOnline ? 'online' : 'offline'}">${isApiOnline ? '✅ Online' : '⚠️ Offline'}</span></div>
                         ` : `
                             <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
@@ -1385,7 +1315,7 @@
 
                 <div class="text-center text-xs text-muted mt-3">
                     ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Session Active' : '⏳ Waiting for Session'}
-                    · 🔒 InsightFace Secure · API: ${isApiOnline ? '🟢 Online' : '🔴 Offline'}
+                    · 🔒 InsightFace Secure
                 </div>
             `;
         }
@@ -1450,12 +1380,6 @@
         // FACE VERIFICATION MODAL
         // =============================================
         function openVerifyModal(studentId) {
-            // Check API status first
-            if (!isApiOnline) {
-                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
-                return;
-            }
-
             const student = hostelStudents.find(s => s.id === parseInt(studentId));
             if (!student) {
                 showToast('Student not found', 'error');
@@ -1540,13 +1464,18 @@
                     video.srcObject = stream;
                     await video.play();
 
-                    document.getElementById('modalCameraStatus').textContent = 'Camera ready - looking for face...';
+                    document.getElementById('modalCameraStatus').textContent = 'Camera ready - detecting face...';
                     
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
-                    captureInterval = setInterval(() => {
+                    captureInterval = setInterval(async () => {
                         if (video.readyState >= 2 && isFaceDetectionRunning) {
-                            detectFaceWithAPI(video);
+                            try {
+                                await detectFaceWithAPI(video);
+                            } catch (error) {
+                                // Silent fail for detection - we want the user to see the error in the UI
+                                console.warn('Face detection failed:', error.message);
+                            }
                         }
                     }, 500);
                 }
@@ -1588,11 +1517,6 @@
             if (bedScanStatus[selectedStudent.id]?.verified) {
                 showToast(`${selectedStudent.name} is already verified!`, 'info');
                 closeVerifyModal();
-                return;
-            }
-
-            if (!isApiOnline) {
-                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
                 return;
             }
 
@@ -1906,9 +1830,6 @@
             document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-            // Check API status first
-            await checkApiStatus();
 
             try {
                 const [hostelsResult, studentsResult, floorsResult, roomsResult, bedSpacesResult] = await Promise.all([
