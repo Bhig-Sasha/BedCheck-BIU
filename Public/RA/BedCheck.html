@@ -724,7 +724,8 @@
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
-                if (!data.success) throw new Error(data.message || 'API error');
+                // Handle both response formats: { success: true, data: ... } and { success: true, embedding: ... }
+                if (data.success === false) throw new Error(data.message || 'API error');
                 return data;
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
@@ -864,14 +865,21 @@
 
             try {
                 // Call your backend API that fetches from Supabase
-                // CORRECTED: Use the full path with /api prefix
                 const result = await apiCall(`/student/${studentId}/embedding`);
                 
+                // Handle different response formats
+                let embedding = null;
                 if (result && result.embedding) {
+                    embedding = result.embedding;
+                } else if (result && result.data && result.data.embedding) {
+                    embedding = result.data.embedding;
+                }
+                
+                if (embedding) {
                     // Cache the embedding
-                    studentEmbeddingCache[studentId] = result.embedding;
-                    console.log(`✅ Retrieved embedding for student ${studentId}`);
-                    return result.embedding;
+                    studentEmbeddingCache[studentId] = embedding;
+                    console.log(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`);
+                    return embedding;
                 } else {
                     console.warn(`⚠️ No embedding found for student ${studentId}`);
                     return null;
@@ -895,6 +903,7 @@
                 if (!storedEmbedding) {
                     return {
                         success: false,
+                        verified: false,
                         reason: 'Student has no face embedding stored. Please register first.',
                         confidence: 0
                     };
@@ -919,11 +928,13 @@
 
                 const result = await response.json();
                 
-                // Handle different response formats
+                // Handle different response formats from verify.py
                 return {
                     success: result.success || result.verified || false,
+                    verified: result.verified || result.success || false,
                     confidence: result.confidence || result.score || 0,
-                    reason: result.reason || result.message || null
+                    reason: result.reason || result.message || null,
+                    threshold: result.threshold || 0.55
                 };
             } catch (error) {
                 console.error('Face verification API error:', error);
@@ -1531,7 +1542,7 @@
                 const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
 
-                if (result.success) {
+                if (result.verified || result.success) {
                     // VERIFIED!
                     const student = selectedStudent;
 
