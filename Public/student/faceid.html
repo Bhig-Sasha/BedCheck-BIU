@@ -174,6 +174,12 @@
             animation: capture-pulse 0.6s ease;
         }
 
+        .face-guide-ring.complete {
+            border-color: #4ade80;
+            border-style: solid;
+            box-shadow: 0 0 60px rgba(74, 222, 128, 0.3);
+        }
+
         @keyframes capture-pulse {
             0%,
             100% {
@@ -234,6 +240,7 @@
             background: rgba(74, 222, 128, 0.3);
         }
 
+        /* Direction Arrows */
         .direction-arrows {
             position: absolute;
             top: 0;
@@ -259,6 +266,11 @@
             color: rgba(214, 173, 75, 0.6);
         }
 
+        .direction-arrows .arrow.done {
+            color: #4ade80;
+            opacity: 1;
+        }
+
         .direction-arrows .arrow.up {
             top: 15%;
             left: 50%;
@@ -278,10 +290,6 @@
             right: 10%;
             top: 50%;
             transform: translateY(-50%) rotate(0deg);
-        }
-        .direction-arrows .arrow.done {
-            color: #4ade80;
-            opacity: 1;
         }
 
         .capture-status-overlay {
@@ -354,7 +362,7 @@
         }
 
         .capture-status-overlay .status-count .count-num {
-            color: #d6ad4b;
+            color: #4ade80;
             font-weight: 700;
         }
 
@@ -392,7 +400,7 @@
 
         .progress-ring .progress {
             fill: none;
-            stroke: #d6ad4b;
+            stroke: #4ade80;
             stroke-width: 3;
             stroke-linecap: round;
             transition: stroke-dashoffset 0.5s ease;
@@ -457,18 +465,21 @@
             background: rgba(255, 255, 255, 0.03);
             border-radius: 0.75rem;
             border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
         }
 
-        .instruction-text strong {
+        .instruction-text .highlight {
             color: #d6ad4b;
+            font-weight: 700;
+        }
+
+        .instruction-text .success-highlight {
+            color: #4ade80;
+            font-weight: 700;
         }
 
         .instruction-text .error-text {
             color: #f87171;
-        }
-
-        .instruction-text .success-text {
-            color: #4ade80;
         }
 
         .btn-group {
@@ -936,6 +947,47 @@
             background: #fbbf24;
             animation: pulse-dot 0.8s infinite;
         }
+
+        /* Position label in camera */
+        .position-label {
+            position: absolute;
+            bottom: 4.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #94a3b8;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 0.2rem 0.8rem;
+            border-radius: 9999px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+
+        .position-label.done {
+            color: #4ade80;
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.15);
+        }
+
+        .position-label .pos-label {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .position-label .pos-label .check-mark {
+            display: none;
+        }
+
+        .position-label.done .pos-label .check-mark {
+            display: inline;
+        }
+        .position-label.done .pos-label .pos-arrow {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -944,7 +996,7 @@
         <!-- Header -->
         <div class="header">
             <div class="logo">
-                <img src="logo.webp" alt="BIU Logo" />
+                <img src="../logo.webp" alt="BIU Logo" />
                 <h1>Face ID Setup</h1>
             </div>
             <p class="subtitle"><i class="fas fa-shield-alt"></i> Secure your BedCheck with InsightFace</p>
@@ -980,6 +1032,15 @@
                 <span class="arrow down" id="arrowDown">⬇</span>
                 <span class="arrow left" id="arrowLeft">⬅</span>
                 <span class="arrow right" id="arrowRight">➡</span>
+            </div>
+
+            <!-- Position Label -->
+            <div class="position-label" id="positionLabel">
+                <span class="pos-label">
+                    <span class="pos-arrow">🎯</span>
+                    <span id="positionText">Front</span>
+                    <span class="check-mark">✅</span>
+                </span>
             </div>
 
             <!-- Quality Indicator -->
@@ -1119,9 +1180,7 @@
             // FACE ID SETUP - INSIGHTFACE ENROLLMENT
             // =============================================
 
-            const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ?
-                'http://localhost:8000' :
-                'https://face-api.onrender.com';
+            const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
             // ---------- STATE ----------
             let cameraStream = null;
@@ -1135,6 +1194,11 @@
             let isSetupActive = false;
             let captureTimer = null;
             let isApiOnline = false;
+
+            // Position names
+            const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
+            const POSITION_DIRECTIONS = ['center', 'right', 'down', 'left', 'up'];
+            const POSITION_ARROWS = ['⬆', '➡', '⬇', '⬅', '↗'];
 
             let studentData = {
                 id: null,
@@ -1172,6 +1236,8 @@
             const errorMessage = document.getElementById('errorMessage');
             const apiIndicator = document.getElementById('apiIndicator');
             const apiStatusText = document.getElementById('apiStatusText');
+            const positionLabel = document.getElementById('positionLabel');
+            const positionText = document.getElementById('positionText');
 
             const positionDots = document.querySelectorAll('.position-dot');
             const arrows = {
@@ -1299,13 +1365,10 @@
                 }
             }
 
-            // ---------- FACE DETECTION USING SIMPLE APPROACH ----------
-            // Since we can't use MediaPipe CDN reliably, we'll use a simpler approach
-            // with the canvas API and image processing, or use the API for detection
-
+            // ---------- FACE DETECTION ----------
             async function detectFaceWithAPI(imageData) {
                 try {
-                    const response = await fetch(`${API_BASE}/detect-face`, {
+                    const response = await fetch(`${API_BASE}/face/detect`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ image: imageData })
@@ -1338,7 +1401,6 @@
                     await video.play();
                     isCameraReady = true;
 
-                    // Start quality monitoring with canvas
                     monitorVideoQuality();
 
                     updateStatus('ready', 'Camera ready - Position your face');
@@ -1376,7 +1438,6 @@
                     }
 
                     try {
-                        // Capture frame
                         captureCanvas.width = video.videoWidth || 640;
                         captureCanvas.height = video.videoHeight || 480;
                         context.save();
@@ -1386,7 +1447,6 @@
 
                         const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
 
-                        // Check if face is detected via API
                         const hasFace = await detectFaceWithAPI(imageData);
                         
                         if (hasFace) {
@@ -1394,7 +1454,6 @@
                             faceGuideRing.classList.add('detected');
                             faceGuideRing.classList.remove('capturing');
                             
-                            // Simulate quality based on detection
                             currentQuality = Math.min(99, currentQuality + 2);
                             updateQualityDisplay(currentQuality);
                             
@@ -1418,7 +1477,7 @@
                             }
                         }
                     } catch (error) {
-                        // Silent fail for frame processing
+                        // Silent fail
                     }
 
                     if (isCameraReady) requestAnimationFrame(checkFrame);
@@ -1431,16 +1490,6 @@
             function updateStatus(type, message) {
                 statusDot.className = 'status-dot ' + type;
                 statusText.textContent = message;
-
-                if (type === 'capturing') {
-                    statusDot.className = 'status-dot capturing';
-                } else if (type === 'done') {
-                    statusDot.className = 'status-dot done';
-                } else if (type === 'error') {
-                    statusDot.className = 'status-dot error';
-                } else {
-                    statusDot.className = 'status-dot waiting';
-                }
             }
 
             function updateQualityDisplay(quality) {
@@ -1465,6 +1514,26 @@
                         dot.classList.add('active');
                     }
                 });
+
+                // Update position label
+                if (capturedFrames.length < TOTAL_CAPTURES) {
+                    const currentPos = capturedFrames.length % 5;
+                    positionText.textContent = POSITIONS[currentPos];
+                    positionLabel.className = 'position-label';
+                    
+                    if (capturedFrames.length > 0) {
+                        // Show which one is done
+                        const prevPos = (capturedFrames.length - 1) % 5;
+                        positionDots.forEach((dot, i) => {
+                            if (i === prevPos && capturedFrames.length > 0) {
+                                dot.classList.add('done');
+                            }
+                        });
+                    }
+                } else {
+                    positionLabel.className = 'position-label done';
+                    positionText.textContent = '✓ Complete!';
+                }
             }
 
             function updateArrows(direction) {
@@ -1503,7 +1572,6 @@
                     return;
                 }
 
-                // Capture frame
                 try {
                     const context = captureCanvas.getContext('2d');
                     captureCanvas.width = video.videoWidth || 640;
@@ -1516,18 +1584,18 @@
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
 
-                    // Verify face is still detected
                     const hasFace = await detectFaceWithAPI(imageData);
                     if (!hasFace) {
                         updateStatus('waiting', 'Face lost, reposition...');
                         return;
                     }
 
+                    // Flash effect
                     faceGuideRing.classList.add('capturing');
                     setTimeout(() => faceGuideRing.classList.remove('capturing'), 300);
 
-                    const directions = ['center', 'right', 'down', 'left', 'up'];
-                    const direction = directions[capturedFrames.length % 5] || 'center';
+                    const currentPos = capturedFrames.length % 5;
+                    const direction = POSITION_DIRECTIONS[currentPos];
 
                     capturedFrames.push({
                         index: capturedFrames.length,
@@ -1537,18 +1605,38 @@
                         direction: direction
                     });
 
+                    // Mark the position as done with green
+                    const dot = positionDots[currentPos];
+                    if (dot) {
+                        dot.classList.add('done');
+                    }
+
+                    // Update position label
+                    const nextPos = (capturedFrames.length) % 5;
+                    if (capturedFrames.length < TOTAL_CAPTURES) {
+                        positionText.textContent = POSITIONS[nextPos];
+                        positionLabel.className = 'position-label';
+                    }
+
+                    // Update arrows to show next direction
+                    const nextDirection = POSITION_DIRECTIONS[nextPos];
+                    updateArrows(nextDirection);
+                    updateGuideDots(nextDirection);
+
+                    // Update instruction
+                    if (capturedFrames.length < TOTAL_CAPTURES) {
+                        instructionText.innerHTML = `
+                            <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
+                            Move head to <span class="highlight">${POSITIONS[nextPos]}</span> position
+                            <span style="color:#4ade80;font-size:0.65rem;display:block;margin-top:0.2rem;">
+                                ${capturedFrames.length}/${TOTAL_CAPTURES} captured ✅
+                            </span>
+                        `;
+                    }
+
                     updateQualityDisplay(currentQuality);
                     updatePositionIndicators();
-                    updateStatus('capturing', `Captured ${capturedFrames.length}/${TOTAL_CAPTURES}`);
-
-                    if (capturedFrames.length < TOTAL_CAPTURES) {
-                        const nextPos = capturedFrames.length % 5;
-                        const directions = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
-                        instructionText.innerHTML =
-                            `<i class="fas fa-arrow-right" style="color:#d6ad4b;"></i> Move head to <strong>${directions[nextPos]}</strong> position`;
-                        updateArrows(['center', 'right', 'down', 'left', 'up'][nextPos]);
-                        updateGuideDots(['center', 'right', 'down', 'left', 'up'][nextPos]);
-                    }
+                    updateStatus('capturing', `✅ ${capturedFrames.length}/${TOTAL_CAPTURES}`);
 
                     if (capturedFrames.length >= TOTAL_CAPTURES) {
                         completeSetup();
@@ -1565,17 +1653,26 @@
                     captureTimer = null;
                 }
 
-                updateStatus('done', '✅ All 10 positions captured!');
+                // Turn everything green
+                faceGuideRing.classList.add('complete');
                 updateArrows('done');
                 Object.values(dots).forEach(d => d.classList.add('active'));
 
+                positionLabel.className = 'position-label done';
+                positionText.textContent = '✅ All positions captured!';
+
                 instructionText.innerHTML = `
                     <i class="fas fa-check-circle" style="color:#4ade80;"></i>
-                    <strong style="color:#4ade80;">All positions captured!</strong> Ready to enroll with InsightFace
+                    <span class="success-highlight">All 10 positions captured!</span>
+                    <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                        Ready to enroll with InsightFace
+                    </span>
                 `;
 
+                updateStatus('done', '✅ All 10 positions captured!');
+
                 btnStart.disabled = true;
-                btnStart.innerHTML = '<i class="fas fa-check"></i> Complete';
+                btnStart.innerHTML = '<i class="fas fa-check" style="color:#4ade80;"></i> Complete';
                 enrollGroup.style.display = 'flex';
 
                 showToast('✅ All 10 positions captured successfully!', 'success');
@@ -1597,7 +1694,6 @@
                     return;
                 }
 
-                // Check API status first
                 await checkApiStatus();
                 if (!isApiOnline) {
                     showToast('API is offline. Please try again later.', 'error');
@@ -1623,9 +1719,17 @@
                 if (captureTimer) clearInterval(captureTimer);
                 captureTimer = setInterval(performAutoCapture, 1500);
 
-                const directions = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
-                instructionText.innerHTML =
-                    `<i class="fas fa-arrow-right" style="color:#d6ad4b;"></i> Move head to <strong>${directions[0]}</strong> position`;
+                const firstPos = capturedFrames.length % 5;
+                instructionText.innerHTML = `
+                    <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
+                    Move head to <span class="highlight">${POSITIONS[firstPos]}</span> position
+                    <span style="color:#94a3b8;font-size:0.65rem;display:block;margin-top:0.2rem;">
+                        Face will auto-capture when ready
+                    </span>
+                `;
+
+                updateArrows(POSITION_DIRECTIONS[firstPos]);
+                updateGuideDots(POSITION_DIRECTIONS[firstPos]);
 
                 showToast('🔴 Face detection active - moving head to capture all angles', 'info');
             }
@@ -1639,14 +1743,6 @@
 
                 if (isEnrolling) return;
                 isEnrolling = true;
-
-                // Check API status
-                await checkApiStatus();
-                if (!isApiOnline) {
-                    showToast('API is offline. Please try again later.', 'error');
-                    isEnrolling = false;
-                    return;
-                }
 
                 if (!studentData.id && !studentData.matric) {
                     showToast('Student data not found. Please register first.', 'error');
@@ -1667,7 +1763,6 @@
 
                     if (!studentId && studentData.matric) {
                         try {
-                            // Try to find student by matric
                             const searchRes = await apiCall(`/students?search=${studentData.matric}`);
                             if (searchRes.data && searchRes.data.length > 0) {
                                 studentId = searchRes.data[0].id;
@@ -1685,7 +1780,6 @@
                     loadingText.textContent = 'Selecting best face capture...';
                     loadingProgressFill.style.width = '30%';
 
-                    // Find the best quality frame
                     let bestFrame = capturedFrames.reduce((best, current) => {
                         return (current.quality || 0) > (best.quality || 0) ? current : best;
                     }, capturedFrames[0]);
@@ -1693,16 +1787,16 @@
                     loadingText.textContent = 'Sending to InsightFace...';
                     loadingProgressFill.style.width = '50%';
 
-                    // Use the single-frame enrollment endpoint
-                    const enrollResponse = await fetch(`${API_BASE}/enroll-face`, {
+                    const enrollResponse = await fetch(`${API_BASE}/face/enroll`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             student_id: studentId,
                             image: bestFrame.imageData,
                             name: studentData.name,
-                            hostel: studentData.hostel_name || studentData.hostel_id || '',
-                            room: studentData.room_code || studentData.room_id || ''
+                            matric: studentData.matric,
+                            hostel_id: studentData.hostel_id,
+                            room_id: studentData.room_id
                         })
                     });
 
@@ -1710,7 +1804,7 @@
 
                     if (!enrollResponse.ok) {
                         const errorData = await enrollResponse.json();
-                        throw new Error(errorData.detail || errorData.message || `HTTP ${enrollResponse.status}`);
+                        throw new Error(errorData.message || errorData.detail || `HTTP ${enrollResponse.status}`);
                     }
 
                     const enrollResult = await enrollResponse.json();
@@ -1731,8 +1825,10 @@
 
                             instructionText.innerHTML = `
                                 <i class="fas fa-check-circle" style="color:#4ade80;"></i>
-                                <strong style="color:#4ade80;">Face enrolled successfully!</strong> 
-                                You're ready for BedCheck
+                                <span class="success-highlight">Face enrolled successfully!</span>
+                                <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                                    You're ready for BedCheck
+                                </span>
                             `;
 
                             localStorage.removeItem('studentForFaceID');
@@ -1787,12 +1883,16 @@
                 btnEnroll.disabled = false;
                 btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll with InsightFace';
 
+                faceGuideRing.classList.remove('complete', 'detected', 'capturing');
+
                 updateStatus('waiting', 'Reset - Position your face');
                 updateQualityDisplay(0);
                 updatePositionIndicators();
                 updateArrows('center');
                 Object.values(dots).forEach(d => d.classList.remove('active'));
-                faceGuideRing.classList.remove('detected', 'capturing');
+
+                positionLabel.className = 'position-label';
+                positionText.textContent = 'Front';
 
                 instructionText.innerHTML = `
                     <i class="fas fa-info-circle" style="color:#d6ad4b;"></i>
@@ -1824,9 +1924,7 @@
                 document.getElementById('timeDisplay').textContent =
                     `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
 
-                // Check API status first
                 await checkApiStatus();
-
                 await startCamera();
 
                 updatePositionIndicators();
@@ -1838,7 +1936,6 @@
                     }
                 });
 
-                // Periodically check API status
                 setInterval(checkApiStatus, 30000);
             }
 
