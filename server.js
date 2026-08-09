@@ -1731,7 +1731,6 @@ app.post('/api/face/liveness', async (req, res) => {
 
         const result = await faceService.checkLiveness(image);
         
-        // Log if liveness is verified
         if (result.is_live) {
             await auditEvents.livenessVerified(req);
         }
@@ -2019,7 +2018,7 @@ app.get('/api/students/:studentId/face-status', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SCANS WITH FACE VERIFICATION
+// BEDCHECK SCANS WITH FACE VERIFICATION (REMOVED notes)
 // =====================================================
 
 app.post('/api/bedcheck/scan-with-face', async (req, res) => {
@@ -2087,7 +2086,7 @@ app.post('/api/bedcheck/scan-with-face', async (req, res) => {
             matchedStudent = students.find(s => s.id === result.student_id);
         }
 
-        // Create scan record
+        // Create scan record (REMOVED note field)
         let scanResult = null;
         if (matchedStudent) {
             const newScan = {
@@ -2483,7 +2482,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 });
 
 // =====================================================
-// STUDENTS - Full CRUD
+// STUDENTS - Full CRUD (REMOVED notes)
 // =====================================================
 
 app.get('/api/students', async (req, res) => {
@@ -2503,6 +2502,7 @@ app.get('/api/students', async (req, res) => {
   }
 });
 
+// CREATE STUDENT - REMOVED notes
 app.post('/api/students', async (req, res) => {
   const { 
     name, matric, faculty, department, level, session, 
@@ -2544,7 +2544,6 @@ app.post('/api/students', async (req, res) => {
       updated_at: new Date().toISOString()
     };
     
-    // Remove any undefined values
     Object.keys(newStudent).forEach(key => { 
       if (newStudent[key] === undefined) delete newStudent[key]; 
     });
@@ -2569,6 +2568,7 @@ app.post('/api/students', async (req, res) => {
   }
 });
 
+// UPDATE STUDENT - REMOVED notes
 app.put('/api/students/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const updateData = {};
@@ -3617,7 +3617,7 @@ app.put('/api/bedcheck/sessions/:id', async (req, res) => {
 });
 
 // =====================================================
-// BEDCHECK SCANS (REMOVED notes field)
+// BEDCHECK SCANS (REMOVED notes)
 // =====================================================
 
 app.get('/api/bedcheck/scans', async (req, res) => {
