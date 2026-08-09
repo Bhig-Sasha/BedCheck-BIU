@@ -347,6 +347,17 @@
         .modal-student-info .name { font-weight: 700; font-size: 1rem; }
         .modal-student-info .details { font-size: 0.8rem; color: #6b778b; }
 
+        .camera-controls {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            justify-content: center;
+        }
+        .camera-controls .btn-outline {
+            font-size: 0.75rem;
+            padding: 0.3rem 0.8rem;
+        }
+
         .camera-container {
             position: relative;
             width: 100%;
@@ -535,6 +546,16 @@
                 <div class="details" id="modalStudentDetails">Room G4 · Bed BS1 · 22/ENG/1234</div>
             </div>
 
+            <!-- Camera Controls - Added Switch Button -->
+            <div class="camera-controls">
+                <button class="btn-outline" onclick="switchCamera()" style="font-size:0.75rem; padding:0.3rem 0.8rem;">
+                    <i class="fas fa-sync"></i> Switch Camera
+                </button>
+                <span id="cameraModeLabel" style="font-size:0.7rem; color:#6b778b; display:flex; align-items:center;">
+                    📷 Front Camera
+                </span>
+            </div>
+
             <div class="camera-container">
                 <video id="modalCamera" autoplay playsinline muted></video>
                 <div class="face-guide-overlay">
@@ -687,6 +708,9 @@
         let isFaceDetectionRunning = false;
         let studentEmbeddingCache = {};
 
+        // Camera facing mode
+        let cameraFacingMode = 'user';
+
         // =============================================
         // HELPERS
         // =============================================
@@ -724,7 +748,6 @@
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
-                // Handle both response formats: { success: true, data: ... } and { success: true, embedding: ... }
                 if (data.success === false) throw new Error(data.message || 'API error');
                 return data;
             } catch (error) {
@@ -858,16 +881,13 @@
         // GET STUDENT'S STORED EMBEDDING FROM SUPABASE
         // =============================================
         async function getStudentEmbedding(studentId) {
-            // Check cache first
             if (studentEmbeddingCache[studentId]) {
                 return studentEmbeddingCache[studentId];
             }
 
             try {
-                // Call your backend API that fetches from Supabase
                 const result = await apiCall(`/student/${studentId}/embedding`);
                 
-                // Handle different response formats
                 let embedding = null;
                 if (result && result.embedding) {
                     embedding = result.embedding;
@@ -876,7 +896,6 @@
                 }
                 
                 if (embedding) {
-                    // Cache the embedding
                     studentEmbeddingCache[studentId] = embedding;
                     console.log(`✅ Retrieved embedding for student ${studentId} (dimension: ${embedding.length})`);
                     return embedding;
@@ -895,10 +914,8 @@
         // =============================================
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
             try {
-                // Convert data URL to base64
                 const base64Image = imageDataUrl.split(',')[1];
                 
-                // Get student's stored embedding from Supabase
                 const storedEmbedding = await getStudentEmbedding(studentId);
                 if (!storedEmbedding) {
                     return {
@@ -928,7 +945,6 @@
 
                 const result = await response.json();
                 
-                // Handle different response formats from verify.py
                 return {
                     success: result.success || result.verified || false,
                     verified: result.verified || result.success || false,
@@ -961,7 +977,6 @@
                 });
 
                 if (!response.ok) {
-                    // If API fails, assume face is detected for UI feedback
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     modalFaceDetected = true;
@@ -974,7 +989,6 @@
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     
-                    // Update face box position if available
                     if (result.bbox) {
                         const faceBox = document.getElementById('modalFaceBox');
                         faceBox.style.display = 'block';
@@ -997,7 +1011,6 @@
                 }
             } catch (error) {
                 console.error('Face detection error:', error);
-                // Fallback: assume face is present for UX
                 modalFaceDetected = true;
                 document.getElementById('modalFaceGuide').className = 'face-guide detected';
                 document.getElementById('modalCameraStatus').textContent = 'Face detected';
@@ -1015,6 +1028,24 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             return canvas.toDataURL('image/jpeg', 0.9);
         }
+
+        // =============================================
+        // SWITCH CAMERA
+        // =============================================
+        window.switchCamera = async function() {
+            cameraFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+            
+            const label = document.getElementById('cameraModeLabel');
+            if (label) {
+                label.textContent = cameraFacingMode === 'user' ? '📷 Front Camera' : '📷 Back Camera';
+            }
+            
+            if (modalCameraStream) {
+                stopModalCamera();
+                await startModalCamera();
+                showToast(`📷 Switched to ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera`, 'info');
+            }
+        };
 
         // =============================================
         // GET TOTAL STATS
@@ -1111,7 +1142,6 @@
             const hostelDisplay = assignedHostelName || 'Your Hostel';
             const raName = currentUser?.name || 'RA';
 
-            // Build room list HTML
             let roomListHtml = '';
             if (allRooms.length > 0) {
                 const floorGroups = {};
@@ -1164,7 +1194,6 @@
                 roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
             }
 
-            // Build student cards for current room
             let studentCardsHtml = '';
             if (currentRoom && roomStudents.length > 0) {
                 studentCardsHtml = roomStudents.map(s => {
@@ -1233,7 +1262,6 @@
 
                 <!-- Rooms + Students -->
                 <div class="rooms-layout mt-4">
-                    <!-- Room List -->
                     <div>
                         <div class="card" style="padding:0.75rem;">
                             <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
@@ -1248,7 +1276,6 @@
                         </div>
                     </div>
 
-                    <!-- Students in Room -->
                     <div>
                         <div class="card" style="padding:0.75rem;">
                             <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
@@ -1310,7 +1337,6 @@
                 return;
             }
 
-            // Move unverified students from previous room to auto-absent
             if (currentRoom && currentRoom !== room) {
                 const prevRoomStudents = getStudentsForRoom(currentRoom);
                 prevRoomStudents.forEach(s => {
@@ -1373,7 +1399,6 @@
             document.getElementById('modalStudentDetails').textContent =
                 `Room ${currentRoom || '—'} · Bed ${getStudentBed(student.id)} · ${student.matric || '—'}`;
 
-            // Reset modal state
             document.getElementById('modalResult').className = 'modal-result';
             document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-camera"></i> Start Verification';
             document.getElementById('modalVerifyBtn').disabled = false;
@@ -1385,7 +1410,6 @@
 
             document.getElementById('verifyModal').classList.add('show');
 
-            // Initialize camera for modal
             setTimeout(() => {
                 startModalCamera();
             }, 300);
@@ -1403,17 +1427,15 @@
         }
 
         // =============================================
-        // MODAL CAMERA
+        // MODAL CAMERA (UPDATED WITH SWITCH SUPPORT)
         // =============================================
         async function startModalCamera() {
             try {
                 if (modalCameraStream) stopModalCamera();
 
-                const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
                 let constraints = {
                     video: {
-                        facingMode: isMobile ? ['environment', 'user'] : 'user',
+                        facingMode: cameraFacingMode,
                         width: { ideal: 640 },
                         height: { ideal: 480 }
                     },
@@ -1424,19 +1446,23 @@
                 try {
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
                 } catch (firstError) {
-                    if (isMobile) {
-                        constraints = {
-                            video: {
-                                facingMode: 'user',
-                                width: { ideal: 640 },
-                                height: { ideal: 480 }
-                            },
-                            audio: false
-                        };
-                        stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    } else {
-                        throw firstError;
+                    // If the preferred camera fails, try the other one
+                    const fallbackMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+                    constraints = {
+                        video: {
+                            facingMode: fallbackMode,
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    };
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    cameraFacingMode = fallbackMode;
+                    const label = document.getElementById('cameraModeLabel');
+                    if (label) {
+                        label.textContent = cameraFacingMode === 'user' ? '📷 Front Camera' : '📷 Back Camera';
                     }
+                    showToast(`📷 Using ${cameraFacingMode === 'user' ? 'Front' : 'Back'} camera`, 'info');
                 }
 
                 modalCameraStream = stream;
@@ -1446,7 +1472,6 @@
                     video.srcObject = stream;
                     await video.play();
 
-                    // Start face detection loop using InsightFace API
                     document.getElementById('modalCameraStatus').textContent = 'Camera ready - looking for face...';
                     
                     if (captureInterval) clearInterval(captureInterval);
@@ -1503,10 +1528,8 @@
             document.getElementById('modalVerifyBtn').disabled = true;
             document.getElementById('modalCameraStatus').textContent = 'Verifying with InsightFace...';
 
-            // Clear previous result
             document.getElementById('modalResult').className = 'modal-result';
 
-            // Capture frame and verify
             const video = document.getElementById('modalCamera');
             if (video && video.readyState >= 2) {
                 const imageDataUrl = captureFrame(video);
@@ -1524,7 +1547,6 @@
             try {
                 const faceBox = document.getElementById('modalFaceBox');
                 
-                // Show scanning state
                 if (faceBox) {
                     faceBox.className = 'face-box scanning';
                     faceBox.style.display = 'block';
@@ -1532,7 +1554,6 @@
                     if (label) label.textContent = '🔍 InsightFace Analyzing...';
                 }
 
-                // Call the verification API
                 const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
                 
                 if (!result) {
@@ -1543,7 +1564,6 @@
                 const confidencePercent = Math.round(confidence * 100);
 
                 if (result.verified || result.success) {
-                    // VERIFIED!
                     const student = selectedStudent;
 
                     bedScanStatus[student.id] = {
@@ -1558,14 +1578,12 @@
                         `Room ${currentRoom} · ${confidencePercent}%`);
                     showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
 
-                    // Update face box
                     if (faceBox) {
                         faceBox.className = 'face-box matched';
                         const label = faceBox.querySelector('.label');
                         if (label) label.textContent = `✅ ${student.name} ${confidencePercent}%`;
                     }
 
-                    // Show success result
                     document.getElementById('modalResult').className = 'modal-result show success';
                     document.getElementById('modalResultIcon').textContent = '✅';
                     document.getElementById('modalResultTitle').textContent = 'Identity Verified!';
@@ -1576,7 +1594,6 @@
 
                     renderBedCheck();
 
-                    // Check if room is complete
                     if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
                         if (!completedRooms.includes(currentRoom)) {
                             completedRooms.push(currentRoom);
@@ -1587,13 +1604,11 @@
                         renderBedCheck();
                     }
 
-                    // Close modal after 2 seconds
                     setTimeout(() => {
                         closeVerifyModal();
                     }, 2000);
 
                 } else {
-                    // FAILED
                     const reason = result.reason || 'Face does not match';
                     
                     if (faceBox) {
@@ -1610,7 +1625,6 @@
 
                     document.getElementById('modalCameraStatus').textContent = 'Verification failed';
 
-                    // Keep the face box visible
                     setTimeout(() => {
                         if (faceBox) {
                             faceBox.className = 'face-box';
@@ -1806,6 +1820,7 @@
         window.openVerifyModal = openVerifyModal;
         window.closeVerifyModal = closeVerifyModal;
         window.startVerification = startVerification;
+        window.switchCamera = switchCamera;
 
         // =============================================
         // INIT
