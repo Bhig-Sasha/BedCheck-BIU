@@ -523,6 +523,21 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* Connection status indicator */
+        .connection-status {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.55rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-left: 0.5rem;
+        }
+        .connection-status.online { background: #e1f0e5; color: #2d6545; }
+        .connection-status.offline { background: #f8e1dc; color: #9b3c31; }
+        .connection-status.checking { background: #fff0cb; color: #8a6413; }
     </style>
 </head>
 <body>
@@ -546,7 +561,7 @@
                 <div class="details" id="modalStudentDetails">Room G4 · Bed BS1 · 22/ENG/1234</div>
             </div>
 
-            <!-- Camera Controls - Added Switch Button -->
+            <!-- Camera Controls -->
             <div class="camera-controls">
                 <button class="btn-outline" onclick="switchCamera()" style="font-size:0.75rem; padding:0.3rem 0.8rem;">
                     <i class="fas fa-sync"></i> Switch Camera
@@ -554,6 +569,7 @@
                 <span id="cameraModeLabel" style="font-size:0.7rem; color:#6b778b; display:flex; align-items:center;">
                     📷 Front Camera
                 </span>
+                <span id="apiStatus" class="connection-status checking">Checking API...</span>
             </div>
 
             <div class="camera-container">
@@ -707,9 +723,8 @@
         let captureInterval = null;
         let isFaceDetectionRunning = false;
         let studentEmbeddingCache = {};
-
-        // Camera facing mode
         let cameraFacingMode = 'user';
+        let isApiOnline = false;
 
         // =============================================
         // HELPERS
@@ -753,6 +768,42 @@
             } catch (error) {
                 showToast('Error: ' + error.message, 'error');
                 throw error;
+            }
+        }
+
+        // =============================================
+        // CHECK API STATUS
+        // =============================================
+        async function checkApiStatus() {
+            const statusEl = document.getElementById('apiStatus');
+            try {
+                statusEl.className = 'connection-status checking';
+                statusEl.textContent = 'Checking...';
+                
+                const response = await fetch(`${FACE_API_URL}/health`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 5000
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    isApiOnline = data.status === 'healthy' || data.status === 'running';
+                } else {
+                    isApiOnline = false;
+                }
+            } catch (error) {
+                console.warn('API health check failed:', error.message);
+                isApiOnline = false;
+            }
+            
+            if (isApiOnline) {
+                statusEl.className = 'connection-status online';
+                statusEl.textContent = '✅ API Online';
+            } else {
+                statusEl.className = 'connection-status offline';
+                statusEl.textContent = '⚠️ API Offline';
+                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
             }
         }
 
@@ -926,6 +977,9 @@
                     };
                 }
 
+                console.log('🔍 Sending verification request to:', `${FACE_API_URL}/verify-face`);
+                console.log('📊 Embedding dimension:', storedEmbedding.length);
+
                 const response = await fetch(`${FACE_API_URL}/verify-face`, {
                     method: 'POST',
                     headers: {
@@ -940,10 +994,12 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    throw new Error(`API Error: ${response.status} - ${errorText}`);
+                    console.error('❌ API Error Response:', errorText);
+                    throw new Error(`API Error ${response.status}: ${errorText}`);
                 }
 
                 const result = await response.json();
+                console.log('✅ Verification result:', result);
                 
                 return {
                     success: result.success || result.verified || false,
@@ -953,7 +1009,7 @@
                     threshold: result.threshold || 0.55
                 };
             } catch (error) {
-                console.error('Face verification API error:', error);
+                console.error('❌ Face verification API error:', error);
                 throw error;
             }
         }
@@ -977,6 +1033,7 @@
                 });
 
                 if (!response.ok) {
+                    // Fallback: assume face is detected
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     modalFaceDetected = true;
@@ -1013,7 +1070,7 @@
                 console.error('Face detection error:', error);
                 modalFaceDetected = true;
                 document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                document.getElementById('modalCameraStatus').textContent = 'Face detected';
+                document.getElementById('modalCameraStatus').textContent = 'Face detected (fallback)';
             }
         }
 
@@ -1142,6 +1199,7 @@
             const hostelDisplay = assignedHostelName || 'Your Hostel';
             const raName = currentUser?.name || 'RA';
 
+            // Build room list HTML
             let roomListHtml = '';
             if (allRooms.length > 0) {
                 const floorGroups = {};
@@ -1194,6 +1252,7 @@
                 roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
             }
 
+            // Build student cards for current room
             let studentCardsHtml = '';
             if (currentRoom && roomStudents.length > 0) {
                 studentCardsHtml = roomStudents.map(s => {
@@ -1240,6 +1299,7 @@
                             <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
                             <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace (antelopev2)</strong></div>
+                            <div class="sub"><span class="label">API Status:</span> <span class="connection-status ${isApiOnline ? 'online' : 'offline'}">${isApiOnline ? '✅ Online' : '⚠️ Offline'}</span></div>
                         ` : `
                             <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
@@ -1262,6 +1322,7 @@
 
                 <!-- Rooms + Students -->
                 <div class="rooms-layout mt-4">
+                    <!-- Room List -->
                     <div>
                         <div class="card" style="padding:0.75rem;">
                             <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
@@ -1276,6 +1337,7 @@
                         </div>
                     </div>
 
+                    <!-- Students in Room -->
                     <div>
                         <div class="card" style="padding:0.75rem;">
                             <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
@@ -1323,7 +1385,7 @@
 
                 <div class="text-center text-xs text-muted mt-3">
                     ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Session Active' : '⏳ Waiting for Session'}
-                    · 🔒 InsightFace Secure
+                    · 🔒 InsightFace Secure · API: ${isApiOnline ? '🟢 Online' : '🔴 Offline'}
                 </div>
             `;
         }
@@ -1388,6 +1450,12 @@
         // FACE VERIFICATION MODAL
         // =============================================
         function openVerifyModal(studentId) {
+            // Check API status first
+            if (!isApiOnline) {
+                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
+                return;
+            }
+
             const student = hostelStudents.find(s => s.id === parseInt(studentId));
             if (!student) {
                 showToast('Student not found', 'error');
@@ -1427,7 +1495,7 @@
         }
 
         // =============================================
-        // MODAL CAMERA (UPDATED WITH SWITCH SUPPORT)
+        // MODAL CAMERA
         // =============================================
         async function startModalCamera() {
             try {
@@ -1520,6 +1588,11 @@
             if (bedScanStatus[selectedStudent.id]?.verified) {
                 showToast(`${selectedStudent.name} is already verified!`, 'info');
                 closeVerifyModal();
+                return;
+            }
+
+            if (!isApiOnline) {
+                showToast('⚠️ Face API is offline. Please check your connection.', 'error');
                 return;
             }
 
@@ -1833,6 +1906,9 @@
             document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+            // Check API status first
+            await checkApiStatus();
 
             try {
                 const [hostelsResult, studentsResult, floorsResult, roomsResult, bedSpacesResult] = await Promise.all([
