@@ -253,40 +253,77 @@ async def get_student_embedding(student_id: int):
 # ==========================
 # Face Detection Endpoint
 # ==========================
+# ==========================
+# Face Detection Endpoint
+# ==========================
 @app.post("/detect-face")
 async def detect_face(request: ImageRequest):
     if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
+        # Decode image
         frame = decode_image(request.image)
-        faces = face_model.get(frame)
+        
+        if frame is None:
+            return {
+                "success": False,
+                "message": "Failed to decode image",
+                "faces": []
+            }
+        
+        # Detect faces
+        try:
+            faces = face_model.get(frame)
+        except Exception as model_error:
+            logger.error(f"Model inference error: {model_error}")
+            return {
+                "success": False,
+                "message": f"Face detection error: {str(model_error)}",
+                "faces": []
+            }
         
         if len(faces) == 0:
-            return {"success": False, "message": "No face detected", "faces": []}
+            return {
+                "success": False,
+                "message": "No face detected",
+                "faces": []
+            }
         
         face_data = []
         for face in faces:
-            bbox = face.bbox.tolist()
-            face_data.append({
-                "bbox": bbox,
-                "confidence": float(face.det_score),
-                "width": bbox[2] - bbox[0],
-                "height": bbox[3] - bbox[1]
-            })
+            try:
+                bbox = face.bbox.tolist()
+                face_data.append({
+                    "bbox": bbox,
+                    "confidence": float(face.det_score),
+                    "width": bbox[2] - bbox[0],
+                    "height": bbox[3] - bbox[1]
+                })
+            except Exception as face_error:
+                logger.warning(f"Error processing face: {face_error}")
+                continue
         
         return {
             "success": True,
-            "message": f"Detected {len(faces)} face(s)",
+            "detected": True,
+            "message": f"Detected {len(face_data)} face(s)",
             "faces": face_data,
-            "count": len(faces)
+            "count": len(face_data)
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Face detection error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return a proper error response instead of raising
+        return {
+            "success": False,
+            "detected": False,
+            "message": f"Error: {str(e)}",
+            "faces": [],
+            "error": str(e)
+        }
 
 # ==========================
 # Enrollment Endpoints
@@ -427,20 +464,45 @@ async def verify_face(request: VerifyRequest):
     try:
         frame = decode_image(request.image)
         
-        result = verify_student(
-            face_model,
-            frame,
-            request.stored_embedding,
-            threshold=request.threshold
-        )
+        if frame is None:
+            return {
+                "success": False,
+                "verified": False,
+                "confidence": 0.0,
+                "threshold": request.threshold,
+                "reason": "Failed to decode image"
+            }
         
-        return result
+        # Verify student
+        try:
+            result = verify_student(
+                face_model,
+                frame,
+                request.stored_embedding,
+                threshold=request.threshold
+            )
+            return result
+        except Exception as verify_error:
+            logger.error(f"Verification error: {verify_error}")
+            return {
+                "success": False,
+                "verified": False,
+                "confidence": 0.0,
+                "threshold": request.threshold,
+                "reason": f"Verification error: {str(verify_error)}"
+            }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Verification error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "success": False,
+            "verified": False,
+            "confidence": 0.0,
+            "threshold": request.threshold,
+            "reason": f"Error: {str(e)}"
+        }
 
 @app.post("/verify-multiple")
 async def verify_multiple(request: MultipleImageRequest):
