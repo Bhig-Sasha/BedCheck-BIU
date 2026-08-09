@@ -1326,7 +1326,6 @@ app.post('/api/face/detect', async (req, res) => {
 });
 
 // Enroll face (single image)
-// Enroll face (single image)
 app.post('/api/face/enroll', async (req, res) => {
     try {
         const { 
@@ -1389,7 +1388,6 @@ app.post('/api/face/enroll', async (req, res) => {
             .update({
                 face_enrolled: true,
                 face_embedding: result.embedding,
-                // REMOVED: face_provider: 'insightface',
                 updated_at: new Date().toISOString()
             })
             .eq('id', student.id)
@@ -1490,7 +1488,6 @@ app.post('/api/face/enroll-bulk', async (req, res) => {
             .update({
                 face_enrolled: true,
                 face_embedding: result.embedding,
-                // REMOVED: face_provider: 'insightface',
                 updated_at: new Date().toISOString()
             })
             .eq('id', student.id)
@@ -1863,7 +1860,6 @@ app.get('/api/students/face-status', async (req, res) => {
         
         let query = supabase.from('students')
             .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, face_embedding');
-            // REMOVED: face_provider
         
         if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
         if (room_id) query = query.eq('room_id', parseInt(room_id));
@@ -2518,7 +2514,7 @@ app.post('/api/students', async (req, res) => {
     room_id, room_code, bed_space_id, bed_code, 
     status, notes, gender, phone, email, 
     emergency_name, emergency_relation, emergency_phone,
-    face_enrolled, face_embedding, face_provider
+    face_enrolled, face_embedding
   } = req.body;
   
   try {
@@ -2534,7 +2530,6 @@ app.post('/api/students', async (req, res) => {
       emergency_phone: emergency_phone || null,
       face_enrolled: face_enrolled || false,
       face_embedding: face_embedding || null,
-      face_provider: face_provider || null,
       created_at: new Date().toISOString(), 
       updated_at: new Date().toISOString()
     };
