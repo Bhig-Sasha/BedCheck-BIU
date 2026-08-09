@@ -358,7 +358,7 @@
             // =============================================
             let currentUser = null;
             let currentRole = 'RA';
-            let students = [];
+            let allStudents = [];
             let filteredStudents = [];
             let hostels = [];
             let staffMembers = [];
@@ -420,41 +420,46 @@
             // =============================================
             async function loadStudents() {
                 try {
-                    // First, get the current user's hostel ID
+                    // First, get the current user's hostel ID if not set
                     if (!assignedHostelId && currentUser) {
-                        // Try to get hostel_id from current user
-                        const { data: userData } = await apiCall(`/staff/${currentUser.id}`);
-                        if (userData && userData.hostel_id) {
-                            assignedHostelId = userData.hostel_id;
+                        try {
+                            const userData = await apiCall(`/staff/${currentUser.id}`);
+                            if (userData.data && userData.data.hostel_id) {
+                                assignedHostelId = userData.data.hostel_id;
+                                // Also get the hostel name
+                                const hostel = hostels.find(h => h.id === assignedHostelId);
+                                if (hostel) {
+                                    assignedHostelName = hostel.name;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Could not fetch user details:', e);
                         }
                     }
 
-                    // If we still don't have a hostel ID, check if we have a hostel name
-                    if (!assignedHostelId && assignedHostelName) {
-                        // Find hostel by name
-                        const hostel = hostels.find(h => h.name === assignedHostelName);
-                        if (hostel) {
-                            assignedHostelId = hostel.id;
-                        }
-                    }
-
-                    // Load students filtered by hostel_id
+                    // Load all students first
+                    const data = await apiCall('/students');
+                    allStudents = data.data || [];
+                    
+                    // Then filter by hostel_id
                     if (assignedHostelId) {
-                        const data = await apiCall(`/students?hostel_id=${assignedHostelId}`);
-                        students = data.data || [];
+                        filteredStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                        console.log(`✅ Found ${filteredStudents.length} students in hostel ${assignedHostelId}`);
+                    } else if (assignedHostelName) {
+                        filteredStudents = allStudents.filter(s => s.hostel_name === assignedHostelName || s.hostel === assignedHostelName);
+                        console.log(`✅ Found ${filteredStudents.length} students in hostel ${assignedHostelName}`);
                     } else {
-                        // If no hostel assigned, show empty or all students
-                        const data = await apiCall('/students');
-                        students = data.data || [];
+                        // If no hostel assigned, show all students (but this shouldn't happen for RAs)
+                        filteredStudents = allStudents;
+                        console.warn('⚠️ No hostel assigned to this RA, showing all students');
                     }
                     
-                    filteredStudents = students;
-                    return students;
+                    return filteredStudents;
                 } catch (error) {
                     console.error('Error loading students:', error);
-                    students = [];
+                    allStudents = [];
                     filteredStudents = [];
-                    return students;
+                    return [];
                 }
             }
 
@@ -779,7 +784,7 @@
             // UPDATE STUDENT STATUS
             // =============================================
             function updateStatus(id) {
-                const student = students.find(s => s.id === id);
+                const student = filteredStudents.find(s => s.id === id) || allStudents.find(s => s.id === id);
                 if (!student) return;
 
                 const statuses = ['Present', 'Absent', 'Late'];
@@ -898,6 +903,7 @@
                         }
                     }
 
+                    // Load students (will be filtered by hostel_id)
                     await loadStudents();
                     await loadStaff();
 

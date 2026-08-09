@@ -1595,6 +1595,7 @@
             let currentUser = null;
             let currentRole = 'RA';
             let allStudents = [];
+            let hostelStudents = []; // Students filtered by assigned hostel
             let allBedSpaces = [];
             let allRooms = [];
             let allFloorsFlats = [];
@@ -1678,7 +1679,7 @@
             }
 
             // =============================================
-            // ROOM STRUCTURE BUILDING
+            // ROOM STRUCTURE BUILDING - ONLY HOSTEL STUDENTS
             // =============================================
             function buildRoomStructure() {
                 if (!assignedHostelId || !assignedArea) return;
@@ -1776,7 +1777,7 @@
 
             function getStudentsForRoom(room) {
                 if (!assignedHostelId) return [];
-                return allStudents.filter(s => {
+                return hostelStudents.filter(s => {
                     if (s.hostel_id !== assignedHostelId) return false;
                     return s.room_code === room;
                 });
@@ -1788,21 +1789,7 @@
             }
 
             function getTotalStats() {
-                const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-                let areaStudents = hostelStudents;
-                if (assignedArea) {
-                    const isFlat = assignedArea.toLowerCase().includes('flat');
-                    if (isFlat) {
-                        areaStudents = hostelStudents.filter(s => s.floor_name === assignedArea);
-                    } else {
-                        areaStudents = hostelStudents.filter(s => {
-                            if (s.floor_name === assignedArea) return true;
-                            const prefix = assignedArea.replace(/[0-9]/g, '').trim();
-                            if (prefix && s.room_code && s.room_code.startsWith(prefix)) return true;
-                            return false;
-                        });
-                    }
-                }
+                const areaStudents = hostelStudents;
                 const total = areaStudents.length;
                 const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
                 const present = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Present').length;
@@ -2082,7 +2069,7 @@
             }
 
             // =============================================
-            // FACE RECOGNITION
+            // FACE RECOGNITION - ONLY HOSTEL STUDENTS
             // =============================================
             function generateMockEmbedding(name) {
                 let hash = 0;
@@ -2098,7 +2085,8 @@
             }
 
             function buildFaceEmbeddings() {
-                allStudents.forEach(s => {
+                // Only build embeddings for hostel students
+                hostelStudents.forEach(s => {
                     if (!faceEmbeddings[s.id]) {
                         faceEmbeddings[s.id] = generateMockEmbedding(s.name + s.matric);
                     }
@@ -2398,7 +2386,7 @@
 
                         const match = findMatchingStudent(embedding);
                         if (match) {
-                            const student = allStudents.find(s => s.id === match.studentId);
+                            const student = hostelStudents.find(s => s.id === match.studentId);
                             if (student && !bedScanStatus[student.id]?.verified) {
                                 bedScanStatus[student.id] = {
                                     verified: true,
@@ -2489,7 +2477,7 @@
                     showToast('No active session.', 'error');
                     return;
                 }
-                const student = allStudents.find(s => s.id === studentId);
+                const student = hostelStudents.find(s => s.id === studentId);
                 if (!student) return;
                 if (bedScanStatus[studentId]?.verified) {
                     showToast(`${student.name} already marked.`, 'info');
@@ -2545,7 +2533,7 @@
             }
 
             function rescanStudent(studentId) {
-                const student = allStudents.find(s => s.id === studentId);
+                const student = hostelStudents.find(s => s.id === studentId);
                 if (!student) return;
                 autoAbsentQueue = autoAbsentQueue.filter(a => a.id !== studentId);
                 bedScanStatus[studentId] = {
@@ -2649,6 +2637,9 @@
                 const hostelDisplay = assignedHostelName || 'Your Hostel';
                 const displayRoomsText = `${allRooms.length} ${allRooms.length === 1 ? 'Room' : 'Rooms'}`;
 
+                // Get RA name for display
+                const raName = currentUser?.name || 'RA';
+
                 let html = `
                         <!-- Session Banner -->
                         <div class="session-banner ${bannerClass}">
@@ -2659,6 +2650,7 @@
                                     <div class="sub"><span class="label">Session:</span> Night BedCheck · 10:00 PM – 12:00 AM</div>
                                     <div class="sub"><span class="label">Hostel:</span> <strong>${hostelDisplay}</strong></div>
                                     <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
+                                    <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
                                 ` : `
                                     <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
                                     <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
@@ -2676,6 +2668,9 @@
                             <div>
                                 <div class="label">Your Assigned Area</div>
                                 <div class="value">${hostelDisplay} · ${areaTypeLabel} ${areaDisplay}</div>
+                                <div style="font-size:0.7rem;color:#6b778b;margin-top:0.2rem;">
+                                    RA: <strong>${raName}</strong> · ${hostelStudents.length} students
+                                </div>
                             </div>
                             <div>
                                 <span class="badge badge-assigned">${displayRoomsText}</span>
@@ -3059,6 +3054,7 @@
                     allRooms = roomsResult.data || [];
                     allBedSpaces = bedSpacesResult.data || [];
 
+                    // Get assigned hostel info
                     if (assignedHostelId) {
                         assignedHostelData = hostels.find(h => h.id === assignedHostelId);
                         if (assignedHostelData) {
@@ -3072,12 +3068,15 @@
                         assignedHostelName = assignedHostelData.name;
                     }
 
+                    // Filter students by assigned hostel - THIS IS THE KEY FIX
+                    hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                    console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelName}`);
+
                     // If no assigned area, try to determine one from student data
                     if (!assignedArea && assignedHostelId) {
-                        const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-                        const floors = [...new Set(hostelStudents.map(s => s.floor_name).filter(Boolean))];
-                        if (floors.length > 0) {
-                            assignedArea = floors[0];
+                        const hostelStudentFloors = [...new Set(hostelStudents.map(s => s.floor_name).filter(Boolean))];
+                        if (hostelStudentFloors.length > 0) {
+                            assignedArea = hostelStudentFloors[0];
                             if (assignedArea.toLowerCase().includes('flat')) {
                                 assignedAreaType = 'flat';
                             }
@@ -3094,10 +3093,10 @@
 
                     updateHeader();
 
-                    // Build room structure
+                    // Build room structure using hostel students
                     buildRoomStructure();
 
-                    // Build face embeddings
+                    // Build face embeddings for hostel students only
                     buildFaceEmbeddings();
 
                     await loadSessionData();
