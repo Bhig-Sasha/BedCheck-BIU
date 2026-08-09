@@ -2068,55 +2068,62 @@
 
                 addDebugLog(`Best frame quality: ${Math.round(bestFrame.quality)}%`, 'info');
 
-                loadingText.textContent = 'Generating face embedding...';
+                loadingText.textContent = 'Enrolling with InsightFace...';
                 loadingProgressFill.style.width = '50%';
 
-                // Step 1: Get face embedding from the Face API
-                const embeddingResponse = await fetch(`${FACE_API_URL}/get-embedding`, {
+                // ✅ FIX: Use /enroll-face endpoint directly
+                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: bestFrame.imageData })
-                });
-
-                if (!embeddingResponse.ok) {
-                    let errorMsg = `HTTP ${embeddingResponse.status}`;
-                    try {
-                        const errorData = await embeddingResponse.json();
-                        errorMsg = errorData.message || errorData.detail || errorMsg;
-                    } catch (e) {
-                        // Use the status text if available
-                        errorMsg = embeddingResponse.statusText || errorMsg;
-                    }
-                    addDebugLog(`Embedding generation failed: ${errorMsg}`, 'error');
-                    throw new Error(`Failed to generate face embedding: ${errorMsg}`);
-                }
-
-                const embeddingResult = await embeddingResponse.json();
-                addDebugLog(`Embedding generated: ${JSON.stringify(embeddingResult).substring(0, 100)}...`, 'success');
-                
-                if (!embeddingResult.success || !embeddingResult.embedding) {
-                    throw new Error('Failed to generate face embedding: Invalid response from API');
-                }
-
-                loadingText.textContent = 'Saving to database...';
-                loadingProgressFill.style.width = '70%';
-
-                // Step 2: Save the embedding to your database via Node API
-                const saveResponse = await nodeApiCall(`/students/${studentId}/face`, {
-                    method: 'POST',
                     body: JSON.stringify({
-                        embedding: embeddingResult.embedding,
-                        image_data: bestFrame.imageData,
-                        face_enrolled: true
+                        student_id: studentId,
+                        image: bestFrame.imageData,  // Send the full data URL
+                        name: studentData.name || '',
+                        matric: studentData.matric || '',
+                        hostel: studentData.hostel_id || '',
+                        room: studentData.room_id || ''
                     })
                 });
 
-                loadingProgressFill.style.width = '90%';
+                loadingProgressFill.style.width = '70%';
 
-                if (saveResponse.success || saveResponse.status === 'success') {
+                if (!enrollResponse.ok) {
+                    let errorMsg = `HTTP ${enrollResponse.status}`;
+                    try {
+                        const errorData = await enrollResponse.json();
+                        errorMsg = errorData.message || errorData.detail || errorMsg;
+                    } catch (e) {
+                        errorMsg = enrollResponse.statusText || errorMsg;
+                    }
+                    addDebugLog(`Enrollment failed: ${errorMsg}`, 'error');
+                    throw new Error(`Enrollment failed: ${errorMsg}`);
+                }
+
+                const enrollResult = await enrollResponse.json();
+                addDebugLog(`Enrollment result: ${JSON.stringify(enrollResult).substring(0, 200)}...`, 'success');
+
+                loadingProgressFill.style.width = '85%';
+
+                // Check if enrollment was successful
+                if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified) {
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
                     addDebugLog('Face enrollment successful!', 'success');
+
+                    // Update student's face_enrolled status in your database
+                    try {
+                        await nodeApiCall(`/students/${studentId}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                face_enrolled: true,
+                                face_embedding: enrollResult.embedding || null
+                            })
+                        });
+                        addDebugLog('Student record updated in database', 'success');
+                    } catch (updateError) {
+                        addDebugLog(`Warning: Could not update student record: ${updateError.message}`, 'error');
+                        // Continue even if update fails - enrollment was successful
+                    }
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2145,7 +2152,7 @@
                         }, 4000);
                     }, 1500);
                 } else {
-                    throw new Error(saveResponse.message || 'Failed to save face embedding to database');
+                    throw new Error(enrollResult.message || 'Enrollment failed');
                 }
             } catch (error) {
                 addDebugLog(`Enrollment error: ${error.message}`, 'error');
