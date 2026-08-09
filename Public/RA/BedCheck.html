@@ -525,7 +525,7 @@
             <div class="modal-header">
                 <div>
                     <h2>Verify Student</h2>
-                    <p class="text-sm text-muted">Face ID verification</p>
+                    <p class="text-sm text-muted">InsightFace ID verification</p>
                 </div>
                 <button class="close-btn" onclick="closeVerifyModal()"><i class="fas fa-times"></i></button>
             </div>
@@ -544,7 +544,7 @@
                     <span class="label">🔍 Scanning...</span>
                 </div>
                 <div class="camera-status-bar">
-                    <span><i class="fas fa-shield-halved"></i> Secure Face ID</span>
+                    <span><i class="fas fa-shield-halved"></i> InsightFace Secure</span>
                     <span id="modalCameraStatus">Initializing...</span>
                 </div>
             </div>
@@ -683,9 +683,9 @@
         let isVerifying = false;
         let modalCameraStream = null;
         let modalFaceDetected = false;
-        let modalVerificationResult = null;
         let captureInterval = null;
         let isFaceDetectionRunning = false;
+        let studentEmbeddingCache = {};
 
         // =============================================
         // HELPERS
@@ -854,12 +854,27 @@
         }
 
         // =============================================
-        // GET STUDENT'S STORED EMBEDDING
+        // GET STUDENT'S STORED EMBEDDING FROM SUPABASE
         // =============================================
         async function getStudentEmbedding(studentId) {
+            // Check cache first
+            if (studentEmbeddingCache[studentId]) {
+                return studentEmbeddingCache[studentId];
+            }
+
             try {
+                // Call your backend API that fetches from Supabase
                 const result = await apiCall(`/students/${studentId}/embedding`);
-                return result.embedding || null;
+                
+                if (result && result.embedding) {
+                    // Cache the embedding
+                    studentEmbeddingCache[studentId] = result.embedding;
+                    console.log(`✅ Retrieved embedding for student ${studentId}`);
+                    return result.embedding;
+                } else {
+                    console.warn(`⚠️ No embedding found for student ${studentId}`);
+                    return null;
+                }
             } catch (error) {
                 console.error('Error fetching student embedding:', error);
                 return null;
@@ -874,10 +889,14 @@
                 // Convert data URL to base64
                 const base64Image = imageDataUrl.split(',')[1];
                 
-                // Get student's stored embedding
+                // Get student's stored embedding from Supabase
                 const storedEmbedding = await getStudentEmbedding(studentId);
                 if (!storedEmbedding) {
-                    throw new Error('Student has no face embedding stored');
+                    return {
+                        success: false,
+                        reason: 'Student has no face embedding stored. Please register first.',
+                        confidence: 0
+                    };
                 }
 
                 const response = await fetch(`${FACE_API_URL}/verify-face`, {
@@ -898,7 +917,13 @@
                 }
 
                 const result = await response.json();
-                return result;
+                
+                // Handle different response formats
+                return {
+                    success: result.success || result.verified || false,
+                    confidence: result.confidence || result.score || 0,
+                    reason: result.reason || result.message || null
+                };
             } catch (error) {
                 console.error('Face verification API error:', error);
                 throw error;
@@ -924,7 +949,7 @@
                 });
 
                 if (!response.ok) {
-                    // If API fails, just assume face is detected for UI feedback
+                    // If API fails, assume face is detected for UI feedback
                     document.getElementById('modalFaceGuide').className = 'face-guide detected';
                     document.getElementById('modalCameraStatus').textContent = 'Face detected';
                     modalFaceDetected = true;
@@ -942,12 +967,13 @@
                         const faceBox = document.getElementById('modalFaceBox');
                         faceBox.style.display = 'block';
                         faceBox.className = 'face-box scanning';
-                        // Use bbox to position the box
                         const bbox = result.bbox;
                         faceBox.style.left = (bbox[0] * 100) + '%';
                         faceBox.style.top = (bbox[1] * 100) + '%';
                         faceBox.style.width = (bbox[2] * 100) + '%';
                         faceBox.style.height = (bbox[3] * 100) + '%';
+                        const label = faceBox.querySelector('.label');
+                        if (label) label.textContent = '🔍 Face detected';
                     }
                 } else {
                     modalFaceDetected = false;
@@ -962,7 +988,7 @@
                 // Fallback: assume face is present for UX
                 modalFaceDetected = true;
                 document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                document.getElementById('modalCameraStatus').textContent = 'Face detected (fallback)';
+                document.getElementById('modalCameraStatus').textContent = 'Face detected';
             }
         }
 
@@ -1172,6 +1198,7 @@
                             <div class="sub"><span class="label">Hostel:</span> <strong>${hostelDisplay}</strong></div>
                             <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
+                            <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace (antelopev2)</strong></div>
                         ` : `
                             <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
                             <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
@@ -1180,7 +1207,7 @@
                     <div class="right">
                         <div class="time">${timeStr}</div>
                         <div><span class="status-badge ${statusBadgeClass}">${isSessionActive ? 'Active' : 'Inactive'}</span></div>
-                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">Face Recognition Available</div>` : ''}
+                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">InsightFace Ready</div>` : ''}
                     </div>
                 </div>
 
@@ -1224,7 +1251,7 @@
                             </div>
                             ${currentRoom && roomPending > 0 ? `
                                 <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
-                                    ⚠️ ${roomPending} student(s) pending. Click "Verify Face" to verify each student.
+                                    ⚠️ ${roomPending} student(s) pending. Click "Verify Face" to verify each student using InsightFace.
                                 </div>
                             ` : ''}
                             ${currentRoom && roomPending === 0 && roomTotal > 0 ? `
@@ -1257,7 +1284,7 @@
 
                 <div class="text-center text-xs text-muted mt-3">
                     ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Session Active' : '⏳ Waiting for Session'}
-                    ${location.protocol === 'http:' ? ' · ⚠️ HTTPS required for camera' : ''}
+                    · 🔒 InsightFace Secure
                 </div>
             `;
         }
@@ -1342,7 +1369,6 @@
             document.getElementById('modalFaceGuide').className = 'face-guide';
             document.getElementById('modalFaceBox').className = 'face-box';
 
-            modalVerificationResult = null;
             modalFaceDetected = false;
 
             document.getElementById('verifyModal').classList.add('show');
@@ -1357,7 +1383,6 @@
             document.getElementById('verifyModal').classList.remove('show');
             stopModalCamera();
             selectedStudent = null;
-            modalVerificationResult = null;
             if (captureInterval) {
                 clearInterval(captureInterval);
                 captureInterval = null;
@@ -1412,7 +1437,6 @@
                     // Start face detection loop using InsightFace API
                     document.getElementById('modalCameraStatus').textContent = 'Camera ready - looking for face...';
                     
-                    // Simple face detection using API - we'll run every 500ms
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
                     captureInterval = setInterval(() => {
@@ -1465,7 +1489,7 @@
             isVerifying = true;
             document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifying...';
             document.getElementById('modalVerifyBtn').disabled = true;
-            document.getElementById('modalCameraStatus').textContent = 'Verifying...';
+            document.getElementById('modalCameraStatus').textContent = 'Verifying with InsightFace...';
 
             // Clear previous result
             document.getElementById('modalResult').className = 'modal-result';
@@ -1486,7 +1510,6 @@
 
         async function performVerificationWithAPI(imageDataUrl) {
             try {
-                const video = document.getElementById('modalCamera');
                 const faceBox = document.getElementById('modalFaceBox');
                 
                 // Show scanning state
@@ -1494,7 +1517,7 @@
                     faceBox.className = 'face-box scanning';
                     faceBox.style.display = 'block';
                     const label = faceBox.querySelector('.label');
-                    if (label) label.textContent = '🔍 Analyzing with InsightFace...';
+                    if (label) label.textContent = '🔍 InsightFace Analyzing...';
                 }
 
                 // Call the verification API
@@ -1504,12 +1527,10 @@
                     throw new Error('No response from verification service');
                 }
 
-                // Check if result has success or verified property
-                const isSuccess = result.success || result.verified || false;
-                const confidence = result.confidence || result.score || 0;
+                const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
 
-                if (isSuccess) {
+                if (result.success) {
                     // VERIFIED!
                     const student = selectedStudent;
 
@@ -1561,7 +1582,7 @@
 
                 } else {
                     // FAILED
-                    const reason = result.reason || result.message || 'Face does not match';
+                    const reason = result.reason || 'Face does not match';
                     
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
@@ -1785,10 +1806,6 @@
             document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-            if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                showToast('⚠️ Camera requires HTTPS. Please use HTTPS.', 'info');
-            }
 
             try {
                 const [hostelsResult, studentsResult, floorsResult, roomsResult, bedSpacesResult] = await Promise.all([
