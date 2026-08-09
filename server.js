@@ -2674,6 +2674,258 @@ app.put('/api/students/:id/status', async (req, res) => {
   }
 });
 
+// =====================================================
+// STUDENT - PATCH (Partial Update)
+// =====================================================
+
+app.patch('/api/students/:id', async (req, res) => {
+    const id = parseInt(req.params.id);
+    
+    if (isNaN(id)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid student ID'
+        });
+    }
+    
+    try {
+        // Check if student exists
+        const { data: existingStudent, error: checkError } = await supabase
+            .from('students')
+            .select('id, name')
+            .eq('id', id)
+            .single();
+        
+        if (checkError || !existingStudent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+        
+        // Build update data from request body
+        const updateData = {};
+        const allowedFields = [
+            'name', 'matric', 'gender', 'phone', 'email', 'faculty', 'department',
+            'level', 'session', 'hostel_id', 'hostel_name', 'floor_flat_id', 'floor_name',
+            'room_id', 'room_code', 'bed_space_id', 'bed_code', 'status', 'photo',
+            'emergency_name', 'emergency_relation', 'emergency_phone', 'face_enrolled',
+            'face_embedding', 'registration_date'
+        ];
+        
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updateData[field] = req.body[field];
+            }
+        }
+        
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No fields to update'
+            });
+        }
+        
+        updateData.updated_at = new Date().toISOString();
+        
+        const { data, error } = await supabase
+            .from('students')
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+        
+        if (error) {
+            console.error('PATCH student error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error: ' + error.message
+            });
+        }
+        
+        // Log audit
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'System',
+            actor_id: parseInt(req.headers['x-staff-id']) || null,
+            actor_role: req.headers['x-staff-role'] || 'System',
+            action: 'Student Updated (Partial)',
+            module: 'students',
+            details: `${data?.name} (${data?.matric}) updated: ${Object.keys(updateData).join(', ')}`,
+            context: `Student ID: ${id}`,
+            result: 'success',
+            category: 'student',
+            tone: 'blue',
+            hostel_id: data?.hostel_id,
+            room_id: data?.room_id,
+            student_id: id
+        });
+        
+        res.json({
+            success: true,
+            data: data,
+            message: 'Student updated successfully'
+        });
+        
+    } catch (error) {
+        console.error('PATCH student error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT FACE EMBEDDING - SAVE
+// =====================================================
+
+app.post('/api/students/:id/face', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.id);
+        const { embedding, image_data, face_enrolled } = req.body;
+        
+        if (isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID'
+            });
+        }
+        
+        // Check if student exists
+        const { data: student, error: studentError } = await supabase
+            .from('students')
+            .select('id, name, matric, hostel_id, room_id')
+            .eq('id', studentId)
+            .single();
+        
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+        
+        // Build update data
+        const updateData = {
+            face_enrolled: face_enrolled !== undefined ? face_enrolled : true,
+            updated_at: new Date().toISOString()
+        };
+        
+        // Add embedding if provided and valid
+        if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+            updateData.face_embedding = embedding;
+        }
+        
+        // Update student with face data
+        const { data: updatedStudent, error: updateError } = await supabase
+            .from('students')
+            .update(updateData)
+            .eq('id', studentId)
+            .select()
+            .single();
+        
+        if (updateError) {
+            console.error('Update student face error:', updateError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to save face data: ' + updateError.message
+            });
+        }
+        
+        // Log audit
+        await auditService.log({
+            actor: req.headers['x-staff-name'] || 'Student',
+            actor_id: studentId,
+            actor_role: req.headers['x-staff-role'] || 'Student',
+            action: 'Face Embedding Saved',
+            module: 'face',
+            details: `${student.name} (${student.matric}) face embedding saved (${embedding?.length || 0} dimensions)`,
+            context: 'Face enrollment via InsightFace',
+            result: 'success',
+            category: 'face',
+            tone: 'green',
+            hostel_id: student.hostel_id,
+            room_id: student.room_id,
+            student_id: studentId
+        });
+        
+        console.log(`✅ Face embedding saved for student ${student.name} (${student.matric})`);
+        
+        res.json({
+            success: true,
+            data: {
+                student_id: studentId,
+                name: student.name,
+                matric: student.matric,
+                face_enrolled: updatedStudent.face_enrolled,
+                embedding_dimension: embedding?.length || 0
+            },
+            message: 'Face data saved successfully'
+        });
+        
+    } catch (error) {
+        console.error('Save face embedding error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT FACE EMBEDDING - GET
+// =====================================================
+
+app.get('/api/students/:id/face', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.id);
+        
+        if (isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID'
+            });
+        }
+        
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('id, name, matric, face_embedding, face_enrolled, updated_at')
+            .eq('id', studentId)
+            .single();
+        
+        if (error || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: {
+                student_id: student.id,
+                name: student.name,
+                matric: student.matric,
+                face_enrolled: student.face_enrolled,
+                has_embedding: !!student.face_embedding,
+                embedding_dimension: student.face_embedding ? student.face_embedding.length : 0,
+                updated_at: student.updated_at
+            }
+        });
+        
+    } catch (error) {
+        console.error('Get face embedding error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error: ' + error.message
+        });
+    }
+});
+
+// =====================================================
+// STUDENT DELETE
+// =====================================================
+
 app.delete('/api/students/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
