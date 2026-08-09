@@ -1086,6 +1086,41 @@
         .position-label.done .pos-label .pos-arrow {
             display: none;
         }
+
+        .debug-info {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+            font-size: 0.55rem;
+            color: #94a3b8;
+            font-family: monospace;
+            max-height: 100px;
+            overflow-y: auto;
+            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .debug-info.show {
+            display: block;
+        }
+
+        .debug-info .log-entry {
+            padding: 0.1rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .debug-info .log-entry.error {
+            color: #f87171;
+        }
+
+        .debug-info .log-entry.success {
+            color: #4ade80;
+        }
+
+        .debug-info .log-entry.info {
+            color: #d6ad4b;
+        }
     </style>
 </head>
 <body>
@@ -1276,6 +1311,11 @@
             <span class="status-indicator checking" id="apiIndicator"></span>
             <span id="apiStatusText">Checking API connection...</span>
         </div>
+
+        <!-- Debug Info -->
+        <div class="debug-info" id="debugInfo">
+            <div id="debugLogs"></div>
+        </div>
     </div>
 
     <!-- Toast -->
@@ -1354,6 +1394,8 @@
         const positionText = document.getElementById('positionText');
         const faceSizeWarning = document.getElementById('faceSizeWarning');
         const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+        const debugInfo = document.getElementById('debugInfo');
+        const debugLogs = document.getElementById('debugLogs');
 
         const positionDots = document.querySelectorAll('.position-dot');
         const arrows = {
@@ -1371,11 +1413,26 @@
             center: document.getElementById('dotCenter')
         };
 
+        // ---------- DEBUG LOGGING ----------
+        function addDebugLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLogs.appendChild(entry);
+            debugInfo.classList.add('show');
+            // Keep only last 20 entries
+            while (debugLogs.children.length > 20) {
+                debugLogs.removeChild(debugLogs.firstChild);
+            }
+            console.log(`[FaceSetup] ${message}`);
+        }
+
         // ---------- API STATUS CHECK ----------
         async function checkApiStatus() {
             try {
                 apiIndicator.className = 'status-indicator checking';
                 apiStatusText.textContent = 'Checking InsightFace API...';
+                addDebugLog('Checking API status...', 'info');
                 
                 const response = await fetch(`${FACE_API_URL}/health`, {
                     signal: AbortSignal.timeout(5000)
@@ -1388,15 +1445,18 @@
                     apiStatusText.textContent = isApiOnline ? 
                         '✅ InsightFace API Online' : 
                         '⚠️ API Online but not healthy';
+                    addDebugLog(`API status: ${isApiOnline ? 'ONLINE' : 'UNHEALTHY'}`, isApiOnline ? 'success' : 'error');
                 } else {
                     isApiOnline = false;
                     apiIndicator.className = 'status-indicator offline';
                     apiStatusText.textContent = '❌ InsightFace API Offline';
+                    addDebugLog(`API status: OFFLINE (HTTP ${response.status})`, 'error');
                 }
             } catch (error) {
                 isApiOnline = false;
                 apiIndicator.className = 'status-indicator offline';
                 apiStatusText.textContent = '❌ Cannot connect to InsightFace API';
+                addDebugLog(`API connection error: ${error.message}`, 'error');
                 console.warn('API status check failed:', error.message);
             }
         }
@@ -1407,6 +1467,7 @@
             toast.className = `toast ${type}`;
             setTimeout(() => toast.classList.add('show'), 10);
             setTimeout(() => toast.classList.remove('show'), 4000);
+            addDebugLog(`Toast: ${message} (${type})`, type);
         }
 
         // ---------- API HELPERS ----------
@@ -1419,7 +1480,10 @@
             }
 
             try {
-                const response = await fetch(`${FACE_API_URL}${endpoint}`, {
+                const url = `${FACE_API_URL}${endpoint}`;
+                addDebugLog(`Calling Face API: ${endpoint}`, 'info');
+                
+                const response = await fetch(url, {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
@@ -1429,12 +1493,15 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
+                    addDebugLog(`Face API error: ${response.status} - ${errorText}`, 'error');
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
                 const data = await response.json();
+                addDebugLog(`Face API response: ${JSON.stringify(data).substring(0, 100)}...`, 'success');
                 return data;
             } catch (error) {
+                addDebugLog(`Face API call failed: ${error.message}`, 'error');
                 console.error('API call error:', error);
                 throw error;
             }
@@ -1442,7 +1509,10 @@
 
         async function nodeApiCall(endpoint, options = {}) {
             try {
-                const response = await fetch(`${NODE_API_BASE}${endpoint}`, {
+                const url = `${NODE_API_BASE}${endpoint}`;
+                addDebugLog(`Calling Node API: ${endpoint}`, 'info');
+                
+                const response = await fetch(url, {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
@@ -1452,12 +1522,15 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
+                    addDebugLog(`Node API error: ${response.status} - ${errorText}`, 'error');
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
                 const data = await response.json();
+                addDebugLog(`Node API response: ${JSON.stringify(data).substring(0, 100)}...`, 'success');
                 return data;
             } catch (error) {
+                addDebugLog(`Node API call failed: ${error.message}`, 'error');
                 console.error('Node API call error:', error);
                 throw error;
             }
@@ -1470,6 +1543,7 @@
                 if (stored) {
                     const data = JSON.parse(stored);
                     studentData = data;
+                    addDebugLog(`Student data loaded: ${data.name} (${data.matric})`, 'success');
 
                     document.getElementById('studentName').textContent = data.name || 'Unknown';
                     document.getElementById('studentMatric').textContent = data.matric || '---';
@@ -1484,12 +1558,14 @@
 
                     console.log('✅ Student data loaded:', studentData);
                 } else {
+                    addDebugLog('No student data found in localStorage', 'error');
                     showToast('No student data found. Please login first.', 'error');
                     setTimeout(() => {
                         window.location.href = 'hub.html';
                     }, 2000);
                 }
             } catch (error) {
+                addDebugLog(`Error loading student data: ${error.message}`, 'error');
                 console.error('Error loading student data:', error);
                 showToast('Error loading student data', 'error');
             }
@@ -1525,6 +1601,7 @@
                         cameraPlaceholder.classList.add('hidden');
                         monitorVideoQuality();
                         updateStatus('ready', 'Camera ready - Position your face');
+                        addDebugLog('Camera ready (reused stream)', 'success');
                         return true;
                     }
                 }
@@ -1542,6 +1619,7 @@
                     audio: false
                 };
 
+                addDebugLog('Requesting camera access...', 'info');
                 cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = cameraStream;
                 await video.play();
@@ -1551,8 +1629,10 @@
 
                 monitorVideoQuality();
                 updateStatus('ready', 'Camera ready - Position your face');
+                addDebugLog('Camera started successfully', 'success');
                 return true;
             } catch (error) {
+                addDebugLog(`Camera error: ${error.message}`, 'error');
                 console.error('Camera error:', error);
                 cameraAttempts++;
                 
@@ -1581,6 +1661,7 @@
                 captureTimer = null;
             }
             video.srcObject = null;
+            addDebugLog('Camera stopped', 'info');
         }
 
         // ---------- REQUEST CAMERA ACCESS ----------
@@ -1800,6 +1881,8 @@
                     direction: direction
                 });
 
+                addDebugLog(`Captured position ${currentPos + 1}: ${POSITIONS[currentPos]} (quality: ${Math.round(currentQuality)}%)`, 'success');
+
                 const dot = positionDots[currentPos];
                 if (dot) {
                     dot.classList.add('done');
@@ -1833,6 +1916,7 @@
                     completeSetup();
                 }
             } catch (error) {
+                addDebugLog(`Capture error: ${error.message}`, 'error');
                 console.error('Capture error:', error);
             }
         }
@@ -1866,6 +1950,7 @@
             enrollGroup.style.display = 'flex';
 
             showToast('✅ All 10 positions captured successfully!', 'success');
+            addDebugLog('All positions captured successfully!', 'success');
         }
 
         // ---------- START SETUP ----------
@@ -1922,6 +2007,7 @@
             updateGuideDots(POSITION_DIRECTIONS[firstPos]);
 
             showToast('🔴 Face detection active - moving head to capture all angles', 'info');
+            addDebugLog('Face setup started', 'info');
         }
 
         // ---------- ENROLL WITH INSIGHTFACE ----------
@@ -1947,6 +2033,7 @@
             loadingOverlay.style.display = 'flex';
             loadingText.textContent = 'Preparing enrollment...';
             loadingProgressFill.style.width = '10%';
+            addDebugLog('Starting enrollment process...', 'info');
 
             try {
                 // Get student ID if not set
@@ -1954,12 +2041,15 @@
 
                 if (!studentId && studentData.matric) {
                     try {
-                        const searchRes = await nodeApiCall(`/students?search=${studentData.matric}`);
+                        addDebugLog(`Searching for student with matric: ${studentData.matric}`, 'info');
+                        const searchRes = await nodeApiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
                         if (searchRes.data && searchRes.data.length > 0) {
                             studentId = searchRes.data[0].id;
                             studentData.id = studentId;
+                            addDebugLog(`Found student ID: ${studentId}`, 'success');
                         }
                     } catch (e) {
+                        addDebugLog(`Student search failed: ${e.message}`, 'error');
                         console.warn('Student search failed:', e);
                     }
                 }
@@ -1976,6 +2066,8 @@
                     return (current.quality || 0) > (best.quality || 0) ? current : best;
                 }, capturedFrames[0]);
 
+                addDebugLog(`Best frame quality: ${Math.round(bestFrame.quality)}%`, 'info');
+
                 loadingText.textContent = 'Generating face embedding...';
                 loadingProgressFill.style.width = '50%';
 
@@ -1987,14 +2079,23 @@
                 });
 
                 if (!embeddingResponse.ok) {
-                    const errorData = await embeddingResponse.json();
-                    throw new Error(errorData.message || errorData.detail || 'Failed to generate face embedding');
+                    let errorMsg = `HTTP ${embeddingResponse.status}`;
+                    try {
+                        const errorData = await embeddingResponse.json();
+                        errorMsg = errorData.message || errorData.detail || errorMsg;
+                    } catch (e) {
+                        // Use the status text if available
+                        errorMsg = embeddingResponse.statusText || errorMsg;
+                    }
+                    addDebugLog(`Embedding generation failed: ${errorMsg}`, 'error');
+                    throw new Error(`Failed to generate face embedding: ${errorMsg}`);
                 }
 
                 const embeddingResult = await embeddingResponse.json();
+                addDebugLog(`Embedding generated: ${JSON.stringify(embeddingResult).substring(0, 100)}...`, 'success');
                 
                 if (!embeddingResult.success || !embeddingResult.embedding) {
-                    throw new Error('Failed to generate face embedding');
+                    throw new Error('Failed to generate face embedding: Invalid response from API');
                 }
 
                 loadingText.textContent = 'Saving to database...';
@@ -2005,7 +2106,8 @@
                     method: 'POST',
                     body: JSON.stringify({
                         embedding: embeddingResult.embedding,
-                        image_data: bestFrame.imageData
+                        image_data: bestFrame.imageData,
+                        face_enrolled: true
                     })
                 });
 
@@ -2014,6 +2116,7 @@
                 if (saveResponse.success || saveResponse.status === 'success') {
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
+                    addDebugLog('Face enrollment successful!', 'success');
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2045,6 +2148,7 @@
                     throw new Error(saveResponse.message || 'Failed to save face embedding to database');
                 }
             } catch (error) {
+                addDebugLog(`Enrollment error: ${error.message}`, 'error');
                 console.error('Enrollment error:', error);
                 loadingOverlay.style.display = 'none';
                 
@@ -2059,6 +2163,7 @@
         // ---------- RETRY ENROLLMENT ----------
         function retryEnrollment() {
             errorOverlay.classList.remove('show');
+            addDebugLog('Retrying enrollment...', 'info');
             enrollFace();
         }
 
@@ -2104,6 +2209,7 @@
             `;
 
             showToast('Setup reset', 'info');
+            addDebugLog('Setup reset', 'info');
 
             setTimeout(() => startModalCamera(), 500);
         }
@@ -2122,6 +2228,7 @@
 
         // ---------- INIT ----------
         async function init() {
+            addDebugLog('Initializing Face ID Setup...', 'info');
             loadStudentData();
 
             const now = new Date();
@@ -2147,6 +2254,7 @@
             });
 
             setInterval(checkApiStatus, 30000);
+            addDebugLog('Initialization complete', 'success');
         }
 
         // ---------- EXPOSE TO WINDOW ----------
