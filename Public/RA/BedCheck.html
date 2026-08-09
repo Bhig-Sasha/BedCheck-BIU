@@ -8,6 +8,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <!-- MediaPipe Face Mesh -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous">
+    </script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -220,8 +227,8 @@
             grid-template-columns: 1fr 1fr;
             gap: 1rem;
         }
-        @media (min-width: 768px) { .rooms-sidebar { grid-template-columns: 280px 1fr; } }
-        @media (max-width: 480px) { .rooms-sidebar { grid-template-columns: 1fr; } }
+        @media (min-width: 768px) { .rooms-sidebar { grid-template-columns: 260px 1fr; } }
+        @media (max-width: 640px) { .rooms-sidebar { grid-template-columns: 1fr; } }
 
         .room-list {
             max-height: 400px;
@@ -309,6 +316,7 @@
             height: 100%;
             object-fit: cover;
             transform: scaleX(-1);
+            background: #071525;
         }
 
         .face-guide-overlay {
@@ -366,6 +374,30 @@
             z-index: 5;
         }
         @media (max-width: 480px) { .camera-bottom { font-size: 0.6rem; padding: 0.4rem 0.75rem; } }
+
+        .quality-panel {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: rgba(0,0,0,0.8);
+            border-radius: 0.5rem;
+            padding: 0.4rem 0.6rem;
+            font-size: 0.55rem;
+            text-align: left;
+            min-width: 100px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
+        }
+        .quality-panel .quality-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.05rem 0;
+            color: #cbd5e1;
+        }
+        .quality-panel .quality-row .good { color: #4ade80; }
+        .quality-panel .quality-row .warning { color: #fbbf24; }
+        .quality-panel .quality-row .bad { color: #f87171; }
 
         .match-result {
             display: none;
@@ -944,20 +976,6 @@
         }
 
         function updateQualityDisplay(quality) {
-            const qualityFill = document.getElementById('qualityFill');
-            const overallQuality = document.getElementById('overallQuality');
-
-            if (qualityFill) {
-                qualityFill.style.width = quality + '%';
-                const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
-                qualityFill.style.background = color;
-            }
-            if (overallQuality) {
-                overallQuality.textContent = Math.round(quality) + '%';
-                const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
-                overallQuality.style.color = color;
-            }
-
             // Update quality panel rows
             const rows = document.querySelectorAll('.quality-panel .quality-row');
             if (rows.length >= 6) {
@@ -979,6 +997,14 @@
                     }
                 });
             }
+
+            // Update overall quality
+            const overallQuality = document.getElementById('overallQuality');
+            if (overallQuality) {
+                overallQuality.textContent = Math.round(quality) + '%';
+                const color = quality > 75 ? '#4ade80' : quality > 55 ? '#fbbf24' : '#f87171';
+                overallQuality.style.color = color;
+            }
         }
 
         function updateFaceStatus(detected) {
@@ -990,41 +1016,14 @@
                     guide.classList.remove('detected');
                 }
             }
-
-            const faceSizeWarning = document.getElementById('faceSizeWarning');
-            if (faceSizeWarning && !detected && isFaceRecognitionActive) {
-                faceSizeWarning.textContent = '😊 Please position your face in the guide';
-                faceSizeWarning.className = 'face-size-warning show';
-                faceSizeWarning.style.color = '#f87171';
-                clearTimeout(warningTimeout);
-                warningTimeout = setTimeout(() => {
-                    if (!faceDetected) {
-                        faceSizeWarning.classList.remove('show');
-                    }
-                }, 3000);
-            }
-
-            // Update camera status
-            const statusEl = document.getElementById('cameraStatus');
-            if (statusEl) {
-                const dot = statusEl.querySelector('.dot');
-                if (dot) {
-                    dot.className = 'dot' + (detected ? '' : ' inactive');
-                }
-                const text = statusEl.querySelector('span:last-child');
-                if (text) {
-                    text.textContent = detected ? 'Face detected' : 'Looking for face...';
-                }
-            }
         }
 
         // =============================================
-        // FACE VERIFICATION - NEW
+        // FACE VERIFICATION
         // =============================================
         function buildFaceEmbeddings() {
             hostelStudents.forEach(s => {
                 if (!faceEmbeddings[s.id]) {
-                    // Generate a simple mock embedding based on name + matric
                     let hash = 0;
                     const str = s.name + s.matric;
                     for (let i = 0; i < str.length; i++) {
@@ -1096,7 +1095,6 @@
             if (!isFaceRecognitionActive) return;
             if (!currentRoom) return;
 
-            // Check if there are pending students
             const pendingStudents = currentRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
             if (pendingStudents.length === 0) {
                 if (isFaceRecognitionActive) {
@@ -1106,20 +1104,17 @@
                 return;
             }
 
-            // Rate limit verification to every 2 seconds
             const now = Date.now();
             if (now - lastVerificationTime < 2000) return;
             lastVerificationTime = now;
 
             isVerifying = true;
 
-            // Update face box
             const faceBox = document.getElementById('faceBox');
             if (faceBox) {
                 faceBox.className = 'face-box scanning';
                 const label = faceBox.querySelector('.label');
                 if (label) label.textContent = '🔍 Scanning...';
-                // Position the box at the face location (simplified)
                 faceBox.style.display = 'block';
                 faceBox.style.top = '25%';
                 faceBox.style.left = '25%';
@@ -1127,7 +1122,6 @@
                 faceBox.style.height = '50%';
             }
 
-            // Show liveness prompt
             const livenessPrompt = document.getElementById('livenessPrompt');
             if (livenessPrompt) {
                 livenessPrompt.style.display = 'block';
@@ -1146,7 +1140,6 @@
                         return;
                     }
 
-                    // Search for match among pending students
                     let bestMatch = null;
                     let bestScore = 0;
                     const threshold = 0.85;
@@ -1162,7 +1155,6 @@
                     });
 
                     if (bestMatch && bestScore >= threshold) {
-                        // Match found!
                         const confidence = Math.round(bestScore * 100);
                         const student = bestMatch;
 
@@ -1178,15 +1170,12 @@
                             `Room ${currentRoom} · ${confidence}%`);
                         showToast(`✅ ${student.name} verified (${confidence}%)`, 'success');
 
-                        // Update face box
-                        const faceBox = document.getElementById('faceBox');
                         if (faceBox) {
                             faceBox.className = 'face-box matched';
                             const label = faceBox.querySelector('.label');
                             if (label) label.textContent = `✅ ${student.name} ${confidence}%`;
                         }
 
-                        // Show match result
                         const matchResult = document.getElementById('matchResult');
                         if (matchResult) {
                             matchResult.className = 'match-result show';
@@ -1195,16 +1184,8 @@
                             document.getElementById('confidencePct').textContent = `${confidence}%`;
                         }
 
-                        // Update camera status
-                        const statusEl = document.getElementById('cameraStatus');
-                        if (statusEl) {
-                            const text = statusEl.querySelector('span:last-child');
-                            if (text) text.textContent = `✅ ${student.name} verified`;
-                        }
-
                         renderBedCheck();
 
-                        // Check if room is complete
                         if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
                             if (!completedRooms.includes(currentRoom)) {
                                 completedRooms.push(currentRoom);
@@ -1215,25 +1196,16 @@
                             stopFaceRecognition();
                         }
 
-                        // Reset match result after 3 seconds
                         setTimeout(() => {
                             const matchResult = document.getElementById('matchResult');
                             if (matchResult) matchResult.className = 'match-result';
-                            const faceBox = document.getElementById('faceBox');
                             if (faceBox) {
                                 faceBox.className = 'face-box';
                                 faceBox.style.display = 'none';
                             }
-                            const statusEl = document.getElementById('cameraStatus');
-                            if (statusEl) {
-                                const text = statusEl.querySelector('span:last-child');
-                                if (text) text.textContent = 'Looking for next student...';
-                            }
                         }, 3000);
 
                     } else {
-                        // No match
-                        const faceBox = document.getElementById('faceBox');
                         if (faceBox) {
                             faceBox.className = 'face-box unknown';
                             const label = faceBox.querySelector('.label');
@@ -1361,6 +1333,18 @@
                 const text = statusEl.querySelector('span:last-child');
                 if (text) text.textContent = 'Camera stopped';
             }
+
+            const toggleBtn = document.getElementById('toggleFaceBtn');
+            if (toggleBtn) {
+                toggleBtn.innerHTML = '<i class="fas fa-play"></i> Start Recognition';
+                toggleBtn.className = 'btn-gold';
+            }
+
+            const faceBox = document.getElementById('faceBox');
+            if (faceBox) {
+                faceBox.className = 'face-box';
+                faceBox.style.display = 'none';
+            }
         }
 
         // =============================================
@@ -1380,7 +1364,6 @@
                 return;
             }
 
-            // Check if room is already complete
             if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
                 showToast('✅ All students in this room are already verified!', 'success');
                 return;
@@ -1394,18 +1377,15 @@
                 showToast('📸 Face recognition started.', 'success');
                 addTimeline('Face recognition started', `Room ${currentRoom}`);
 
-                // Update button
                 const toggleBtn = document.getElementById('toggleFaceBtn');
                 if (toggleBtn) {
                     toggleBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Recognition';
                     toggleBtn.className = 'btn-danger';
                 }
 
-                // Reset verification state
                 isVerifying = false;
                 lastVerificationTime = 0;
 
-                // Clear any previous match result
                 const matchResult = document.getElementById('matchResult');
                 if (matchResult) matchResult.className = 'match-result';
 
@@ -1428,18 +1408,6 @@
             isFaceRecognitionActive = false;
             isVerifying = false;
             if (livenessTimeout) { clearTimeout(livenessTimeout); livenessTimeout = null; }
-
-            const toggleBtn = document.getElementById('toggleFaceBtn');
-            if (toggleBtn) {
-                toggleBtn.innerHTML = '<i class="fas fa-play"></i> Start Recognition';
-                toggleBtn.className = 'btn-gold';
-            }
-
-            const faceBox = document.getElementById('faceBox');
-            if (faceBox) {
-                faceBox.className = 'face-box';
-                faceBox.style.display = 'none';
-            }
 
             const statusEl = document.getElementById('cameraStatus');
             if (statusEl) {
@@ -1546,7 +1514,6 @@
 
             if (isFaceRecognitionActive) stopFaceRecognition();
 
-            // Move unverified students from previous room to auto-absent
             if (currentRoom && currentRoom !== room) {
                 const prevRoomStudents = getStudentsForRoom(currentRoom);
                 prevRoomStudents.forEach(s => {
@@ -1581,14 +1548,11 @@
             showToast(`📋 Room ${room} selected. Start face recognition.`, 'info');
             renderBedCheck();
 
-            // Auto-start face recognition
             if (!isFaceRecognitionActive && isSessionActive && currentRoom) {
-                // Check if room is already complete
                 if (!currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
                     setTimeout(() => startFaceRecognition(), 800);
                 } else {
                     showToast(`✅ Room ${room} already complete!`, 'success');
-                    // Mark as completed if not already
                     if (!completedRooms.includes(room)) {
                         completedRooms.push(room);
                         renderBedCheck();
@@ -1641,7 +1605,6 @@
             // Build room list HTML
             let roomListHtml = '';
             if (allRooms.length > 0) {
-                // Group rooms by floor
                 const floorGroups = {};
                 roomStructure.areas.forEach(area => {
                     const floorKey = area.floor || 'All';
@@ -1766,6 +1729,17 @@
                                 </div>
                                 <div class="liveness-prompt" id="livenessPrompt" style="display:none;position:absolute;bottom:3.5rem;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#d6ad4b;padding:0.3rem 0.8rem;border-radius:9999px;font-size:0.7rem;z-index:10;border:1px solid #d6ad4b;">👁️ Looking at camera</div>
                                 <div id="faceSizeWarning" class="face-size-warning" style="position:absolute;bottom:5rem;left:50%;transform:translateX(-50%);font-size:0.55rem;color:#fbbf24;background:rgba(0,0,0,0.8);padding:0.2rem 0.6rem;border-radius:9999px;z-index:5;display:none;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,0.1);text-align:center;white-space:nowrap;">📏 Move closer</div>
+                                <div class="quality-panel" id="qualityPanel">
+                                    <div class="quality-row">Lighting <span class="good">✓</span></div>
+                                    <div class="quality-row">Eyes <span class="good">✓</span></div>
+                                    <div class="quality-row">Distance <span class="good">✓</span></div>
+                                    <div class="quality-row">Blur <span class="good">✓</span></div>
+                                    <div class="quality-row">Angle <span class="good">✓</span></div>
+                                    <div class="quality-row">Liveness <span class="warning">○</span></div>
+                                    <div class="quality-row" style="border-top:1px solid #334155;padding-top:0.2rem;margin-top:0.2rem;">
+                                        Overall <span id="overallQuality" style="color:#4ade80;font-weight:700;">86%</span>
+                                    </div>
+                                </div>
                                 <div class="camera-bottom">
                                     <span><i class="fas fa-shield-halved"></i> Secure Face ID</span>
                                     <span id="cameraProcessing">${isFaceRecognitionActive ? 'Active' : 'Standby'}</span>
