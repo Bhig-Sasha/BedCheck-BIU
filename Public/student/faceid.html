@@ -1284,7 +1284,7 @@
     <!-- Hidden Canvas -->
     <canvas id="captureCanvas"></canvas>
 
-    <script>
+<script>
     (function() {
         'use strict';
 
@@ -1292,7 +1292,11 @@
         // FACE ID SETUP - INSIGHTFACE ENROLLMENT
         // =============================================
 
-        const API_BASE = 'https://bedcheck-biu.onrender.com/api';
+        // =============================================
+        // API CONFIGURATION - USE FACE API DIRECTLY
+        // =============================================
+        const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
+        const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
         // ---------- STATE ----------
         let cameraStream = null;
@@ -1375,28 +1379,28 @@
         async function checkApiStatus() {
             try {
                 apiIndicator.className = 'status-indicator checking';
-                apiStatusText.textContent = 'Checking API connection...';
+                apiStatusText.textContent = 'Checking InsightFace API...';
                 
-                const response = await fetch(`${API_BASE}/health`, {
+                const response = await fetch(`${FACE_API_URL}/health`, {
                     signal: AbortSignal.timeout(5000)
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
-                    isApiOnline = data.status === 'healthy';
+                    isApiOnline = data.status === 'running' || data.status === 'healthy';
                     apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
                     apiStatusText.textContent = isApiOnline ? 
-                        '✅ BedCheck API Online' : 
+                        '✅ InsightFace API Online' : 
                         '⚠️ API Online but not healthy';
                 } else {
                     isApiOnline = false;
                     apiIndicator.className = 'status-indicator offline';
-                    apiStatusText.textContent = '❌ API Offline';
+                    apiStatusText.textContent = '❌ InsightFace API Offline';
                 }
             } catch (error) {
                 isApiOnline = false;
                 apiIndicator.className = 'status-indicator offline';
-                apiStatusText.textContent = '❌ Cannot connect to API';
+                apiStatusText.textContent = '❌ Cannot connect to InsightFace API';
                 console.warn('API status check failed:', error.message);
             }
         }
@@ -1414,12 +1418,12 @@
             if (!isApiOnline) {
                 await checkApiStatus();
                 if (!isApiOnline) {
-                    throw new Error('API is offline. Please try again later.');
+                    throw new Error('Face API is offline. Please try again later.');
                 }
             }
 
             try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
+                const response = await fetch(`${FACE_API_URL}${endpoint}`, {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
@@ -1436,6 +1440,29 @@
                 return data;
             } catch (error) {
                 console.error('API call error:', error);
+                throw error;
+            }
+        }
+
+        async function nodeApiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${NODE_API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(options.headers || {})
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Node API call error:', error);
                 throw error;
             }
         }
@@ -1475,7 +1502,7 @@
         // ---------- FACE DETECTION ----------
         async function detectFaceWithAPI(imageData) {
             try {
-                const response = await fetch(`${API_BASE}/face/detect`, {
+                const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image: imageData })
@@ -1485,6 +1512,7 @@
                 const data = await response.json();
                 return data.success && data.faces && data.faces.length > 0;
             } catch (error) {
+                console.warn('Face detection error:', error);
                 return false;
             }
         }
@@ -1866,7 +1894,7 @@
 
             await checkApiStatus();
             if (!isApiOnline) {
-                showToast('API is offline. Please try again later.', 'error');
+                showToast('InsightFace API is offline. Please try again later.', 'error');
                 return;
             }
 
@@ -1933,7 +1961,7 @@
 
                 if (!studentId && studentData.matric) {
                     try {
-                        const searchRes = await apiCall(`/students?search=${studentData.matric}`);
+                        const searchRes = await nodeApiCall(`/students?search=${studentData.matric}`);
                         if (searchRes.data && searchRes.data.length > 0) {
                             studentId = searchRes.data[0].id;
                             studentData.id = studentId;
@@ -1957,16 +1985,17 @@
                 loadingText.textContent = 'Sending to InsightFace...';
                 loadingProgressFill.style.width = '50%';
 
-                const enrollResponse = await fetch(`${API_BASE}/face/enroll`, {
+                // Use the Face API directly for enrollment
+                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         student_id: studentId,
                         image: bestFrame.imageData,
-                        name: studentData.name,
-                        matric: studentData.matric,
-                        hostel_id: studentData.hostel_id,
-                        room_id: studentData.room_id
+                        name: studentData.name || '',
+                        matric: studentData.matric || '',
+                        hostel: studentData.hostel_id || '',
+                        room: studentData.room_id || ''
                     })
                 });
 
@@ -1983,14 +2012,19 @@
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
 
-                    // Update student's face_enrolled status
-                    await apiCall(`/students/${studentId}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ 
-                            face_enrolled: true,
-                            face_embedding: enrollResult.embedding || null
-                        })
-                    });
+                    // Update student's face_enrolled status via Node API
+                    try {
+                        await nodeApiCall(`/students/${studentId}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ 
+                                face_enrolled: true,
+                                face_embedding: enrollResult.embedding || null
+                            })
+                        });
+                    } catch (updateError) {
+                        console.warn('Student update warning:', updateError);
+                        // Continue even if update fails - enrollment was successful
+                    }
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2143,6 +2177,6 @@
         }
 
     })();
-    </script>
+</script>
 </body>
 </html>
