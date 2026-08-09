@@ -141,6 +141,62 @@
             display: block;
         }
 
+        .camera-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            z-index: 2;
+            background: #0a0a15;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .camera-placeholder .icon {
+            font-size: 3rem;
+            color: #475569;
+            margin-bottom: 0.5rem;
+        }
+
+        .camera-placeholder .title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+
+        .camera-placeholder .sub {
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-top: 0.25rem;
+        }
+
+        .camera-placeholder .btn-camera {
+            margin-top: 0.75rem;
+            padding: 0.5rem 1.5rem;
+            background: #d6ad4b;
+            color: #0a0a15;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .camera-placeholder .btn-camera:hover {
+            background: #c49a3a;
+            transform: scale(1.02);
+        }
+
+        .camera-placeholder.hidden {
+            display: none;
+        }
+
         .face-overlay {
             position: absolute;
             top: 0;
@@ -1030,11 +1086,6 @@
         .position-label.done .pos-label .pos-arrow {
             display: none;
         }
-
-        /* Hide the old face guide placeholder */
-        #modalFaceGuide {
-            display: none !important;
-        }
     </style>
 </head>
 <body>
@@ -1062,6 +1113,14 @@
         <!-- Camera Preview -->
         <div class="camera-preview" id="cameraPreview">
             <video id="modalCamera" autoplay playsinline muted></video>
+            
+            <!-- Camera Placeholder -->
+            <div class="camera-placeholder" id="cameraPlaceholder">
+                <div class="icon">📷</div>
+                <div class="title">Camera Access Required</div>
+                <div class="sub">Please allow camera access to continue with Face ID setup</div>
+                <button class="btn-camera" onclick="requestCameraAccess()">🎥 Enable Camera</button>
+            </div>
 
             <!-- Face Guide -->
             <div class="face-overlay">
@@ -1225,14 +1284,14 @@
     <!-- Hidden Canvas -->
     <canvas id="captureCanvas"></canvas>
 
-    <script>
+<script>
     (function() {
         'use strict';
 
         // =============================================
-        // FACE ID SETUP - INSIGHTFACE ENROLLMENT
+        // API CONFIGURATION - USE FACE API DIRECTLY
         // =============================================
-
+        const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
         const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
         // ---------- STATE ----------
@@ -1249,6 +1308,8 @@
         let isApiOnline = false;
 
         let warningTimeout = null;
+        let cameraAttempts = 0;
+        const MAX_CAMERA_ATTEMPTS = 3;
 
         const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
         const POSITION_DIRECTIONS = ['center', 'right', 'down', 'left', 'up'];
@@ -1292,6 +1353,7 @@
         const positionLabel = document.getElementById('positionLabel');
         const positionText = document.getElementById('positionText');
         const faceSizeWarning = document.getElementById('faceSizeWarning');
+        const cameraPlaceholder = document.getElementById('cameraPlaceholder');
 
         const positionDots = document.querySelectorAll('.position-dot');
         const arrows = {
@@ -1313,28 +1375,28 @@
         async function checkApiStatus() {
             try {
                 apiIndicator.className = 'status-indicator checking';
-                apiStatusText.textContent = 'Checking API connection...';
+                apiStatusText.textContent = 'Checking InsightFace API...';
                 
-                const response = await fetch(`${API_BASE}/health`, {
+                const response = await fetch(`${FACE_API_URL}/health`, {
                     signal: AbortSignal.timeout(5000)
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
-                    isApiOnline = data.status === 'healthy';
+                    isApiOnline = data.status === 'running' || data.status === 'healthy';
                     apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
                     apiStatusText.textContent = isApiOnline ? 
-                        '✅ BedCheck API Online' : 
+                        '✅ InsightFace API Online' : 
                         '⚠️ API Online but not healthy';
                 } else {
                     isApiOnline = false;
                     apiIndicator.className = 'status-indicator offline';
-                    apiStatusText.textContent = '❌ API Offline';
+                    apiStatusText.textContent = '❌ InsightFace API Offline';
                 }
             } catch (error) {
                 isApiOnline = false;
                 apiIndicator.className = 'status-indicator offline';
-                apiStatusText.textContent = '❌ Cannot connect to API';
+                apiStatusText.textContent = '❌ Cannot connect to InsightFace API';
                 console.warn('API status check failed:', error.message);
             }
         }
@@ -1352,12 +1414,12 @@
             if (!isApiOnline) {
                 await checkApiStatus();
                 if (!isApiOnline) {
-                    throw new Error('API is offline. Please try again later.');
+                    throw new Error('Face API is offline. Please try again later.');
                 }
             }
 
             try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
+                const response = await fetch(`${FACE_API_URL}${endpoint}`, {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
@@ -1374,6 +1436,29 @@
                 return data;
             } catch (error) {
                 console.error('API call error:', error);
+                throw error;
+            }
+        }
+
+        async function nodeApiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${NODE_API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(options.headers || {})
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Node API call error:', error);
                 throw error;
             }
         }
@@ -1413,7 +1498,7 @@
         // ---------- FACE DETECTION ----------
         async function detectFaceWithAPI(imageData) {
             try {
-                const response = await fetch(`${API_BASE}/face/detect`, {
+                const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image: imageData })
@@ -1423,6 +1508,7 @@
                 const data = await response.json();
                 return data.success && data.faces && data.faces.length > 0;
             } catch (error) {
+                console.warn('Face detection error:', error);
                 return false;
             }
         }
@@ -1430,7 +1516,25 @@
         // ---------- CAMERA ----------
         async function startModalCamera() {
             try {
-                if (cameraStream) stopModalCamera();
+                // Check if we already have a stream and it's active
+                if (cameraStream && cameraStream.active) {
+                    // Try to reuse existing stream
+                    const tracks = cameraStream.getVideoTracks();
+                    if (tracks.length > 0 && tracks[0].readyState === 'live') {
+                        video.srcObject = cameraStream;
+                        await video.play();
+                        isCameraReady = true;
+                        cameraPlaceholder.classList.add('hidden');
+                        monitorVideoQuality();
+                        updateStatus('ready', 'Camera ready - Position your face');
+                        return true;
+                    }
+                }
+
+                // If we have a stream but it's not active, clean it up
+                if (cameraStream) {
+                    stopModalCamera();
+                }
 
                 const constraints = {
                     video: {
@@ -1445,15 +1549,26 @@
                 video.srcObject = cameraStream;
                 await video.play();
                 isCameraReady = true;
+                cameraPlaceholder.classList.add('hidden');
+                cameraAttempts = 0;
 
                 monitorVideoQuality();
-
                 updateStatus('ready', 'Camera ready - Position your face');
                 return true;
             } catch (error) {
                 console.error('Camera error:', error);
-                showToast('Camera access denied: ' + error.message, 'error');
+                cameraAttempts++;
+                
+                if (cameraAttempts < MAX_CAMERA_ATTEMPTS) {
+                    showToast(`Camera access attempt ${cameraAttempts + 1}/${MAX_CAMERA_ATTEMPTS}`, 'info');
+                    // Wait a moment and retry
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return startModalCamera();
+                }
+                
+                showToast('Camera access denied. Please allow camera access in your browser settings.', 'error');
                 updateStatus('error', 'Camera unavailable');
+                cameraPlaceholder.classList.remove('hidden');
                 return false;
             }
         }
@@ -1471,6 +1586,15 @@
             }
             video.srcObject = null;
         }
+
+        // ---------- REQUEST CAMERA ACCESS ----------
+        window.requestCameraAccess = async function() {
+            cameraPlaceholder.classList.add('hidden');
+            const started = await startModalCamera();
+            if (!started) {
+                cameraPlaceholder.classList.remove('hidden');
+            }
+        };
 
         // ---------- VIDEO QUALITY MONITORING ----------
         function monitorVideoQuality() {
@@ -1766,7 +1890,7 @@
 
             await checkApiStatus();
             if (!isApiOnline) {
-                showToast('API is offline. Please try again later.', 'error');
+                showToast('InsightFace API is offline. Please try again later.', 'error');
                 return;
             }
 
@@ -1833,7 +1957,7 @@
 
                 if (!studentId && studentData.matric) {
                     try {
-                        const searchRes = await apiCall(`/students?search=${studentData.matric}`);
+                        const searchRes = await nodeApiCall(`/students?search=${studentData.matric}`);
                         if (searchRes.data && searchRes.data.length > 0) {
                             studentId = searchRes.data[0].id;
                             studentData.id = studentId;
@@ -1857,16 +1981,17 @@
                 loadingText.textContent = 'Sending to InsightFace...';
                 loadingProgressFill.style.width = '50%';
 
-                const enrollResponse = await fetch(`${API_BASE}/face/enroll`, {
+                // Use the Face API directly for enrollment
+                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         student_id: studentId,
                         image: bestFrame.imageData,
-                        name: studentData.name,
-                        matric: studentData.matric,
-                        hostel_id: studentData.hostel_id,
-                        room_id: studentData.room_id
+                        name: studentData.name || '',
+                        matric: studentData.matric || '',
+                        hostel: studentData.hostel_id || '',
+                        room: studentData.room_id || ''
                     })
                 });
 
@@ -1883,14 +2008,19 @@
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
 
-                    // Update student's face_enrolled status
-                    await apiCall(`/students/${studentId}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ 
-                            face_enrolled: true,
-                            face_embedding: enrollResult.embedding || null
-                        })
-                    });
+                    // Update student's face_enrolled status via Node API
+                    try {
+                        await nodeApiCall(`/students/${studentId}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ 
+                                face_enrolled: true,
+                                face_embedding: enrollResult.embedding || null
+                            })
+                        });
+                    } catch (updateError) {
+                        console.warn('Student update warning:', updateError);
+                        // Continue even if update fails - enrollment was successful
+                    }
 
                     showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
@@ -2004,7 +2134,13 @@
                 `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
 
             await checkApiStatus();
-            await startModalCamera();
+            
+            // Try to start camera automatically
+            cameraPlaceholder.classList.remove('hidden');
+            const started = await startModalCamera();
+            if (started) {
+                cameraPlaceholder.classList.add('hidden');
+            }
 
             updatePositionIndicators();
             updateQualityDisplay(0);
@@ -2027,6 +2163,7 @@
         window.stopModalCamera = stopModalCamera;
         window.goBackToLogin = goBackToLogin;
         window.checkApiStatus = checkApiStatus;
+        window.requestCameraAccess = requestCameraAccess;
 
         // ---------- INIT ----------
         if (document.readyState === 'loading') {
@@ -2036,6 +2173,6 @@
         }
 
     })();
-    </script>
+</script>
 </body>
 </html>
