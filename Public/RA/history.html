@@ -291,7 +291,6 @@
         .room-selector-grid .room-btn .count { font-size: 0.6rem; opacity: 0.6; }
         @media (max-width: 480px) { .room-selector-grid .room-btn { font-size: 0.65rem; padding: 0.2rem 0.6rem; } }
 
-        /* Room Range Tag */
         .room-range-tag {
             display: inline-block;
             padding: 0.1rem 0.4rem;
@@ -442,37 +441,33 @@
             const ITEMS_PER_PAGE = 10;
 
             // =============================================
-            // BUILD ROOM STRUCTURE
+            // BUILD ROOM STRUCTURE - FROM HOSTEL STUDENTS
             // =============================================
             function buildRoomStructure() {
                 if (!assignedHostelId) return;
                 roomStructure = { type: 'floor', areas: [] };
 
-                const hostelStudentsFiltered = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                // Get rooms from hostel students
+                const hostelRoomCodes = [...new Set(hostelStudents.map(s => s.room_code || s.room).filter(Boolean))];
+                const sortedRooms = hostelRoomCodes.sort();
 
-                // Get floors from students
-                const floorLetters = [];
-                hostelStudentsFiltered.forEach(s => {
-                    if (s.floor) {
-                        const letter = s.floor.replace('Floor ', '');
-                        if (letter) floorLetters.push(letter);
-                    }
+                // Group by floor letter
+                const floorGroups = {};
+                sortedRooms.forEach(room => {
+                    const letter = room.replace(/[0-9]/g, '');
+                    if (!floorGroups[letter]) floorGroups[letter] = [];
+                    floorGroups[letter].push(room);
                 });
-                const sortedLetters = [...new Set(floorLetters)].sort();
 
+                const sortedLetters = Object.keys(floorGroups).sort();
                 sortedLetters.forEach(letter => {
-                    const floorRooms = hostelStudentsFiltered
-                        .filter(s => s.floor === `Floor ${letter}`)
-                        .map(s => s.room)
-                        .filter(Boolean)
-                        .sort((a, b) => {
-                            const numA = parseInt(a.replace(letter, ''));
-                            const numB = parseInt(b.replace(letter, ''));
-                            return numA - numB;
-                        });
+                    const floorRooms = floorGroups[letter].sort((a, b) => {
+                        const numA = parseInt(a.replace(letter, ''));
+                        const numB = parseInt(b.replace(letter, ''));
+                        return numA - numB;
+                    });
 
-                    let roomRanges = [];
-                    // Default: 2 ranges per floor (1-9 and 10-18)
+                    // Split into ranges (1-9 and 10-18)
                     const range1 = floorRooms.filter(r => {
                         const num = parseInt(r.replace(letter, ''));
                         return num >= 1 && num <= 9;
@@ -483,62 +478,30 @@
                     });
 
                     if (range1.length > 0) {
-                        roomRanges.push({
+                        roomStructure.areas.push({
                             name: `${letter}1-${letter}9`,
                             key: `${letter}1-${letter}9`,
                             rooms: range1,
+                            floor: `Floor ${letter}`,
                             prefix: letter,
                             start: 1,
                             end: 9
                         });
                     }
                     if (range2.length > 0) {
-                        roomRanges.push({
+                        roomStructure.areas.push({
                             name: `${letter}10-${letter}18`,
                             key: `${letter}10-${letter}18`,
                             rooms: range2,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
-                    }
-
-                    // If no rooms found, create default ranges
-                    if (roomRanges.length === 0) {
-                        const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
-                        const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
-                        roomRanges.push({
-                            name: `${letter}1-${letter}9`,
-                            key: `${letter}1-${letter}9`,
-                            rooms: defaultRooms1,
-                            prefix: letter,
-                            start: 1,
-                            end: 9
-                        });
-                        roomRanges.push({
-                            name: `${letter}10-${letter}18`,
-                            key: `${letter}10-${letter}18`,
-                            rooms: defaultRooms2,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
-                    }
-
-                    roomRanges.forEach(range => {
-                        roomStructure.areas.push({
-                            name: range.name,
-                            key: range.key,
-                            rooms: range.rooms,
                             floor: `Floor ${letter}`,
-                            prefix: range.prefix,
-                            start: range.start,
-                            end: range.end
+                            prefix: letter,
+                            start: 10,
+                            end: 18
                         });
-                    });
+                    }
                 });
 
-                // If no areas found, create defaults
+                // If no rooms found, create defaults based on hostel students
                 if (roomStructure.areas.length === 0) {
                     const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
                     for (let i = 0; i < 3; i++) {
@@ -639,31 +602,35 @@
                 return `<span class="status-tag ${map[status] || 'draft'}">${status || 'Unknown'}</span>`;
             }
 
+            // =============================================
+            // LOAD STUDENTS - FILTERED BY HOSTEL ID
+            // =============================================
             async function loadStudents() {
                 try {
-                    let endpoint = '/students';
-                    if (assignedHostelId) {
-                        endpoint = `/hostels/${assignedHostelId}/students`;
-                    }
-                    const data = await apiCall(endpoint);
+                    // Load all students and filter by hostel_id
+                    const data = await apiCall('/students');
                     allStudents = data.data || [];
                     
                     if (assignedHostelId) {
                         hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelId}`);
                     } else if (assignedHostelName) {
                         hostelStudents = allStudents.filter(s => 
-                            s.hostel === assignedHostelName || 
-                            s.hostel_name === assignedHostelName
+                            s.hostel_name === assignedHostelName || 
+                            s.hostel === assignedHostelName
                         );
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelName}`);
                     } else {
                         hostelStudents = allStudents;
+                        console.warn('⚠️ No hostel assigned, showing all students');
                     }
                     
                     // Build room structure after loading students
                     buildRoomStructure();
                     
                     return hostelStudents;
-                } catch { 
+                } catch (error) {
+                    console.error('Error loading students:', error);
                     allStudents = []; 
                     hostelStudents = [];
                     return []; 
@@ -684,18 +651,26 @@
                 return null;
             }
 
+            // =============================================
+            // LOAD BEDCHECK SCANS - FILTERED BY HOSTEL STUDENTS
+            // =============================================
             async function loadBedCheckScans() {
                 try {
                     const data = await apiCall('/bedcheck/scans');
                     const scans = data.data || [];
+                    
+                    // Create a set of hostel student IDs for quick lookup
+                    const hostelStudentIds = new Set(hostelStudents.map(s => s.id));
+                    
+                    // Filter scans to only include students in the hostel
+                    const filteredScans = scans.filter(scan => hostelStudentIds.has(scan.student_id));
+                    
+                    console.log(`✅ ${filteredScans.length} scans found for hostel students`);
+
                     const studentMap = {};
                     hostelStudents.forEach(s => { studentMap[s.id] = s; });
 
-                    roomHistory = scans
-                        .filter(scan => {
-                            const student = studentMap[scan.student_id];
-                            return student !== undefined;
-                        })
+                    roomHistory = filteredScans
                         .map(scan => {
                             const student = studentMap[scan.student_id];
                             const studentName = student?.name || scan.student_name || 'Unknown Student';
@@ -720,7 +695,7 @@
                                 markedBy: student?.verified_by || scan.scanner_id || 'RA',
                                 device: scan.device_id || 'RA-A1',
                                 method: scan.method || 'face-recognition',
-                                bed: scan.bed_number || student?.bed || '—',
+                                bed: scan.bed_number || student?.bed_code || '—',
                                 remark: scan.note || '—'
                             };
                         });

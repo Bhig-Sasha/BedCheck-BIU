@@ -253,7 +253,6 @@
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 55; display: none; opacity: 0; transition: opacity 0.3s ease; }
         .overlay.show { display: block; opacity: 1; }
 
-        /* Room Range Tag */
         .room-range-tag {
             display: inline-block;
             padding: 0.1rem 0.4rem;
@@ -417,6 +416,7 @@
             let assignedHostelName = '';
             let assignedHostelId = null;
             let allStudents = [];
+            let hostelStudents = [];
             let allScans = [];
             let reportData = {
                 totalSessions: 0,
@@ -461,133 +461,6 @@
             }
 
             // =============================================
-            // BUILD ROOM STRUCTURE
-            // =============================================
-            function buildRoomStructure() {
-                if (!assignedHostelId) return;
-                roomStructure = { type: 'floor', areas: [] };
-
-                const hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-
-                // Get floors from students
-                const floorLetters = [];
-                hostelStudents.forEach(s => {
-                    if (s.floor) {
-                        const letter = s.floor.replace('Floor ', '');
-                        if (letter) floorLetters.push(letter);
-                    }
-                });
-                const sortedLetters = [...new Set(floorLetters)].sort();
-
-                sortedLetters.forEach(letter => {
-                    const floorRooms = hostelStudents
-                        .filter(s => s.floor === `Floor ${letter}`)
-                        .map(s => s.room)
-                        .filter(Boolean)
-                        .sort((a, b) => {
-                            const numA = parseInt(a.replace(letter, ''));
-                            const numB = parseInt(b.replace(letter, ''));
-                            return numA - numB;
-                        });
-
-                    let roomRanges = [];
-                    const range1 = floorRooms.filter(r => {
-                        const num = parseInt(r.replace(letter, ''));
-                        return num >= 1 && num <= 9;
-                    });
-                    const range2 = floorRooms.filter(r => {
-                        const num = parseInt(r.replace(letter, ''));
-                        return num >= 10 && num <= 18;
-                    });
-
-                    if (range1.length > 0) {
-                        roomRanges.push({
-                            name: `${letter}1-${letter}9`,
-                            key: `${letter}1-${letter}9`,
-                            rooms: range1,
-                            prefix: letter,
-                            start: 1,
-                            end: 9
-                        });
-                    }
-                    if (range2.length > 0) {
-                        roomRanges.push({
-                            name: `${letter}10-${letter}18`,
-                            key: `${letter}10-${letter}18`,
-                            rooms: range2,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
-                    }
-
-                    if (roomRanges.length === 0) {
-                        const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
-                        const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
-                        roomRanges.push({
-                            name: `${letter}1-${letter}9`,
-                            key: `${letter}1-${letter}9`,
-                            rooms: defaultRooms1,
-                            prefix: letter,
-                            start: 1,
-                            end: 9
-                        });
-                        roomRanges.push({
-                            name: `${letter}10-${letter}18`,
-                            key: `${letter}10-${letter}18`,
-                            rooms: defaultRooms2,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
-                    }
-
-                    roomRanges.forEach(range => {
-                        roomStructure.areas.push({
-                            name: range.name,
-                            key: range.key,
-                            rooms: range.rooms,
-                            floor: `Floor ${letter}`,
-                            prefix: range.prefix,
-                            start: range.start,
-                            end: range.end
-                        });
-                    });
-                });
-
-                if (roomStructure.areas.length === 0) {
-                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-                    for (let i = 0; i < 3; i++) {
-                        const letter = letters[i];
-                        const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
-                        const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
-                        roomStructure.areas.push({
-                            name: `${letter}1-${letter}9`,
-                            key: `${letter}1-${letter}9`,
-                            rooms: range1,
-                            floor: `Floor ${letter}`,
-                            prefix: letter,
-                            start: 1,
-                            end: 9
-                        });
-                        roomStructure.areas.push({
-                            name: `${letter}10-${letter}18`,
-                            key: `${letter}10-${letter}18`,
-                            rooms: range2,
-                            floor: `Floor ${letter}`,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
-                    }
-                }
-            }
-
-            function getAreaForRoom(room) {
-                return roomStructure.areas.find(a => a.rooms.includes(room));
-            }
-
-            // =============================================
             // HELPERS
             // =============================================
             function getInitials(name) {
@@ -628,15 +501,126 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // BUILD ROOM STRUCTURE - FROM HOSTEL STUDENTS
+            // =============================================
+            function buildRoomStructure() {
+                if (!assignedHostelId) return;
+                roomStructure = { type: 'floor', areas: [] };
+
+                // Get rooms from hostel students
+                const hostelRoomCodes = [...new Set(hostelStudents.map(s => s.room_code || s.room).filter(Boolean))];
+                const sortedRooms = hostelRoomCodes.sort();
+
+                // Group by floor letter
+                const floorGroups = {};
+                sortedRooms.forEach(room => {
+                    const letter = room.replace(/[0-9]/g, '');
+                    if (!floorGroups[letter]) floorGroups[letter] = [];
+                    floorGroups[letter].push(room);
+                });
+
+                const sortedLetters = Object.keys(floorGroups).sort();
+                sortedLetters.forEach(letter => {
+                    const floorRooms = floorGroups[letter].sort((a, b) => {
+                        const numA = parseInt(a.replace(letter, ''));
+                        const numB = parseInt(b.replace(letter, ''));
+                        return numA - numB;
+                    });
+
+                    // Split into ranges (1-9 and 10-18)
+                    const range1 = floorRooms.filter(r => {
+                        const num = parseInt(r.replace(letter, ''));
+                        return num >= 1 && num <= 9;
+                    });
+                    const range2 = floorRooms.filter(r => {
+                        const num = parseInt(r.replace(letter, ''));
+                        return num >= 10 && num <= 18;
+                    });
+
+                    if (range1.length > 0) {
+                        roomStructure.areas.push({
+                            name: `${letter}1-${letter}9`,
+                            key: `${letter}1-${letter}9`,
+                            rooms: range1,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 1,
+                            end: 9
+                        });
+                    }
+                    if (range2.length > 0) {
+                        roomStructure.areas.push({
+                            name: `${letter}10-${letter}18`,
+                            key: `${letter}10-${letter}18`,
+                            rooms: range2,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 10,
+                            end: 18
+                        });
+                    }
+                });
+
+                // If no rooms found, create defaults
+                if (roomStructure.areas.length === 0) {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                    for (let i = 0; i < 3; i++) {
+                        const letter = letters[i];
+                        const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
+                        const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
+                        roomStructure.areas.push({
+                            name: `${letter}1-${letter}9`,
+                            key: `${letter}1-${letter}9`,
+                            rooms: range1,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 1,
+                            end: 9
+                        });
+                        roomStructure.areas.push({
+                            name: `${letter}10-${letter}18`,
+                            key: `${letter}10-${letter}18`,
+                            rooms: range2,
+                            floor: `Floor ${letter}`,
+                            prefix: letter,
+                            start: 10,
+                            end: 18
+                        });
+                    }
+                }
+            }
+
+            function getAreaForRoom(room) {
+                return roomStructure.areas.find(a => a.rooms.includes(room));
+            }
+
+            // =============================================
+            // DATA LOADING - FILTERED BY HOSTEL
             // =============================================
             async function loadStudents() {
                 try {
                     const data = await apiCall('/students');
                     allStudents = data.data || [];
+                    
+                    // Filter by hostel
+                    if (assignedHostelId) {
+                        hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelId}`);
+                    } else if (assignedHostelName) {
+                        hostelStudents = allStudents.filter(s => 
+                            s.hostel_name === assignedHostelName || 
+                            s.hostel === assignedHostelName
+                        );
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelName}`);
+                    } else {
+                        hostelStudents = allStudents;
+                        console.warn('⚠️ No hostel assigned, showing all students');
+                    }
+                    
                     return allStudents;
                 } catch (error) {
                     allStudents = [];
+                    hostelStudents = [];
                     return allStudents;
                 }
             }
@@ -668,17 +652,17 @@
             }
 
             // =============================================
-            // PROCESS REPORT DATA
+            // PROCESS REPORT DATA - FILTERED BY HOSTEL
             // =============================================
             function processReportData() {
-                // Filter scans for this RA's hostel
+                // Create map of hostel student IDs for quick lookup
+                const hostelStudentIds = new Set(hostelStudents.map(s => s.id));
                 const studentMap = {};
-                allStudents.forEach(s => { studentMap[s.id] = s; });
+                hostelStudents.forEach(s => { studentMap[s.id] = s; });
 
-                const hostelScans = allScans.filter(scan => {
-                    const student = studentMap[scan.student_id];
-                    return student && (student.hostel_id === assignedHostelId || student.hostel_name === assignedHostelName);
-                });
+                // Filter scans to only include students in the hostel
+                const hostelScans = allScans.filter(scan => hostelStudentIds.has(scan.student_id));
+                console.log(`✅ ${hostelScans.length} scans found for hostel students`);
 
                 // Group by session
                 const sessionMap = {};
@@ -754,7 +738,7 @@
 
                 const thisMonth = sessionStats.filter(s => isThisMonth(s.date)).length;
 
-                // Floor statistics using room structure
+                // Floor statistics
                 const floorMap = {};
                 hostelScans.forEach(scan => {
                     const student = studentMap[scan.student_id];
@@ -775,7 +759,6 @@
                 })).sort((a, b) => b.rate - a.rate);
 
                 // Weekly statistics
-                const now = new Date();
                 const weeklyMap = {};
                 sessionStats.forEach(s => {
                     const d = new Date(s.date);
@@ -810,7 +793,6 @@
 
                 // Add room range info to session stats
                 const enrichedRoomHistory = sessionStats.slice(0, 10).map(s => {
-                    // Find which rooms were in this session
                     const sessionRooms = s.scans.map(sc => sc.room).filter(Boolean);
                     const uniqueRooms = [...new Set(sessionRooms)];
                     const roomRanges = uniqueRooms.map(r => {
@@ -952,6 +934,7 @@
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${stats.totalSessions} sessions</span>
                                 <span class="badge badge-floor" style="font-size:0.55rem;margin-left:0.5rem;">${allRoomRanges.length} room ranges</span>
+                                <span class="text-muted" style="margin-left:0.5rem;">· ${hostelStudents.length} students</span>
                             </p>
                         </div>
                         <div class="action-group">
@@ -997,7 +980,7 @@
                             <div>
                                 <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Hostel</span><span class="font-bold">${assignedHostelName}</span></div>
                                 <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Resident Advisor</span><span class="font-bold">${currentUser?.name || '—'}</span></div>
-                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Total Students</span><span class="font-bold">${allStudents.filter(s => s.hostel_id === assignedHostelId || s.hostel_name === assignedHostelName).length}</span></div>
+                                <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Total Students</span><span class="font-bold">${hostelStudents.length}</span></div>
                                 <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Room Ranges</span><span class="font-bold">${roomStructure.areas.length}</span></div>
                                 <div class="flex-between" style="padding:0.3rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Overall Performance</span><span class="font-bold" style="color:#a77915;">${stats.attendanceRate}</span></div>
                                 <div class="flex-between" style="padding:0.3rem 0;"><span class="text-muted">Approval Rate</span><span class="font-bold" style="color:#a77915;">${stats.totalSessions > 0 ? Math.round((stats.approved / stats.totalSessions) * 100) : 0}%</span></div>
@@ -1149,7 +1132,7 @@
                             </div>
                             <div class="text-right">
                                 <p class="text-xs text-muted">${assignedHostelName}</p>
-                                <p class="text-xs text-muted">${allStudents.filter(s => s.hostel_id === assignedHostelId || s.hostel_name === assignedHostelName).length} students</p>
+                                <p class="text-xs text-muted">${hostelStudents.length} students</p>
                                 <p class="text-xs text-muted">${roomStructure.areas.length} room ranges</p>
                             </div>
                         </div>
@@ -1342,7 +1325,7 @@
                     filteredSessions = [...reportData.roomHistory];
 
                     document.getElementById('noticeText').textContent =
-                        `${assignedHostelName || 'Your hostel'} · ${reportData.totalSessions} sessions found · ${roomStructure.areas.length} room ranges`;
+                        `${assignedHostelName || 'Your hostel'} · ${reportData.totalSessions} sessions found · ${roomStructure.areas.length} room ranges · ${hostelStudents.length} students`;
 
                     renderReports();
                 } catch (error) {

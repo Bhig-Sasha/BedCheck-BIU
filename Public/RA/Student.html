@@ -402,7 +402,7 @@
             }
 
             // =============================================
-            // DATA LOADING - FILTERED BY HOSTEL ID
+            // DATA LOADING - FILTERED BY HOSTEL ID - FIXED
             // =============================================
             async function loadStudents() {
                 try {
@@ -411,39 +411,26 @@
                         await loadHostelData();
                     }
                     
-                    // If we have a hostel ID, use the hostel-specific endpoint
-                    let endpoint = '/students';
-                    if (assignedHostelId) {
-                        endpoint = `/hostels/${assignedHostelId}/students`;
-                    }
-                    
-                    const data = await apiCall(endpoint);
+                    // Load all students first, then filter by hostel_id
+                    const data = await apiCall('/students');
                     allStudents = data.data || [];
                     
-                    // Filter students by hostel ID or name
+                    // Filter students by hostel ID - THIS IS THE KEY FIX
                     if (assignedHostelId) {
                         hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelId}`);
                     } else if (assignedHostelName) {
                         hostelStudents = allStudents.filter(s => 
-                            s.hostel === assignedHostelName || 
-                            s.hostel_name === assignedHostelName
+                            s.hostel_name === assignedHostelName || 
+                            s.hostel === assignedHostelName
                         );
+                        console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelName}`);
                     } else {
                         hostelStudents = allStudents;
-                    }
-                    
-                    // If we still have no students but have a hostel ID, try to get students directly
-                    if (hostelStudents.length === 0 && assignedHostelId) {
-                        // Try to get students from the hostel endpoint again
-                        const retryData = await apiCall(`/hostels/${assignedHostelId}/students`);
-                        if (retryData.data && retryData.data.length > 0) {
-                            hostelStudents = retryData.data;
-                            allStudents = retryData.data;
-                        }
+                        console.warn('⚠️ No hostel assigned, showing all students');
                     }
                     
                     filteredStudents = [...hostelStudents];
-                    
                     return allStudents;
                 } catch (error) {
                     console.error('Error loading students:', error);
@@ -697,7 +684,7 @@
             // VIEW STUDENT
             // =============================================
             function viewStudent(id) {
-                const student = allStudents.find(s => s.id === id);
+                const student = hostelStudents.find(s => s.id === id) || allStudents.find(s => s.id === id);
                 if (!student) {
                     showToast('Student not found', 'error');
                     return;
