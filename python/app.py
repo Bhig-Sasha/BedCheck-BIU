@@ -238,7 +238,7 @@ async def detect_face(request: ImageRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================
-# Enrollment Endpoints
+# Enrollment Endpoints - UPDATED WITH LOWER THRESHOLDS
 # ==========================
 @app.post("/enroll-face")
 async def enroll_face(request: EnrollmentRequest):
@@ -248,7 +248,13 @@ async def enroll_face(request: EnrollmentRequest):
     try:
         frame = decode_image(request.image)
         
-        result = create_embedding_with_quality(face_model, frame, min_confidence=0.5)
+        # Use lower thresholds for better enrollment success
+        result = create_embedding_with_quality(
+            face_model, 
+            frame, 
+            min_confidence=0.35,  # LOWERED from 0.5
+            min_face_size=60      # LOWERED from 100
+        )
         
         if not result["success"]:
             return {
@@ -299,12 +305,19 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
         quality_scores = []
         
         for frame in frames:
-            result = create_embedding_with_quality(face_model, frame, min_confidence=0.5)
+            # Use lower thresholds
+            result = create_embedding_with_quality(
+                face_model, 
+                frame, 
+                min_confidence=0.35,  # LOWERED from 0.5
+                min_face_size=60      # LOWERED from 100
+            )
             if result["success"]:
                 embeddings.append(result["embedding"])
                 confidence_scores.append(result["confidence"])
                 quality_scores.append(result["quality_score"])
         
+        # Need at least 3 good frames (reduced from 5)
         if len(embeddings) < 3:
             return {
                 "success": False,
@@ -345,7 +358,7 @@ async def start_smart_enrollment(request: ImageRequest):
             "success": True,
             "message": "Smart enrollment ready. Please send multiple frames to /enroll-bulk",
             "frames_needed": 10,
-            "min_frames_needed": 5
+            "min_frames_needed": 3  # REDUCED from 5
         }
         
     except Exception as e:

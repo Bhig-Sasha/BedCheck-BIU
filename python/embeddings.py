@@ -64,30 +64,46 @@ def create_embedding(face_model, image):
 
 
 # ==========================================
-# CREATE EMBEDDING WITH QUALITY CHECK
+# CREATE EMBEDDING WITH QUALITY CHECK - LOWERED THRESHOLDS
 # ==========================================
 
-def create_embedding_with_quality(face_model, image, min_confidence=0.5, min_face_size=100):
+def create_embedding_with_quality(face_model, image, min_confidence=0.35, min_face_size=60):
     """
-    Create embedding with quality checks
+    Create embedding with quality checks - LOWERED THRESHOLDS for better enrollment
+    
+    Args:
+        face_model: InsightFace FaceAnalysis model
+        image: OpenCV image (numpy array)
+        min_confidence: Minimum detection confidence (lowered from 0.5 to 0.35)
+        min_face_size: Minimum face size in pixels (lowered from 100 to 60)
+    
+    Returns:
+        {
+            "success": bool,
+            "embedding": list,
+            "confidence": float,
+            "bbox": list,
+            "quality_score": float,
+            "message": str
+        }
     """
     result = create_embedding(face_model, image)
     
     if not result["success"]:
         return result
     
-    # Check confidence
+    # Check confidence - LOWERED from 0.5 to 0.35
     if result["confidence"] < min_confidence:
         return {
             "success": False,
-            "message": f"Face detection confidence too low: {result['confidence']:.2f}",
+            "message": f"Face detection confidence too low: {result['confidence']:.2f} (need {min_confidence})",
             "embedding": None,
             "confidence": result["confidence"],
             "bbox": result["bbox"],
             "quality_score": 0.0
         }
     
-    # Check face size
+    # Check face size - LOWERED from 100 to 60
     bbox = result["bbox"]
     face_width = bbox[2] - bbox[0]
     face_height = bbox[3] - bbox[1]
@@ -95,7 +111,7 @@ def create_embedding_with_quality(face_model, image, min_confidence=0.5, min_fac
     if face_width < min_face_size or face_height < min_face_size:
         return {
             "success": False,
-            "message": f"Face too small: {int(face_width)}x{int(face_height)}px",
+            "message": f"Face too small: {int(face_width)}x{int(face_height)}px (minimum {min_face_size}x{min_face_size})",
             "embedding": None,
             "confidence": result["confidence"],
             "bbox": result["bbox"],
@@ -109,7 +125,7 @@ def create_embedding_with_quality(face_model, image, min_confidence=0.5, min_fac
 # CAPTURE MULTIPLE FRAMES FOR ENROLLMENT
 # ==========================================
 
-def capture_frames_for_enrollment(face_model, camera, num_frames=10, min_confidence=0.5):
+def capture_frames_for_enrollment(face_model, camera, num_frames=10, min_confidence=0.35):
     """
     Capture multiple frames with face detection for enrollment
     
@@ -117,7 +133,7 @@ def capture_frames_for_enrollment(face_model, camera, num_frames=10, min_confide
         face_model: InsightFace model
         camera: OpenCV VideoCapture object
         num_frames: Number of frames to capture
-        min_confidence: Minimum detection confidence
+        min_confidence: Minimum detection confidence (LOWERED)
     
     Returns:
         {
@@ -145,7 +161,7 @@ def capture_frames_for_enrollment(face_model, camera, num_frames=10, min_confide
         if not ret:
             continue
         
-        # Get embedding with quality check
+        # Get embedding with quality check - uses lower thresholds
         result = create_embedding_with_quality(face_model, frame, min_confidence)
         
         if result["success"]:
@@ -162,7 +178,7 @@ def capture_frames_for_enrollment(face_model, camera, num_frames=10, min_confide
         # Small delay between frames
         time.sleep(0.2)
     
-    if len(embeddings) < num_frames * 0.6:  # Need at least 60% good frames
+    if len(embeddings) < num_frames * 0.5:  # Need at least 50% good frames (lowered from 60%)
         return {
             "success": False,
             "message": f"Only {len(embeddings)}/{num_frames} good frames captured",
@@ -221,9 +237,9 @@ def average_embeddings(embeddings, weights=None):
 # SMART ENROLLMENT (Combines all above)
 # ==========================================
 
-def smart_enrollment(face_model, camera, num_frames=15, min_confidence=0.5, min_quality=0.3):
+def smart_enrollment(face_model, camera, num_frames=15, min_confidence=0.35, min_quality=0.2):
     """
-    Smart face enrollment with quality filtering and averaging
+    Smart face enrollment with quality filtering and averaging - LOWERED THRESHOLDS
     
     Returns:
         {
@@ -251,7 +267,7 @@ def smart_enrollment(face_model, camera, num_frames=15, min_confidence=0.5, min_
             "frames_used": 0
         }
     
-    # Filter by quality
+    # Filter by quality - LOWERED from 0.3 to 0.2
     embeddings = capture_result["embeddings"]
     quality_scores = capture_result["quality_scores"]
     confidence_scores = capture_result["confidence_scores"]

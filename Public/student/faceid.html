@@ -64,8 +64,8 @@
         }
 
         .header .logo img {
-            width: 40px;
-            height: 40px;
+            width: 140px;
+            height: 140px;
             object-fit: contain;
         }
 
@@ -238,6 +238,51 @@
         }
         .face-guide-ring .guide-dot.center.active {
             background: rgba(74, 222, 128, 0.3);
+        }
+
+        /* Face size warning – updated with dynamic positioning */
+        .face-size-warning {
+            position: absolute;
+            bottom: 7rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.6rem;
+            color: #fbbf24;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 0.3rem 0.8rem;
+            border-radius: 9999px;
+            z-index: 5;
+            display: none;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 480px) {
+            .face-size-warning {
+                font-size: 0.5rem;
+                padding: 0.2rem 0.5rem;
+                bottom: 6.5rem;
+                white-space: normal;
+                max-width: 90%;
+            }
+        }
+
+        .face-size-warning.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            0% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
         }
 
         /* Direction Arrows */
@@ -948,7 +993,6 @@
             animation: pulse-dot 0.8s infinite;
         }
 
-        /* Position label in camera */
         .position-label {
             position: absolute;
             bottom: 4.5rem;
@@ -1025,6 +1069,9 @@
                     <span class="guide-dot center" id="dotCenter"></span>
                 </div>
             </div>
+
+            <!-- Dynamic Warning (face size / guidance) -->
+            <div id="faceSizeWarning" class="face-size-warning">📏 Move closer to camera</div>
 
             <!-- Direction Arrows -->
             <div class="direction-arrows" id="directionArrows">
@@ -1178,6 +1225,7 @@
 
             // =============================================
             // FACE ID SETUP - INSIGHTFACE ENROLLMENT
+            // with video quality monitoring + dynamic warnings
             // =============================================
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
@@ -1194,6 +1242,9 @@
             let isSetupActive = false;
             let captureTimer = null;
             let isApiOnline = false;
+
+            // For warning auto-hide
+            let warningTimeout = null;
 
             // Position names
             const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
@@ -1238,6 +1289,7 @@
             const apiStatusText = document.getElementById('apiStatusText');
             const positionLabel = document.getElementById('positionLabel');
             const positionText = document.getElementById('positionText');
+            const faceSizeWarning = document.getElementById('faceSizeWarning');
 
             const positionDots = document.querySelectorAll('.position-dot');
             const arrows = {
@@ -1397,6 +1449,7 @@
                     await video.play();
                     isCameraReady = true;
 
+                    // Start the monitoring loop
                     monitorVideoQuality();
 
                     updateStatus('ready', 'Camera ready - Position your face');
@@ -1423,7 +1476,7 @@
                 video.srcObject = null;
             }
 
-            // ---------- VIDEO QUALITY MONITORING ----------
+            // ---------- VIDEO QUALITY MONITORING (with dynamic warning) ----------
             function monitorVideoQuality() {
                 const context = captureCanvas.getContext('2d');
                 
@@ -1450,9 +1503,34 @@
                             faceGuideRing.classList.add('detected');
                             faceGuideRing.classList.remove('capturing');
                             
+                            // Increase quality when face is detected
                             currentQuality = Math.min(99, currentQuality + 2);
                             updateQualityDisplay(currentQuality);
                             
+                            // --- dynamic warning based on quality ---
+                            if (currentQuality < 50) {
+                                faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#fbbf24';
+                                clearTimeout(warningTimeout);
+                                warningTimeout = setTimeout(() => {
+                                    if (currentQuality < 50) {
+                                        // keep showing
+                                    } else {
+                                        faceSizeWarning.classList.remove('show');
+                                    }
+                                }, 3000);
+                            } else if (currentQuality < 70) {
+                                faceSizeWarning.textContent = '✅ Good quality, keep going!';
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#4ade80';
+                                setTimeout(() => {
+                                    faceSizeWarning.classList.remove('show');
+                                }, 1500);
+                            } else {
+                                faceSizeWarning.classList.remove('show');
+                            }
+
                             if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
                                 updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
                             } else {
@@ -1471,6 +1549,17 @@
                             if (!isSetupActive) {
                                 updateStatus('waiting', 'Position your face');
                             }
+                            
+                            // Show face not detected hint
+                            faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                            faceSizeWarning.className = 'face-size-warning show';
+                            faceSizeWarning.style.color = '#f87171';
+                            clearTimeout(warningTimeout);
+                            warningTimeout = setTimeout(() => {
+                                if (!faceDetected) {
+                                    faceSizeWarning.classList.remove('show');
+                                }
+                            }, 3000);
                         }
                     } catch (error) {
                         // Silent fail
@@ -1511,14 +1600,12 @@
                     }
                 });
 
-                // Update position label
                 if (capturedFrames.length < TOTAL_CAPTURES) {
                     const currentPos = capturedFrames.length % 5;
                     positionText.textContent = POSITIONS[currentPos];
                     positionLabel.className = 'position-label';
                     
                     if (capturedFrames.length > 0) {
-                        // Show which one is done
                         const prevPos = (capturedFrames.length - 1) % 5;
                         positionDots.forEach((dot, i) => {
                             if (i === prevPos && capturedFrames.length > 0) {
@@ -1601,25 +1688,21 @@
                         direction: direction
                     });
 
-                    // Mark the position as done with green
                     const dot = positionDots[currentPos];
                     if (dot) {
                         dot.classList.add('done');
                     }
 
-                    // Update position label
                     const nextPos = (capturedFrames.length) % 5;
                     if (capturedFrames.length < TOTAL_CAPTURES) {
                         positionText.textContent = POSITIONS[nextPos];
                         positionLabel.className = 'position-label';
                     }
 
-                    // Update arrows to show next direction
                     const nextDirection = POSITION_DIRECTIONS[nextPos];
                     updateArrows(nextDirection);
                     updateGuideDots(nextDirection);
 
-                    // Update instruction
                     if (capturedFrames.length < TOTAL_CAPTURES) {
                         instructionText.innerHTML = `
                             <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
@@ -1649,7 +1732,6 @@
                     captureTimer = null;
                 }
 
-                // Turn everything green
                 faceGuideRing.classList.add('complete');
                 updateArrows('done');
                 Object.values(dots).forEach(d => d.classList.add('active'));
