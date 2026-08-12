@@ -247,6 +247,26 @@
         .field label { font-weight: 700; font-size: 0.75rem; color: #2c3e5a; }
         .field select { padding: 0.4rem 0.6rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.8rem; outline: none; width: 100%; font-family: inherit; }
         .field select:focus { border-color: #a77915; }
+
+        /* Page visibility */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* Scan area styling */
+        .scan-area { border: 2px dashed #ded6c9; border-radius: 0.75rem; padding: 2.5rem; text-align: center; cursor: pointer; transition: all 0.3s ease; background: #fffcf6; }
+        .scan-area:hover { border-color: #a77915; background: #fbf7ef; }
+        .scan-area i { font-size: 2.5rem; color: #a77915; margin-bottom: 0.75rem; }
+        .scan-area p { font-weight: 600; }
+        .scan-area .hint { font-size: 0.8rem; color: #68768a; margin-top: 0.25rem; }
+        .scan-area.scanning { border-color: #10233f; background: #e7edf5; }
+        .scan-area.scanning i { animation: spin 1s linear infinite; }
+        .scan-area.success { border-color: #2d6545; background: #e1f0e5; }
+        .scan-area.success i { color: #2d6545; }
+        .scan-area.error { border-color: #8a3328; background: #f8e1dc; }
+        .scan-area.error i { color: #8a3328; }
+
+        .scan-result-item { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #eee8de; }
+        .scan-result-item:last-child { border-bottom: none; }
     </style>
 </head>
 <body>
@@ -256,6 +276,7 @@
 
     <!-- ===== PORTAL ===== -->
     <div class="app-wrapper">
+        <!-- SIDEBAR - Updated with only 3 pages -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <div class="brand-badge"></div>
@@ -264,14 +285,11 @@
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
-            <p class="workspace-label">Workspace</p>
+            <p class="workspace-label">Menu</p>
             <nav id="desktopNav">
-                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
-                <a href="Student.html" class="nav-item"><i class="fas fa-search"></i> Search Student</a>
-                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
-                <a href="reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> My Reports</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+                <a href="#" class="nav-item active" data-page="dashboard"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="#" class="nav-item" data-page="bedcheck"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+                <a href="#" class="nav-item" data-page="profile"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
                 <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RA</span></div>
@@ -290,12 +308,9 @@
                 </div>
             </div>
             <nav id="mobileNav">
-                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
-                <a href="Student.html" class="nav-item"><i class="fas fa-search"></i> Search Student</a>
-                <a href="history.html" class="nav-item"><i class="fas fa-history"></i> Room History</a>
-                <a href="reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> My Reports</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+                <a href="#" class="nav-item active" data-page="dashboard"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="#" class="nav-item" data-page="bedcheck"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+                <a href="#" class="nav-item" data-page="profile"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned hostel · Perform nightly BedCheck</div>
         </aside>
@@ -311,9 +326,9 @@
                         </div>
                     </div>
                     <div class="header-right">
-                        <a href="Profile.html" class="profile-btn">
-                            <span class="profile-avatar" id="profileAvatar"></span>
-                            <span class="profile-name" id="profileName"></span>
+                        <a href="#" class="profile-btn" data-page="profile">
+                            <span class="profile-avatar" id="profileAvatar">U</span>
+                            <span class="profile-name" id="profileName">User</span>
                             <span class="profile-role" id="profileRoleLabel">RA</span>
                         </a>
                         <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
@@ -366,6 +381,8 @@
             let assignedHostelId = null;
             let assignedHostelName = '';
             let sessionStatus = 'Open';
+            let currentPageView = 'dashboard';
+            let scanHistory = [];
 
             // =============================================
             // API HELPER
@@ -416,44 +433,56 @@
             }
 
             // =============================================
-            // DATA LOADING - ONLY LOAD STUDENTS FROM ASSIGNED HOSTEL
+            // PAGE NAVIGATION
+            // =============================================
+            function navigateTo(page) {
+                currentPageView = page;
+
+                // Update sidebar
+                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll(`.nav-item[data-page="${page}"]`).forEach(el => el.classList.add('active'));
+
+                // Update pages
+                document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+                const targetPage = document.getElementById(`page-${page}`);
+                if (targetPage) targetPage.classList.add('active');
+
+                // Render content based on page
+                if (page === 'dashboard') renderDashboardContent();
+                else if (page === 'bedcheck') renderBedcheckContent();
+                else if (page === 'profile') renderProfileContent();
+            }
+
+            // =============================================
+            // DATA LOADING
             // =============================================
             async function loadStudents() {
                 try {
-                    // First, get the current user's hostel ID if not set
                     if (!assignedHostelId && currentUser) {
                         try {
                             const userData = await apiCall(`/staff/${currentUser.id}`);
                             if (userData.data && userData.data.hostel_id) {
                                 assignedHostelId = userData.data.hostel_id;
-                                // Also get the hostel name
                                 const hostel = hostels.find(h => h.id === assignedHostelId);
-                                if (hostel) {
-                                    assignedHostelName = hostel.name;
-                                }
+                                if (hostel) assignedHostelName = hostel.name;
                             }
                         } catch (e) {
                             console.warn('Could not fetch user details:', e);
                         }
                     }
 
-                    // Load all students first
                     const data = await apiCall('/students');
                     allStudents = data.data || [];
-                    
-                    // Then filter by hostel_id
+
                     if (assignedHostelId) {
                         filteredStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-                        console.log(`✅ Found ${filteredStudents.length} students in hostel ${assignedHostelId}`);
                     } else if (assignedHostelName) {
-                        filteredStudents = allStudents.filter(s => s.hostel_name === assignedHostelName || s.hostel === assignedHostelName);
-                        console.log(`✅ Found ${filteredStudents.length} students in hostel ${assignedHostelName}`);
+                        filteredStudents = allStudents.filter(s => s.hostel_name === assignedHostelName || s.hostel ===
+                        assignedHostelName);
                     } else {
-                        // If no hostel assigned, show all students (but this shouldn't happen for RAs)
                         filteredStudents = allStudents;
-                        console.warn('⚠️ No hostel assigned to this RA, showing all students');
                     }
-                    
+
                     return filteredStudents;
                 } catch (error) {
                     console.error('Error loading students:', error);
@@ -511,7 +540,7 @@
             }
 
             // =============================================
-            // GET HOSTEL NAME FROM ID
+            // GET HOSTEL NAME
             // =============================================
             function getHostelName(hostelId) {
                 const hostel = hostels.find(h => h.id === hostelId);
@@ -521,7 +550,7 @@
             // =============================================
             // RENDER DASHBOARD
             // =============================================
-            function renderDashboard() {
+            function renderDashboardContent() {
                 const container = document.getElementById('screenContent');
 
                 const displayHostel = assignedHostelName || getHostelName(assignedHostelId) || currentUser?.hostel || 'Your Hostel';
@@ -538,10 +567,9 @@
 
                 if (assignedHostelId || hostelInfo?.id) {
                     const hostelId = assignedHostelId || hostelInfo?.id;
-                    const hraStaff = staffMembers.find(s => s.hostel_id === hostelId && s.role === 'HRA' && s.status === 'Active');
-                    if (hraStaff) {
-                        hraName = hraStaff.name;
-                    }
+                    const hraStaff = staffMembers.find(s => s.hostel_id === hostelId && s.role === 'HRA' && s.status ===
+                    'Active');
+                    if (hraStaff) hraName = hraStaff.name;
                 }
 
                 const sessionStatusDisplay = sessionStatus === 'Open' ? 'Open' :
@@ -550,134 +578,156 @@
                     sessionStatus === 'Locked' ? 'badge-inactive' : 'badge-absent';
 
                 container.innerHTML = `
-                    <div class="page-heading">
-                        <div>
-                            <p class="eyebrow"><i class="fas fa-home"></i> RA · Resident Advisor</p>
-                            <h1>${displayHostel} Dashboard</h1>
-                            <p class="desc">
-                                <span class="assigned-hostel-badge">
-                                    <i class="fas fa-building"></i> ${displayHostel}
-                                </span>
-                                <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
-                            </p>
-                        </div>
-                        <div class="action-group">
-                            <a href="BedCheck.html" class="btn-primary"><i class="fas fa-clipboard-check"></i> Start BedCheck</a>
-                        </div>
-                    </div>
+                            <div class="page active" id="page-dashboard">
+                                <div class="page-heading">
+                                    <div>
+                                        <p class="eyebrow"><i class="fas fa-home"></i> RA · Resident Advisor</p>
+                                        <h1>${displayHostel} Dashboard</h1>
+                                        <p class="desc">
+                                            <span class="assigned-hostel-badge">
+                                                <i class="fas fa-building"></i> ${displayHostel}
+                                            </span>
+                                            <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
+                                        </p>
+                                    </div>
+                                    <div class="action-group">
+                                        <button class="btn-primary" onclick="navigateTo('bedcheck')">
+                                            <i class="fas fa-clipboard-check"></i> Start BedCheck
+                                        </button>
+                                    </div>
+                                </div>
 
-                    <!-- Metric Cards -->
-                    <div class="metric-grid">
-                        <div class="metric-card">
-                            <div class="metric-icon navy"><i class="fas fa-users"></i></div>
-                            <div class="metric-value">${totalStudents}</div>
-                            <div class="metric-title">Total Students</div>
-                            <div class="metric-detail">In ${displayHostel}</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #2d6545;">
-                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value" style="color:#2d6545;">${present}</div>
-                            <div class="metric-title">Present</div>
-                            <div class="metric-detail">${attendanceRate}% attendance</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #8a3328;">
-                            <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
-                            <div class="metric-value" style="color:#8a3328;">${absent}</div>
-                            <div class="metric-title">Absent</div>
-                            <div class="metric-detail">Students absent</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #d4af37;">
-                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
-                            <div class="metric-value" style="color:#d4af37;">${late}</div>
-                            <div class="metric-title">Late</div>
-                            <div class="metric-detail">Late arrivals</div>
-                        </div>
-                    </div>
+                                <!-- Metric Cards -->
+                                <div class="metric-grid">
+                                    <div class="metric-card">
+                                        <div class="metric-icon navy"><i class="fas fa-users"></i></div>
+                                        <div class="metric-value">${totalStudents}</div>
+                                        <div class="metric-title">Total Students</div>
+                                        <div class="metric-detail">In ${displayHostel}</div>
+                                    </div>
+                                    <div class="metric-card" style="border-left:3px solid #2d6545;">
+                                        <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                                        <div class="metric-value" style="color:#2d6545;">${present}</div>
+                                        <div class="metric-title">Present</div>
+                                        <div class="metric-detail">${attendanceRate}% attendance</div>
+                                    </div>
+                                    <div class="metric-card" style="border-left:3px solid #8a3328;">
+                                        <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
+                                        <div class="metric-value" style="color:#8a3328;">${absent}</div>
+                                        <div class="metric-title">Absent</div>
+                                        <div class="metric-detail">Students absent</div>
+                                    </div>
+                                    <div class="metric-card" style="border-left:3px solid #d4af37;">
+                                        <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
+                                        <div class="metric-value" style="color:#d4af37;">${late}</div>
+                                        <div class="metric-title">Late</div>
+                                        <div class="metric-detail">Late arrivals</div>
+                                    </div>
+                                </div>
 
-                    <!-- Hostel Details & Session Status -->
-                    <div class="grid-2 mt-4">
-                        <div class="card">
-                            <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Details</div>
-                            <div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Hostel</span><span class="font-bold">${hostelInfo?.name || displayHostel}</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Type</span><span class="font-bold">${hostelInfo?.type || '—'}</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Capacity</span><span class="font-bold">${hostelInfo?.total_beds || '—'}</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">RA</span><span class="font-bold">${currentRAName}</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;"><span class="text-muted">HRA</span><span class="font-bold">${hraName}</span></div>
-                                <div class="mt-3 pt-3 border-t">
-                                    <div class="progress-bar"><div class="fill" style="width:${attendanceRate}%;"></div></div>
-                                    <div class="flex-between mt-1">
-                                        <span class="text-xs text-muted">${attendanceRate}% attendance</span>
-                                        <span class="text-xs text-gold">${present} / ${totalStudents} present</span>
+                                <!-- Hostel Details & Session Status -->
+                                <div class="grid-2 mt-4">
+                                    <div class="card">
+                                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Details</div>
+                                        <div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Hostel</span>
+                                                <span class="font-bold">${hostelInfo?.name || displayHostel}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Type</span>
+                                                <span class="font-bold">${hostelInfo?.type || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Capacity</span>
+                                                <span class="font-bold">${hostelInfo?.total_beds || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">RA</span>
+                                                <span class="font-bold">${currentRAName}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;">
+                                                <span class="text-muted">HRA</span>
+                                                <span class="font-bold">${hraName}</span>
+                                            </div>
+                                            <div class="mt-3 pt-3 border-t">
+                                                <div class="progress-bar"><div class="fill" style="width:${attendanceRate}%;"></div></div>
+                                                <div class="flex-between mt-1">
+                                                    <span class="text-xs text-muted">${attendanceRate}% attendance</span>
+                                                    <span class="text-xs text-gold">${present} / ${totalStudents} present</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="card">
+                                        <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Session Status</div>
+                                        <div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="font-bold">Tonight's BedCheck</span>
+                                                <span class="badge ${statusClass}">${sessionStatusDisplay}</span>
+                                            </div>
+                                            <p class="text-sm mt-1" style="color:#675121;">
+                                                ${sessionStatus === 'Open' ? '✅ Attendance entry is enabled.' :
+                                                  sessionStatus === 'Locked' ? '⏳ Updates are paused.' :
+                                                  '🔴 Session has ended.'}
+                                            </p>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Start Time</span>
+                                                <span class="font-bold">9:30 PM</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">End Time</span>
+                                                <span class="font-bold">11:00 PM</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;">
+                                                <span class="text-muted">Your Status</span>
+                                                <span class="font-bold" style="color:#2d6545;">✅ Active</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Students Table -->
+                                <div class="card mt-4">
+                                    <div class="flex-between">
+                                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Students in ${displayHostel}</div>
+                                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                                            <div class="field" style="min-width:120px;">
+                                                <select id="statusFilter" onchange="filterStudents()">
+                                                    <option value="all">All Status</option>
+                                                    <option value="Present">Present</option>
+                                                    <option value="Absent">Absent</option>
+                                                    <option value="Late">Late</option>
+                                                </select>
+                                            </div>
+                                            <button class="btn-ghost" onclick="resetFilters()" style="font-size:0.8rem;">
+                                                <i class="fas fa-undo"></i> Reset
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="table-wrap mt-3">
+                                        <table>
+                                            <thead><tr>
+                                                <th>Student</th>
+                                                <th>Matric</th>
+                                                <th>Room</th>
+                                                <th>Status</th>
+                                                <th>Time</th>
+                                                <th>Action</th>
+                                            </tr></thead>
+                                            <tbody id="studentTableBody"></tbody>
+                                        </table>
+                                    </div>
+
+                                    <div class="pagination">
+                                        <div class="info" id="paginationInfo">Showing 1-10 of 0 students</div>
+                                        <div class="pages" id="paginationControls"></div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="card">
-                            <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Session Status</div>
-                            <div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                    <span class="font-bold">Tonight's BedCheck</span>
-                                    <span class="badge ${statusClass}">${sessionStatusDisplay}</span>
-                                </div>
-                                <p class="text-sm mt-1" style="color:#675121;">
-                                    ${sessionStatus === 'Open' ? '✅ Attendance entry is enabled.' :
-                                      sessionStatus === 'Locked' ? '⏳ Updates are paused.' :
-                                      '🔴 Session has ended.'}
-                                </p>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">Start Time</span><span class="font-bold">9:30 PM</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;"><span class="text-muted">End Time</span><span class="font-bold">11:00 PM</span></div>
-                                <div class="flex-between" style="padding:0.4rem 0;"><span class="text-muted">Your Status</span><span class="font-bold" style="color:#2d6545;">✅ Active</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Students Table -->
-                    <div class="card mt-4">
-                        <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Students in ${displayHostel}</div>
-                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                                <div class="field" style="min-width:120px;">
-                                    <select id="statusFilter" onchange="filterStudents()">
-                                        <option value="all">All Status</option>
-                                        <option value="Present">Present</option>
-                                        <option value="Absent">Absent</option>
-                                        <option value="Late">Late</option>
-                                    </select>
-                                </div>
-                                <button class="btn-ghost" onclick="resetFilters()" style="font-size:0.8rem;"><i class="fas fa-undo"></i> Reset</button>
-                            </div>
-                        </div>
-
-                        <div class="table-wrap mt-3">
-                            <table>
-                                <thead><tr>
-                                    <th>Student</th>
-                                    <th>Matric</th>
-                                    <th>Room</th>
-                                    <th>Status</th>
-                                    <th>Time</th>
-                                    <th>Action</th>
-                                </tr></thead>
-                                <tbody id="studentTableBody"></tbody>
-                            </table>
-                        </div>
-
-                        <div class="pagination">
-                            <div class="info" id="paginationInfo">Showing 1-10 of 0 students</div>
-                            <div class="pages" id="paginationControls"></div>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
-                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
-                        </p>
-                    </div>
-                `;
+                        `;
 
                 renderStudentTable();
             }
@@ -687,6 +737,8 @@
             // =============================================
             function renderStudentTable() {
                 const tbody = document.getElementById('studentTableBody');
+                if (!tbody) return;
+
                 const statusFilter = document.getElementById('statusFilter')?.value || 'all';
 
                 let displayStudents = filteredStudents;
@@ -699,30 +751,31 @@
                 const pageStudents = displayStudents.slice(start, end);
 
                 if (pageStudents.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No students found in this hostel</td></tr>';
+                    tbody.innerHTML =
+                        '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No students found in this hostel</td></tr>';
                     updatePagination(displayStudents.length);
                     return;
                 }
 
                 tbody.innerHTML = pageStudents.map(s => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;align-items:center;gap:0.5rem;">
-                                <span class="avatar">${getInitials(s.name)}</span>
-                                <span class="font-bold">${s.name || 'Unknown'}</span>
-                            </div>
-                        </td>
-                        <td>${s.matric || '—'}</td>
-                        <td>${s.room || s.room_code || '—'}</td>
-                        <td>${attBadge(s.status)}</td>
-                        <td style="font-size:0.8rem;color:#6b778b;">${s.updated_at ? formatTime(s.updated_at) : '—'}</td>
-                        <td>
-                            <button class="btn-outline" style="padding:0.2rem 0.6rem;font-size:0.7rem;" onclick="updateStatus('${s.id}')">
-                                <i class="fas fa-edit"></i> Update
-                            </button>
-                        </td>
-                    </tr>
-                `).join('');
+                            <tr>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                                        <span class="avatar">${getInitials(s.name)}</span>
+                                        <span class="font-bold">${s.name || 'Unknown'}</span>
+                                    </div>
+                                </td>
+                                <td>${s.matric || '—'}</td>
+                                <td>${s.room || s.room_code || '—'}</td>
+                                <td>${attBadge(s.status)}</td>
+                                <td style="font-size:0.8rem;color:#6b778b;">${s.updated_at ? formatTime(s.updated_at) : '—'}</td>
+                                <td>
+                                    <button class="btn-outline" style="padding:0.2rem 0.6rem;font-size:0.7rem;" onclick="updateStatus('${s.id}')">
+                                        <i class="fas fa-edit"></i> Update
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('');
 
                 updatePagination(displayStudents.length);
             }
@@ -744,17 +797,20 @@
                 if (!controls) return;
 
                 let html = '';
-                html += `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+                html +=
+                    `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
 
                 for (let i = 1; i <= Math.min(totalPages, 7); i++) {
                     if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+                        html +=
+                            `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
                     } else if (i === currentPage - 3 || i === currentPage + 3) {
                         html += `<button disabled>...</button>`;
                     }
                 }
 
-                html += `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+                html +=
+                    `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
                 controls.innerHTML = html;
             }
 
@@ -767,7 +823,8 @@
             }
 
             function resetFilters() {
-                document.getElementById('statusFilter').value = 'all';
+                const filter = document.getElementById('statusFilter');
+                if (filter) filter.value = 'all';
                 currentPage = 1;
                 renderStudentTable();
             }
@@ -801,6 +858,317 @@
             }
 
             // =============================================
+            // RENDER BEDCHECK PAGE
+            // =============================================
+            function renderBedcheckContent() {
+                const container = document.getElementById('screenContent');
+                const isOpen = sessionStatus === 'Open';
+
+                const scanHtml = isOpen ? `
+                            <div class="scan-area" id="scanArea" onclick="startScan()">
+                                <i class="fas fa-camera-retro"></i>
+                                <p>Click to start scanning</p>
+                                <span class="hint">Face verification will begin</span>
+                            </div>
+                            <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                <button class="btn-primary" onclick="startScan()"><i class="fas fa-play"></i> Start Scan</button>
+                                <button class="btn-outline" onclick="stopScan()"><i class="fas fa-stop"></i> Stop</button>
+                            </div>
+                        ` : `
+                            <div class="scan-area error">
+                                <i class="fas fa-lock"></i>
+                                <p>Session Closed</p>
+                                <span class="hint">Please start a BedCheck session first</span>
+                            </div>
+                            <div style="margin-top:0.75rem;">
+                                <button class="btn-primary" onclick="navigateTo('dashboard')">
+                                    <i class="fas fa-arrow-left"></i> Go to Dashboard
+                                </button>
+                            </div>
+                        `;
+
+                container.innerHTML = `
+                            <div class="page active" id="page-bedcheck">
+                                <div class="page-heading">
+                                    <div>
+                                        <p class="eyebrow"><i class="fas fa-camera"></i> Face Scanner</p>
+                                        <h1>BedCheck Scanner</h1>
+                                        <p class="desc">Scan students' faces for attendance verification</p>
+                                    </div>
+                                    <div class="action-group">
+                                        <span class="badge ${isOpen ? 'badge-active' : 'badge-absent'}">
+                                            ${isOpen ? '🟢 Session Open' : '🔴 Session Closed'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="grid-2">
+                                    <div class="card">
+                                        <div class="card-title"><span class="icon"><i class="fas fa-camera"></i></span> Scanner</div>
+                                        ${scanHtml}
+                                        <div class="mt-2 text-sm text-muted" id="scanStatus">Status: Ready</div>
+                                    </div>
+
+                                    <div class="card">
+                                        <div class="card-title"><span class="icon"><i class="fas fa-history"></i></span> Recent Scans</div>
+                                        <div id="recentScansList">
+                                            <div class="text-center text-muted" style="padding:1.5rem 0;">
+                                                <i class="fas fa-qrcode" style="font-size:1.5rem;display:block;margin-bottom:0.5rem;"></i>
+                                                <p>No scans recorded yet</p>
+                                                <span class="text-xs">Start scanning students</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card mt-4">
+                                    <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Scan Results</div>
+                                    <div class="table-wrap">
+                                        <table>
+                                            <thead><tr>
+                                                <th>Student</th>
+                                                <th>Matric</th>
+                                                <th>Status</th>
+                                                <th>Time</th>
+                                            </tr></thead>
+                                            <tbody id="scanResultsBody">
+                                                <tr><td colspan="4" class="text-center text-muted" style="padding:1.5rem 0;">
+                                                    <i class="fas fa-inbox" style="display:block;font-size:1.5rem;margin-bottom:0.5rem;"></i>
+                                                    No scan results yet
+                                                </td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+            }
+
+            // =============================================
+            // SCAN FUNCTIONS
+            // =============================================
+            function startScan() {
+                if (sessionStatus !== 'Open') {
+                    showToast('Please start a BedCheck session first', 'error');
+                    return;
+                }
+
+                const scanArea = document.getElementById('scanArea');
+                if (!scanArea) return;
+
+                scanArea.className = 'scan-area scanning';
+                scanArea.innerHTML = `
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Scanning...</p>
+                            <span class="hint">Looking for face...</span>
+                        `;
+                document.getElementById('scanStatus').textContent = 'Status: Scanning...';
+
+                // Simulate scan (replace with actual camera/face detection)
+                setTimeout(() => {
+                    const success = Math.random() > 0.3;
+                    const names = ['John Doe', 'Jane Smith', 'Michael Johnson', 'Sarah Williams', 'David Brown',
+                        'Emily Davis'
+                    ];
+                    const randomName = names[Math.floor(Math.random() * names.length)];
+
+                    if (success) {
+                        scanArea.className = 'scan-area success';
+                        scanArea.innerHTML = `
+                                    <i class="fas fa-check-circle"></i>
+                                    <p>✅ Verified!</p>
+                                    <span class="hint">Student matched successfully</span>
+                                `;
+                        document.getElementById('scanStatus').textContent = 'Status: ✅ Verified';
+                        showToast('Student verified successfully!', 'success');
+
+                        // Add to scan history
+                        scanHistory.unshift({
+                            name: randomName,
+                            matric: 'BIU/20/' + String(Math.floor(Math.random() * 100)).padStart(3, '0'),
+                            status: 'Verified',
+                            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                        });
+                        renderScanHistory();
+                        renderScanResults();
+                    } else {
+                        scanArea.className = 'scan-area error';
+                        scanArea.innerHTML = `
+                                    <i class="fas fa-times-circle"></i>
+                                    <p>❌ No match found</p>
+                                    <span class="hint">Please try again</span>
+                                `;
+                        document.getElementById('scanStatus').textContent = 'Status: ❌ Failed';
+                        showToast('No match found. Please try again.', 'error');
+                    }
+                }, 2000);
+            }
+
+            function stopScan() {
+                const scanArea = document.getElementById('scanArea');
+                if (!scanArea) return;
+
+                scanArea.className = 'scan-area';
+                scanArea.innerHTML = `
+                            <i class="fas fa-camera-retro"></i>
+                            <p>Click to start scanning</p>
+                            <span class="hint">Face verification will begin</span>
+                        `;
+                document.getElementById('scanStatus').textContent = 'Status: Stopped';
+                showToast('Scan stopped', 'info');
+            }
+
+            function renderScanHistory() {
+                const container = document.getElementById('recentScansList');
+                if (!container) return;
+
+                if (scanHistory.length === 0) {
+                    container.innerHTML = `
+                                <div class="text-center text-muted" style="padding:1.5rem 0;">
+                                    <i class="fas fa-qrcode" style="font-size:1.5rem;display:block;margin-bottom:0.5rem;"></i>
+                                    <p>No scans recorded yet</p>
+                                    <span class="text-xs">Start scanning students</span>
+                                </div>
+                            `;
+                    return;
+                }
+
+                container.innerHTML = scanHistory.slice(0, 5).map(scan => `
+                            <div class="scan-result-item">
+                                <div>
+                                    <strong>${scan.name}</strong>
+                                    <span style="font-size:0.8rem;color:#68768a;display:block;">${scan.matric}</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <span class="badge badge-present">${scan.status}</span>
+                                    <span style="font-size:0.7rem;color:#68768a;display:block;">${scan.time}</span>
+                                </div>
+                            </div>
+                        `).join('');
+            }
+
+            function renderScanResults() {
+                const tbody = document.getElementById('scanResultsBody');
+                if (!tbody) return;
+
+                if (scanHistory.length === 0) {
+                    tbody.innerHTML = `
+                                <tr><td colspan="4" class="text-center text-muted" style="padding:1.5rem 0;">
+                                    <i class="fas fa-inbox" style="display:block;font-size:1.5rem;margin-bottom:0.5rem;"></i>
+                                    No scan results yet
+                                </td></tr>
+                            `;
+                    return;
+                }
+
+                tbody.innerHTML = scanHistory.map(scan => `
+                            <tr>
+                                <td>${scan.name}</td>
+                                <td>${scan.matric}</td>
+                                <td><span class="badge badge-present">${scan.status}</span></td>
+                                <td style="font-size:0.8rem;color:#6b778b;">${scan.time}</td>
+                            </tr>
+                        `).join('');
+            }
+
+            // =============================================
+            // RENDER PROFILE PAGE
+            // =============================================
+            function renderProfileContent() {
+                const container = document.getElementById('screenContent');
+                const isOpen = sessionStatus === 'Open';
+
+                container.innerHTML = `
+                            <div class="page active" id="page-profile">
+                                <div class="page-heading">
+                                    <div>
+                                        <p class="eyebrow"><i class="fas fa-user"></i> My Account</p>
+                                        <h1>Profile</h1>
+                                        <p class="desc">View and manage your account settings</p>
+                                    </div>
+                                </div>
+
+                                <div class="grid-2">
+                                    <div class="card">
+                                        <div style="text-align:center;padding:1rem 0;">
+                                            <div style="width:80px;height:80px;border-radius:50%;background:#d6ad4b;display:inline-flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#10233f;margin-bottom:0.75rem;">
+                                                ${currentUser ? getInitials(currentUser.name) : 'U'}
+                                            </div>
+                                            <h3 style="font-family:'Merriweather',serif;font-size:1.25rem;">${currentUser?.name || 'User'}</h3>
+                                            <p class="text-muted">${currentUser?.role || 'RA'}</p>
+                                        </div>
+
+                                        <div class="border-t pt-3">
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Username</span>
+                                                <span class="font-bold">${currentUser?.username || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Email</span>
+                                                <span class="font-bold">${currentUser?.email || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Phone</span>
+                                                <span class="font-bold">${currentUser?.phone || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                <span class="text-muted">Hostel</span>
+                                                <span class="font-bold">${assignedHostelName || currentUser?.hostel || '—'}</span>
+                                            </div>
+                                            <div class="flex-between" style="padding:0.4rem 0;">
+                                                <span class="text-muted">Joined</span>
+                                                <span class="font-bold">${currentUser?.joined ? new Date(currentUser.joined).toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'}) : '—'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div class="card">
+                                            <div class="card-title"><span class="icon"><i class="fas fa-cog"></i></span> Account Settings</div>
+                                            <div style="margin-bottom:0.75rem;">
+                                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                    <span class="text-muted">Session Status</span>
+                                                    <span class="font-bold" style="color:${isOpen ? '#2d6545' : '#8a3328'};">
+                                                        ${isOpen ? '✅ Active' : '❌ Inactive'}
+                                                    </span>
+                                                </div>
+                                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                                    <span class="text-muted">Account Type</span>
+                                                    <span class="font-bold">${currentUser?.role || 'RA'}</span>
+                                                </div>
+                                                <div class="flex-between" style="padding:0.4rem 0;">
+                                                    <span class="text-muted">Last Login</span>
+                                                    <span class="font-bold">${new Date().toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                                                </div>
+                                            </div>
+                                            <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                                                <button class="btn-primary" style="width:100%;justify-content:center;">
+                                                    <i class="fas fa-key"></i> Change Password
+                                                </button>
+                                                <button class="btn-outline" style="width:100%;justify-content:center;color:#8a3328;border-color:#f8e1dc;" onclick="handleLogout(event)">
+                                                    <i class="fas fa-sign-out-alt"></i> Logout
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="card mt-3">
+                                            <div class="card-title"><span class="icon"><i class="fas fa-rocket"></i></span> Quick Actions</div>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+                                                <button class="btn-outline" style="padding:0.5rem;font-size:0.8rem;justify-content:center;">
+                                                    <i class="fas fa-file-pdf"></i> Export Report
+                                                </button>
+                                                <button class="btn-outline" style="padding:0.5rem;font-size:0.8rem;justify-content:center;">
+                                                    <i class="fas fa-bell"></i> Notifications
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+            }
+
+            // =============================================
             // AUTHENTICATION
             // =============================================
             function checkAuth() {
@@ -812,15 +1180,9 @@
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
 
-                if (currentUser.hostel_id) {
-                    assignedHostelId = currentUser.hostel_id;
-                }
-                if (currentUser.hostel) {
-                    assignedHostelName = currentUser.hostel;
-                }
-                if (currentUser.hostel_name) {
-                    assignedHostelName = currentUser.hostel_name;
-                }
+                if (currentUser.hostel_id) assignedHostelId = currentUser.hostel_id;
+                if (currentUser.hostel) assignedHostelName = currentUser.hostel;
+                if (currentUser.hostel_name) assignedHostelName = currentUser.hostel_name;
 
                 updateHeader();
                 return true;
@@ -867,6 +1229,10 @@
             window.resetFilters = resetFilters;
             window.changePage = changePage;
             window.updateStatus = updateStatus;
+            window.navigateTo = navigateTo;
+            window.startScan = startScan;
+            window.stopScan = stopScan;
+            window.handleLogout = handleLogout;
 
             // =============================================
             // INIT
@@ -881,29 +1247,41 @@
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
+                // Profile button navigation
+                document.querySelectorAll('.profile-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        navigateTo('profile');
+                    });
+                });
+
+                // Navigation links
+                document.querySelectorAll('.nav-item[data-page]').forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const page = link.dataset.page;
+                        if (page) navigateTo(page);
+                    });
+                });
+
                 try {
                     document.getElementById('noticeText').textContent = 'Loading RA dashboard...';
 
                     await loadHostels();
-                    
-                    // Load the current user's full data to get hostel_id if not set
+
                     if (currentUser && !assignedHostelId) {
                         try {
                             const userData = await apiCall(`/staff/${currentUser.id}`);
                             if (userData.data && userData.data.hostel_id) {
                                 assignedHostelId = userData.data.hostel_id;
-                                // Also get the hostel name
                                 const hostel = hostels.find(h => h.id === assignedHostelId);
-                                if (hostel) {
-                                    assignedHostelName = hostel.name;
-                                }
+                                if (hostel) assignedHostelName = hostel.name;
                             }
                         } catch (e) {
                             console.warn('Could not fetch user details:', e);
                         }
                     }
 
-                    // Load students (will be filtered by hostel_id)
                     await loadStudents();
                     await loadStaff();
 
@@ -914,11 +1292,13 @@
                         sessionStatus = 'Open';
                     }
 
-                    renderDashboard();
-                    
+                    // Start on dashboard
+                    navigateTo('dashboard');
+
                     const hostelDisplay = assignedHostelName || getHostelName(assignedHostelId) || 'your hostel';
                     document.getElementById('noticeText').textContent =
                         `RA Dashboard · ${filteredStudents.length} students in ${hostelDisplay}`;
+
                 } catch (error) {
                     console.error('Init error:', error);
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
