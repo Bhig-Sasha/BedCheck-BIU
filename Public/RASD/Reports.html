@@ -337,14 +337,36 @@
             // API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!token) {
+                    showToast('No authentication token found. Please login again.', 'error');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('No authentication token');
+                }
+
                 try {
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
                             ...(options.headers || {})
                         }
                     });
+                    
+                    if (response.status === 401) {
+                        showToast('Session expired. Please login again.', 'error');
+                        sessionStorage.removeItem('bedcheck_token');
+                        sessionStorage.removeItem('bedcheck_user');
+                        sessionStorage.removeItem('bedcheck_role');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 1500);
+                        throw new Error('Authentication required');
+                    }
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -357,7 +379,9 @@
                     }
                     return data;
                 } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                     throw error;
                 }
             }
@@ -402,7 +426,6 @@
                 try {
                     const data = await apiCall('/students');
                     students = data.data || [];
-                    // Normalize student data to ensure hostel and room fields are populated
                     students = students.map(s => ({
                         ...s,
                         hostel: s.hostel || s.hostel_name || '—',
@@ -749,10 +772,13 @@
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
-                if (!userData) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!userData || !token) {
                     window.location.replace('../Login.html');
                     return false;
                 }
+                
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RASD';
                 
@@ -763,6 +789,7 @@
 
             function handleLogout(e) {
                 e.preventDefault();
+                sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
                 window.location.replace('../Login.html');
@@ -821,7 +848,9 @@
                     document.getElementById('noticeText').textContent = `Loaded ${students.length} students. Report status: ${submissionState}`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
                 }
             }
 

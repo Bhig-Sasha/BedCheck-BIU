@@ -318,17 +318,45 @@
 
     // ========== API HELPERS ==========
     async function apiFetch(endpoint, opts={}) {
+      const token = sessionStorage.getItem('bedcheck_token');
+      
+      if (!token) {
+        showToast('No authentication token found. Please login again.', 'error');
+        setTimeout(() => {
+          window.location.replace('../Login.html');
+        }, 1500);
+        throw new Error('No authentication token');
+      }
+
       try {
         const res = await fetch(`${API_BASE}${endpoint}`, { 
           ...opts, 
-          headers: { 'Content-Type': 'application/json', ...(opts.headers||{}) } 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            ...(opts.headers||{}) 
+          } 
         });
+        
+        if (res.status === 401) {
+          showToast('Session expired. Please login again.', 'error');
+          sessionStorage.removeItem('bedcheck_token');
+          sessionStorage.removeItem('bedcheck_user');
+          sessionStorage.removeItem('bedcheck_role');
+          setTimeout(() => {
+            window.location.replace('../Login.html');
+          }, 1500);
+          throw new Error('Authentication required');
+        }
+        
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (!json.success) throw new Error(json.message || 'API error');
         return json;
       } catch(e) {
-        showToast('API Error: '+e.message, 'error');
+        if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+          showToast('API Error: '+e.message, 'error');
+        }
         throw e;
       }
     }
@@ -339,10 +367,6 @@
         const storedUser = sessionStorage.getItem('bedcheck_user');
         if (storedUser) {
           return JSON.parse(storedUser);
-        }
-        const localUser = localStorage.getItem('bedcheck_user');
-        if (localUser) {
-          return JSON.parse(localUser);
         }
         return null;
       } catch(e) {
@@ -413,6 +437,9 @@
         allBedSpaces = bedRes.data || [];
         return { students: allStudents, hostels: allHostels, bedSpaces: allBedSpaces };
       } catch(e) {
+        if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+          showToast('Error loading data: ' + e.message, 'error');
+        }
         return { students: [], hostels: [], bedSpaces: [] };
       }
     }
@@ -620,7 +647,9 @@
         renderPage(stats, allStudents, allHostels);
         showToast('Data refreshed', 'success');
       } catch(e) { 
-        showToast('Refresh failed: ' + e.message, 'error'); 
+        if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+          showToast('Refresh failed: ' + e.message, 'error'); 
+        }
       }
       isLoading = false;
     };
@@ -628,17 +657,13 @@
     // ========== OPEN STUDENT DRAWER ==========
     window.openDrawer = async function(studentId) {
       try {
-        // Try to find student in the already loaded data first
         let student = allStudents.find(s => s.id === studentId);
         
-        // If not found, try to fetch from API
         if (!student) {
           try {
-            // Use /students endpoint with ID
             const res = await apiFetch(`/students/${studentId}`);
             student = res.data;
           } catch (e) {
-            // If that fails, try to use the student list endpoint
             const res = await apiFetch(`/students?id=${studentId}`);
             if (res.data && res.data.length > 0) {
               student = res.data[0];
@@ -654,18 +679,16 @@
           return;
         }
         
-        // Fetch scans for this student
         let scans = [];
         try {
           const scanRes = await apiFetch(`/bedcheck/scans?student_id=${studentId}`);
           scans = scanRes.data || [];
         } catch(e) {
-          // If scans endpoint fails, try the room-history endpoint
           try {
             const histRes = await apiFetch(`/room-history?student_id=${studentId}`);
             scans = histRes.data || [];
           } catch(e2) {
-            // No scans found, continue with empty array
+            // No scans found
           }
         }
 
@@ -693,7 +716,6 @@
           <span class="label">Assigned Date</span><span class="value">${student.created_at ? new Date(student.created_at).toLocaleDateString() : '—'}</span>
         `;
 
-        // BedCheck history from scans
         const presentCount = scans.filter(s => s.status === 'Verified' || s.status === 'Present').length;
         const absentCount = scans.filter(s => s.status === 'Absent' || s.status === 'Failed').length;
         const lateCount = scans.filter(s => s.status === 'Late').length;
@@ -721,7 +743,9 @@
         document.getElementById('studentDrawer').classList.add('open');
       } catch(e) {
         console.error('Error loading student details:', e);
-        showToast('Error loading student details: ' + e.message, 'error');
+        if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+          showToast('Error loading student details: ' + e.message, 'error');
+        }
       }
     };
 
@@ -752,10 +776,11 @@
 
     // ========== LOGOUT ==========
     document.getElementById('logoutBtn').addEventListener('click', ()=>{
-      sessionStorage.clear();
-      localStorage.removeItem('bedcheck_user');
+      sessionStorage.removeItem('bedcheck_token');
+      sessionStorage.removeItem('bedcheck_user');
+      sessionStorage.removeItem('bedcheck_role');
       showToast('Logging out...', 'info');
-      setTimeout(()=>window.location.href='Login.html',500);
+      setTimeout(()=>window.location.href='../Login.html',500);
     });
 
     // ========== SET DATE ==========
@@ -769,6 +794,14 @@
     // ========== INIT ==========
     async function init() {
       try {
+        const token = sessionStorage.getItem('bedcheck_token');
+        const userData = sessionStorage.getItem('bedcheck_user');
+        
+        if (!token || !userData) {
+          window.location.replace('../Login.html');
+          return;
+        }
+
         const data = await loadData();
         allStudents = data.students;
         allHostels = data.hostels;
@@ -784,31 +817,22 @@
         } else if (user) {
           updateUserUI(user);
         } else {
-          const localUser = localStorage.getItem('bedcheck_user');
-          if (localUser) {
-            const parsed = JSON.parse(localUser);
-            if (parsed && parsed.id) {
-              const dbUser = await fetchUserFromDB(parsed.id);
-              if (dbUser) {
-                updateUserUI(dbUser);
-              }
-            }
-          } else {
-            updateUserUI(null);
-          }
+          updateUserUI(null);
         }
         
         const stats = calcStats(allStudents, allHostels, allBedSpaces);
         renderPage(stats, allStudents, allHostels);
       } catch(e) {
-        document.getElementById('screenContent').innerHTML = `
-          <div class="card mt-4" style="padding:2rem;text-align:center;color:#8a3328;">
-            <i class="fas fa-exclamation-triangle" style="font-size:2rem;"></i>
-            <p class="mt-2">Error loading data. Please check server connection.</p>
-            <button class="btn-primary mt-3" onclick="window.refreshData()">Retry</button>
-          </div>
-        `;
-        showToast('Failed to load data from server: ' + e.message, 'error');
+        if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+          document.getElementById('screenContent').innerHTML = `
+            <div class="card mt-4" style="padding:2rem;text-align:center;color:#8a3328;">
+              <i class="fas fa-exclamation-triangle" style="font-size:2rem;"></i>
+              <p class="mt-2">Error loading data. Please check server connection.</p>
+              <button class="btn-primary mt-3" onclick="window.refreshData()">Retry</button>
+            </div>
+          `;
+          showToast('Failed to load data from server: ' + e.message, 'error');
+        }
       }
     }
 

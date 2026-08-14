@@ -365,17 +365,42 @@
             let submissionState = 'Open';
 
             // =============================================
-            // API HELPER
+            // AUTHENTICATED API HELPER - FIXED!
             // =============================================
             async function apiCall(endpoint, options = {}) {
+                // Get token from session storage
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!token) {
+                    showToast('No authentication token found. Please login again.', 'error');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('No authentication token');
+                }
+
                 try {
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
                             ...(options.headers || {})
                         }
                     });
+                    
+                    // Handle 401 - token expired or invalid
+                    if (response.status === 401) {
+                        const errorData = await response.json().catch(() => ({}));
+                        showToast('Session expired. Please login again.', 'error');
+                        sessionStorage.removeItem('bedcheck_token');
+                        sessionStorage.removeItem('bedcheck_user');
+                        sessionStorage.removeItem('bedcheck_role');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 1500);
+                        throw new Error('Authentication required');
+                    }
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -388,7 +413,9 @@
                     }
                     return data;
                 } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                     throw error;
                 }
             }
@@ -460,7 +487,7 @@
             async function loadSubmissionState() {
                 try {
                     const data = await apiCall('/submission');
-                    submissionState = data.data.state || 'Open';
+                    submissionState = data.data?.state || 'Open';
                     return submissionState;
                 } catch (error) {
                     submissionState = 'Open';
@@ -473,14 +500,17 @@
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
-                if (!userData) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!userData || !token) {
                     window.location.replace('../Login.html');
                     return false;
                 }
+                
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
                 
-                document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
+                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) || 'IM';
                 document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
                 document.getElementById('profileRoleLabel').textContent = currentRole;
                 document.getElementById('roleLabel').textContent = currentRole;
@@ -492,6 +522,7 @@
 
             function handleLogout(e) {
                 e.preventDefault();
+                sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
                 window.location.replace('../Login.html');
@@ -540,7 +571,6 @@
                     const total = hostelStudents.length;
                     const assigned = hostelStudents.filter(s => s.room_id !== null && s.room_id > 0).length;
                     const progress = total > 0 ? Math.round((assigned / total) * 100) : 0;
-                    // Simulate some active statuses for demo
                     let status = 'inactive';
                     if (progress === 100) status = 'active';
                     else if (progress > 0) status = 'partial';
@@ -552,43 +582,6 @@
                     const order = { active: 0, partial: 1, inactive: 2 };
                     return (order[a.status] || 3) - (order[b.status] || 3);
                 });
-
-                // Attention items
-                const attentionItems = [];
-                if (absent > 0) {
-                    attentionItems.push({
-                        icon: 'fa-user-slash',
-                        iconColor: 'red',
-                        title: `${absent} unresolved absences`,
-                        sub: 'Students marked absent this session'
-                    });
-                }
-                const pendingStaff = staffMembers.filter(s => s.submission_status === 'Pending' || s.submission_status === 'Not Started').length;
-                if (pendingStaff > 0) {
-                    attentionItems.push({
-                        icon: 'fa-clock',
-                        iconColor: 'gold',
-                        title: `${pendingStaff} staff submissions pending`,
-                        sub: 'Awaiting HRA review'
-                    });
-                }
-                const notStarted = hostelProgress.filter(h => h.progress === 0 && h.totalStudents > 0).length;
-                if (notStarted > 0) {
-                    attentionItems.push({
-                        icon: 'fa-wifi-slash',
-                        iconColor: 'red',
-                        title: `${notStarted} hostel${notStarted > 1 ? 's' : ''} not started`,
-                        sub: 'Not yet reporting'
-                    });
-                }
-                if (attentionItems.length === 0) {
-                    attentionItems.push({
-                        icon: 'fa-check-circle',
-                        iconColor: 'green',
-                        title: 'All systems operational',
-                        sub: 'No pending issues'
-                    });
-                }
 
                 // Count active hostels
                 const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
@@ -689,7 +682,7 @@
                         <div class="mt-2 pt-2 border-t">
                             <div class="flex-between">
                                 <span class="text-xs text-muted">Last updated: ${new Date().toLocaleTimeString()}</span>
-                                <button class="btn-outline" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="showToast('Refreshing data...','info')">
+                                <button class="btn-outline" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="window.location.reload()">
                                     <i class="fas fa-sync"></i> Refresh
                                 </button>
                             </div>
@@ -809,7 +802,9 @@
                     document.getElementById('noticeText').textContent = `Ready · ${students.length} students, ${hostels.length} hostels`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
                     renderDashboard();
                 }
             }

@@ -518,9 +518,19 @@
         }
 
         // =============================================
-        // API HELPER
+        // AUTHENTICATED API HELPER - FIXED!
         // =============================================
         async function apiCall(endpoint, options = {}) {
+            const token = sessionStorage.getItem('bedcheck_token');
+            
+            if (!token) {
+                showToast('No authentication token found. Please login again.', 'error');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 1500);
+                throw new Error('No authentication token');
+            }
+
             try {
                 let fixedEndpoint = endpoint;
                 if (endpoint.includes('/bed_spaces')) {
@@ -532,15 +542,31 @@
                 
                 const url = `${API_BASE_URL}${fixedEndpoint}`;
                 console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
-                console.log('📦 Request Body:', options.body);
+                if (options.body) {
+                    console.log('📦 Request Body:', options.body);
+                }
                 
                 const response = await fetch(url, {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
                         ...(options.headers || {})
                     }
                 });
+                
+                // Handle 401 - token expired or invalid
+                if (response.status === 401) {
+                    const errorData = await response.json().catch(() => ({}));
+                    showToast('Session expired. Please login again.', 'error');
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    sessionStorage.removeItem('bedcheck_role');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('Authentication required');
+                }
                 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -553,8 +579,10 @@
                 }
                 return data;
             } catch (error) {
-                console.error('API Error:', error);
-                showToast('Error: ' + error.message, 'error');
+                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    console.error('API Error:', error);
+                    showToast('Error: ' + error.message, 'error');
+                }
                 throw error;
             }
         }
@@ -1677,14 +1705,17 @@
         // =============================================
         function checkAuth() {
             const userData = sessionStorage.getItem('bedcheck_user');
-            if (!userData) {
+            const token = sessionStorage.getItem('bedcheck_token');
+            
+            if (!userData || !token) {
                 window.location.replace('../Login.html');
                 return false;
             }
+            
             currentUser = JSON.parse(userData);
             currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
             
-            document.getElementById('profileAvatar').textContent = currentUser.initials || 'IM';
+            document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) || 'IM';
             document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
             document.getElementById('profileRoleLabel').textContent = currentRole;
             document.getElementById('roleLabel').textContent = currentRole;
@@ -1696,6 +1727,7 @@
 
         function handleLogout(e) {
             e.preventDefault();
+            sessionStorage.removeItem('bedcheck_token');
             sessionStorage.removeItem('bedcheck_user');
             sessionStorage.removeItem('bedcheck_role');
             window.location.replace('../Login.html');
@@ -1769,7 +1801,9 @@
             } catch (error) {
                 isLoading = false;
                 document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                showToast('Error loading data: ' + error.message, 'error');
+                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
                 renderScreen();
             }
 

@@ -337,11 +337,37 @@
 
       // ========== API HELPERS ==========
       async function apiCall(endpoint, opts = {}) {
+        const token = sessionStorage.getItem('bedcheck_token');
+        
+        if (!token) {
+          showToast('No authentication token found. Please login again.', 'error');
+          setTimeout(() => {
+            window.location.replace('../Login.html');
+          }, 1500);
+          throw new Error('No authentication token');
+        }
+
         try {
           const res = await fetch(`${API_BASE}${endpoint}`, {
             ...opts,
-            headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              ...(opts.headers || {}) 
+            }
           });
+          
+          if (res.status === 401) {
+            showToast('Session expired. Please login again.', 'error');
+            sessionStorage.removeItem('bedcheck_token');
+            sessionStorage.removeItem('bedcheck_user');
+            sessionStorage.removeItem('bedcheck_role');
+            setTimeout(() => {
+              window.location.replace('../Login.html');
+            }, 1500);
+            throw new Error('Authentication required');
+          }
+          
           if (!res.ok) {
             const errorText = await res.text();
             throw new Error(`HTTP ${res.status}: ${errorText}`);
@@ -350,7 +376,10 @@
           if (!data.success) throw new Error(data.message || 'API error');
           return data;
         } catch (error) {
-          console.error('API Error:', error);
+          if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+            console.error('API Error:', error);
+            showToast('Error: ' + error.message, 'error');
+          }
           throw error;
         }
       }
@@ -405,8 +434,6 @@
         try {
           const stored = sessionStorage.getItem('bedcheck_user');
           if (stored) return JSON.parse(stored);
-          const local = localStorage.getItem('bedcheck_user');
-          if (local) return JSON.parse(local);
           return null;
         } catch (e) { return null; }
       }
@@ -577,7 +604,6 @@
             return;
           }
 
-          // Custom confirmation message based on status
           let confirmMsg = `Are you sure you want to delete "${session.name || 'Session'}"? This action cannot be undone.`;
           if (session.status?.toLowerCase() === 'active') {
             confirmMsg = `⚠️ WARNING: This is an ACTIVE session!\n\nDeleting it will remove all associated data.\n\nAre you sure you want to delete "${session.name || 'Session'}"?`;
@@ -737,7 +763,6 @@
         const archivedSessions = sessions.filter(s => s.status?.toLowerCase() === 'archived').length;
         const totalSessions = sessions.length;
 
-        // Get the latest session for display
         const latestSession = sessions.length > 0 ? sessions[0] : null;
         const latestStatus = latestSession?.status || 'No Session';
         const statusColor = latestStatus?.toLowerCase() === 'active' ? '#2d6545' : '#8a3328';
@@ -940,7 +965,9 @@
             `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${sessions.length} sessions`;
           showToast('Data refreshed', 'success');
         } catch (e) {
-          showToast('Error: ' + e.message, 'error');
+          if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+            showToast('Error: ' + e.message, 'error');
+          }
         } finally {
           isLoading = false;
         }
@@ -949,6 +976,15 @@
 
       // ========== INIT ==========
       async function init() {
+        // Check authentication
+        const token = sessionStorage.getItem('bedcheck_token');
+        const userData = sessionStorage.getItem('bedcheck_user');
+        
+        if (!token || !userData) {
+          window.location.replace('../Login.html');
+          return;
+        }
+
         // Mobile menu handlers
         document.getElementById('menuToggle').addEventListener('click', () => {
           document.getElementById('mobileDrawer').classList.add('open');
@@ -963,8 +999,9 @@
           document.getElementById('drawerOverlay').classList.remove('show');
         });
         document.getElementById('logoutBtn').addEventListener('click', () => {
-          sessionStorage.clear();
-          localStorage.removeItem('bedcheck_user');
+          sessionStorage.removeItem('bedcheck_token');
+          sessionStorage.removeItem('bedcheck_user');
+          sessionStorage.removeItem('bedcheck_role');
           window.location.replace('../Login.html');
         });
 
@@ -985,8 +1022,10 @@
             `Session ${sessionStatus} · ${hostels.length} hostels · ${students.length} students · ${sessions.length} sessions`;
           
         } catch (e) {
-          document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-          showToast('Error: ' + e.message, 'error');
+          if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+            document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+            showToast('Error: ' + e.message, 'error');
+          }
         }
       }
 

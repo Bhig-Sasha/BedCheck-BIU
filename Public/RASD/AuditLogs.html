@@ -316,7 +316,7 @@
             let currentPage = 1;
             let currentFilter = 'all';
 
-            // Sample audit logs data
+            // Sample audit logs data for fallback
             const sampleLogs = [
                 { 
                     id: 1,
@@ -362,96 +362,6 @@
                     time: 'Oct 14, 2026 10:20 PM',
                     created_at: '2026-10-14T22:20:00',
                     tone: 'gold'
-                },
-                { 
-                    id: 6,
-                    actor: 'Amina Abubakar',
-                    action: 'Login',
-                    context: 'Logged in from IP 192.168.1.105',
-                    time: 'Oct 14, 2026 08:45 AM',
-                    created_at: '2026-10-14T08:45:00',
-                    tone: 'blue'
-                },
-                { 
-                    id: 7,
-                    actor: 'John Doe',
-                    action: 'Approve',
-                    context: 'Approved official report for Week 41',
-                    time: 'Oct 14, 2026 11:00 PM',
-                    created_at: '2026-10-14T23:00:00',
-                    tone: 'green'
-                },
-                { 
-                    id: 8,
-                    actor: 'Ibrahim Musa',
-                    action: 'Logout',
-                    context: 'Logged out from IP 192.168.1.100',
-                    time: 'Oct 14, 2026 11:30 PM',
-                    created_at: '2026-10-14T23:30:00',
-                    tone: 'blue'
-                },
-                { 
-                    id: 9,
-                    actor: 'Mary Johnson',
-                    action: 'Update',
-                    context: 'Updated hostel configuration for Purpose Hostel',
-                    time: 'Oct 14, 2026 03:00 PM',
-                    created_at: '2026-10-14T15:00:00',
-                    tone: 'gold'
-                },
-                { 
-                    id: 10,
-                    actor: 'Sacha Troger',
-                    action: 'Create',
-                    context: 'Created new staff account for David Okonkwo',
-                    time: 'Oct 14, 2026 02:30 PM',
-                    created_at: '2026-10-14T14:30:00',
-                    tone: 'blue'
-                },
-                { 
-                    id: 11,
-                    actor: 'John Doe',
-                    action: 'Update',
-                    context: 'Updated attendance for Champions Hostel: 342/350 present',
-                    time: 'Oct 13, 2026 10:50 PM',
-                    created_at: '2026-10-13T22:50:00',
-                    tone: 'gold'
-                },
-                { 
-                    id: 12,
-                    actor: 'Amina Abubakar',
-                    action: 'View',
-                    context: 'Viewed report: Weekly attendance report',
-                    time: 'Oct 13, 2026 09:00 AM',
-                    created_at: '2026-10-13T09:00:00',
-                    tone: 'blue'
-                },
-                { 
-                    id: 13,
-                    actor: 'Ibrahim Musa',
-                    action: 'Delete',
-                    context: 'Deleted student record: SCN/CSC/230587',
-                    time: 'Oct 13, 2026 11:15 AM',
-                    created_at: '2026-10-13T11:15:00',
-                    tone: 'red'
-                },
-                { 
-                    id: 14,
-                    actor: 'Mary Johnson',
-                    action: 'Create',
-                    context: 'Created BedCheck session for Purpose Hostel',
-                    time: 'Oct 12, 2026 09:30 PM',
-                    created_at: '2026-10-12T21:30:00',
-                    tone: 'blue'
-                },
-                { 
-                    id: 15,
-                    actor: 'David Okonkwo',
-                    action: 'Login',
-                    context: 'Logged in from IP 192.168.1.110',
-                    time: 'Oct 12, 2026 08:00 PM',
-                    created_at: '2026-10-12T20:00:00',
-                    tone: 'blue'
                 }
             ];
 
@@ -459,14 +369,36 @@
             // API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!token) {
+                    showToast('No authentication token found. Please login again.', 'error');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('No authentication token');
+                }
+
                 try {
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
                             ...(options.headers || {})
                         }
                     });
+                    
+                    if (response.status === 401) {
+                        showToast('Session expired. Please login again.', 'error');
+                        sessionStorage.removeItem('bedcheck_token');
+                        sessionStorage.removeItem('bedcheck_user');
+                        sessionStorage.removeItem('bedcheck_role');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 1500);
+                        throw new Error('Authentication required');
+                    }
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -479,7 +411,9 @@
                     }
                     return data;
                 } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                     throw error;
                 }
             }
@@ -824,10 +758,13 @@
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
-                if (!userData) {
-                    window.location.replace('login.html');
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!userData || !token) {
+                    window.location.replace('../Login.html');
                     return false;
                 }
+                
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RASD';
                 
@@ -838,9 +775,10 @@
 
             function handleLogout(e) {
                 e.preventDefault();
+                sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
-                window.location.replace('login.html');
+                window.location.replace('../Login.html');
             }
 
             // =============================================
@@ -899,7 +837,9 @@
                     document.getElementById('noticeText').textContent = `Loaded ${auditLogs.length} audit events.`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
                 }
             }
 
