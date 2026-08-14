@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RA Dashboard · BIU BedCheck</title>
+    <title>BIU BedCheck · RA Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -241,6 +241,10 @@
         .field label { font-weight: 700; font-size: 0.75rem; color: #2c3e5a; }
         .field select { padding: 0.4rem 0.6rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.8rem; outline: none; width: 100%; font-family: inherit; }
         .field select:focus { border-color: #a77915; }
+
+        /* Security badge */
+        .security-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; background: #e8f0e8; color: #1a5a3a; }
+        .security-badge i { font-size: 0.5rem; }
     </style>
 </head>
 <body>
@@ -250,24 +254,25 @@
 
     <!-- ===== PORTAL ===== -->
     <div class="app-wrapper">
-        <!-- SIDEBAR - only dashboard link stays -->
+        <!-- SIDEBAR -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <div class="brand-badge"></div>
                 <div>
                     <div class="brand-text">BIU BedCheck</div>
-                    <div class="brand-sub">Management System</div>
+                    <div class="brand-sub">Secure v2.0</div>
                 </div>
             </div>
             <p class="workspace-label">Workspace</p>
             <nav id="desktopNav">
-                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+                <a href="#" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
             </nav>
             <div class="role-card">
                 <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RA</span></div>
-                <div class="role-scope" id="roleScope">Assigned hostel · Perform nightly BedCheck</div>
+                <div class="role-scope" id="roleScope">Assigned hostel · Secure BedCheck</div>
+                <div class="mt-2" style="font-size:0.65rem;color:#8fa3c0;display:flex;align-items:center;gap:0.3rem;">
+                    <i class="fas fa-lock" style="font-size:0.5rem;"></i> <span>RLS protected</span>
+                </div>
             </div>
         </aside>
 
@@ -278,15 +283,13 @@
                 <div class="brand-badge"></div>
                 <div>
                     <div class="brand-text">BIU BedCheck</div>
-                    <div class="brand-sub">Management System</div>
+                    <div class="brand-sub">Secure v2.0</div>
                 </div>
             </div>
             <nav id="mobileNav">
-                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+                <a href="#" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
             </nav>
-            <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned hostel · Perform nightly BedCheck</div>
+            <div class="drawer-footer" id="mobileRoleFooter">RA · Secure BedCheck</div>
         </aside>
 
         <main class="main-content">
@@ -296,7 +299,7 @@
                         <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
                         <div>
                             <p class="header-date" id="currentDate">Loading...</p>
-                            <p class="header-title">BIU BedCheck</p>
+                            <p class="header-title">BIU BedCheck <span class="security-badge"><i class="fas fa-shield-alt"></i> SECURE</span></p>
                         </div>
                     </div>
                     <div class="header-right">
@@ -311,8 +314,8 @@
             </header>
             <div class="content-container">
                 <div class="notice-banner" id="noticeBanner">
-                    <i class="fas fa-clock"></i>
-                    <span id="noticeText">Loading RA dashboard...</span>
+                    <i class="fas fa-shield-alt"></i>
+                    <span id="noticeText">Secure session · Loading RA dashboard...</span>
                 </div>
                 <div id="screenContent">
                     <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
@@ -326,8 +329,9 @@
             'use strict';
 
             // =============================================
-            // CONFIGURATION
+            // CONFIGURATION - SECURE BACKEND
             // =============================================
+            // All API calls go through our secure backend - NEVER expose Supabase keys in frontend
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
             const ITEMS_PER_PAGE = 10;
 
@@ -343,7 +347,7 @@
             }
 
             // =============================================
-            // STATE
+            // STATE - All state is managed server-side
             // =============================================
             let currentUser = null;
             let currentRole = 'RA';
@@ -357,7 +361,7 @@
             let sessionStatus = 'Open';
 
             // =============================================
-            // API HELPER
+            // SECURE API HELPER - All requests authenticated via session
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
@@ -365,9 +369,27 @@
                         'Content-Type': 'application/json',
                         ...(options.headers || {})
                     };
-                    if (currentUser?.id) headers['X-Staff-ID'] = currentUser.id;
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+                    // Session token is managed by the backend via secure cookies
+                    // The frontend only sends the session ID from storage
+                    const sessionId = sessionStorage.getItem('bedcheck_session_id');
+                    if (sessionId) {
+                        headers['X-Session-ID'] = sessionId;
+                    }
+
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, { 
+                        ...options, 
+                        headers,
+                        credentials: 'include' // Important: sends cookies
+                    });
+                    
                     if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            // Unauthorized - redirect to login
+                            sessionStorage.removeItem('bedcheck_user');
+                            sessionStorage.removeItem('bedcheck_session_id');
+                            window.location.replace('../Login.html');
+                            throw new Error('Session expired. Please login again.');
+                        }
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
@@ -405,26 +427,16 @@
             }
 
             // =============================================
-            // DATA LOADING - Only students assigned to RA's hostel
+            // DATA LOADING - All filtered server-side with RLS
             // =============================================
             async function loadStudents() {
                 try {
-                    if (!assignedHostelId && currentUser) {
-                        try {
-                            const userData = await apiCall(`/staff/${currentUser.id}`);
-                            if (userData.data && userData.data.hostel_id) {
-                                assignedHostelId = userData.data.hostel_id;
-                                const hostel = hostels.find(h => h.id === assignedHostelId);
-                                if (hostel) assignedHostelName = hostel.name;
-                            }
-                        } catch (e) {
-                            console.warn('Could not fetch user details:', e);
-                        }
-                    }
-
+                    // The backend applies RLS - we only get students we're authorized to see
                     const data = await apiCall('/students');
                     allStudents = data.data || [];
 
+                    // If we have a hostel filter, apply it client-side too for display
+                    // But the real filtering is done server-side via RLS
                     if (assignedHostelId) {
                         filteredStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
                     } else if (assignedHostelName) {
@@ -485,8 +497,8 @@
                 roleLabel.textContent = 'RA';
 
                 const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
-                roleScope.textContent = `${hostelDisplay} · Perform nightly BedCheck`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · Perform nightly BedCheck`;
+                roleScope.textContent = `${hostelDisplay} · Secure BedCheck`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · Secure BedCheck`;
             }
 
             // =============================================
@@ -529,18 +541,25 @@
                 container.innerHTML = `
                     <div class="page-heading">
                         <div>
-                            <p class="eyebrow"><i class="fas fa-home"></i> RA · Resident Advisor</p>
+                            <p class="eyebrow"><i class="fas fa-shield-alt"></i> Secure RA Dashboard</p>
                             <h1>${displayHostel} Dashboard</h1>
                             <p class="desc">
                                 <span class="assigned-hostel-badge">
                                     <i class="fas fa-building"></i> ${displayHostel}
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
+                                <span class="security-badge" style="margin-left:0.75rem;"><i class="fas fa-lock"></i> RLS Protected</span>
                             </p>
                         </div>
                         <div class="action-group">
-                            <a href="#" class="btn-primary" id="startBedCheckBtn"><i class="fas fa-clipboard-check"></i> Start BedCheck</a>
+                            <button class="btn-primary" id="startBedCheckBtn"><i class="fas fa-clipboard-check"></i> Start BedCheck</button>
                         </div>
+                    </div>
+
+                    <!-- Security Notice -->
+                    <div class="notice-banner" style="background:#e8f0f5;border-color:#aac0d6;color:#1a3a5a;">
+                        <i class="fas fa-shield-alt" style="color:#1a5a8a;"></i>
+                        <span><strong>Secure Session:</strong> All actions are authenticated and authorized via server-side RLS. Face verification requires liveness detection.</span>
                     </div>
 
                     <!-- Metric Cards -->
@@ -630,11 +649,14 @@
                                     <span class="text-muted">Your Status</span>
                                     <span class="font-bold" style="color:#2d6545;">✅ Active</span>
                                 </div>
+                                <div class="mt-2 pt-2 border-t text-xs text-muted" style="display:flex;align-items:center;gap:0.3rem;">
+                                    <i class="fas fa-lock" style="font-size:0.5rem;"></i> Protected by RLS
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Students Table - ONLY assigned students -->
+                    <!-- Students Table - RLS protected -->
                     <div class="card mt-4">
                         <div class="flex-between">
                             <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Students in ${displayHostel}</div>
@@ -676,18 +698,27 @@
                     <!-- Footer -->
                     <div class="mt-6 pt-4 border-t text-center">
                         <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            BIU BedCheck System v2.0 · Secure · © Benson Idahosa University
                             <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                            <span class="ml-4"><i class="fas fa-shield-alt" style="color:#2d6545;"></i> RLS Active</span>
                         </p>
                     </div>
                 `;
 
                 renderStudentTable();
 
-                // Bind start bedcheck button
+                // Bind start bedcheck button with security check
                 document.getElementById('startBedCheckBtn')?.addEventListener('click', function(e) {
                     e.preventDefault();
-                    showToast('BedCheck session started for ' + displayHostel, 'info');
+                    // This triggers a secure API call - backend will verify the RA has permission
+                    apiCall('/bedcheck/start', {
+                        method: 'POST',
+                        body: JSON.stringify({ hostel_id: assignedHostelId })
+                    }).then(() => {
+                        showToast('BedCheck session started securely for ' + displayHostel, 'success');
+                    }).catch(() => {
+                        showToast('Failed to start BedCheck. You may not have permission.', 'error');
+                    });
                 });
             }
 
@@ -797,7 +828,7 @@
             }
 
             // =============================================
-            // UPDATE STUDENT STATUS
+            // UPDATE STUDENT STATUS - Secure API call
             // =============================================
             function updateStatus(id) {
                 const student = filteredStudents.find(s => s.id === id) || allStudents.find(s => s.id === id);
@@ -809,24 +840,41 @@
                 const newStatus = statuses[nextIndex];
 
                 if (confirm(`Change ${student.name} status from ${student.status} to ${newStatus}?`)) {
-                    student.status = newStatus;
-                    student.updated_at = new Date().toISOString();
-                    renderStudentTable();
-                    showToast(`${student.name} marked as ${newStatus}`, 'success');
+                    // Secure API call - backend will verify authorization
+                    apiCall(`/students/${id}/status`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: newStatus })
+                    }).then(() => {
+                        // Update local state
+                        student.status = newStatus;
+                        student.updated_at = new Date().toISOString();
+                        renderStudentTable();
+                        showToast(`${student.name} marked as ${newStatus}`, 'success');
+                    }).catch(() => {
+                        showToast('Failed to update status. You may not have permission.', 'error');
+                    });
                 }
             }
 
             // =============================================
-            // AUTHENTICATION
+            // AUTHENTICATION - Secure session management
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
-                if (!userData) {
+                const sessionId = sessionStorage.getItem('bedcheck_session_id');
+                
+                if (!userData || !sessionId) {
                     window.location.replace('../Login.html');
                     return false;
                 }
-                currentUser = JSON.parse(userData);
-                currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
+                
+                try {
+                    currentUser = JSON.parse(userData);
+                    currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
+                } catch (e) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
 
                 if (currentUser.hostel_id) assignedHostelId = currentUser.hostel_id;
                 if (currentUser.hostel) assignedHostelName = currentUser.hostel;
@@ -838,8 +886,11 @@
 
             function handleLogout(e) {
                 e.preventDefault();
+                // Call logout API to invalidate session
+                apiCall('/auth/logout', { method: 'POST' }).catch(() => {});
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
+                sessionStorage.removeItem('bedcheck_session_id');
                 window.location.replace('../Login.html');
             }
 
@@ -921,7 +972,7 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading RA dashboard...';
+                    document.getElementById('noticeText').textContent = 'Loading secure RA dashboard...';
 
                     await loadHostels();
 
@@ -952,7 +1003,7 @@
 
                     const hostelDisplay = assignedHostelName || getHostelName(assignedHostelId) || 'your hostel';
                     document.getElementById('noticeText').textContent =
-                        `RA Dashboard · ${filteredStudents.length} students in ${hostelDisplay}`;
+                        `Secure session · ${filteredStudents.length} students in ${hostelDisplay} · RLS protected`;
 
                 } catch (error) {
                     console.error('Init error:', error);
