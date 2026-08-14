@@ -375,6 +375,42 @@
         .mt-3 { margin-top: 1rem; }
         .text-center { text-align: center; }
 
+        /* Debug panel - shows server response */
+        .debug-panel {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            right: 1rem;
+            max-width: 600px;
+            background: #1a1a2e;
+            color: #00ff41;
+            font-family: 'Courier New', monospace;
+            font-size: 0.7rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 9999;
+            display: none;
+            border: 1px solid #333;
+        }
+        .debug-panel.show { display: block; }
+        .debug-panel .title {
+            color: #ff6b6b;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        .debug-panel .close-debug {
+            position: absolute;
+            top: 0.25rem;
+            right: 0.5rem;
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
         @media (max-width: 900px) { 
             .login-card { grid-template-columns: 1fr; min-height: auto; } 
             .left-panel { display: none; } 
@@ -460,6 +496,13 @@
         </div>
     </div>
 
+    <!-- Debug Panel -->
+    <div class="debug-panel" id="debugPanel">
+        <div class="title">🔍 Server Response Debug</div>
+        <button class="close-debug" onclick="document.getElementById('debugPanel').classList.remove('show')">✕</button>
+        <pre id="debugContent" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner-large"></div>
         <h2>BIU BedCheck</h2>
@@ -507,6 +550,8 @@
             const loadingOverlay = document.getElementById('loadingOverlay');
             const roleBadge = document.getElementById('roleBadge');
             const loadingError = document.getElementById('loadingError');
+            const debugPanel = document.getElementById('debugPanel');
+            const debugContent = document.getElementById('debugContent');
 
             let showPassword = false;
 
@@ -518,8 +563,13 @@
                 toggleBtn.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
             });
 
+            function showDebug(data) {
+                debugContent.textContent = JSON.stringify(data, null, 2);
+                debugPanel.classList.add('show');
+            }
+
             function showLoading(role) {
-                roleBadge.textContent = role;
+                roleBadge.textContent = role || 'Loading...';
                 loadingError.style.display = 'none';
                 loadingOverlay.classList.add('show');
             }
@@ -842,6 +892,9 @@
                 }, 4000);
             }
 
+            // =============================================
+            // LOGIN - WITH DEBUGGING
+            // =============================================
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
@@ -871,20 +924,41 @@
 
                     clearTimeout(timeoutId);
 
+                    // Log the raw response status
+                    console.log('Response status:', response.status);
+
                     const data = await response.json();
+
+                    // Show debug panel with the full response
+                    showDebug({
+                        status: response.status,
+                        ok: response.ok,
+                        data: data,
+                        dataType: typeof data,
+                        hasData: !!data,
+                        hasSuccess: data?.success,
+                        hasDataDotData: !!data?.data,
+                        hasDataDotDataDotUser: !!data?.data?.user,
+                        role: data?.data?.user?.role || data?.role || 'NOT FOUND'
+                    });
 
                     if (!response.ok) {
                         throw new Error(data.message || `Server returned ${response.status}`);
                     }
 
                     if (data.success) {
-                        const user = data.data?.user;
-
+                        // Try multiple ways to get the user
+                        const user = data.data?.user || data.user;
+                        
                         if (!user) {
                             throw new Error('No user data received from server');
                         }
 
-                        const role = user.role;
+                        const role = user.role || data.role;
+
+                        if (!role) {
+                            throw new Error('No role found in response');
+                        }
 
                         sessionStorage.setItem('bedcheck_user', JSON.stringify(user));
                         sessionStorage.setItem('bedcheck_role', role);
