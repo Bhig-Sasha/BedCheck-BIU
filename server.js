@@ -1257,7 +1257,11 @@ const auditEvents = {
 };
 
 // =====================================================
-// HEALTH & STATUS ENDPOINTS
+// 🔓 PUBLIC ENDPOINTS (No Authentication Required)
+// =====================================================
+
+// =====================================================
+// HEALTH & STATUS ENDPOINTS (Public)
 // =====================================================
 
 app.get('/health', (req, res) => {
@@ -1279,7 +1283,7 @@ app.get('/', (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS
+// AUTHENTICATION ENDPOINTS (Public - No Auth Required)
 // =====================================================
 
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
@@ -1367,7 +1371,17 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
     }
 });
 
-app.post('/api/auth/logout', authMiddleware, async (req, res) => {
+// =====================================================
+// 🔐 APPLY AUTH MIDDLEWARE - ALL ROUTES AFTER THIS REQUIRE AUTHENTICATION
+// =====================================================
+
+app.use(authMiddleware);
+
+// =====================================================
+// AUTHENTICATION ENDPOINTS (Protected - Auth Required)
+// =====================================================
+
+app.post('/api/auth/logout', async (req, res) => {
     await auditService.log({
         actor: req.user.name || req.user.username,
         actor_id: req.user.id,
@@ -1388,7 +1402,7 @@ app.post('/api/auth/logout', authMiddleware, async (req, res) => {
     });
 });
 
-app.get('/api/auth/verify', authMiddleware, async (req, res) => {
+app.get('/api/auth/verify', async (req, res) => {
     res.json({ 
         success: true, 
         data: {
@@ -1405,7 +1419,7 @@ app.get('/api/auth/verify', authMiddleware, async (req, res) => {
     });
 });
 
-app.get('/api/me', authMiddleware, async (req, res) => {
+app.get('/api/me', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('staff')
@@ -1435,7 +1449,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 // =====================================================
 
 app.put('/api/staff/:id/change-password', 
-    authMiddleware, 
     validate(validators.changePassword),
     async (req, res) => {
         try {
@@ -1535,7 +1548,7 @@ app.put('/api/staff/:id/change-password',
 // CAMPUS CONTEXT ENDPOINTS
 // =====================================================
 
-app.get('/api/campus/current', authMiddleware, async (req, res) => {
+app.get('/api/campus/current', async (req, res) => {
     res.json({
         success: true,
         data: {
@@ -1546,7 +1559,7 @@ app.get('/api/campus/current', authMiddleware, async (req, res) => {
     });
 });
 
-app.post('/api/campus/switch', authMiddleware, requireRole('Admin'), validate([
+app.post('/api/campus/switch', requireRole('Admin'), validate([
     body('campus').isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
 ]), async (req, res) => {
     const { campus } = req.body;
@@ -1593,7 +1606,7 @@ app.post('/api/campus/switch', authMiddleware, requireRole('Admin'), validate([
     }
 });
 
-app.get('/api/campus/stats', authMiddleware, requireRole('Admin', 'HRA'), async (req, res) => {
+app.get('/api/campus/stats', requireRole('Admin', 'HRA'), async (req, res) => {
     try {
         const campus = req.query.campus || req.campus || 'Legacy';
         
@@ -1671,7 +1684,6 @@ app.get('/api/face/health', async (req, res) => {
 });
 
 app.post('/api/face/detect', 
-    authMiddleware,
     campusIsolation,
     validate(validators.faceImage),
     async (req, res) => {
@@ -1701,7 +1713,6 @@ app.post('/api/face/detect',
 );
 
 app.post('/api/face/enroll', 
-    authMiddleware,
     campusIsolation,
     validate([...validators.faceImage, ...validators.faceVerify]),
     async (req, res) => {
@@ -1828,7 +1839,6 @@ app.post('/api/face/enroll',
 );
 
 app.post('/api/face/enroll-bulk', 
-    authMiddleware,
     campusIsolation,
     validate([
         body('frames').isArray({ min: 1 }).withMessage('At least one frame is required'),
@@ -1960,7 +1970,6 @@ app.post('/api/face/enroll-bulk',
 );
 
 app.post('/api/face/verify', 
-    authMiddleware,
     campusIsolation,
     faceLimiter,
     validate(validators.faceVerify),
@@ -2064,7 +2073,6 @@ app.post('/api/face/verify',
 );
 
 app.post('/api/face/verify-room', 
-    authMiddleware,
     campusIsolation,
     faceLimiter,
     validate([
@@ -2209,7 +2217,6 @@ app.post('/api/face/verify-room',
 );
 
 app.post('/api/face/liveness', 
-    authMiddleware,
     campusIsolation,
     validate(validators.faceImage),
     async (req, res) => {
@@ -2231,7 +2238,6 @@ app.post('/api/face/liveness',
 );
 
 app.post('/api/face/liveness/reset', 
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     async (req, res) => {
@@ -2249,7 +2255,6 @@ app.post('/api/face/liveness/reset',
 );
 
 app.get('/api/face/status/:studentId',
-    authMiddleware,
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
@@ -2317,7 +2322,6 @@ app.get('/api/face/status/:studentId',
 );
 
 app.post('/api/face/compare', 
-    authMiddleware,
     campusIsolation,
     validate([
         body('embedding1').isArray().withMessage('Embedding 1 must be an array'),
@@ -2339,7 +2343,6 @@ app.post('/api/face/compare',
 );
 
 app.post('/api/face/extract', 
-    authMiddleware,
     campusIsolation,
     validate(validators.faceImage),
     async (req, res) => {
@@ -2362,7 +2365,6 @@ app.post('/api/face/extract',
 // =====================================================
 
 app.get('/api/students/:id/face-status',
-    authMiddleware,
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
@@ -2428,7 +2430,6 @@ app.get('/api/students/:id/face-status',
 );
 
 app.post('/api/students/:id/face/enroll',
-    authMiddleware,
     campusIsolation,
     validate([validators.studentId, ...validators.faceImage]),
     async (req, res) => {
@@ -2534,7 +2535,6 @@ app.post('/api/students/:id/face/enroll',
 );
 
 app.post('/api/students/:id/face/verify',
-    authMiddleware,
     campusIsolation,
     faceLimiter,
     validate([
@@ -2630,7 +2630,6 @@ app.post('/api/students/:id/face/verify',
 );
 
 app.get('/api/students/face-status/all',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -2704,7 +2703,6 @@ app.get('/api/students/face-status/all',
 // =====================================================
 
 app.get('/api/students', 
-    authMiddleware,
     campusIsolation,
     validate(validators.pagination),
     async (req, res) => {
@@ -2748,7 +2746,6 @@ app.get('/api/students',
 );
 
 app.post('/api/students', 
-    authMiddleware,
     campusIsolation,
     validate(validators.createStudent),
     async (req, res) => {
@@ -2842,7 +2839,6 @@ app.post('/api/students',
 );
 
 app.get('/api/students/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
@@ -2881,7 +2877,6 @@ app.get('/api/students/:id',
 );
 
 app.put('/api/students/:id', 
-    authMiddleware,
     campusIsolation,
     validate(validators.updateStudent),
     async (req, res) => {
@@ -2964,7 +2959,6 @@ app.put('/api/students/:id',
 );
 
 app.patch('/api/students/:id', 
-    authMiddleware,
     campusIsolation,
     validate(validators.updateStudent),
     async (req, res) => {
@@ -3074,7 +3068,6 @@ app.patch('/api/students/:id',
 );
 
 app.put('/api/students/:id/status', 
-    authMiddleware,
     campusIsolation,
     validate([
         body('status').isIn(['Present', 'Absent', 'Late', 'Verified', 'Completed']).withMessage('Invalid status')
@@ -3145,7 +3138,6 @@ app.put('/api/students/:id/status',
 );
 
 app.delete('/api/students/:id', 
-    authMiddleware,
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
@@ -3235,7 +3227,6 @@ app.delete('/api/students/:id',
 // =====================================================
 
 app.get('/api/staff', 
-    authMiddleware,
     campusIsolation,
     validate(validators.pagination),
     async (req, res) => {
@@ -3279,7 +3270,6 @@ app.get('/api/staff',
 );
 
 app.get('/api/staff/:id', 
-    authMiddleware,
     campusIsolation,
     validate(validators.staffId),
     async (req, res) => {
@@ -3322,7 +3312,6 @@ app.get('/api/staff/:id',
 );
 
 app.post('/api/staff', 
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.createStaff),
@@ -3408,7 +3397,6 @@ app.post('/api/staff',
 );
 
 app.put('/api/staff/:id', 
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.updateStaff),
@@ -3497,7 +3485,6 @@ app.put('/api/staff/:id',
 );
 
 app.delete('/api/staff/:id', 
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.staffId),
@@ -3560,7 +3547,6 @@ app.delete('/api/staff/:id',
 // =====================================================
 
 app.get('/api/hra/ras',
-    authMiddleware,
     campusIsolation,
     requireRole('HRA', 'Admin'),
     async (req, res) => {
@@ -3661,7 +3647,6 @@ app.get('/api/hra/ras',
 );
 
 app.post('/api/hra/assign-rooms',
-    authMiddleware,
     campusIsolation,
     requireRole('HRA', 'Admin'),
     validate(validators.raRoomAssignment),
@@ -3756,7 +3741,6 @@ app.post('/api/hra/assign-rooms',
 );
 
 app.get('/api/ra/rooms',
-    authMiddleware,
     campusIsolation,
     requireRole('RA'),
     async (req, res) => {
@@ -3795,7 +3779,6 @@ app.get('/api/ra/rooms',
 );
 
 app.get('/api/ra/dashboard',
-    authMiddleware,
     campusIsolation,
     requireRole('RA'),
     async (req, res) => {
@@ -3869,7 +3852,6 @@ app.get('/api/ra/dashboard',
 // =====================================================
 
 app.post('/api/ra/bedcheck/start',
-    authMiddleware,
     campusIsolation,
     requireRole('RA'),
     validate(validators.bedcheckStart),
@@ -4044,7 +4026,6 @@ app.post('/api/ra/bedcheck/start',
 );
 
 app.post('/api/ra/bedcheck/complete',
-    authMiddleware,
     campusIsolation,
     requireRole('RA'),
     validate(validators.bedcheckStart),
@@ -4117,7 +4098,6 @@ app.post('/api/ra/bedcheck/complete',
 );
 
 app.get('/api/ra/bedcheck/status',
-    authMiddleware,
     campusIsolation,
     requireRole('RA'),
     async (req, res) => {
@@ -4189,7 +4169,6 @@ app.get('/api/ra/bedcheck/status',
 // =====================================================
 
 app.get('/api/security/suspicious',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA', 'RASD'),
     async (req, res) => {
@@ -4236,7 +4215,6 @@ app.get('/api/security/suspicious',
 );
 
 app.put('/api/security/resolve/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA', 'RASD'),
     validate(validators.suspiciousResolve),
@@ -4342,7 +4320,6 @@ app.put('/api/security/resolve/:id',
 // =====================================================
 
 app.get('/api/hostels',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -4411,7 +4388,6 @@ app.get('/api/hostels',
 );
 
 app.get('/api/hostels/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.hostelId),
     async (req, res) => {
@@ -4478,7 +4454,6 @@ app.get('/api/hostels/:id',
 );
 
 app.post('/api/hostels',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.hostelCreate),
@@ -4537,7 +4512,6 @@ app.post('/api/hostels',
 );
 
 app.put('/api/hostels/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.hostelId),
@@ -4616,7 +4590,6 @@ app.put('/api/hostels/:id',
 );
 
 app.delete('/api/hostels/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.hostelId),
@@ -4675,7 +4648,6 @@ app.delete('/api/hostels/:id',
 );
 
 app.get('/api/hostels/:id/alerts',
-    authMiddleware,
     campusIsolation,
     validate(validators.hostelId),
     async (req, res) => {
@@ -4788,7 +4760,6 @@ app.get('/api/hostels/:id/alerts',
 );
 
 app.get('/api/hostels/:id/occupancy',
-    authMiddleware,
     campusIsolation,
     validate(validators.hostelId),
     async (req, res) => {
@@ -4854,7 +4825,6 @@ app.get('/api/hostels/:id/occupancy',
 );
 
 app.get('/api/hostels/:id/summary',
-    authMiddleware,
     campusIsolation,
     validate(validators.hostelId),
     async (req, res) => {
@@ -4939,7 +4909,6 @@ app.get('/api/hostels/:id/summary',
 // =====================================================
 
 app.get('/api/floors-flats',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { hostel_id } = req.query;
@@ -4987,7 +4956,6 @@ app.get('/api/floors-flats',
 );
 
 app.get('/api/floors-flats/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.floorFlatId),
     async (req, res) => {
@@ -5039,7 +5007,6 @@ app.get('/api/floors-flats/:id',
 );
 
 app.post('/api/floors-flats',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.floorFlatCreate),
@@ -5105,7 +5072,6 @@ app.post('/api/floors-flats',
 );
 
 app.put('/api/floors-flats/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.floorFlatId),
@@ -5194,7 +5160,6 @@ app.put('/api/floors-flats/:id',
 );
 
 app.delete('/api/floors-flats/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.floorFlatId),
@@ -5277,7 +5242,6 @@ app.delete('/api/floors-flats/:id',
 // =====================================================
 
 app.get('/api/rooms',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { floor_flat_id, hostel_id } = req.query;
@@ -5387,7 +5351,6 @@ app.get('/api/rooms',
 );
 
 app.get('/api/rooms/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.roomId),
     async (req, res) => {
@@ -5457,7 +5420,6 @@ app.get('/api/rooms/:id',
 );
 
 app.post('/api/rooms',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.roomCreate),
@@ -5532,7 +5494,6 @@ app.post('/api/rooms',
 );
 
 app.put('/api/rooms/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.roomId),
@@ -5625,7 +5586,6 @@ app.put('/api/rooms/:id',
 );
 
 app.delete('/api/rooms/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.roomId),
@@ -5712,7 +5672,6 @@ app.delete('/api/rooms/:id',
 // =====================================================
 
 app.get('/api/bed-spaces',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { room_id, hostel_id } = req.query;
@@ -5832,7 +5791,6 @@ app.get('/api/bed-spaces',
 );
 
 app.get('/api/bed-spaces/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.bedSpaceId),
     async (req, res) => {
@@ -5863,7 +5821,6 @@ app.get('/api/bed-spaces/:id',
 );
 
 app.post('/api/bed-spaces',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.bedSpaceCreate),
@@ -5951,7 +5908,6 @@ app.post('/api/bed-spaces',
 );
 
 app.put('/api/bed-spaces/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.bedSpaceId),
@@ -6029,7 +5985,6 @@ app.put('/api/bed-spaces/:id',
 );
 
 app.patch('/api/bed-spaces/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.bedSpaceId),
@@ -6104,7 +6059,6 @@ app.patch('/api/bed-spaces/:id',
 );
 
 app.delete('/api/bed-spaces/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.bedSpaceId),
@@ -6188,7 +6142,6 @@ app.delete('/api/bed-spaces/:id',
 // =====================================================
 
 app.get('/api/bedcheck/sessions',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { hostel_id, date } = req.query;
@@ -6216,7 +6169,6 @@ app.get('/api/bedcheck/sessions',
 );
 
 app.post('/api/bedcheck/sessions',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.bedcheckSession),
@@ -6290,7 +6242,6 @@ app.post('/api/bedcheck/sessions',
 );
 
 app.put('/api/bedcheck/sessions/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.sessionId),
     async (req, res) => {
@@ -6366,7 +6317,6 @@ app.put('/api/bedcheck/sessions/:id',
 // =====================================================
 
 app.get('/api/bedcheck/scans',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { session_id, room, student_id } = req.query;
@@ -6406,7 +6356,6 @@ app.get('/api/bedcheck/scans',
 );
 
 app.post('/api/bedcheck/scans',
-    authMiddleware,
     campusIsolation,
     validate(validators.bedcheckScan),
     async (req, res) => {
@@ -6501,7 +6450,6 @@ app.post('/api/bedcheck/scans',
 );
 
 app.post('/api/bedcheck/scan-with-face',
-    authMiddleware,
     campusIsolation,
     validate([
         ...validators.faceImage,
@@ -6668,7 +6616,6 @@ app.post('/api/bedcheck/scan-with-face',
 // =====================================================
 
 app.get('/api/sessions',
-    authMiddleware,
     campusIsolation,
     validate(validators.pagination),
     async (req, res) => {
@@ -6702,7 +6649,6 @@ app.get('/api/sessions',
 );
 
 app.get('/api/sessions/:id',
-    authMiddleware,
     campusIsolation,
     validate(validators.sessionId),
     async (req, res) => {
@@ -6734,7 +6680,6 @@ app.get('/api/sessions/:id',
 );
 
 app.post('/api/sessions',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.sessionCreate),
@@ -6809,7 +6754,6 @@ app.post('/api/sessions',
 );
 
 app.put('/api/sessions/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.sessionId),
@@ -6910,7 +6854,6 @@ app.put('/api/sessions/:id',
 );
 
 app.delete('/api/sessions/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.sessionId),
@@ -6971,7 +6914,6 @@ app.delete('/api/sessions/:id',
 );
 
 app.get('/api/sessions/active',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -6997,7 +6939,6 @@ app.get('/api/sessions/active',
 );
 
 app.get('/api/sessions/latest',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7022,7 +6963,6 @@ app.get('/api/sessions/latest',
 );
 
 app.get('/api/sessions/stats',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7059,7 +6999,6 @@ app.get('/api/sessions/stats',
 // =====================================================
 
 app.get('/api/occupancy',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7091,7 +7030,6 @@ app.get('/api/occupancy',
 );
 
 app.get('/api/occupancy/floor-flat',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7158,7 +7096,6 @@ app.get('/api/submission', campusIsolation, async (req, res) => {
 });
 
 app.put('/api/submission',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin'),
     validate(validators.submissionState),
@@ -7218,7 +7155,6 @@ app.put('/api/submission',
 // =====================================================
 
 app.get('/api/dashboard/stats',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7282,7 +7218,6 @@ app.get('/api/dashboard/stats',
 );
 
 app.get('/api/dashboard/activity',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         const { hostel_id, limit } = req.query;
@@ -7312,7 +7247,6 @@ app.get('/api/dashboard/activity',
 // =====================================================
 
 app.get('/api/registration/stats',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     async (req, res) => {
@@ -7398,7 +7332,6 @@ app.get('/api/registration/stats',
 // =====================================================
 
 app.get('/api/hra/hostel', 
-    authMiddleware,
     campusIsolation,
     requireRole('HRA'),
     async (req, res) => {
@@ -7539,7 +7472,6 @@ app.get('/api/hra/hostel',
 // =====================================================
 
 app.get('/api/audit',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate(validators.pagination),
@@ -7601,7 +7533,6 @@ app.get('/api/audit',
 );
 
 app.get('/api/audit/stats',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     async (req, res) => {
@@ -7633,7 +7564,6 @@ app.get('/api/audit/stats',
 );
 
 app.get('/api/audit/recent',
-    authMiddleware,
     campusIsolation,
     async (req, res) => {
         try {
@@ -7660,7 +7590,6 @@ app.get('/api/audit/recent',
 );
 
 app.get('/api/audit/:id',
-    authMiddleware,
     campusIsolation,
     requireRole('Admin', 'HRA'),
     validate([param('id').isInt().withMessage('Invalid audit log ID')]),
