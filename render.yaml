@@ -1,15 +1,20 @@
 services:
+  # =====================================================
+  # NODE.JS BACKEND API SERVICE
+  # =====================================================
   - type: web
     name: bedcheck-api
     runtime: node
     plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
-    buildCommand: npm install
+    buildCommand: |
+      npm install
+      npm install express-validator --save
     startCommand: node server.js
     envVars:
       - fromGroup: supabase-creds
       - key: ALLOWED_ORIGINS
-        value: https://bedcheck-biu.onrender.com,https://face-api-f9k5.onrender.com
+        value: https://bedcheck-biu.onrender.com,https://face-api-f9k5.onrender.com,https://your-frontend.vercel.app
       - key: FACE_API_URL
         fromService:
           name: face-api
@@ -19,9 +24,22 @@ services:
         value: 3000
       - key: NODE_ENV
         value: production
+      - key: JWT_SECRET
+        sync: false
+      - key: NODE_VERSION
+        value: 18.19.0
     healthCheckPath: /health
     autoDeploy: true
+    numReplicas: 1
+    buildFilter:
+      paths:
+        - server.js
+        - package.json
+        - package-lock.json
 
+  # =====================================================
+  # PYTHON FACE API SERVICE
+  # =====================================================
   - type: web
     name: face-api
     runtime: python
@@ -118,5 +136,12 @@ services:
         value: "3"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: UVICORN_TIMEOUT
+        value: "120"
     healthCheckPath: /health
     autoDeploy: true
+    numReplicas: 1
+    buildFilter:
+      paths:
+        - python/app.py
+        - python/requirements.txt
