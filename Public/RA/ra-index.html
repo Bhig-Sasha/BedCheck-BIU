@@ -331,7 +331,6 @@
             // =============================================
             // CONFIGURATION - SECURE BACKEND
             // =============================================
-            // All API calls go through our secure backend - NEVER expose Supabase keys in frontend
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
             const ITEMS_PER_PAGE = 10;
 
@@ -347,7 +346,7 @@
             }
 
             // =============================================
-            // STATE - All state is managed server-side
+            // STATE
             // =============================================
             let currentUser = null;
             let currentRole = 'RA';
@@ -361,35 +360,44 @@
             let sessionStatus = 'Open';
 
             // =============================================
-            // SECURE API HELPER - All requests authenticated via session
+            // AUTHENTICATED API HELPER - FIXED!
             // =============================================
             async function apiCall(endpoint, options = {}) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!token) {
+                    showToast('No authentication token found. Please login again.', 'error');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('No authentication token');
+                }
+
                 try {
                     const headers = {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
                         ...(options.headers || {})
                     };
-                    // Session token is managed by the backend via secure cookies
-                    // The frontend only sends the session ID from storage
-                    const sessionId = sessionStorage.getItem('bedcheck_session_id');
-                    if (sessionId) {
-                        headers['X-Session-ID'] = sessionId;
-                    }
 
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, { 
                         ...options, 
                         headers,
-                        credentials: 'include' // Important: sends cookies
+                        credentials: 'include'
                     });
                     
-                    if (!response.ok) {
-                        if (response.status === 401 || response.status === 403) {
-                            // Unauthorized - redirect to login
-                            sessionStorage.removeItem('bedcheck_user');
-                            sessionStorage.removeItem('bedcheck_session_id');
+                    if (response.status === 401) {
+                        showToast('Session expired. Please login again.', 'error');
+                        sessionStorage.removeItem('bedcheck_token');
+                        sessionStorage.removeItem('bedcheck_user');
+                        sessionStorage.removeItem('bedcheck_role');
+                        setTimeout(() => {
                             window.location.replace('../Login.html');
-                            throw new Error('Session expired. Please login again.');
-                        }
+                        }, 1500);
+                        throw new Error('Authentication required');
+                    }
+                    
+                    if (!response.ok) {
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
@@ -397,7 +405,9 @@
                     if (!data.success) throw new Error(data.message || 'API error');
                     return data;
                 } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                     throw error;
                 }
             }
@@ -427,16 +437,13 @@
             }
 
             // =============================================
-            // DATA LOADING - All filtered server-side with RLS
+            // DATA LOADING
             // =============================================
             async function loadStudents() {
                 try {
-                    // The backend applies RLS - we only get students we're authorized to see
                     const data = await apiCall('/students');
                     allStudents = data.data || [];
 
-                    // If we have a hostel filter, apply it client-side too for display
-                    // But the real filtering is done server-side via RLS
                     if (assignedHostelId) {
                         filteredStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
                     } else if (assignedHostelName) {
@@ -710,7 +717,6 @@
                 // Bind start bedcheck button with security check
                 document.getElementById('startBedCheckBtn')?.addEventListener('click', function(e) {
                     e.preventDefault();
-                    // This triggers a secure API call - backend will verify the RA has permission
                     apiCall('/bedcheck/start', {
                         method: 'POST',
                         body: JSON.stringify({ hostel_id: assignedHostelId })
@@ -840,12 +846,10 @@
                 const newStatus = statuses[nextIndex];
 
                 if (confirm(`Change ${student.name} status from ${student.status} to ${newStatus}?`)) {
-                    // Secure API call - backend will verify authorization
                     apiCall(`/students/${id}/status`, {
                         method: 'PATCH',
                         body: JSON.stringify({ status: newStatus })
                     }).then(() => {
-                        // Update local state
                         student.status = newStatus;
                         student.updated_at = new Date().toISOString();
                         renderStudentTable();
@@ -857,13 +861,13 @@
             }
 
             // =============================================
-            // AUTHENTICATION - Secure session management
+            // AUTHENTICATION
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
-                const sessionId = sessionStorage.getItem('bedcheck_session_id');
+                const token = sessionStorage.getItem('bedcheck_token');
                 
-                if (!userData || !sessionId) {
+                if (!userData || !token) {
                     window.location.replace('../Login.html');
                     return false;
                 }
@@ -886,11 +890,9 @@
 
             function handleLogout(e) {
                 e.preventDefault();
-                // Call logout API to invalidate session
-                apiCall('/auth/logout', { method: 'POST' }).catch(() => {});
+                sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
-                sessionStorage.removeItem('bedcheck_session_id');
                 window.location.replace('../Login.html');
             }
 
@@ -1007,8 +1009,10 @@
 
                 } catch (error) {
                     console.error('Init error:', error);
-                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
                 }
             }
 

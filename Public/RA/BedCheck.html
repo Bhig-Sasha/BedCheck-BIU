@@ -929,23 +929,51 @@
             console.log(`[${type.toUpperCase()}]`, message);
         }
 
+        // =============================================
+        // AUTHENTICATED API HELPER - FIXED!
+        // =============================================
         async function apiCall(endpoint, options = {}) {
+            const token = sessionStorage.getItem('bedcheck_token');
+            
+            if (!token) {
+                showToast('No authentication token found. Please login again.', 'error');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 1500);
+                throw new Error('No authentication token');
+            }
+
             try {
                 const headers = {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
                     ...(options.headers || {})
                 };
-                if (currentUser?.id) headers['X-Staff-ID'] = currentUser.id;
+                
                 const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+                
+                if (response.status === 401) {
+                    showToast('Session expired. Please login again.', 'error');
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    sessionStorage.removeItem('bedcheck_role');
+                    setTimeout(() => {
+                        window.location.replace('../Login.html');
+                    }, 1500);
+                    throw new Error('Authentication required');
+                }
+                
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
-                if (data.success === false) throw new Error(data.message || 'API error');
+                if (!data.success) throw new Error(data.message || 'API error');
                 return data;
             } catch (error) {
-                showToast('Error: ' + error.message, 'error');
+                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    showToast('Error: ' + error.message, 'error');
+                }
                 throw error;
             }
         }
@@ -2023,10 +2051,13 @@
         // =============================================
         function checkAuth() {
             const userData = sessionStorage.getItem('bedcheck_user');
-            if (!userData) {
+            const token = sessionStorage.getItem('bedcheck_token');
+            
+            if (!userData || !token) {
                 window.location.replace('../Login.html');
                 return false;
             }
+            
             currentUser = JSON.parse(userData);
             currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
             assignedHostelId = currentUser?.hostel_id || currentUser?.hostelId || null;
@@ -2046,6 +2077,7 @@
 
         function handleLogout(e) {
             e.preventDefault();
+            sessionStorage.removeItem('bedcheck_token');
             sessionStorage.removeItem('bedcheck_user');
             sessionStorage.removeItem('bedcheck_role');
             window.location.replace('../Login.html');
@@ -2195,7 +2227,9 @@
 
             } catch (error) {
                 console.error('Init error:', error);
-                showToast('Error loading data: ' + error.message, 'error');
+                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
                 renderError();
             }
         }
