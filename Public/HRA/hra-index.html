@@ -477,8 +477,7 @@
                 <a href="hra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
                 <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
-                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+#                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
                 <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">HRA</span></div>
@@ -500,7 +499,6 @@
                 <a href="hra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
                 <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">HRA · Loading...</div>
@@ -588,7 +586,7 @@
             }
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -607,12 +605,7 @@
                         'Authorization': `Bearer ${token}`,
                         ...(options.headers || {})
                     };
-                    let url = `${API_BASE}${endpoint}`;
-                    if (endpoint === '/hra/hostel') {
-                        const staffId = getStaffId();
-                        if (staffId) url += `?staff_id=${staffId}`;
-                    }
-                    const response = await fetch(url, { ...options, headers });
+                    const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
                     
                     if (response.status === 401) {
                         showToast('Session expired. Please login again.', 'error');
@@ -637,6 +630,39 @@
                         showToast('Error: ' + error.message, 'error');
                     }
                     throw error;
+                }
+            }
+
+            // =============================================
+            // GET HRA'S HOSTEL
+            // =============================================
+            async function getHRAHostel() {
+                try {
+                    // Use the user's hostel_id from the session
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        const user = JSON.parse(userData);
+                        if (user.hostel_id) {
+                            // Fetch the hostel details
+                            const result = await apiCall(`/hostels/${user.hostel_id}`);
+                            return result.data;
+                        }
+                    }
+                    
+                    // Fallback: try to find hostel by staff ID
+                    const staffId = getStaffId();
+                    if (staffId) {
+                        const staffResult = await apiCall(`/staff/${staffId}`);
+                        if (staffResult.data && staffResult.data.hostel_id) {
+                            const hostelResult = await apiCall(`/hostels/${staffResult.data.hostel_id}`);
+                            return hostelResult.data;
+                        }
+                    }
+                    
+                    return null;
+                } catch (error) {
+                    console.error('Error fetching HRA hostel:', error);
+                    return null;
                 }
             }
 
@@ -1447,34 +1473,50 @@
                     } catch (e) { window.location.replace('../Login.html'); return; }
                     updateUserDisplay();
 
-                    const hostelRes = await apiCall(`/hra/hostel`);
-                    hostelData = hostelRes.data;
+                    // Get HRA's hostel
+                    hostelData = await getHRAHostel();
+                    
                     if (!hostelData) {
                         roleScope.textContent = 'No hostel assigned';
                         showToast('No hostel assigned', 'error');
                         renderDashboard();
                         return;
                     }
+                    
                     roleScope.textContent = hostelData.name + ' · Hostel Representative Admin';
                     document.getElementById('mobileRoleFooter').textContent = `HRA · ${hostelData.name} Hostel`;
                     setNotice(`${hostelData.name} · HRA Dashboard`);
                     updateUserDisplay();
 
-                    const [studentsRes, staffRes, floorsRes, roomsRes, sessionRes, scanRes] = await Promise.all([
-                        apiCall(`/hostels/${hostelData.id}/students`).catch(() => ({ data: [] })),
-                        apiCall(`/hostels/${hostelData.id}/staff`).catch(() => ({ data: [] })),
-                        apiCall(`/floors-flats?hostel_id=${hostelData.id}`).catch(() => ({ data: [] })),
-                        apiCall(`/rooms?hostel_id=${hostelData.id}`).catch(() => ({ data: [] })),
-                        apiCall(`/hostels/${hostelData.id}/session`).catch(() => ({ data: null })),
-                        apiCall(`/bedcheck/scans?hostel_id=${hostelData.id}`).catch(() => ({ data: [] }))
-                    ]);
+                    // Load data using standard endpoints with filtering
+                    const allStudentsData = await apiCall('/students').catch(() => ({ data: [] }));
+                    const allStaffData = await apiCall('/staff').catch(() => ({ data: [] }));
+                    const floorsData = await apiCall('/floors-flats').catch(() => ({ data: [] }));
+                    const roomsData = await apiCall('/rooms').catch(() => ({ data: [] }));
+                    const scansData = await apiCall('/bedcheck/scans').catch(() => ({ data: [] }));
+                    
+                    // Filter by hostel ID
+                    students = (allStudentsData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    staff = (allStaffData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    floors = (floorsData.data || []).filter(f => f.hostel_id === hostelData.id);
+                    rooms = (roomsData.data || []).filter(r => {
+                        const floor = floors.find(f => f.id === r.floor_flat_id);
+                        return floor && floor.hostel_id === hostelData.id;
+                    });
+                    scans = (scansData.data || []).filter(s => {
+                        const student = students.find(st => st.id === s.student_id);
+                        return student && student.hostel_id === hostelData.id;
+                    });
 
-                    students = studentsRes.data || [];
-                    staff = staffRes.data || [];
-                    floors = floorsRes.data || [];
-                    rooms = roomsRes.data || [];
-                    sessionData = sessionRes.data || null;
-                    scans = scanRes.data || [];
+                    // Load session
+                    try {
+                        const sessionResult = await apiCall(`/bedcheck/sessions?hostel_id=${hostelData.id}`);
+                        if (sessionResult && sessionResult.data && sessionResult.data.length > 0) {
+                            sessionData = sessionResult.data[0];
+                        }
+                    } catch (e) {
+                        console.log('No session found');
+                    }
 
                     checkSessionStatus();
 

@@ -665,7 +665,6 @@
                 <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
                 <a href="BedCheck.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
@@ -688,7 +687,6 @@
                 <a href="hra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="MyHostel.html" class="nav-item"><i class="fas fa-building"></i> My Hostel</a>
                 <a href="BedCheck.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-                <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">HRA · Loading...</div>
@@ -793,10 +791,6 @@
                         ...(options.headers || {})
                     };
                     let url = `${API_BASE}${endpoint}`;
-                    if (endpoint === '/hra/hostel') {
-                        const staffId = getStaffId();
-                        if (staffId) url += `?staff_id=${staffId}`;
-                    }
                     const response = await fetch(url, { ...options, headers });
                     
                     if (response.status === 401) {
@@ -822,6 +816,39 @@
                         showToast('Error: ' + error.message, 'error');
                     }
                     throw error;
+                }
+            }
+
+            // =============================================
+            // GET HRA'S HOSTEL
+            // =============================================
+            async function getHRAHostel() {
+                try {
+                    // Use the user's hostel_id from the session
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        const user = JSON.parse(userData);
+                        if (user.hostel_id) {
+                            // Fetch the hostel details
+                            const result = await apiCall(`/hostels/${user.hostel_id}`);
+                            return result.data;
+                        }
+                    }
+                    
+                    // Fallback: try to find hostel by staff ID
+                    const staffId = getStaffId();
+                    if (staffId) {
+                        const staffResult = await apiCall(`/staff/${staffId}`);
+                        if (staffResult.data && staffResult.data.hostel_id) {
+                            const hostelResult = await apiCall(`/hostels/${staffResult.data.hostel_id}`);
+                            return hostelResult.data;
+                        }
+                    }
+                    
+                    return null;
+                } catch (error) {
+                    console.error('Error fetching HRA hostel:', error);
+                    return null;
                 }
             }
 
@@ -1595,8 +1622,9 @@
                     } catch (e) { window.location.replace('../Login.html'); return; }
                     updateUserDisplay();
 
-                    const hostelRes = await apiCall(`/hra/hostel`);
-                    hostelData = hostelRes.data;
+                    // Get HRA's hostel
+                    hostelData = await getHRAHostel();
+                    
                     if (!hostelData) {
                         roleScope.textContent = 'No hostel assigned';
                         showToast('No hostel assigned to this HRA account', 'error');
@@ -1610,14 +1638,24 @@
                     setNotice(`${hostelData.name} · Review BedCheck`);
                     updateUserDisplay();
 
-                    const [studentsRes, staffRes, sessionRes] = await Promise.all([
-                        apiCall(`/hostels/${hostelData.id}/students`).catch(() => ({ data: [] })),
-                        apiCall(`/hostels/${hostelData.id}/staff`).catch(() => ({ data: [] })),
-                        apiCall(`/hostels/${hostelData.id}/session`).catch(() => ({ data: null }))
-                    ]);
-                    students = studentsRes.data || [];
-                    staff = staffRes.data || [];
-                    sessionData = sessionRes.data || null;
+                    // Load data using standard endpoints with filtering
+                    const allStudentsData = await apiCall('/students').catch(() => ({ data: [] }));
+                    const allStaffData = await apiCall('/staff').catch(() => ({ data: [] }));
+                    
+                    // Filter by hostel ID
+                    students = (allStudentsData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    staff = (allStaffData.data || []).filter(s => s.hostel_id === hostelData.id);
+
+                    // Load session
+                    try {
+                        const sessionResult = await apiCall(`/bedcheck/sessions?hostel_id=${hostelData.id}`);
+                        if (sessionResult && sessionResult.data && sessionResult.data.length > 0) {
+                            sessionData = sessionResult.data[0];
+                        }
+                    } catch (e) {
+                        console.log('No session found');
+                    }
+                    
                     if (sessionData) isSessionRunning = sessionData.status === 'Running' || sessionData.status === 'Open';
 
                     const now = new Date();
