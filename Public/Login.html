@@ -483,24 +483,23 @@
         </div>
     </div>
 
-    <script>
+<script>
     (function() {
         'use strict';
 
         const API_BASE_URL = 'https://bedcheck-biu.onrender.com';
         const TIMEOUT_MS = 5000;
 
-        const ROLE_PAGES = {
-            'Administrator': './admin/index.html',
-            'RASD': './RASD/rasd-index.html',
-            'HRA': './HRA/hra-index.html',
-            'RA': './RA/ra-index.html'
-        };
+        // ============================================================
+        // REMOVED: ROLE_PAGES is now on the server
+        // The server returns the redirect URL in the login response
+        // ============================================================
 
         const STORAGE_KEYS = {
             TOKEN: 'bedcheck_token',
             USER: 'bedcheck_user',
-            ROLE: 'bedcheck_role'
+            ROLE: 'bedcheck_role',
+            REDIRECT: 'bedcheck_redirect'  // Added to store redirect URL
         };
 
         const form = document.getElementById('loginForm');
@@ -536,7 +535,11 @@
             return sessionStorage.getItem(STORAGE_KEYS.ROLE);
         }
 
-        function saveSession(token, user, role) {
+        function getStoredRedirect() {
+            return sessionStorage.getItem(STORAGE_KEYS.REDIRECT) || './index.html';
+        }
+
+        function saveSession(token, user, role, redirectUrl) {
             if (!token) {
                 throw new Error('Server did not provide an authentication token.');
             }
@@ -546,16 +549,21 @@
             if (!role) {
                 throw new Error('User role was not provided by the server.');
             }
+            if (!redirectUrl) {
+                throw new Error('Server did not provide a redirect URL.');
+            }
 
             sessionStorage.setItem(STORAGE_KEYS.TOKEN, token);
             sessionStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
             sessionStorage.setItem(STORAGE_KEYS.ROLE, role);
+            sessionStorage.setItem(STORAGE_KEYS.REDIRECT, redirectUrl);
         }
 
         function clearSession() {
             sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
             sessionStorage.removeItem(STORAGE_KEYS.USER);
             sessionStorage.removeItem(STORAGE_KEYS.ROLE);
+            sessionStorage.removeItem(STORAGE_KEYS.REDIRECT);
         }
 
         // ============================================================
@@ -576,12 +584,10 @@
                 ...(options.headers || {})
             };
 
-            // Only add Content-Type when sending a body
             if (options.body && !headers['Content-Type'] && !headers['content-type']) {
                 headers['Content-Type'] = 'application/json';
             }
 
-            // IMPORTANT: Add the Bearer token
             headers['Authorization'] = `Bearer ${token}`;
 
             const controller = new AbortController();
@@ -595,7 +601,6 @@
             .then(response => {
                 clearTimeout(timeoutId);
 
-                // Handle 401 - token expired or invalid
                 if (response.status === 401) {
                     console.warn('Authentication failed. Clearing session.');
                     clearSession();
@@ -617,7 +622,6 @@
             });
         }
 
-        // Make helper available globally for dashboard pages
         window.bedcheckApiFetch = apiFetch;
         window.getBedCheckToken = getToken;
         window.clearBedCheckSession = clearSession;
@@ -1006,7 +1010,6 @@
 
             loginError.classList.remove('show');
             
-            // Clear any existing session before login
             clearSession();
 
             loginBtn.disabled = true;
@@ -1016,17 +1019,10 @@
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-                // ============================================================
-                // IMPORTANT FIX:
-                // DO NOT send Authorization header to /api/auth/login
-                // This endpoint creates the token, it doesn't require one
-                // ============================================================
-
                 const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                        // NO Authorization header here!
                     },
                     body: JSON.stringify({ username, password }),
                     signal: controller.signal
@@ -1081,10 +1077,29 @@
                 }
 
                 // ============================================================
+                // EXTRACT REDIRECT URL FROM SERVER
+                // ============================================================
+
+                const redirectUrl = data.data?.redirect || data.redirect;
+
+                if (!redirectUrl) {
+                    console.warn('⚠️ Server did not provide a redirect URL, using default.');
+                    // Default fallback - but ideally the server always provides this
+                    const fallbackMap = {
+                        'Administrator': './admin/index.html',
+                        'RASD': './RASD/rasd-index.html',
+                        'HRA': './HRA/hra-index.html',
+                        'RA': './RA/ra-index.html',
+                        'System Owner': './system-owner/index.html'
+                    };
+                    // This is a fallback only - server should provide redirect
+                }
+
+                // ============================================================
                 // SAVE SESSION
                 // ============================================================
 
-                saveSession(token, user, role);
+                saveSession(token, user, role, redirectUrl);
 
                 // ============================================================
                 // VERIFY SESSION
@@ -1093,8 +1108,9 @@
                 const savedToken = getToken();
                 const savedUser = getStoredUser();
                 const savedRole = getStoredRole();
+                const savedRedirect = getStoredRedirect();
 
-                if (!savedToken || !savedUser || !savedRole) {
+                if (!savedToken || !savedUser || !savedRole || !savedRedirect) {
                     clearSession();
                     throw new Error('Unable to establish your login session. Please try again.');
                 }
@@ -1102,6 +1118,7 @@
                 console.log('✅ BedCheck authentication successful.', {
                     user: savedUser.username,
                     role: savedRole,
+                    redirect: savedRedirect,
                     tokenStored: true,
                     expiresIn: data.data?.expiresIn || '8h'
                 });
@@ -1112,25 +1129,12 @@
 
                 showLoading(role);
 
-                const page = ROLE_PAGES[role];
-
-                if (!page) {
-                    clearSession();
-                    showLoadingError(`Unknown role: "${role}". Please contact system administrator.`);
-                    setTimeout(() => {
-                        hideLoading();
-                        loginBtn.disabled = false;
-                        loginBtn.innerHTML = 'Sign in <i class="fas fa-arrow-right"></i>';
-                    }, 3000);
-                    return;
-                }
-
                 // ============================================================
-                // REDIRECT
+                // REDIRECT using server-provided URL
                 // ============================================================
 
                 setTimeout(() => {
-                    window.location.href = page;
+                    window.location.href = savedRedirect;
                 }, 800);
 
             } catch (error) {
@@ -1161,25 +1165,46 @@
                 const token = getToken();
                 const user = getStoredUser();
                 const role = getStoredRole();
+                const redirectUrl = getStoredRedirect();
 
-                // All three are required for a valid session
-                if (!token || !user || !role) {
+                // All four are required for a valid session
+                if (!token || !user || !role || !redirectUrl) {
                     clearSession();
                     return false;
                 }
 
-                const page = ROLE_PAGES[role];
-
-                if (!page) {
+                // Validate the token with the server
+                // If token is invalid, the server will return 401
+                fetch(`${API_BASE_URL}/api/auth/verify`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                .then(response => {
+                    if (response.status === 401) {
+                        clearSession();
+                        return false;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && data.success) {
+                        showLoading(role);
+                        setTimeout(() => {
+                            window.location.href = redirectUrl;
+                        }, 500);
+                        return true;
+                    } else {
+                        clearSession();
+                        return false;
+                    }
+                })
+                .catch(() => {
                     clearSession();
                     return false;
-                }
+                });
 
-                // Valid session exists - redirect
-                showLoading(role);
-                setTimeout(() => {
-                    window.location.href = page;
-                }, 500);
+                // Return true to prevent immediate redirect
                 return true;
 
             } catch (error) {

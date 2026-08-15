@@ -14,6 +14,18 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 // =====================================================
+// DASHBOARD ROUTES - Role to Page Mapping (Server Side)
+// =====================================================
+
+const DASHBOARD_ROUTES = {
+    'Administrator': '/admin/index.html',
+    'RASD': '/RASD/rasd-index.html',
+    'HRA': '/HRA/hra-index.html',
+    'RA': '/RA/ra-index.html',
+    'System Owner': '/system-owner/index.html'
+};
+
+// =====================================================
 // CONFIGURATION & VALIDATION
 // =====================================================
 
@@ -571,13 +583,13 @@ const validators = {
         body('name').trim().notEmpty().withMessage('Name is required'),
         body('username').trim().notEmpty().withMessage('Username is required')
             .isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
-        body('role').isIn(['RA', 'HRA', 'Admin', 'RASD']).withMessage('Invalid role'),
+        body('role').isIn(['RA', 'HRA', 'Admin', 'RASD', 'System Owner']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
         body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
     ],
     updateStaff: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
-        body('role').optional().isIn(['RA', 'HRA', 'Admin', 'RASD']).withMessage('Invalid role'),
+        body('role').optional().isIn(['RA', 'HRA', 'Admin', 'RASD', 'System Owner']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
         body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
     ],
@@ -1352,13 +1364,19 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
+        // ============================================================
+        // Determine the redirect URL on the server
+        // ============================================================
+        const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
+
         res.json({ 
             success: true, 
             data: {
                 user: userWithoutPassword,
                 token: token,
                 expiresIn: process.env.JWT_EXPIRY || '8h',
-                campus: user.campus || 'Legacy'
+                campus: user.campus || 'Legacy',
+                redirect: redirectUrl
             },
             role: user.role
         });
@@ -1455,7 +1473,7 @@ app.put('/api/staff/:id/change-password',
             const staffId = parseInt(req.params.id);
             const { currentPassword, newPassword } = req.body;
 
-            if (req.user.id !== staffId && req.user.role !== 'Admin') {
+            if (req.user.id !== staffId && req.user.role !== 'Admin' && req.user.role !== 'System Owner') {
                 return res.status(403).json({
                     success: false,
                     message: 'You can only change your own password'
@@ -1559,7 +1577,7 @@ app.get('/api/campus/current', async (req, res) => {
     });
 });
 
-app.post('/api/campus/switch', requireRole('Admin'), validate([
+app.post('/api/campus/switch', requireRole('Admin', 'System Owner'), validate([
     body('campus').isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
 ]), async (req, res) => {
     const { campus } = req.body;
@@ -1606,7 +1624,7 @@ app.post('/api/campus/switch', requireRole('Admin'), validate([
     }
 });
 
-app.get('/api/campus/stats', requireRole('Admin', 'HRA'), async (req, res) => {
+app.get('/api/campus/stats', requireRole('Admin', 'HRA', 'System Owner'), async (req, res) => {
     try {
         const campus = req.query.campus || req.campus || 'Legacy';
         
@@ -1742,7 +1760,7 @@ app.post('/api/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only enroll students in your hostel.'
@@ -1872,7 +1890,7 @@ app.post('/api/face/enroll-bulk',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only enroll students in your hostel.'
@@ -2004,7 +2022,7 @@ app.post('/api/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied.'
@@ -2103,7 +2121,7 @@ app.post('/api/face/verify-room',
                 query = query.eq('hostel_id', hostel_id);
             }
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -2239,7 +2257,7 @@ app.post('/api/face/liveness',
 
 app.post('/api/face/liveness/reset', 
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     async (req, res) => {
         try {
             const result = await faceService.resetLiveness();
@@ -2274,7 +2292,7 @@ app.get('/api/face/status/:studentId',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -2384,7 +2402,7 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -2451,7 +2469,7 @@ app.post('/api/students/:id/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -2561,7 +2579,7 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -2640,7 +2658,7 @@ app.get('/api/students/face-status/all',
                 .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, campus')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -2710,7 +2728,7 @@ app.get('/api/students',
         try {
             let query = supabase.from('students').select('*').eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -2775,7 +2793,7 @@ app.post('/api/students',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only add students to your hostel.'
@@ -2858,7 +2876,7 @@ app.get('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -2904,7 +2922,7 @@ app.put('/api/students/:id',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== existingStudent.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existingStudent.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -2986,7 +3004,7 @@ app.patch('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== existingStudent.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existingStudent.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -3091,7 +3109,7 @@ app.put('/api/students/:id/status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -3157,7 +3175,7 @@ app.delete('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -3241,7 +3259,14 @@ app.get('/api/staff',
                 .order('name', { ascending: true })
                 .range(offset, offset + limit - 1);
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            // ============================================================
+            // Hide System Owner from non-System Owner users
+            // ============================================================
+            if (req.user.role !== 'System Owner') {
+                query = query.neq('role', 'System Owner');
+            }
+
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
 
@@ -3289,7 +3314,17 @@ app.get('/api/staff/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== data.hostel_id) {
+            // ============================================================
+            // Hide System Owner from non-System Owner users
+            // ============================================================
+            if (data.role === 'System Owner' && req.user.role !== 'System Owner') {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Staff not found in this campus' 
+                });
+            }
+
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -3313,7 +3348,7 @@ app.get('/api/staff/:id',
 
 app.post('/api/staff', 
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.createStaff),
     async (req, res) => {
         const { name, username, role, hostel_id, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
@@ -3398,7 +3433,7 @@ app.post('/api/staff',
 
 app.put('/api/staff/:id', 
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.updateStaff),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -3486,7 +3521,7 @@ app.put('/api/staff/:id',
 
 app.delete('/api/staff/:id', 
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.staffId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -3543,16 +3578,335 @@ app.delete('/api/staff/:id',
 );
 
 // =====================================================
+// SYSTEM OWNER STAFF MANAGEMENT (Hidden from other roles)
+// =====================================================
+
+// System Owner only - Get all staff including System Owner
+app.get('/api/system-owner/staff',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate(validators.pagination),
+    async (req, res) => {
+        try {
+            const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+            const offset = parseInt(req.query.offset) || 0;
+            
+            const { data, error, count } = await supabase
+                .from('staff')
+                .select('id, name, username, role, hostel_id, assigned_floor, assigned_room, status, email, phone, department, initials, joined, last_login, campus, campus_code')
+                .eq('campus', req.campus)
+                .order('name', { ascending: true })
+                .range(offset, offset + limit - 1);
+            
+            if (error) throw error;
+
+            const sanitizedData = data.map(item => ({
+                ...item,
+                staff_id: item.id
+            }));
+
+            res.json({ 
+                success: true, 
+                data: sanitizedData,
+                pagination: { limit, offset, total: count || data.length },
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching staff for System Owner:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.' 
+            });
+        }
+    }
+);
+
+// System Owner only - Create new System Owner accounts
+app.post('/api/system-owner/staff',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate(validators.createStaff),
+    async (req, res) => {
+        const { name, username, role, hostel_id, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
+        
+        // Only allow System Owner role to be created through this endpoint
+        if (role !== 'System Owner') {
+            return res.status(403).json({
+                success: false,
+                message: 'This endpoint can only create System Owner accounts.'
+            });
+        }
+        
+        try {
+            const staffCampus = campus || req.campus || 'Legacy';
+            
+            const { data: existingStaff } = await supabase
+                .from('staff')
+                .select('id')
+                .eq('username', username)
+                .eq('campus', staffCampus)
+                .maybeSingle();
+
+            if (existingStaff) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Username already exists in this campus' 
+                });
+            }
+            
+            const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            
+            const tempPassword = crypto.randomBytes(12).toString('base64').slice(0, 16);
+            const hashedPassword = await bcrypt.hash(tempPassword, SALT_ROUNDS);
+            
+            const newStaff = { 
+                name, username, password: hashedPassword, role, 
+                hostel_id: hostel_id || null, 
+                assigned_floor: assigned_floor || null, 
+                assigned_room: assigned_room || null, 
+                status: 'Active', 
+                initials, 
+                email: email || null, 
+                phone: phone || null, 
+                department: department || null, 
+                joined: new Date().toISOString().split('T')[0],
+                campus: staffCampus,
+                campus_code: staffCampus === 'Legacy' ? 'LEG' : 'HER'
+            };
+
+            const { data, error } = await supabase
+                .from('staff')
+                .insert(newStaff)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'System Owner Created',
+                module: 'staff',
+                details: `Created System Owner account for ${name} (${username})`,
+                result: 'success',
+                category: 'staff',
+                campus: staffCampus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            const { password: _, ...staffWithoutPassword } = data;
+
+            res.json({ 
+                success: true, 
+                data: staffWithoutPassword,
+                campus: staffCampus,
+                message: `System Owner created successfully. Temporary password: ${tempPassword} (Please change on first login)`
+            });
+        } catch (error) {
+            console.error('Error creating System Owner:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.' 
+            });
+        }
+    }
+);
+
+// System Owner only - Update System Owner accounts
+app.put('/api/system-owner/staff/:id',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate(validators.updateStaff),
+    async (req, res) => {
+        const id = parseInt(req.params.id);
+        const { name, username, role, hostel_id, status, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
+        
+        try {
+            const { data: existing } = await supabase
+                .from('staff')
+                .select('role, campus')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+
+            if (!existing) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Staff not found in this campus'
+                });
+            }
+
+            // Only System Owners can update System Owner accounts
+            if (existing.role === 'System Owner' && req.user.role !== 'System Owner') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. Only System Owners can update System Owner accounts.'
+                });
+            }
+
+            const updateData = {};
+            const changes = [];
+
+            if (name !== undefined) { updateData.name = name; changes.push('name'); }
+            if (username !== undefined) { updateData.username = username; changes.push('username'); }
+            if (role !== undefined) { 
+                // Prevent changing System Owner role to something else
+                if (existing.role === 'System Owner' && role !== 'System Owner') {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Cannot change System Owner role.'
+                    });
+                }
+                updateData.role = role; 
+                changes.push('role'); 
+            }
+            if (hostel_id !== undefined) { updateData.hostel_id = hostel_id || null; changes.push('hostel_id'); }
+            if (assigned_floor !== undefined) { updateData.assigned_floor = assigned_floor || null; changes.push('assigned_floor'); }
+            if (assigned_room !== undefined) { updateData.assigned_room = assigned_room || null; changes.push('assigned_room'); }
+            if (status !== undefined) { updateData.status = status; changes.push('status'); }
+            if (email !== undefined) { updateData.email = email; changes.push('email'); }
+            if (phone !== undefined) { updateData.phone = phone; changes.push('phone'); }
+            if (department !== undefined) { updateData.department = department; changes.push('department'); }
+            if (campus !== undefined) { 
+                updateData.campus = campus; 
+                updateData.campus_code = campus === 'Legacy' ? 'LEG' : 'HER';
+                changes.push('campus'); 
+            }
+
+            if (Object.keys(updateData).length === 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'No fields to update' 
+                });
+            }
+
+            updateData.updated_at = new Date().toISOString();
+
+            const { data, error } = await supabase
+                .from('staff')
+                .update(updateData)
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'System Owner Updated',
+                module: 'staff',
+                details: `Updated System Owner ${data?.name}: ${changes.join(', ')}`,
+                result: 'success',
+                category: 'staff',
+                hostel_id: data?.hostel_id,
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            const { password: _, ...staffWithoutPassword } = data;
+            res.json({ success: true, data: staffWithoutPassword, campus: req.campus });
+        } catch (error) {
+            console.error('Error updating System Owner:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.' 
+            });
+        }
+    }
+);
+
+// System Owner only - Delete System Owner accounts
+app.delete('/api/system-owner/staff/:id',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate(validators.staffId),
+    async (req, res) => {
+        const id = parseInt(req.params.id);
+        try {
+            const { data: user } = await supabase
+                .from('staff')
+                .select('name, role, campus')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Staff not found in this campus'
+                });
+            }
+
+            // Only System Owners can delete System Owner accounts
+            if (user.role === 'System Owner' && req.user.role !== 'System Owner') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. Only System Owners can delete System Owner accounts.'
+                });
+            }
+
+            // Prevent deleting your own account
+            if (id === req.user.id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You cannot delete your own account.'
+                });
+            }
+            
+            const { error } = await supabase
+                .from('staff')
+                .delete()
+                .eq('id', id)
+                .eq('campus', req.campus);
+            
+            if (error) throw error;
+            
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'System Owner Deleted',
+                module: 'staff',
+                details: `Deleted System Owner: ${user?.name}`,
+                result: 'success',
+                category: 'staff',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+            
+            res.json({ 
+                success: true, 
+                message: 'System Owner deleted successfully',
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error deleting System Owner:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.' 
+            });
+        }
+    }
+);
+
+// =====================================================
 // RA ROOM ASSIGNMENTS (HRA Only)
 // =====================================================
 
 app.get('/api/hra/ras',
     campusIsolation,
-    requireRole('HRA', 'Admin'),
+    requireRole('HRA', 'Admin', 'System Owner'),
     async (req, res) => {
         try {
             let hostelId = req.user.hostel_id;
-            if (req.user.role === 'Admin' && req.query.hostel_id) {
+            if ((req.user.role === 'Admin' || req.user.role === 'System Owner') && req.query.hostel_id) {
                 hostelId = parseInt(req.query.hostel_id);
             }
 
@@ -3648,7 +4002,7 @@ app.get('/api/hra/ras',
 
 app.post('/api/hra/assign-rooms',
     campusIsolation,
-    requireRole('HRA', 'Admin'),
+    requireRole('HRA', 'Admin', 'System Owner'),
     validate(validators.raRoomAssignment),
     async (req, res) => {
         try {
@@ -3671,7 +4025,7 @@ app.post('/api/hra/assign-rooms',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== ra.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== ra.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only assign rooms in your hostel.'
@@ -4170,7 +4524,7 @@ app.get('/api/ra/bedcheck/status',
 
 app.get('/api/security/suspicious',
     campusIsolation,
-    requireRole('Admin', 'HRA', 'RASD'),
+    requireRole('Admin', 'HRA', 'RASD', 'System Owner'),
     async (req, res) => {
         try {
             let query = supabase
@@ -4216,7 +4570,7 @@ app.get('/api/security/suspicious',
 
 app.put('/api/security/resolve/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA', 'RASD'),
+    requireRole('Admin', 'HRA', 'RASD', 'System Owner'),
     validate(validators.suspiciousResolve),
     async (req, res) => {
         try {
@@ -4329,7 +4683,7 @@ app.get('/api/hostels',
                 .eq('campus', req.campus)
                 .order('name', { ascending: true });
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('id', req.user.hostel_id);
             }
 
@@ -4407,7 +4761,7 @@ app.get('/api/hostels/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -4455,7 +4809,7 @@ app.get('/api/hostels/:id',
 
 app.post('/api/hostels',
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.hostelCreate),
     async (req, res) => {
         const { name, gender, type, total_floors, rooms_per_floor, total_flats, rooms_per_flat, beds_per_room, campus } = req.body;
@@ -4513,7 +4867,7 @@ app.post('/api/hostels',
 
 app.put('/api/hostels/:id',
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.hostelId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -4591,7 +4945,7 @@ app.put('/api/hostels/:id',
 
 app.delete('/api/hostels/:id',
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.hostelId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -4667,7 +5021,7 @@ app.get('/api/hostels/:id/alerts',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -4779,7 +5133,7 @@ app.get('/api/hostels/:id/occupancy',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -4844,7 +5198,7 @@ app.get('/api/hostels/:id/summary',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -4922,7 +5276,7 @@ app.get('/api/floors-flats',
                 hostelQuery = hostelQuery.eq('id', parseInt(hostel_id));
             }
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -4988,7 +5342,7 @@ app.get('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5008,7 +5362,7 @@ app.get('/api/floors-flats/:id',
 
 app.post('/api/floors-flats',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.floorFlatCreate),
     async (req, res) => {
         const { hostel_id, name, type } = req.body;
@@ -5027,7 +5381,7 @@ app.post('/api/floors-flats',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -5073,7 +5427,7 @@ app.post('/api/floors-flats',
 
 app.put('/api/floors-flats/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.floorFlatId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5106,7 +5460,7 @@ app.put('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== existing.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5161,7 +5515,7 @@ app.put('/api/floors-flats/:id',
 
 app.delete('/api/floors-flats/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.floorFlatId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5193,7 +5547,7 @@ app.delete('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== existing.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5251,7 +5605,7 @@ app.get('/api/rooms',
                 .select('id')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -5389,7 +5743,7 @@ app.get('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5421,7 +5775,7 @@ app.get('/api/rooms/:id',
 
 app.post('/api/rooms',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.roomCreate),
     async (req, res) => {
         const { floor_flat_id, room_code } = req.body;
@@ -5446,7 +5800,7 @@ app.post('/api/rooms',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5495,7 +5849,7 @@ app.post('/api/rooms',
 
 app.put('/api/rooms/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.roomId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5527,7 +5881,7 @@ app.put('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5587,7 +5941,7 @@ app.put('/api/rooms/:id',
 
 app.delete('/api/rooms/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.roomId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5618,7 +5972,7 @@ app.delete('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -5681,7 +6035,7 @@ app.get('/api/bed-spaces',
                 .select('id')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -5822,7 +6176,7 @@ app.get('/api/bed-spaces/:id',
 
 app.post('/api/bed-spaces',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.bedSpaceCreate),
     async (req, res) => {
         const { room_id, bed_code, full_bed_code, status } = req.body;
@@ -5853,7 +6207,7 @@ app.post('/api/bed-spaces',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -5909,7 +6263,7 @@ app.post('/api/bed-spaces',
 
 app.put('/api/bed-spaces/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.bedSpaceId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5941,7 +6295,7 @@ app.put('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -5986,7 +6340,7 @@ app.put('/api/bed-spaces/:id',
 
 app.patch('/api/bed-spaces/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.bedSpaceId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -6018,7 +6372,7 @@ app.patch('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -6060,7 +6414,7 @@ app.patch('/api/bed-spaces/:id',
 
 app.delete('/api/bed-spaces/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.bedSpaceId),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -6091,7 +6445,7 @@ app.delete('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -6151,7 +6505,7 @@ app.get('/api/bedcheck/sessions',
             if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
             if (date) query = query.eq('date', date);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -6170,7 +6524,7 @@ app.get('/api/bedcheck/sessions',
 
 app.post('/api/bedcheck/sessions',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.bedcheckSession),
     async (req, res) => {
         const { hostel_id, date, start_time, end_time, status, scanner_id, battery } = req.body;
@@ -6189,7 +6543,7 @@ app.post('/api/bedcheck/sessions',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -6262,7 +6616,7 @@ app.put('/api/bedcheck/sessions/:id',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.hostel_id !== session.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== session.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied'
@@ -6327,7 +6681,7 @@ app.get('/api/bedcheck/scans',
             if (room) query = query.eq('room', room);
             if (student_id) query = query.eq('student_id', parseInt(student_id));
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 const { data: hostelStudents } = await supabase
                     .from('students')
                     .select('id')
@@ -6376,7 +6730,7 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
@@ -6466,7 +6820,7 @@ app.post('/api/bedcheck/scan-with-face',
                 .eq('face_enrolled', true)
                 .eq('room_id', room_id);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -6681,7 +7035,7 @@ app.get('/api/sessions/:id',
 
 app.post('/api/sessions',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.sessionCreate),
     async (req, res) => {
         try {
@@ -6755,7 +7109,7 @@ app.post('/api/sessions',
 
 app.put('/api/sessions/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.sessionId),
     async (req, res) => {
         try {
@@ -6855,7 +7209,7 @@ app.put('/api/sessions/:id',
 
 app.delete('/api/sessions/:id',
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.sessionId),
     async (req, res) => {
         try {
@@ -7097,7 +7451,7 @@ app.get('/api/submission', campusIsolation, async (req, res) => {
 
 app.put('/api/submission',
     campusIsolation,
-    requireRole('Admin'),
+    requireRole('Admin', 'System Owner'),
     validate(validators.submissionState),
     async (req, res) => {
         const { state, notice } = req.body;
@@ -7161,21 +7515,31 @@ app.get('/api/dashboard/stats',
             const stats = {};
             
             let studentsQuery = supabase.from('students').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 studentsQuery = studentsQuery.eq('hostel_id', req.user.hostel_id);
             }
             const { count: studentsCount, error: studentsError } = await studentsQuery;
             stats.totalStudents = studentsCount || 0;
             
             let hostelsQuery = supabase.from('hostels').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
             }
             const { count: hostelsCount, error: hostelsError } = await hostelsQuery;
             stats.totalHostels = hostelsCount || 0;
             
+            // ============================================================
+            // Hide System Owner from counts for non-System Owner users
+            // ============================================================
+            let staffQuery = supabase.from('staff').select('role', { count: 'exact' }).eq('campus', req.campus);
+            if (req.user.role !== 'System Owner') {
+                staffQuery = staffQuery.neq('role', 'System Owner');
+            }
+            const { count: totalStaff, error: staffError } = await staffQuery;
+            stats.totalStaff = totalStaff || 0;
+            
             let statusQuery = supabase.from('students').select('status, face_enrolled').eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 statusQuery = statusQuery.eq('hostel_id', req.user.hostel_id);
             }
             const { data: statusData, error: statusError } = await statusQuery;
@@ -7223,7 +7587,7 @@ app.get('/api/dashboard/activity',
         const { hostel_id, limit } = req.query;
         try {
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
             
@@ -7248,14 +7612,14 @@ app.get('/api/dashboard/activity',
 
 app.get('/api/registration/stats',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     async (req, res) => {
         try {
             let query = supabase.from('students')
                 .select('id, room_id, name, matric, hostel_id, hostel_name, room_code, status, created_at, face_enrolled, campus')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -7269,7 +7633,7 @@ app.get('/api/registration/stats',
             if (bedError) throw bedError;
 
             let hostelsQuery = supabase.from('hostels').select('id, name, type, total_floors, rooms_per_floor, total_flats, rooms_per_flat').eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
             }
             const { data: hostels, error: hostelsError } = await hostelsQuery;
@@ -7333,7 +7697,7 @@ app.get('/api/registration/stats',
 
 app.get('/api/hra/hostel', 
     campusIsolation,
-    requireRole('HRA'),
+    requireRole('HRA', 'Admin', 'System Owner'),
     async (req, res) => {
         const staffId = req.user.id;
         
@@ -7473,7 +7837,7 @@ app.get('/api/hra/hostel',
 
 app.get('/api/audit',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate(validators.pagination),
     async (req, res) => {
         try {
@@ -7493,7 +7857,7 @@ app.get('/api/audit',
             } = req.query;
 
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 if (hostel_id && parseInt(hostel_id) !== req.user.hostel_id) {
                     return res.status(403).json({
                         success: false,
@@ -7534,13 +7898,13 @@ app.get('/api/audit',
 
 app.get('/api/audit/stats',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     async (req, res) => {
         try {
             const { hostel_id, from_date, to_date } = req.query;
             
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
 
@@ -7570,7 +7934,7 @@ app.get('/api/audit/recent',
             const { hostel_id, limit = 10 } = req.query;
             
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
             
@@ -7591,7 +7955,7 @@ app.get('/api/audit/recent',
 
 app.get('/api/audit/:id',
     campusIsolation,
-    requireRole('Admin', 'HRA'),
+    requireRole('Admin', 'HRA', 'System Owner'),
     validate([param('id').isInt().withMessage('Invalid audit log ID')]),
     async (req, res) => {
         try {
@@ -7610,7 +7974,7 @@ app.get('/api/audit/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied'
