@@ -1,6 +1,5 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.4.0 - FULLY HARDENED - COMPLETE
-// All security patches, firewall layers, performance optimizations, and ALL endpoints
+// SECURE PRODUCTION VERSION v4.4.0 
 
 const express = require('express');
 const cors = require('cors');
