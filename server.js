@@ -2303,6 +2303,9 @@ app.post('/api/face/detect',
     validate(validators.faceImage),
     async (req, res) => {
         try {
+            if (!req.body || !req.body.image) {
+                return res.status(400).json({ success: false, message: 'Image is required', code: 'MISSING_IMAGE' });
+            }
             const { image, student_id } = req.body;
             
             const validation = faceService.validateImage(image);
