@@ -624,7 +624,7 @@ class RequestValidationFirewall {
 
     validateImage() {
         return (req, res, next) => {
-            const image = req.body.image || req.body.photo;
+            const image = req.body?.image || req.body?.photo;            
             if (image) {
                 const validation = faceService.validateImage(image);
                 if (!validation.valid) {
