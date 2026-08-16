@@ -1,6 +1,5 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.3.0 - COMPLETE WITH ALL ENDPOINTS
-// INCLUDES STUDENT PORTAL INTEGRATION
+// SECURE PRODUCTION VERSION v4.3.0
 
 const express = require('express');
 const cors = require('cors');
@@ -12,7 +11,6 @@ const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
 const { body, validationResult, param, query } = require('express-validator');
 const crypto = require('crypto');
-const path = require('path');
 require('dotenv').config();
 
 // =====================================================
@@ -25,7 +23,7 @@ const DASHBOARD_ROUTES = {
     'HRA': '/HRA/hra-index.html',
     'RA': '/RA/ra-index.html',
     'System Owner': '/system-owner/index.html',
-    'Student': '/student'
+    'Student': '/students'
 };
 
 // =====================================================
@@ -473,20 +471,6 @@ const generateToken = (user) => {
     );
 };
 
-const generateStudentToken = (student) => {
-    return jwt.sign(
-        { 
-            id: student.id,
-            matric: student.matric,
-            name: student.name,
-            role: 'Student',
-            campus: student.campus || 'Legacy'
-        },
-        JWT_SECRET,
-        { expiresIn: '1h' }
-    );
-};
-
 const verifyToken = (token) => {
     try {
         return jwt.verify(token, JWT_SECRET);
@@ -495,90 +479,8 @@ const verifyToken = (token) => {
     }
 };
 
-// =====================================================
-// STUDENT PORTAL - STATIC FILES
-// =====================================================
-
-// Serve student portal static files
-// Option A: If student files are in a 'student' folder
-app.use('/student', express.static(path.join(__dirname, 'student')));
-
-// Option B: If student files are in public/student folder (fallback)
-app.use('/student', express.static(path.join(__dirname, 'public', 'student')));
-
-// Serve a landing page at /student
-app.get('/student', (req, res) => {
-    // Try to serve from student folder first, then public/student
-    const studentPath = path.join(__dirname, 'student', 'hub.html');
-    const publicPath = path.join(__dirname, 'public', 'student', 'hub.html');
-    
-    const fs = require('fs');
-    if (fs.existsSync(studentPath)) {
-        res.sendFile(studentPath);
-    } else if (fs.existsSync(publicPath)) {
-        res.sendFile(publicPath);
-    } else {
-        res.status(404).json({
-            success: false,
-            message: 'Student portal not found. Please ensure hub.html is in the student folder.'
-        });
-    }
-});
-
-// Also serve /student/hub.html, /student/index.html, /student/faceid.html
-app.get('/student/hub.html', (req, res) => {
-    const filePath = path.join(__dirname, 'student', 'hub.html');
-    const publicFilePath = path.join(__dirname, 'public', 'student', 'hub.html');
-    const fs = require('fs');
-    if (fs.existsSync(filePath)) {
-        res.sendFile(filePath);
-    } else if (fs.existsSync(publicFilePath)) {
-        res.sendFile(publicFilePath);
-    } else {
-        res.status(404).json({ success: false, message: 'hub.html not found' });
-    }
-});
-
-app.get('/student/index.html', (req, res) => {
-    const filePath = path.join(__dirname, 'student', 'index.html');
-    const publicFilePath = path.join(__dirname, 'public', 'student', 'index.html');
-    const fs = require('fs');
-    if (fs.existsSync(filePath)) {
-        res.sendFile(filePath);
-    } else if (fs.existsSync(publicFilePath)) {
-        res.sendFile(publicFilePath);
-    } else {
-        res.status(404).json({ success: false, message: 'index.html not found' });
-    }
-});
-
-app.get('/student/faceid.html', (req, res) => {
-    const filePath = path.join(__dirname, 'student', 'faceid.html');
-    const publicFilePath = path.join(__dirname, 'public', 'student', 'faceid.html');
-    const fs = require('fs');
-    if (fs.existsSync(filePath)) {
-        res.sendFile(filePath);
-    } else if (fs.existsSync(publicFilePath)) {
-        res.sendFile(publicFilePath);
-    } else {
-        res.status(404).json({ success: false, message: 'faceid.html not found' });
-    }
-});
-
-// Serve student assets (images, css, js)
-app.use('/student/assets', express.static(path.join(__dirname, 'student', 'assets')));
-app.use('/student/css', express.static(path.join(__dirname, 'student', 'css')));
-app.use('/student/js', express.static(path.join(__dirname, 'student', 'js')));
-
-// Serve BIU logo and other images
-app.use('/student', express.static(path.join(__dirname, 'student')));
-
-// =====================================================
-// AUTH MIDDLEWARE (for API routes)
-// =====================================================
-
 const authMiddleware = async (req, res, next) => {
-    const publicPaths = ['/api/auth/login', '/api/face/health', '/health', '/', '/student', '/student/hub.html', '/student/index.html', '/student/faceid.html', '/api/student/login', '/api/student/search'];
+    const publicPaths = ['/api/auth/login', '/api/face/health', '/health', '/'];
     if (publicPaths.includes(req.path)) {
         return next();
     }
@@ -1463,6 +1365,9 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
+        // ============================================================
+        // Determine the redirect URL on the server
+        // ============================================================
         const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
 
         res.json({ 
@@ -1486,227 +1391,13 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 });
 
 // =====================================================
-// STUDENT AUTHENTICATION ENDPOINTS
-// =====================================================
-
-// Student login - search by name or matric
-app.post('/api/student/login', async (req, res) => {
-    try {
-        const { matric, name } = req.body;
-        
-        if (!matric && !name) {
-            return res.status(400).json({
-                success: false,
-                message: 'matric or name is required'
-            });
-        }
-        
-        let query = supabase
-            .from('students')
-            .select('*')
-            .eq('campus', 'Legacy');
-        
-        if (matric) {
-            query = query.ilike('matric', `%${matric}%`);
-        } else if (name) {
-            query = query.or(`name.ilike.%${name}%,surname.ilike.%${name}%,first_name.ilike.%${name}%`);
-        }
-        
-        const { data, error } = await query.limit(1);
-        
-        if (error) throw error;
-        
-        if (!data || data.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Student not found'
-            });
-        }
-        
-        const student = data[0];
-        
-        // Generate a JWT for the student
-        const token = generateStudentToken(student);
-        
-        res.json({
-            success: true,
-            data: {
-                student: {
-                    id: student.id,
-                    name: student.name,
-                    matric: student.matric,
-                    hostel_name: student.hostel_name,
-                    room_code: student.room_code,
-                    bed_code: student.bed_code,
-                    face_enrolled: student.face_enrolled || false,
-                    status: student.status || 'Present'
-                },
-                token: token,
-                redirect: '/student'
-            }
-        });
-    } catch (error) {
-        console.error('Student login error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred during login'
-        });
-    }
-});
-
-// Search for students (for the hub page)
-app.get('/api/student/search', async (req, res) => {
-    try {
-        const { matric, name, search } = req.query;
-        const searchTerm = search || name || matric;
-        
-        if (!searchTerm) {
-            return res.status(400).json({
-                success: false,
-                message: 'search parameter is required'
-            });
-        }
-        
-        let query = supabase
-            .from('students')
-            .select('*')
-            .eq('campus', 'Legacy')
-            .or(`name.ilike.%${searchTerm}%,surname.ilike.%${searchTerm}%,first_name.ilike.%${searchTerm}%,matric.ilike.%${searchTerm}%`);
-        
-        const { data, error } = await query.limit(10);
-        
-        if (error) throw error;
-        
-        res.json({
-            success: true,
-            data: data || []
-        });
-    } catch (error) {
-        console.error('Student search error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred while searching for students'
-        });
-    }
-});
-
-// Get student by ID
-app.get('/api/student/:id', async (req, res) => {
-    try {
-        const studentId = parseInt(req.params.id);
-        
-        const { data, error } = await supabase
-            .from('students')
-            .select('*')
-            .eq('id', studentId)
-            .maybeSingle();
-        
-        if (error) throw error;
-        
-        if (!data) {
-            return res.status(404).json({
-                success: false,
-                message: 'Student not found'
-            });
-        }
-        
-        res.json({
-            success: true,
-            data: data
-        });
-    } catch (error) {
-        console.error('Get student error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred while fetching student'
-        });
-    }
-});
-
-// Update student face enrollment status
-app.post('/api/student/:id/face-enroll', async (req, res) => {
-    try {
-        const studentId = parseInt(req.params.id);
-        const { embedding, face_image_url, enrolled } = req.body;
-        
-        // Update student record
-        const updateData = {
-            face_enrolled: enrolled !== undefined ? enrolled : true,
-            updated_at: new Date().toISOString()
-        };
-        
-        // Store embedding in student_face table if provided
-        if (embedding && Array.isArray(embedding) && embedding.length > 0) {
-            const { data: faceData, error: faceError } = await supabase
-                .from('student_face')
-                .upsert({
-                    student_id: studentId,
-                    face_embedding: embedding,
-                    face_image_url: face_image_url || null,
-                    enrollment_status: 'enrolled',
-                    enrollment_date: new Date().toISOString(),
-                    is_active: true,
-                    updated_at: new Date().toISOString()
-                }, {
-                    onConflict: 'student_id'
-                })
-                .select()
-                .single();
-            
-            if (faceError) {
-                console.error('Face insert error:', faceError);
-                // Continue anyway, try to update student
-            }
-        }
-        
-        const { data, error } = await supabase
-            .from('students')
-            .update(updateData)
-            .eq('id', studentId)
-            .select()
-            .single();
-        
-        if (error) {
-            console.error('Student update error:', error);
-            throw error;
-        }
-        
-        // Log the enrollment
-        await auditService.log({
-            actor: data?.name || 'Student',
-            actor_id: studentId,
-            actor_role: 'Student',
-            action: 'Face Enrollment',
-            module: 'face',
-            details: `Student ${data?.name} (${data?.matric}) enrolled face`,
-            result: 'success',
-            category: 'face',
-            student_id: studentId,
-            campus: data?.campus || 'Legacy'
-        });
-        
-        res.json({
-            success: true,
-            data: data,
-            message: 'Face enrolled successfully'
-        });
-    } catch (error) {
-        console.error('Face enroll error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred while enrolling face: ' + error.message
-        });
-    }
-});
-
-// =====================================================
 // 🔐 AUTH MIDDLEWARE
 // =====================================================
 
 app.use(authMiddleware);
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS (Protected)
+// AUTHENTICATION ENDPOINTS
 // =====================================================
 
 app.post('/api/auth/logout', async (req, res) => {
@@ -3569,7 +3260,9 @@ app.get('/api/staff',
                 .order('name', { ascending: true })
                 .range(offset, offset + limit - 1);
 
+            // ============================================================
             // Hide System Owner from non-System Owner users
+            // ============================================================
             if (req.user.role !== 'System Owner') {
                 query = query.neq('role', 'System Owner');
             }
@@ -3622,7 +3315,9 @@ app.get('/api/staff/:id',
                 });
             }
 
+            // ============================================================
             // Hide System Owner from non-System Owner users
+            // ============================================================
             if (data.role === 'System Owner' && req.user.role !== 'System Owner') {
                 return res.status(404).json({ 
                     success: false, 
@@ -7834,6 +7529,9 @@ app.get('/api/dashboard/stats',
             const { count: hostelsCount, error: hostelsError } = await hostelsQuery;
             stats.totalHostels = hostelsCount || 0;
             
+            // ============================================================
+            // Hide System Owner from counts for non-System Owner users
+            // ============================================================
             let staffQuery = supabase.from('staff').select('role', { count: 'exact' }).eq('campus', req.campus);
             if (req.user.role !== 'System Owner') {
                 staffQuery = staffQuery.neq('role', 'System Owner');
@@ -8333,8 +8031,6 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`✅ Server running on port ${PORT}`);
-    console.log(`📁 Student portal available at: /student`);
-    console.log(`🔐 Environment: ${process.env.NODE_ENV || 'production'}`);
     
     try {
         const health = await faceService.checkHealth();
