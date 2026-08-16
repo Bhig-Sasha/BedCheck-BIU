@@ -1504,8 +1504,15 @@
         (function() {
             'use strict';
 
+            // ============================================
+            // CONFIGURATION - Live API
+            // ============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-            const API_TOKEN = sessionStorage.getItem('bedcheck_token') || '';
+            let API_TOKEN = sessionStorage.getItem('bedcheck_token') || '';
+            if (!API_TOKEN) {
+                API_TOKEN = localStorage.getItem('bedcheck_token') || '';
+                if (API_TOKEN) sessionStorage.setItem('bedcheck_token', API_TOKEN);
+            }
 
             let allStudents = [];
             let allStaff = [];
@@ -1516,6 +1523,9 @@
             let allScans = [];
             let refreshInterval = null;
 
+            // ============================================
+            // API HELPERS
+            // ============================================
             function getHeaders() {
                 return {
                     'Content-Type': 'application/json',
@@ -1535,6 +1545,7 @@
 
                     if (response.status === 401) {
                         sessionStorage.clear();
+                        localStorage.removeItem('bedcheck_token');
                         window.location.href = './Login.html';
                         throw new Error('Session expired. Please login again.');
                     }
@@ -1550,8 +1561,24 @@
                 }
             }
 
+            // ============================================
+            // LOAD ALL DATA FROM LIVE API
+            // ============================================
             async function loadAllData() {
                 try {
+                    if (!API_TOKEN) {
+                        showToast('No authentication token found. Please login.', 'error');
+                        document.querySelectorAll('.loading-state').forEach(el => {
+                            el.innerHTML = `
+                                <p style="color:var(--danger);">No authentication token found.</p>
+                                <button class="btn btn-primary" onclick="window.location.href='./Login.html'" style="margin-top:0.5rem;">
+                                    <i class="fas fa-sign-in-alt"></i> Go to Login
+                                </button>
+                            `;
+                        });
+                        return;
+                    }
+
                     showToast('Loading dashboard data...', 'info');
 
                     const [
@@ -1593,6 +1620,9 @@
                 }
             }
 
+            // ============================================
+            // UPDATE FUNCTIONS
+            // ============================================
             function updateStats() {
                 const totalStudents = allStudents.length;
                 const assignedStudents = allStudents.filter(s => s.room_id && s.room_id > 0).length;
@@ -1768,7 +1798,7 @@
             }
 
             function updateSystemStatus() {
-                // Check face API health
+                // Face API health check
                 fetch(`${API_BASE_URL}/face/health`, {
                         headers: getHeaders()
                     })
@@ -1942,6 +1972,7 @@
             window.handleLogout = function() {
                 if (confirm('Are you sure you want to logout?')) {
                     sessionStorage.clear();
+                    localStorage.removeItem('bedcheck_token');
                     window.location.href = './Login.html';
                 }
             };
@@ -2004,18 +2035,20 @@
 
             if (refreshInterval) clearInterval(refreshInterval);
             refreshInterval = setInterval(() => {
-                updateStats();
-                updateBedCheck();
-                updateHostelPerformance();
-                updateRecentActivity();
-                updateSystemStatus();
+                if (!document.hidden) {
+                    updateStats();
+                    updateBedCheck();
+                    updateHostelPerformance();
+                    updateRecentActivity();
+                    updateSystemStatus();
+                }
             }, 60000);
 
             // ============================================
             // INIT
             // ============================================
 
-            console.log('✅ BIU BedCheck System Owner Dashboard (Theme 2)');
+            console.log('✅ BIU BedCheck System Owner Dashboard (Live API)');
             console.log('📋 Keyboard shortcuts: Ctrl+F (Search), Ctrl+R (Refresh), Ctrl+D (Emergency)');
 
             loadAllData();
