@@ -23,7 +23,7 @@ const DASHBOARD_ROUTES = {
     'RASD': '/RASD/rasd-index.html',
     'HRA': '/HRA/hra-index.html',
     'RA': '/RA/ra-index.html',
-    'System Owner': '/system-owner/index.html',
+    'System Owner': '/app/dev-index.html',
     'Student': '/students'
 };
 
