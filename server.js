@@ -1269,7 +1269,7 @@ const auditEvents = {
 };
 
 // =====================================================
-// 🔓 PUBLIC ENDPOINTS (No Authentication Required)
+// 🔓 PUBLIC ENDPOINTS
 // =====================================================
 
 // =====================================================
@@ -1295,7 +1295,7 @@ app.get('/', (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS (Public - No Auth Required)
+// AUTHENTICATION ENDPOINTS
 // =====================================================
 
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
@@ -1390,13 +1390,13 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 });
 
 // =====================================================
-// 🔐 APPLY AUTH MIDDLEWARE - ALL ROUTES AFTER THIS REQUIRE AUTHENTICATION
+// 🔐 AUTH MIDDLEWARE
 // =====================================================
 
 app.use(authMiddleware);
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS (Protected - Auth Required)
+// AUTHENTICATION ENDPOINTS
 // =====================================================
 
 app.post('/api/auth/logout', async (req, res) => {
@@ -1680,7 +1680,7 @@ app.get('/api/campus/stats', requireRole('Admin', 'HRA', 'System Owner'), async 
 });
 
 // =====================================================
-// INSIGHTFACE ENDPOINTS (Full)
+// INSIGHTFACE ENDPOINTS
 // =====================================================
 
 app.get('/api/face/health', async (req, res) => {
@@ -2379,7 +2379,7 @@ app.post('/api/face/extract',
 );
 
 // =====================================================
-// STUDENT FACE ENDPOINTS (Legacy compatible)
+// STUDENT FACE ENDPOINTS (Legacy)
 // =====================================================
 
 app.get('/api/students/:id/face-status',
@@ -2717,7 +2717,7 @@ app.get('/api/students/face-status/all',
 );
 
 // =====================================================
-// STUDENT CRUD (Protected) - WITH CAMPUS SUPPORT
+// STUDENT CRUD
 // =====================================================
 
 app.get('/api/students', 
@@ -3241,7 +3241,7 @@ app.delete('/api/students/:id',
 );
 
 // =====================================================
-// STAFF CRUD (Protected) - WITH CAMPUS SUPPORT
+// STAFF CRUD
 // =====================================================
 
 app.get('/api/staff', 

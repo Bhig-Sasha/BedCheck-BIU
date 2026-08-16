@@ -1699,19 +1699,19 @@
 
         <nav class="sidebar-nav">
             <div class="nav-label">Main</div>
-            <a href="./system-owner-dashboard-theme2.html"><i class="fas fa-th-large"></i> Dashboard</a>
+            <a href="#"><i class="fas fa-th-large"></i> Dashboard</a>
             <a href="./system-owner-students.html"><i class="fas fa-user-graduate"></i> Students</a>
             <a href="./system-owner-staff.html"><i class="fas fa-users"></i> Staff &amp; Roles</a>
-            <a href="./system-owner-hostels.html"><i class="fas fa-building"></i> Hostels</a>
-            <a href="./system-owner-rooms.html"><i class="fas fa-door-open"></i> Rooms</a>
-            <a href="#" class="active"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-            <a href="#"><i class="fas fa-chart-bar"></i> Reports</a>
+            <a href="./system-owner-hostels-rooms.html"><i class="fas fa-building"></i> Hostels &amp; Rooms</a>
+            <a href="./system-owner-bedcheck.html" class="active"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+            <a href="./system-owner-reports.html"><i class="fas fa-chart-bar"></i> Reports</a>
 
             <div class="nav-label">System</div>
-            <a href="#"><i class="fas fa-history"></i> Audit Logs</a>
-            <a href="#"><i class="fas fa-database"></i> Database</a>
-            <a href="#"><i class="fas fa-sliders-h"></i> System</a>
-            <a href="#"><i class="fas fa-code"></i> Developer Tools</a>
+            <a href="./system-owner-audit-logs.html"><i class="fas fa-history"></i> Audit Logs</a>
+            <a href="./system-owner-database.html"><i class="fas fa-database"></i> Database</a>
+            <a href="./system-owner-face.html"><i class="fas fa-face-smile"></i> Face Engine</a>
+            <a href="./system-owner-developer.html"><i class="fas fa-code"></i> Developer Tools</a>
+            <a href="./system-owner-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
         </nav>
 
         <div class="sidebar-footer">
@@ -1931,7 +1931,7 @@
                 <div class="controls-header">
                     <div class="session-info">
                         <div class="session-title" id="sessionTitle">Current Session</div>
-                        <div class="session-meta" id="sessionMeta">Saturday, August 15, 2026 · 10:00 PM — 12:00 AM</div>
+                        <div class="session-meta" id="sessionMeta">Loading session...</div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.5rem;">
                         <span class="status-badge active" id="sessionControlBadge">
@@ -2015,7 +2015,13 @@
             // CONFIGURATION
             // ============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-            const API_TOKEN = sessionStorage.getItem('bedcheck_token') || '';
+
+            // Try to get token from sessionStorage first, then localStorage
+            let API_TOKEN = sessionStorage.getItem('bedcheck_token') || '';
+            if (!API_TOKEN) {
+                API_TOKEN = localStorage.getItem('bedcheck_token') || '';
+                if (API_TOKEN) sessionStorage.setItem('bedcheck_token', API_TOKEN);
+            }
 
             let allHostels = [];
             let allStudents = [];
@@ -2026,6 +2032,7 @@
             let allScans = [];
 
             let currentHostelId = null;
+            let autoRefreshInterval = null;
 
             // ============================================
             // API HELPERS
@@ -2049,6 +2056,7 @@
 
                     if (response.status === 401) {
                         sessionStorage.clear();
+                        localStorage.removeItem('bedcheck_token');
                         window.location.href = './Login.html';
                         throw new Error('Session expired. Please login again.');
                     }
@@ -2069,6 +2077,17 @@
             // ============================================
             async function loadAllData() {
                 try {
+                    // Check token
+                    if (!API_TOKEN) {
+                        document.getElementById('tableLoading').innerHTML = `
+                            <p style="color:var(--danger);">No authentication token found.</p>
+                            <button class="btn btn-primary" onclick="window.location.href='./Login.html'" style="margin-top:0.5rem;">
+                                <i class="fas fa-sign-in-alt"></i> Go to Login
+                            </button>
+                        `;
+                        return;
+                    }
+
                     showToast('Loading BedCheck data...', 'info');
 
                     const [hostelsData, studentsData, roomsData, bedData, staffData, sessionsData, scansData] = await Promise
@@ -2078,7 +2097,7 @@
                             apiFetch('/rooms?limit=1000').catch(() => ({ data: [] })),
                             apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] })),
                             apiFetch('/staff?limit=100').catch(() => ({ data: [] })),
-                            apiFetch('/sessions/active').catch(() => ({ data: null })),
+                            apiFetch('/sessions').catch(() => ({ data: [] })),
                             apiFetch('/bedcheck/scans?limit=50').catch(() => ({ data: [] }))
                         ]);
 
@@ -2087,7 +2106,7 @@
                     allRooms = roomsData.data || [];
                     allBedSpaces = bedData.data || [];
                     allStaff = staffData.data || [];
-                    allSessions = sessionsData.data ? [sessionsData.data] : [];
+                    allSessions = sessionsData.data || [];
                     allScans = scansData.data || [];
 
                     updateStats();
@@ -2097,7 +2116,7 @@
                     updateActivity();
                     updateSessionControls();
 
-                    showToast('BedCheck data loaded successfully', 'success');
+                    showToast(`BedCheck data loaded (${allHostels.length} hostels, ${allStudents.length} students)`, 'success');
                 } catch (error) {
                     console.error('Error loading data:', error);
                     showToast('Failed to load data: ' + error.message, 'error');
@@ -2138,7 +2157,7 @@
                 document.getElementById('statStudentsSub').textContent = `${totalStudents} expected`;
 
                 document.getElementById('statPresent').textContent = present.toLocaleString();
-                document.getElementById('statPresentSub').textContent = `${Math.round((present / (totalStudents || 1)) * 100)}% verified`;
+                document.getElementById('statPresentSub').textContent = totalStudents > 0 ? `${Math.round((present / totalStudents) * 100)}% verified` : '0% verified';
 
                 document.getElementById('statCompletion').textContent = `${completion}%`;
                 document.getElementById('statCompletionSub').textContent = `${completedHostels.length} / ${hostelsWithStudents.length} Hostels`;
@@ -2266,30 +2285,32 @@
                 document.getElementById('drawerStatus').className = `drawer-status ${statusClass}`;
                 document.getElementById('drawerStatusText').textContent = statusText;
 
-                // Get floor progress
-                const floors = allRooms.reduce((acc, room) => {
-                    if (!acc[room.floor_flat_id]) acc[room.floor_flat_id] = [];
-                    acc[room.floor_flat_id].push(room);
-                    return acc;
-                }, {});
+                // Get floor progress - group rooms by floor
+                const floorGroups = {};
+                allRooms.forEach(room => {
+                    if (room.floor_flat_id) {
+                        if (!floorGroups[room.floor_flat_id]) floorGroups[room.floor_flat_id] = [];
+                        floorGroups[room.floor_flat_id].push(room);
+                    }
+                });
 
                 let floorHtml = '';
-                if (Object.keys(floors).length > 0) {
+                if (Object.keys(floorGroups).length > 0) {
                     floorHtml = '<div class="floor-progress"><h5>Floor Progress</h5>';
-                    Object.keys(floors).forEach(floorId => {
-                        const floor = allRooms.find(r => r.floor_flat_id === parseInt(floorId));
-                        const floorName = floor ? floor.floor_flat_id : 'Floor ' + floorId;
-                        // Count students on this floor
-                        const floorStudents = students.filter(s => s.room_id && floors[floorId].some(r => r.id === s
-                            .room_id));
+                    Object.keys(floorGroups).forEach(floorId => {
+                        const floorRooms = floorGroups[floorId];
+                        const floorStudents = students.filter(s => s.room_id && floorRooms.some(r => r.id === s
+                        .room_id));
                         const floorTotal = floorStudents.length;
                         const floorPresent = floorStudents.filter(s => s.status === 'Present' || s.status ===
                             'Verified').length;
                         const floorProgress = floorTotal > 0 ? Math.round((floorPresent / floorTotal) * 100) : 0;
 
+                        const floorName = floorRooms[0]?.floor_name || `Floor ${floorId}`;
+
                         floorHtml += `
                             <div class="floor-item">
-                                <span class="floor-name">Floor ${floorId}</span>
+                                <span class="floor-name">${floorName}</span>
                                 <div class="floor-bar">
                                     <div class="fill" style="width:${floorProgress}%;background:${floorProgress === 100 ? 'var(--success)' : 'var(--accent)'};"></div>
                                 </div>
@@ -2369,12 +2390,12 @@
             // UPDATE FACE STATS
             // ============================================
             function updateFaceStats() {
-                // Simulate face stats based on student data
+                // Get real face stats from students
                 const total = allStudents.length;
                 const enrolled = allStudents.filter(s => s.face_enrolled === true).length;
                 const successRate = total > 0 ? Math.round((enrolled / total) * 100) : 0;
-                const failed = Math.max(0, Math.round(total * 0.03)); // Simulated 3% failure rate
-                const liveness = Math.round(total * 0.93);
+                const failed = allScans.filter(s => s.status === 'Failed').length;
+                const liveness = allScans.filter(s => s.status === 'Verified').length;
 
                 document.getElementById('faceSuccess').textContent = enrolled.toLocaleString();
                 document.getElementById('faceRate').textContent = `${successRate}%`;
@@ -2400,7 +2421,7 @@
                     });
                 }
 
-                // Check for failed verifications (simulated)
+                // Check for failed verifications
                 const failedScans = allScans.filter(s => s.status === 'Failed');
                 if (failedScans.length > 0) {
                     items.push({
@@ -2464,40 +2485,7 @@
             function updateActivity() {
                 const container = document.getElementById('activityBody');
 
-                const activities = [];
-
-                // Add scan activities
-                allScans.slice(0, 10).forEach(scan => {
-                    const student = allStudents.find(s => s.id === scan.student_id);
-                    const hostel = student ? allHostels.find(h => h.id === student.hostel_id) : null;
-                    const time = scan.created_at ? new Date(scan.created_at).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) : '—';
-
-                    activities.push({
-                        time: time,
-                        text: `${student ? student.name || 'Student' : 'Student'} ${scan.status === 'Verified' ? 'verified' : 'failed verification'}`,
-                        location: hostel ? hostel.name : '—',
-                        status: scan.status === 'Verified' ? 'success' : 'failed'
-                    });
-                });
-
-                // Add session activity if no scans
-                if (activities.length === 0 && allSessions.length > 0) {
-                    const session = allSessions[0];
-                    activities.push({
-                        time: session.created_at ? new Date(session.created_at).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }) : '—',
-                        text: `BedCheck session ${session.status || 'opened'}`,
-                        location: 'System',
-                        status: 'success'
-                    });
-                }
-
-                if (activities.length === 0) {
+                if (allScans.length === 0) {
                     container.innerHTML = `
                         <div style="text-align:center;padding:0.5rem;color:var(--text-secondary);font-size:0.8rem;">
                             No recent activity
@@ -2507,16 +2495,24 @@
                 }
 
                 let html = '<div class="activity-list">';
-                activities.slice(0, 10).forEach(activity => {
+                const recentScans = allScans.slice(0, 10);
+                recentScans.forEach(scan => {
+                    const student = allStudents.find(s => s.id === scan.student_id);
+                    const hostel = student ? allHostels.find(h => h.id === student.hostel_id) : null;
+                    const time = scan.created_at ? new Date(scan.created_at).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) : '—';
+
                     html += `
                         <div class="activity-item">
-                            <span class="activity-time">${activity.time}</span>
+                            <span class="activity-time">${time}</span>
                             <div class="activity-content">
-                                <div class="activity-text">${activity.text}</div>
-                                <div class="activity-location">${activity.location}</div>
+                                <div class="activity-text">${student ? student.name || 'Student' : 'Student'} <span class="highlight">${scan.status === 'Verified' ? 'verified' : 'failed verification'}</span></div>
+                                <div class="activity-location">${hostel ? hostel.name : '—'}</div>
                             </div>
-                            <span class="activity-status ${activity.status}">
-                                <i class="fas ${activity.status === 'success' ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                            <span class="activity-status ${scan.status === 'Verified' ? '' : 'failed'}">
+                                <i class="fas ${scan.status === 'Verified' ? 'fa-check-circle' : 'fa-times-circle'}"></i>
                             </span>
                         </div>
                     `;
@@ -2532,15 +2528,22 @@
                 const session = allSessions[0];
                 if (session) {
                     document.getElementById('sessionTitle').textContent = 'Current Session';
+                    const date = session.date ? new Date(session.date) : new Date();
                     document.getElementById('sessionMeta').textContent =
-                        `${new Date(session.date || Date.now()).toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'})} · ${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}`;
-                    document.getElementById('sessionControlBadge').className = `status-badge active`;
+                        `${date.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'})} · ${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}`;
+                    document.getElementById('sessionControlBadge').className = `status-badge ${session.status === 'Active' ? 'active' : 'inactive'}`;
                     document.getElementById('sessionControlText').textContent = session.status || 'Active';
+                    document.getElementById('sessionStatusBadge').className = `status-badge ${session.status === 'Active' ? 'active' : 'inactive'}`;
+                    document.getElementById('sessionStatusText').textContent = session.status || 'Active';
+                    document.getElementById('sessionTime').textContent = `${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}`;
                 } else {
                     document.getElementById('sessionTitle').textContent = 'No Active Session';
                     document.getElementById('sessionMeta').textContent = 'No session currently running';
                     document.getElementById('sessionControlBadge').className = 'status-badge inactive';
                     document.getElementById('sessionControlText').textContent = 'Inactive';
+                    document.getElementById('sessionStatusBadge').className = 'status-badge inactive';
+                    document.getElementById('sessionStatusText').textContent = 'Inactive';
+                    document.getElementById('sessionTime').textContent = '—';
                 }
             }
 
@@ -2557,6 +2560,7 @@
                 const loading = document.getElementById('tableLoading');
                 const table = document.getElementById('hostelTable');
                 loading.style.display = 'block';
+                loading.innerHTML = `<div class="spinner"></div><p>Loading hostel data...</p>`;
                 table.style.display = 'none';
                 loadAllData();
             };
@@ -2704,6 +2708,7 @@
             window.handleLogout = function() {
                 if (confirm('Are you sure you want to logout?')) {
                     sessionStorage.clear();
+                    localStorage.removeItem('bedcheck_token');
                     window.location.href = './Login.html';
                 }
             };
@@ -2741,18 +2746,19 @@
             // ============================================
             // AUTO-REFRESH (Every 30 seconds)
             // ============================================
-            setInterval(() => {
-                updateStats();
-                updateHostelTable();
-                updateFaceStats();
-                updateAttentionRequired();
-                updateActivity();
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => {
+                // Only refresh if the page is visible
+                if (!document.hidden) {
+                    // Silently refresh data without showing toast
+                    loadAllData().catch(() => {});
+                }
             }, 30000);
 
             // ============================================
             // INIT
             // ============================================
-            console.log('✅ BIU BedCheck System Owner - BedCheck Control Center');
+            console.log('✅ BIU BedCheck System Owner - BedCheck Control Center (Live API)');
             console.log('📋 Keyboard shortcuts: Ctrl+R (Refresh)');
 
             loadAllData();
