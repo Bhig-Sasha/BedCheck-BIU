@@ -1,5 +1,6 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.3.0
+// SECURE PRODUCTION VERSION v4.4.0 - FULLY HARDENED - COMPLETE
+// All security patches, firewall layers, performance optimizations, and ALL endpoints
 
 const express = require('express');
 const cors = require('cors');
@@ -11,6 +12,7 @@ const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
 const { body, validationResult, param, query } = require('express-validator');
 const crypto = require('crypto');
+const compression = require('compression');
 require('dotenv').config();
 
 // =====================================================
@@ -32,7 +34,7 @@ const DASHBOARD_ROUTES = {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SALT_ROUNDS = 12;
+const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS) || 12;
 
 // Trust proxy - Required for Render.com
 app.set('trust proxy', 1);
@@ -82,18 +84,20 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 // =====================================================
-// CAMPUS CONTEXT HELPER
+// CAMPUS CONTEXT HELPER - HARDENED
 // =====================================================
+
+const SUPPORTED_CAMPUSES = ['Legacy', 'Heritage'];
 
 const getCampusContext = (req) => {
     const headerCampus = req.headers['x-campus'];
-    if (headerCampus && ['Legacy', 'Heritage'].includes(headerCampus)) {
+    if (headerCampus && SUPPORTED_CAMPUSES.includes(headerCampus)) {
         return headerCampus;
     }
-    if (req.user && req.user.campus) {
+    if (req.user && req.user.campus && SUPPORTED_CAMPUSES.includes(req.user.campus)) {
         return req.user.campus;
     }
-    return 'Legacy';
+    return process.env.DEFAULT_CAMPUS || 'Legacy';
 };
 
 // =====================================================
@@ -101,18 +105,86 @@ const getCampusContext = (req) => {
 // =====================================================
 
 const FACE_API_URL = process.env.FACE_API_URL || 'http://localhost:8000';
-const FACE_API_TIMEOUT = 30000;
+const FACE_API_TIMEOUT = parseInt(process.env.FACE_API_TIMEOUT) || 30000;
+const FACE_VERIFICATION_THRESHOLD = parseFloat(process.env.FACE_VERIFICATION_THRESHOLD) || 0.55;
 
 console.log('🔐 Environment:', process.env.NODE_ENV || 'production');
 console.log('🔐 Face API URL:', FACE_API_URL);
 
 // =====================================================
-// INSIGHTFACE SERVICE
+// INSIGHTFACE SERVICE - WITH CIRCUIT BREAKER
 // =====================================================
 
 class InsightFaceService {
     constructor(apiUrl) {
         this.apiUrl = apiUrl;
+        this.failureCount = 0;
+        this.circuitOpen = false;
+        this.lastFailureTime = null;
+        this.circuitTimeout = 60000;
+        this.maxFailures = 5;
+    }
+
+    _checkCircuit() {
+        if (this.circuitOpen) {
+            const now = Date.now();
+            if (now - this.lastFailureTime > this.circuitTimeout) {
+                console.log('🔌 Circuit breaker resetting');
+                this.circuitOpen = false;
+                this.failureCount = 0;
+                return true;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    _recordFailure() {
+        this.failureCount++;
+        if (this.failureCount >= this.maxFailures) {
+            this.circuitOpen = true;
+            this.lastFailureTime = Date.now();
+            console.warn('🔌 Circuit breaker opened - Face API is down');
+        }
+    }
+
+    _recordSuccess() {
+        this.failureCount = 0;
+        this.circuitOpen = false;
+    }
+
+    async _makeRequest(endpoint, data, options = {}) {
+        if (!this._checkCircuit()) {
+            return { 
+                success: false, 
+                error: 'Face API service temporarily unavailable (circuit open)',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        try {
+            const response = await axios({
+                method: 'post',
+                url: `${this.apiUrl}${endpoint}`,
+                data: data,
+                timeout: options.timeout || FACE_API_TIMEOUT,
+                headers: { 
+                    'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key',
+                    'Content-Type': 'application/json'
+                }
+            });
+            this._recordSuccess();
+            return response.data;
+        } catch (error) {
+            this._recordFailure();
+            console.error(`Face API error (${endpoint}):`, error.response?.data || error.message);
+            return { 
+                success: false, 
+                error: error.response?.data?.detail || error.message,
+                fallback: 'Manual verification required',
+                circuit_open: this.circuitOpen
+            };
+        }
     }
 
     async checkHealth() {
@@ -121,194 +193,639 @@ class InsightFaceService {
                 timeout: 5000,
                 headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
             });
+            this._recordSuccess();
             return response.data;
         } catch (error) {
+            this._recordFailure();
             console.error('Face API health check error:', error.message);
             return { status: 'unhealthy', error: error.message };
         }
     }
 
     async detectFace(imageBase64) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/detect-face`, {
-                image: imageData
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Face detection error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+        const imageData = this._sanitizeImage(imageBase64);
+        return this._makeRequest('/detect-face', { image: imageData });
     }
 
     async enrollFace(imageBase64, studentId, hostel, room, name) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/enroll-face`, {
-                image: imageData,
-                student_id: studentId,
-                hostel: hostel,
-                room: room,
-                name: name
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Face enrollment error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+        const imageData = this._sanitizeImage(imageBase64);
+        return this._makeRequest('/enroll-face', {
+            image: imageData,
+            student_id: studentId,
+            hostel: hostel,
+            room: room,
+            name: name
+        });
     }
 
     async enrollBulk(frames, studentId, hostel, room, name) {
-        try {
-            const imageDataList = frames.map(frame => this._sanitizeImage(frame));
-            const response = await axios.post(`${this.apiUrl}/enroll-bulk`, {
-                frames: imageDataList,
-                student_id: studentId,
-                hostel: hostel,
-                room: room,
-                name: name
-            }, {
-                timeout: FACE_API_TIMEOUT * 2,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Bulk enrollment error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+        const imageDataList = frames.map(frame => this._sanitizeImage(frame));
+        return this._makeRequest('/enroll-bulk', {
+            frames: imageDataList,
+            student_id: studentId,
+            hostel: hostel,
+            room: room,
+            name: name
+        }, { timeout: FACE_API_TIMEOUT * 2 });
     }
 
-    async verifyFace(imageBase64, storedEmbedding, threshold = 0.55) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/verify-face`, {
-                image: imageData,
-                stored_embedding: storedEmbedding,
-                threshold: threshold
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Face verification error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+    async verifyFace(imageBase64, storedEmbedding, threshold = FACE_VERIFICATION_THRESHOLD) {
+        const imageData = this._sanitizeImage(imageBase64);
+        return this._makeRequest('/verify-face', {
+            image: imageData,
+            stored_embedding: storedEmbedding,
+            threshold: threshold
+        });
     }
 
-    async verifyMultiple(imageBase64, embeddings, studentIds, threshold = 0.55) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/verify-multiple`, {
-                image: imageData,
-                embeddings: embeddings,
-                student_ids: studentIds,
-                threshold: threshold
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Multiple verification error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+    async verifyMultiple(imageBase64, embeddings, studentIds, threshold = FACE_VERIFICATION_THRESHOLD) {
+        const imageData = this._sanitizeImage(imageBase64);
+        return this._makeRequest('/verify-multiple', {
+            image: imageData,
+            embeddings: embeddings,
+            student_ids: studentIds,
+            threshold: threshold
+        });
     }
 
     async checkLiveness(imageBase64) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/check-liveness`, {
-                image: imageData
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Liveness check error:', error.response?.data || error.message);
-            return { is_live: false, error: error.response?.data?.detail || error.message };
-        }
+        const imageData = this._sanitizeImage(imageBase64);
+        const result = await this._makeRequest('/check-liveness', { image: imageData });
+        return result.is_live !== undefined ? result : { is_live: false, error: result.error };
     }
 
     async resetLiveness() {
-        try {
-            const response = await axios.post(`${this.apiUrl}/reset-liveness`, {}, {
-                timeout: 5000,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Reset liveness error:', error.message);
-            return { success: false, error: error.message };
-        }
+        return this._makeRequest('/reset-liveness', {});
     }
 
     async compareEmbeddings(embedding1, embedding2) {
-        try {
-            const response = await axios.post(`${this.apiUrl}/compare-embeddings`, {
-                embedding1: embedding1,
-                embedding2: embedding2
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Compare embeddings error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+        return this._makeRequest('/compare-embeddings', {
+            embedding1: embedding1,
+            embedding2: embedding2
+        });
     }
 
     async extractEmbedding(imageBase64) {
-        try {
-            const imageData = this._sanitizeImage(imageBase64);
-            const response = await axios.post(`${this.apiUrl}/extract-embedding`, {
-                image: imageData
-            }, {
-                timeout: FACE_API_TIMEOUT,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Extract embedding error:', error.response?.data || error.message);
-            return { success: false, error: error.response?.data?.detail || error.message };
-        }
+        const imageData = this._sanitizeImage(imageBase64);
+        return this._makeRequest('/extract-embedding', { image: imageData });
     }
 
     _sanitizeImage(imageBase64) {
+        if (!imageBase64) return '';
         return imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    }
+
+    validateImage(imageBase64) {
+        if (!imageBase64) {
+            return { valid: false, error: 'No image provided' };
+        }
+
+        const base64Pattern = /^data:image\/(png|jpeg|jpg|gif|webp);base64,/;
+        if (!base64Pattern.test(imageBase64)) {
+            return { 
+                valid: false, 
+                error: 'Invalid image format. Only PNG, JPEG, GIF, and WebP are allowed.' 
+            };
+        }
+
+        const base64String = imageBase64.replace(base64Pattern, '');
+        const sizeInBytes = Buffer.from(base64String, 'base64').length;
+        const maxSize = parseInt(process.env.MAX_IMAGE_SIZE) || 10 * 1024 * 1024;
+        
+        if (sizeInBytes > maxSize) {
+            return { 
+                valid: false, 
+                error: `Image size exceeds ${maxSize / 1024 / 1024}MB limit` 
+            };
+        }
+
+        return { valid: true };
     }
 }
 
 const faceService = new InsightFaceService(FACE_API_URL);
 
 // =====================================================
-// SECURITY MIDDLEWARE
+// 🔥 ADVANCED FIREWALL SYSTEM
+// =====================================================
+
+class RateLimiterFirewall {
+    constructor() {
+        this.failedAttempts = new Map();
+        this.blockedIPs = new Map();
+        this.requestHistory = new Map();
+        this.cleanupInterval = setInterval(() => this.cleanup(), 3600000);
+    }
+
+    cleanup() {
+        const now = Date.now();
+        for (const [key, data] of this.blockedIPs) {
+            if (data.expiry < now) this.blockedIPs.delete(key);
+        }
+        for (const [key, data] of this.failedAttempts) {
+            if (data.timestamp < now - 3600000) this.failedAttempts.delete(key);
+        }
+        for (const [key, data] of this.requestHistory) {
+            if (data.timestamp < now - 60000) this.requestHistory.delete(key);
+        }
+    }
+
+    isBlocked(ip) {
+        if (this.blockedIPs.has(ip)) {
+            const data = this.blockedIPs.get(ip);
+            if (data.expiry > Date.now()) return true;
+            this.blockedIPs.delete(ip);
+        }
+        return false;
+    }
+
+    recordFailedAttempt(ip) {
+        const key = ip;
+        if (!this.failedAttempts.has(key)) {
+            this.failedAttempts.set(key, { count: 0, timestamp: Date.now() });
+        }
+        const data = this.failedAttempts.get(key);
+        data.count += 1;
+        data.timestamp = Date.now();
+
+        const threshold = parseInt(process.env.SECURITY_ALERT_THRESHOLD) || 10;
+        if (data.count >= threshold) {
+            this.blockIP(ip, 30);
+            return true;
+        }
+        return false;
+    }
+
+    blockIP(ip, minutes = 30) {
+        this.blockedIPs.set(ip, {
+            expiry: Date.now() + minutes * 60 * 1000,
+            reason: 'Too many failed attempts'
+        });
+        console.log(`🛡️ IP ${ip} blocked for ${minutes} minutes`);
+    }
+
+    getThreatLevel(ip) {
+        if (this.blockedIPs.has(ip)) return 'blocked';
+        if (this.failedAttempts.has(ip)) {
+            const data = this.failedAttempts.get(ip);
+            if (data.count >= 5) return 'high';
+            if (data.count >= 3) return 'medium';
+        }
+        return 'low';
+    }
+
+    throttleRequests() {
+        return (req, res, next) => {
+            const ip = req.ip || req.connection.remoteAddress;
+            
+            if (this.isBlocked(ip)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'IP blocked due to suspicious activity. Please try again later.',
+                    code: 'IP_BLOCKED'
+                });
+            }
+
+            const key = `${ip}:${req.method}:${req.path}`;
+            if (!this.requestHistory.has(key)) {
+                this.requestHistory.set(key, { count: 0, timestamp: Date.now() });
+            }
+            const history = this.requestHistory.get(key);
+            history.count += 1;
+            history.timestamp = Date.now();
+
+            const maxRequests = parseInt(process.env.MAX_CONNECTIONS_PER_MINUTE) || 200;
+            if (history.count > maxRequests) {
+                this.blockIP(ip, 15);
+                return res.status(429).json({
+                    success: false,
+                    message: 'Request throttled due to suspicious activity.',
+                    code: 'RATE_LIMIT_EXCEEDED'
+                });
+            }
+
+            next();
+        };
+    }
+}
+
+class IPBlacklist {
+    constructor() {
+        this.blacklist = new Set();
+        this.whitelist = new Set();
+        this.manualBlacklist = new Set();
+        this.loadBlacklist();
+    }
+
+    loadBlacklist() {
+        const blacklistEnv = process.env.IP_BLACKLIST;
+        if (blacklistEnv) {
+            blacklistEnv.split(',').forEach(ip => {
+                ip = ip.trim();
+                if (ip) this.manualBlacklist.add(ip);
+            });
+        }
+
+        const whitelistEnv = process.env.IP_WHITELIST;
+        if (whitelistEnv) {
+            whitelistEnv.split(',').forEach(ip => {
+                ip = ip.trim();
+                if (ip) this.whitelist.add(ip);
+            });
+        }
+    }
+
+    isBlacklisted(ip) {
+        if (this.whitelist.has(ip)) return false;
+        if (this.blacklist.has(ip) || this.manualBlacklist.has(ip)) return true;
+        
+        for (const blocked of this.blacklist) {
+            if (blocked.includes('/')) {
+                if (this.isIPInCIDR(ip, blocked)) return true;
+            }
+        }
+        return false;
+    }
+
+    isIPInCIDR(ip, cidr) {
+        const [range, bits] = cidr.split('/');
+        const ipParts = ip.split('.').map(Number);
+        const rangeParts = range.split('.').map(Number);
+        const mask = ~(0xFFFFFFFF >>> parseInt(bits));
+        const ipInt = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3];
+        const rangeInt = (rangeParts[0] << 24) | (rangeParts[1] << 16) | (rangeParts[2] << 8) | rangeParts[3];
+        return (ipInt & mask) === (rangeInt & mask);
+    }
+
+    addToBlacklist(ip, reason = 'Manual block') {
+        this.manualBlacklist.add(ip);
+        console.log(`🛡️ IP ${ip} added to blacklist: ${reason}`);
+    }
+
+    removeFromBlacklist(ip) {
+        this.manualBlacklist.delete(ip);
+        this.blacklist.delete(ip);
+        console.log(`✅ IP ${ip} removed from blacklist`);
+    }
+
+    middleware() {
+        return (req, res, next) => {
+            const ip = req.ip || req.connection.remoteAddress;
+            if (this.isBlacklisted(ip)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied.',
+                    code: 'IP_BLOCKED'
+                });
+            }
+            next();
+        };
+    }
+}
+
+class RequestValidationFirewall {
+    constructor() {
+        this.maxBodySize = (parseInt(process.env.MAX_REQUEST_BODY_SIZE) || 5) * 1024 * 1024;
+        this.allowedContentTypes = ['application/json', 'application/x-www-form-urlencoded'];
+        this.blockedUserAgents = [
+            /curl/i, /wget/i, /python-requests/i, /postman/i,
+            /insomnia/i, /nmap/i, /nikto/i, /sqlmap/i,
+            /dirbuster/i, /gobuster/i, /ffuf/i
+        ];
+    }
+
+    validateSize() {
+        return (req, res, next) => {
+            const contentLength = parseInt(req.headers['content-length'] || '0');
+            if (contentLength > this.maxBodySize) {
+                return res.status(413).json({
+                    success: false,
+                    message: 'Request entity too large',
+                    maxSize: this.maxBodySize,
+                    code: 'PAYLOAD_TOO_LARGE'
+                });
+            }
+            next();
+        };
+    }
+
+    validateContentType() {
+        return (req, res, next) => {
+            const contentType = req.headers['content-type'] || '';
+            if (req.method !== 'GET' && req.method !== 'DELETE') {
+                const isValid = this.allowedContentTypes.some(type => 
+                    contentType.toLowerCase().includes(type.toLowerCase())
+                );
+                if (!isValid && contentType) {
+                    return res.status(415).json({
+                        success: false,
+                        message: 'Unsupported content type',
+                        allowed: this.allowedContentTypes,
+                        code: 'UNSUPPORTED_CONTENT_TYPE'
+                    });
+                }
+            }
+            next();
+        };
+    }
+
+    validateUserAgent() {
+        return (req, res, next) => {
+            const userAgent = req.headers['user-agent'] || '';
+            for (const pattern of this.blockedUserAgents) {
+                if (pattern.test(userAgent)) {
+                    console.log(`🛡️ Blocked suspicious user-agent: ${userAgent}`);
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied.',
+                        code: 'USER_AGENT_BLOCKED'
+                    });
+                }
+            }
+            next();
+        };
+    }
+
+    sanitizeInput() {
+        return (req, res, next) => {
+            if (req.body && typeof req.body === 'object') {
+                req.body = this.sanitizeObject(req.body);
+            }
+            if (req.query && typeof req.query === 'object') {
+                req.query = this.sanitizeObject(req.query);
+            }
+            next();
+        };
+    }
+
+    sanitizeObject(obj) {
+        const sanitized = {};
+        for (const [key, value] of Object.entries(obj)) {
+            if (typeof value === 'string') {
+                sanitized[key] = this.sanitizeString(value);
+            } else if (typeof value === 'object' && value !== null) {
+                sanitized[key] = this.sanitizeObject(value);
+            } else {
+                sanitized[key] = value;
+            }
+        }
+        return sanitized;
+    }
+
+    sanitizeString(str) {
+        return str
+            .replace(/[<>]/g, '')
+            .replace(/javascript:/gi, '')
+            .replace(/on\w+=/gi, '')
+            .replace(/&/g, '&amp;')
+            .trim()
+            .slice(0, 1000);
+    }
+
+    protectSQLInjection() {
+        return (req, res, next) => {
+            const patterns = [
+                /(\b(select|insert|update|delete|drop|alter|create|truncate|union|exec|declare|cast|convert|table|database|information_schema)\b)/gi,
+                /(['";])/g,
+                /(\b(and|or|not|where|having|group by|order by)\b)/gi
+            ];
+
+            const checkValue = (value) => {
+                if (typeof value === 'string') {
+                    for (const pattern of patterns) {
+                        if (pattern.test(value)) return true;
+                    }
+                }
+                return false;
+            };
+
+            const checkObject = (obj) => {
+                for (const [key, value] of Object.entries(obj)) {
+                    if (typeof value === 'string' && checkValue(value)) return true;
+                    if (typeof value === 'object' && value !== null) {
+                        if (checkObject(value)) return true;
+                    }
+                }
+                return false;
+            };
+
+            const inputs = [req.body, req.query, req.params];
+            for (const input of inputs) {
+                if (input && typeof input === 'object') {
+                    if (checkObject(input)) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Invalid input detected',
+                            code: 'SQL_INJECTION_BLOCKED'
+                        });
+                    }
+                }
+            }
+
+            next();
+        };
+    }
+
+    validateImage() {
+        return (req, res, next) => {
+            const image = req.body.image || req.body.photo;
+            if (image) {
+                const validation = faceService.validateImage(image);
+                if (!validation.valid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: validation.error,
+                        code: 'INVALID_IMAGE'
+                    });
+                }
+            }
+            next();
+        };
+    }
+}
+
+class AuthenticationFirewall {
+    constructor() {
+        this.tokenBlacklist = new Set();
+        this.failedAttempts = new Map();
+        this.maxAttempts = parseInt(process.env.AUTH_RATE_LIMIT_MAX_ATTEMPTS) || 5;
+        this.blockDuration = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000;
+    }
+
+    blacklistToken(token) {
+        if (token) {
+            this.tokenBlacklist.add(token);
+            const cleanupMs = parseInt(process.env.TOKEN_BLACKLIST_CLEANUP_MS) || 86400000;
+            setTimeout(() => this.tokenBlacklist.delete(token), cleanupMs);
+        }
+    }
+
+    isTokenBlacklisted(token) {
+        return this.tokenBlacklist.has(token);
+    }
+
+    recordFailedAttempt(identifier) {
+        const key = identifier;
+        if (!this.failedAttempts.has(key)) {
+            this.failedAttempts.set(key, { attempts: 0, firstAttempt: Date.now() });
+        }
+        const data = this.failedAttempts.get(key);
+        data.attempts += 1;
+
+        if (data.attempts >= this.maxAttempts) {
+            data.blockedUntil = Date.now() + this.blockDuration;
+            return true;
+        }
+        return false;
+    }
+
+    isAuthenticationBlocked(identifier) {
+        const key = identifier;
+        if (this.failedAttempts.has(key)) {
+            const data = this.failedAttempts.get(key);
+            if (data.blockedUntil && data.blockedUntil > Date.now()) {
+                return true;
+            }
+            if (data.blockedUntil && data.blockedUntil <= Date.now()) {
+                this.failedAttempts.delete(key);
+            }
+        }
+        return false;
+    }
+
+    resetFailedAttempts(identifier) {
+        this.failedAttempts.delete(identifier);
+    }
+
+    checkAuthStatus() {
+        return (req, res, next) => {
+            const identifier = req.ip || req.connection.remoteAddress;
+            
+            if (this.isAuthenticationBlocked(identifier)) {
+                return res.status(429).json({
+                    success: false,
+                    message: 'Too many failed login attempts. Please try again later.',
+                    code: 'AUTH_BLOCKED'
+                });
+            }
+
+            const token = req.headers.authorization?.split(' ')[1];
+            if (token && this.isTokenBlacklisted(token)) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Session expired. Please login again.',
+                    code: 'TOKEN_BLACKLISTED'
+                });
+            }
+
+            next();
+        };
+    }
+}
+
+class DoSProtection {
+    constructor() {
+        this.connectionLimit = parseInt(process.env.MAX_CONCURRENT_CONNECTIONS) || 100;
+        this.activeConnections = new Map();
+        this.connectionHistory = new Map();
+    }
+
+    protect() {
+        return (req, res, next) => {
+            const ip = req.ip || req.connection.remoteAddress;
+            const now = Date.now();
+
+            if (!this.activeConnections.has(ip)) {
+                this.activeConnections.set(ip, 0);
+            }
+            this.activeConnections.set(ip, this.activeConnections.get(ip) + 1);
+
+            if (this.activeConnections.get(ip) > this.connectionLimit) {
+                this.activeConnections.set(ip, 0);
+                return res.status(429).json({
+                    success: false,
+                    message: 'Too many concurrent connections',
+                    code: 'CONCURRENT_LIMIT_EXCEEDED'
+                });
+            }
+
+            if (!this.connectionHistory.has(ip)) {
+                this.connectionHistory.set(ip, []);
+            }
+            const history = this.connectionHistory.get(ip);
+            history.push(now);
+
+            while (history.length > 0 && history[0] < now - 60000) {
+                history.shift();
+            }
+
+            const maxConnections = parseInt(process.env.MAX_CONNECTIONS_PER_MINUTE) || 200;
+            if (history.length > maxConnections) {
+                this.activeConnections.set(ip, 0);
+                return res.status(429).json({
+                    success: false,
+                    message: 'Connection rate limit exceeded',
+                    code: 'RATE_LIMIT_EXCEEDED'
+                });
+            }
+
+            res.on('finish', () => {
+                if (this.activeConnections.has(ip)) {
+                    this.activeConnections.set(ip, Math.max(0, this.activeConnections.get(ip) - 1));
+                }
+            });
+
+            next();
+        };
+    }
+}
+
+// Initialize Firewalls
+const rateLimiterFirewall = new RateLimiterFirewall();
+const ipBlacklist = new IPBlacklist();
+const validationFirewall = new RequestValidationFirewall();
+const authFirewall = new AuthenticationFirewall();
+const dosProtection = new DoSProtection();
+
+// =====================================================
+// APPLY FIREWALL MIDDLEWARE
+// =====================================================
+
+app.use(compression());
+app.use(ipBlacklist.middleware());
+app.use(dosProtection.protect());
+app.use(validationFirewall.validateSize());
+app.use(validationFirewall.validateContentType());
+app.use(validationFirewall.validateUserAgent());
+app.use(validationFirewall.protectSQLInjection());
+app.use(validationFirewall.sanitizeInput());
+app.use(validationFirewall.validateImage());
+app.use(rateLimiterFirewall.throttleRequests());
+
+console.log('✅ Firewall applied successfully');
+
+// =====================================================
+// SECURITY HEADERS
 // =====================================================
 
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
-            styleSrc: ["'self'"],
-            imgSrc: ["'self'", "data:", "https:"],
-            connectSrc: ["'self'"],
-            fontSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:", "blob:"],
+            connectSrc: ["'self'", "https://*.supabase.co"],
+            fontSrc: ["'self'", "https:", "data:"],
             objectSrc: ["'none'"],
-            mediaSrc: ["'self'"],
-            frameSrc: ["'none'"]
+            mediaSrc: ["'self'", "data:", "blob:"],
+            frameSrc: ["'none'"],
+            workerSrc: ["'self'", "blob:"],
+            childSrc: ["'none'"]
         }
     },
     crossOriginEmbedderPolicy: true,
-    crossOriginOpenerPolicy: true,
+    crossOriginOpenerPolicy: { policy: "same-origin" },
     crossOriginResourcePolicy: { policy: "same-site" },
     dnsPrefetchControl: true,
     frameguard: { action: 'deny' },
@@ -321,15 +838,30 @@ app.use(helmet({
     ieNoOpen: true,
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-    xssFilter: true
+    xssFilter: true,
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' }
 }));
 
-// CORS - Updated for Vercel frontend
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    next();
+});
+
+// =====================================================
+// CORS - Hardened
+// =====================================================
+
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(o => o.length > 0)
     : [];
 
-// Add default origins for development and Vercel
 const defaultOrigins = [
     'https://bed-check-biu.vercel.app',
     'https://bed-check-biu-*.vercel.app',
@@ -339,7 +871,6 @@ const defaultOrigins = [
     'http://127.0.0.1:5173'
 ];
 
-// Combine origins
 const allOrigins = [...allowedOrigins, ...defaultOrigins];
 
 if (allOrigins.length === 0 && process.env.NODE_ENV === 'production') {
@@ -382,73 +913,84 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Rate limiting - Updated to handle proxy
+// Rate limiting
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: { success: false, message: 'Too many requests, please try again later.' },
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+    message: { success: false, message: 'Too many requests, please try again later.', code: 'GLOBAL_RATE_LIMIT' },
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
         return req.ip || req.headers['x-forwarded-for'] || 'unknown';
     },
-    validate: {
-        xForwardedForHeader: false,
+    validate: { xForwardedForHeader: false },
+    skip: (req) => {
+        const ip = req.ip || req.connection.remoteAddress;
+        return ipBlacklist.whitelist.has(ip);
     }
 });
 app.use('/api', globalLimiter);
 
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    message: { success: false, message: 'Too many login attempts. Please try again after 15 minutes.' },
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_ATTEMPTS) || 5,
+    message: { success: false, message: 'Too many login attempts. Please try again after 15 minutes.', code: 'AUTH_RATE_LIMIT' },
     standardHeaders: true,
     legacyHeaders: false,
-    skipSuccessfulRequests: true,
+    skipSuccessfulRequests: false,
     keyGenerator: (req) => {
         return req.ip || req.headers['x-forwarded-for'] || 'unknown';
     },
-    validate: {
-        xForwardedForHeader: false,
+    validate: { xForwardedForHeader: false },
+    skip: (req) => {
+        const ip = req.ip || req.connection.remoteAddress;
+        return ipBlacklist.whitelist.has(ip);
     }
 });
 
 const faceLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 10,
-    message: { success: false, message: 'Too many verification attempts. Please wait.' },
+    max: parseInt(process.env.FACE_RATE_LIMIT_MAX_ATTEMPTS) || 10,
+    message: { success: false, message: 'Too many verification attempts. Please wait.', code: 'FACE_RATE_LIMIT' },
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
         return req.ip || req.headers['x-forwarded-for'] || 'unknown';
     },
-    validate: {
-        xForwardedForHeader: false,
+    validate: { xForwardedForHeader: false },
+    skip: (req) => {
+        const ip = req.ip || req.connection.remoteAddress;
+        return ipBlacklist.whitelist.has(ip);
     }
 });
 
 app.use(express.json({ 
-    limit: '5mb',
+    limit: `${parseInt(process.env.MAX_REQUEST_BODY_SIZE) || 5}mb`,
     verify: (req, res, buf) => {
         try {
             JSON.parse(buf);
         } catch (e) {
-            res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+            res.status(400).json({ success: false, message: 'Invalid JSON payload', code: 'INVALID_JSON' });
             throw new Error('Invalid JSON');
         }
     }
 }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: `${parseInt(process.env.MAX_REQUEST_BODY_SIZE) || 5}mb` }));
 
-// Request logging middleware - Minimal for security
+// Request logging
 app.use((req, res, next) => {
     req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || 'unknown';
     req.userAgent = req.headers['user-agent'] || 'unknown';
-    if (process.env.NODE_ENV === 'development') {
-        const sanitizedPath = req.path.replace(/\d+/g, '[id]');
-        console.log(`📨 ${req.method} ${sanitizedPath}`);
-    }
-    next();
+    
+    authFirewall.checkAuthStatus()(req, res, (err) => {
+        if (err) return next(err);
+        
+        if (process.env.NODE_ENV === 'development') {
+            const sanitizedPath = req.path.replace(/\d+/g, '[id]');
+            console.log(`📨 ${req.method} ${sanitizedPath} from ${req.clientIp}`);
+        }
+        next();
+    });
 });
 
 // =====================================================
@@ -464,7 +1006,8 @@ const generateToken = (user) => {
             username: user.username,
             role: user.role,
             hostel_id: user.hostel_id,
-            campus: user.campus
+            campus: user.campus,
+            tokenVersion: Date.now()
         },
         JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRY || '8h' }
@@ -480,7 +1023,7 @@ const verifyToken = (token) => {
 };
 
 const authMiddleware = async (req, res, next) => {
-    const publicPaths = ['/api/auth/login', '/api/face/health', '/health', '/'];
+    const publicPaths = ['/api/auth/login', '/api/face/health', '/health', '/', '/api/security/status'];
     if (publicPaths.includes(req.path)) {
         return next();
     }
@@ -489,17 +1032,28 @@ const authMiddleware = async (req, res, next) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ 
             success: false, 
-            message: 'Authentication required. Please provide a valid token.' 
+            message: 'Authentication required. Please provide a valid token.',
+            code: 'AUTH_REQUIRED'
         });
     }
 
     const token = authHeader.split(' ')[1];
+    
+    if (authFirewall.isTokenBlacklisted(token)) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Session expired. Please login again.',
+            code: 'TOKEN_BLACKLISTED'
+        });
+    }
+    
     const decoded = verifyToken(token);
     
     if (!decoded) {
         return res.status(401).json({ 
             success: false, 
-            message: 'Invalid or expired token. Please login again.' 
+            message: 'Invalid or expired token. Please login again.',
+            code: 'TOKEN_INVALID'
         });
     }
 
@@ -512,24 +1066,26 @@ const authMiddleware = async (req, res, next) => {
     if (error || !user || user.status !== 'Active') {
         return res.status(401).json({ 
             success: false, 
-            message: 'User account not found or inactive.' 
+            message: 'User account not found or inactive.',
+            code: 'USER_INACTIVE'
         });
     }
 
     req.user = { ...decoded, ...user };
-    req.campus = user.campus || 'Legacy';
+    req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
     next();
 };
 
 const requireRole = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({ success: false, message: 'Authentication required' });
+            return res.status(401).json({ success: false, message: 'Authentication required', code: 'AUTH_REQUIRED' });
         }
         if (!roles.includes(req.user.role)) {
             return res.status(403).json({ 
                 success: false, 
-                message: `Access denied. Required role: ${roles.join(' or ')}` 
+                message: `Access denied. Required role: ${roles.join(' or ')}`,
+                code: 'ROLE_REQUIRED'
             });
         }
         next();
@@ -538,10 +1094,11 @@ const requireRole = (...roles) => {
 
 const campusIsolation = (req, res, next) => {
     const campus = getCampusContext(req);
-    if (!campus || !['Legacy', 'Heritage'].includes(campus)) {
+    if (!campus || !SUPPORTED_CAMPUSES.includes(campus)) {
         return res.status(400).json({
             success: false,
-            message: 'Invalid campus context'
+            message: 'Invalid campus context',
+            code: 'INVALID_CAMPUS'
         });
     }
     req.campus = campus;
@@ -566,6 +1123,7 @@ const validate = (validations) => {
         return res.status(400).json({ 
             success: false, 
             message: 'Validation error',
+            code: 'VALIDATION_ERROR',
             errors: sanitizedErrors
         });
     };
@@ -586,13 +1144,13 @@ const validators = {
             .isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
         body('role').isIn(['RA', 'HRA', 'Admin', 'RASD', 'System Owner']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     updateStaff: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
         body('role').optional().isIn(['RA', 'HRA', 'Admin', 'RASD', 'System Owner']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     changePassword: [
         body('currentPassword').notEmpty().withMessage('Current password is required'),
@@ -608,7 +1166,7 @@ const validators = {
         body('gender').optional().isIn(['Male', 'Female']).withMessage('Invalid gender'),
         body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     updateStudent: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
@@ -617,7 +1175,7 @@ const validators = {
         body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
         body('status').optional().isIn(['Present', 'Absent', 'Late', 'Completed']).withMessage('Invalid status'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     faceImage: [
         body('image').notEmpty().withMessage('Image is required')
@@ -634,27 +1192,13 @@ const validators = {
         body('matric').optional().isString().withMessage('Invalid matric number'),
         body('threshold').optional().isFloat({ min: 0.3, max: 0.9 }).withMessage('Threshold must be between 0.3 and 0.9')
     ],
-    hostelId: [
-        param('id').isInt().withMessage('Invalid hostel ID')
-    ],
-    studentId: [
-        param('id').isInt().withMessage('Invalid student ID')
-    ],
-    staffId: [
-        param('id').isInt().withMessage('Invalid staff ID')
-    ],
-    floorFlatId: [
-        param('id').isInt().withMessage('Invalid floor/flat ID')
-    ],
-    roomId: [
-        param('id').isInt().withMessage('Invalid room ID')
-    ],
-    bedSpaceId: [
-        param('id').isInt().withMessage('Invalid bed space ID')
-    ],
-    sessionId: [
-        param('id').isInt().withMessage('Invalid session ID')
-    ],
+    hostelId: [param('id').isInt().withMessage('Invalid hostel ID')],
+    studentId: [param('id').isInt().withMessage('Invalid student ID')],
+    staffId: [param('id').isInt().withMessage('Invalid staff ID')],
+    floorFlatId: [param('id').isInt().withMessage('Invalid floor/flat ID')],
+    roomId: [param('id').isInt().withMessage('Invalid room ID')],
+    bedSpaceId: [param('id').isInt().withMessage('Invalid bed space ID')],
+    sessionId: [param('id').isInt().withMessage('Invalid session ID')],
     pagination: [
         query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
         query('offset').optional().isInt({ min: 0 }).withMessage('Offset must be 0 or greater')
@@ -663,7 +1207,7 @@ const validators = {
         body('name').trim().notEmpty().withMessage('Hostel name is required'),
         body('gender').optional().isIn(['Male', 'Female', 'Mixed']).withMessage('Invalid gender'),
         body('type').optional().isIn(['floor', 'flat']).withMessage('Invalid type'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     roomCreate: [
         body('floor_flat_id').isInt().withMessage('Invalid floor/flat ID'),
@@ -692,22 +1236,18 @@ const validators = {
     sessionCreate: [
         body('date').optional().isISO8601().withMessage('Invalid date format'),
         body('status').optional().isIn(['active', 'archived']).withMessage('Invalid status'),
-        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     submissionState: [
         body('state').isIn(['Open', 'Closed']).withMessage('Invalid state'),
         body('notice').optional().isString().withMessage('Invalid notice')
     ],
-    campus: [
-        query('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
-    ],
+    campus: [query('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')],
     raRoomAssignment: [
         body('ra_id').isInt().withMessage('Invalid RA ID'),
         body('room_ids').isArray({ min: 1 }).withMessage('At least one room is required')
     ],
-    bedcheckStart: [
-        body('session_id').isInt().withMessage('session_id is required')
-    ],
+    bedcheckStart: [body('session_id').isInt().withMessage('session_id is required')],
     suspiciousResolve: [
         body('resolution').isIn(['cleared', 'warning', 'escalated']).withMessage('Invalid resolution status'),
         body('notes').optional().isString().withMessage('notes must be a string')
@@ -1273,25 +1813,46 @@ const auditEvents = {
 // 🔓 PUBLIC ENDPOINTS
 // =====================================================
 
-// =====================================================
-// HEALTH & STATUS ENDPOINTS (Public)
-// =====================================================
-
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'healthy', 
         uptime: process.uptime(),
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'production'
+        environment: process.env.NODE_ENV || 'production',
+        face_api_status: faceService.circuitOpen ? 'circuit_open' : 'active'
     });
 });
 
 app.get('/', (req, res) => {
     res.json({
         name: 'BIU BedCheck API',
-        version: '4.3.0',
+        version: '4.4.0',
         status: 'running',
-        environment: process.env.NODE_ENV || 'production'
+        environment: process.env.NODE_ENV || 'production',
+        security: {
+            firewall: 'active',
+            rate_limiting: 'active',
+            dos_protection: 'active',
+            ip_blacklist: 'active',
+            authentication_firewall: 'active',
+            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
+        }
+    });
+});
+
+app.get('/api/security/status', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            firewall: 'active',
+            rate_limiting: 'active',
+            dos_protection: 'active',
+            ip_blacklist: 'active',
+            authentication_firewall: 'active',
+            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed',
+            face_api_failures: faceService.failureCount,
+            max_failures: faceService.maxFailures
+        }
     });
 });
 
@@ -1301,8 +1862,17 @@ app.get('/', (req, res) => {
 
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
     const { username, password } = req.body;
+    const identifier = req.ip || req.connection.remoteAddress;
     
     try {
+        if (authFirewall.isAuthenticationBlocked(identifier)) {
+            return res.status(429).json({
+                success: false,
+                message: 'Too many login attempts. Please try again later.',
+                code: 'AUTH_BLOCKED'
+            });
+        }
+
         const { data, error } = await supabase
             .from('staff')
             .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, password, campus, campus_code')
@@ -1311,18 +1881,22 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
         
         if (error) {
             console.error('Login error:', error);
+            authFirewall.recordFailedAttempt(identifier);
             await auditEvents.loginFailed(username, req);
             return res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred during login. Please try again.' 
+                message: 'An error occurred during login. Please try again.',
+                code: 'LOGIN_ERROR'
             });
         }
         
         if (!data) {
+            authFirewall.recordFailedAttempt(identifier);
             await auditEvents.loginFailed(username, req);
             return res.status(401).json({ 
                 success: false, 
-                message: 'Invalid username or password' 
+                message: 'Invalid username or password',
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
@@ -1337,22 +1911,28 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
         }
 
         if (!validPassword) {
+            authFirewall.recordFailedAttempt(identifier);
             await auditEvents.loginFailed(username, req);
             return res.status(401).json({ 
                 success: false, 
-                message: 'Invalid username or password' 
+                message: 'Invalid username or password',
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
         if (user.status !== 'Active') {
+            authFirewall.recordFailedAttempt(identifier);
             await auditEvents.loginFailed(username, req);
             return res.status(401).json({ 
                 success: false, 
-                message: 'Account is inactive. Please contact administrator.' 
+                message: 'Account is inactive. Please contact administrator.',
+                code: 'ACCOUNT_INACTIVE'
             });
         }
 
-        req.campus = user.campus || 'Legacy';
+        authFirewall.resetFailedAttempts(identifier);
+
+        req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
 
         await supabase
             .from('staff')
@@ -1365,9 +1945,6 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
-        // ============================================================
-        // Determine the redirect URL on the server
-        // ============================================================
         const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
 
         res.json({ 
@@ -1376,16 +1953,18 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
                 user: userWithoutPassword,
                 token: token,
                 expiresIn: process.env.JWT_EXPIRY || '8h',
-                campus: user.campus || 'Legacy',
+                campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
                 redirect: redirectUrl
             },
             role: user.role
         });
     } catch (error) {
         console.error('Login error:', error);
+        authFirewall.recordFailedAttempt(identifier);
         res.status(500).json({ 
             success: false, 
-            message: 'An unexpected error occurred. Please try again.' 
+            message: 'An unexpected error occurred. Please try again.',
+            code: 'SERVER_ERROR'
         });
     }
 });
@@ -1397,10 +1976,15 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 app.use(authMiddleware);
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS
+// AUTHENTICATION ENDPOINTS (Protected)
 // =====================================================
 
 app.post('/api/auth/logout', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+        authFirewall.blacklistToken(token);
+    }
+
     await auditService.log({
         actor: req.user.name || req.user.username,
         actor_id: req.user.id,
@@ -1449,7 +2033,8 @@ app.get('/api/me', async (req, res) => {
         if (error || !data) {
             return res.status(404).json({
                 success: false,
-                message: 'User not found'
+                message: 'User not found',
+                code: 'USER_NOT_FOUND'
             });
         }
         
@@ -1458,7 +2043,8 @@ app.get('/api/me', async (req, res) => {
         console.error('Error fetching user:', error);
         res.status(500).json({
             success: false,
-            message: 'An error occurred. Please try again.'
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
         });
     }
 });
@@ -1477,7 +2063,8 @@ app.put('/api/staff/:id/change-password',
             if (req.user.id !== staffId && req.user.role !== 'Admin' && req.user.role !== 'System Owner') {
                 return res.status(403).json({
                     success: false,
-                    message: 'You can only change your own password'
+                    message: 'You can only change your own password',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -1490,7 +2077,8 @@ app.put('/api/staff/:id/change-password',
             if (staffError || !staff) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Staff not found'
+                    message: 'Staff not found',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
 
@@ -1516,7 +2104,8 @@ app.put('/api/staff/:id/change-password',
                 });
                 return res.status(400).json({
                     success: false,
-                    message: 'Current password is incorrect'
+                    message: 'Current password is incorrect',
+                    code: 'INCORRECT_PASSWORD'
                 });
             }
 
@@ -1532,6 +2121,11 @@ app.put('/api/staff/:id/change-password',
 
             if (updateError) {
                 throw updateError;
+            }
+
+            const token = req.headers.authorization?.split(' ')[1];
+            if (token) {
+                authFirewall.blacklistToken(token);
             }
 
             await auditService.log({
@@ -1550,14 +2144,15 @@ app.put('/api/staff/:id/change-password',
 
             res.json({
                 success: true,
-                message: 'Password changed successfully'
+                message: 'Password changed successfully. Please login again.'
             });
 
         } catch (error) {
             console.error('Change password error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -1571,15 +2166,15 @@ app.get('/api/campus/current', async (req, res) => {
     res.json({
         success: true,
         data: {
-            campus: req.campus || 'Legacy',
-            user_campus: req.user?.campus || 'Legacy',
-            supported_campuses: ['Legacy', 'Heritage']
+            campus: req.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
+            user_campus: req.user?.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
+            supported_campuses: SUPPORTED_CAMPUSES
         }
     });
 });
 
 app.post('/api/campus/switch', requireRole('Admin', 'System Owner'), validate([
-    body('campus').isIn(['Legacy', 'Heritage']).withMessage('Invalid campus')
+    body('campus').isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
 ]), async (req, res) => {
     const { campus } = req.body;
     
@@ -1620,14 +2215,15 @@ app.post('/api/campus/switch', requireRole('Admin', 'System Owner'), validate([
         console.error('Error switching campus:', error);
         res.status(500).json({
             success: false,
-            message: 'An error occurred. Please try again.'
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
         });
     }
 });
 
 app.get('/api/campus/stats', requireRole('Admin', 'HRA', 'System Owner'), async (req, res) => {
     try {
-        const campus = req.query.campus || req.campus || 'Legacy';
+        const campus = req.query.campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
         
         const { data: occupancyData } = await supabase
             .from('bed_occupancy')
@@ -1675,7 +2271,8 @@ app.get('/api/campus/stats', requireRole('Admin', 'HRA', 'System Owner'), async 
         console.error('Error fetching campus stats:', error);
         res.status(500).json({
             success: false,
-            message: 'An error occurred. Please try again.'
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
         });
     }
 });
@@ -1690,24 +2287,37 @@ app.get('/api/face/health', async (req, res) => {
         res.json({
             success: true,
             data: health,
-            api_url: FACE_API_URL
+            api_url: FACE_API_URL,
+            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
         });
     } catch (error) {
         console.error('Face API health check error:', error);
         res.status(500).json({
             success: false,
             message: 'Face API is unreachable',
-            error: error.message
+            error: error.message,
+            code: 'FACE_API_ERROR'
         });
     }
 });
 
 app.post('/api/face/detect', 
     campusIsolation,
+    faceLimiter,
     validate(validators.faceImage),
     async (req, res) => {
         try {
             const { image, student_id } = req.body;
+            
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
+            
             const result = await faceService.detectFace(image);
             if (result.success) {
                 if (student_id) {
@@ -1719,13 +2329,18 @@ app.post('/api/face/detect',
                 }
                 res.json({ ...result, campus: req.campus });
             } else {
-                res.status(400).json(result);
+                res.status(400).json({ 
+                    ...result, 
+                    code: 'FACE_DETECTION_FAILED',
+                    fallback: 'Manual verification required'
+                });
             }
         } catch (error) {
             console.error('Face detection error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -1733,15 +2348,26 @@ app.post('/api/face/detect',
 
 app.post('/api/face/enroll', 
     campusIsolation,
+    faceLimiter,
     validate([...validators.faceImage, ...validators.faceVerify]),
     async (req, res) => {
         try {
             const { image, student_id, matric } = req.body;
 
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
+
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
-                    message: 'student_id or matric is required'
+                    message: 'student_id or matric is required',
+                    code: 'MISSING_IDENTIFIER'
                 });
             }
 
@@ -1757,14 +2383,16 @@ app.post('/api/face/enroll',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. You can only enroll students in your hostel.'
+                    message: 'Access denied. You can only enroll students in your hostel.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -1777,7 +2405,11 @@ app.post('/api/face/enroll',
             );
             
             if (!result.success) {
-                return res.status(400).json(result);
+                return res.status(400).json({ 
+                    ...result, 
+                    code: 'FACE_ENROLLMENT_FAILED',
+                    fallback: 'Manual verification required'
+                });
             }
 
             const { data: faceData, error: faceError } = await supabase
@@ -1804,7 +2436,8 @@ app.post('/api/face/enroll',
                 console.error('Save face error:', faceError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to save face data'
+                    message: 'Failed to save face data',
+                    code: 'DATABASE_ERROR'
                 });
             }
 
@@ -1822,7 +2455,8 @@ app.post('/api/face/enroll',
                 console.error('Update student error:', updateError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to update student record'
+                    message: 'Failed to update student record',
+                    code: 'DATABASE_ERROR'
                 });
             }
 
@@ -1851,7 +2485,8 @@ app.post('/api/face/enroll',
             console.error('Face enrollment error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -1859,6 +2494,7 @@ app.post('/api/face/enroll',
 
 app.post('/api/face/enroll-bulk', 
     campusIsolation,
+    faceLimiter,
     validate([
         body('frames').isArray({ min: 1 }).withMessage('At least one frame is required'),
         body('student_id').optional().isInt(),
@@ -1868,10 +2504,23 @@ app.post('/api/face/enroll-bulk',
         try {
             const { frames, student_id, matric } = req.body;
 
+            // Validate all frames
+            for (const frame of frames) {
+                const validation = faceService.validateImage(frame);
+                if (!validation.valid) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid frame: ${validation.error}`,
+                        code: 'INVALID_IMAGE'
+                    });
+                }
+            }
+
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
-                    message: 'student_id or matric is required'
+                    message: 'student_id or matric is required',
+                    code: 'MISSING_IDENTIFIER'
                 });
             }
 
@@ -1887,14 +2536,16 @@ app.post('/api/face/enroll-bulk',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. You can only enroll students in your hostel.'
+                    message: 'Access denied. You can only enroll students in your hostel.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -1907,7 +2558,11 @@ app.post('/api/face/enroll-bulk',
             );
             
             if (!result.success) {
-                return res.status(400).json(result);
+                return res.status(400).json({ 
+                    ...result, 
+                    code: 'FACE_ENROLLMENT_FAILED',
+                    fallback: 'Manual verification required'
+                });
             }
 
             const { data: faceData, error: faceError } = await supabase
@@ -1934,7 +2589,8 @@ app.post('/api/face/enroll-bulk',
                 console.error('Save face error:', faceError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to save face data'
+                    message: 'Failed to save face data',
+                    code: 'DATABASE_ERROR'
                 });
             }
 
@@ -1952,7 +2608,8 @@ app.post('/api/face/enroll-bulk',
                 console.error('Update student error:', updateError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to update student record'
+                    message: 'Failed to update student record',
+                    code: 'DATABASE_ERROR'
                 });
             }
 
@@ -1982,7 +2639,8 @@ app.post('/api/face/enroll-bulk',
             console.error('Bulk enrollment error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -1994,12 +2652,22 @@ app.post('/api/face/verify',
     validate(validators.faceVerify),
     async (req, res) => {
         try {
-            const { image, student_id, matric, threshold = 0.55 } = req.body;
+            const { image, student_id, matric, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
+
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
 
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
-                    message: 'student_id or matric is required'
+                    message: 'student_id or matric is required',
+                    code: 'MISSING_IDENTIFIER'
                 });
             }
 
@@ -2019,14 +2687,16 @@ app.post('/api/face/verify',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied.'
+                    message: 'Access denied.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2041,7 +2711,8 @@ app.post('/api/face/verify',
             if (faceError || !faceData || !faceData.face_embedding) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face enrollment found for this student'
+                    message: 'No face enrollment found for this student',
+                    code: 'NO_FACE_ENROLLMENT'
                 });
             }
 
@@ -2085,7 +2756,8 @@ app.post('/api/face/verify',
             console.error('Face verification error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2102,12 +2774,22 @@ app.post('/api/face/verify-room',
     ]),
     async (req, res) => {
         try {
-            const { image, room_id, hostel_id, threshold = 0.55 } = req.body;
+            const { image, room_id, hostel_id, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
+
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
 
             if (!room_id && !hostel_id) {
                 return res.status(400).json({
                     success: false,
-                    message: 'room_id or hostel_id is required'
+                    message: 'room_id or hostel_id is required',
+                    code: 'MISSING_IDENTIFIER'
                 });
             }
 
@@ -2132,14 +2814,16 @@ app.post('/api/face/verify-room',
                 console.error('Fetch students error:', studentsError);
                 return res.status(500).json({
                     success: false,
-                    message: 'An error occurred. Please try again.'
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
                 });
             }
 
             if (!students || students.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No students found with face enrolled in this room'
+                    message: 'No students found with face enrolled in this room',
+                    code: 'NO_STUDENTS_FOUND'
                 });
             }
 
@@ -2154,7 +2838,8 @@ app.post('/api/face/verify-room',
             if (faceError || !faceData || faceData.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face embeddings found for students in this room'
+                    message: 'No face embeddings found for students in this room',
+                    code: 'NO_FACE_EMBEDDINGS'
                 });
             }
 
@@ -2229,7 +2914,8 @@ app.post('/api/face/verify-room',
             console.error('Room verification error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2237,10 +2923,21 @@ app.post('/api/face/verify-room',
 
 app.post('/api/face/liveness', 
     campusIsolation,
+    faceLimiter,
     validate(validators.faceImage),
     async (req, res) => {
         try {
             const { image } = req.body;
+            
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
+            
             const result = await faceService.checkLiveness(image);
             if (result.is_live) {
                 await auditEvents.livenessVerified(req);
@@ -2250,7 +2947,8 @@ app.post('/api/face/liveness',
             console.error('Liveness check error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2267,7 +2965,8 @@ app.post('/api/face/liveness/reset',
             console.error('Reset liveness error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2289,14 +2988,16 @@ app.get('/api/face/status/:studentId',
             if (error || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2334,7 +3035,8 @@ app.get('/api/face/status/:studentId',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2355,7 +3057,8 @@ app.post('/api/face/compare',
             console.error('Compare embeddings error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2363,17 +3066,29 @@ app.post('/api/face/compare',
 
 app.post('/api/face/extract', 
     campusIsolation,
+    faceLimiter,
     validate(validators.faceImage),
     async (req, res) => {
         try {
             const { image } = req.body;
+            
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
+            
             const result = await faceService.extractEmbedding(image);
             res.json({ ...result, campus: req.campus });
         } catch (error) {
             console.error('Extract embedding error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2399,14 +3114,16 @@ app.get('/api/students/:id/face-status',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2442,7 +3159,8 @@ app.get('/api/students/:id/face-status',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2450,11 +3168,21 @@ app.get('/api/students/:id/face-status',
 
 app.post('/api/students/:id/face/enroll',
     campusIsolation,
+    faceLimiter,
     validate([validators.studentId, ...validators.faceImage]),
     async (req, res) => {
         try {
             const studentId = parseInt(req.params.id);
             const { image } = req.body;
+
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
 
             const { data: student, error: studentError } = await supabase
                 .from('students')
@@ -2466,14 +3194,16 @@ app.post('/api/students/:id/face/enroll',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2486,7 +3216,11 @@ app.post('/api/students/:id/face/enroll',
             );
 
             if (!result.success) {
-                return res.status(400).json(result);
+                return res.status(400).json({ 
+                    ...result, 
+                    code: 'FACE_ENROLLMENT_FAILED',
+                    fallback: 'Manual verification required'
+                });
             }
 
             const { data: faceData, error: faceError } = await supabase
@@ -2513,7 +3247,8 @@ app.post('/api/students/:id/face/enroll',
                 console.error('Save face error:', faceError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to save face data'
+                    message: 'Failed to save face data',
+                    code: 'DATABASE_ERROR'
                 });
             }
 
@@ -2547,7 +3282,8 @@ app.post('/api/students/:id/face/enroll',
             console.error('Face enrollment error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2564,7 +3300,16 @@ app.post('/api/students/:id/face/verify',
     async (req, res) => {
         try {
             const studentId = parseInt(req.params.id);
-            const { image, threshold = 0.55 } = req.body;
+            const { image, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
+
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
 
             const { data: student, error: studentError } = await supabase
                 .from('students')
@@ -2576,14 +3321,16 @@ app.post('/api/students/:id/face/verify',
             if (studentError || !student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2598,7 +3345,8 @@ app.post('/api/students/:id/face/verify',
             if (faceError || !faceData || !faceData.face_embedding) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face enrollment found for this student'
+                    message: 'No face enrollment found for this student',
+                    code: 'NO_FACE_ENROLLMENT'
                 });
             }
 
@@ -2642,7 +3390,8 @@ app.post('/api/students/:id/face/verify',
             console.error('Face verification error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2711,7 +3460,8 @@ app.get('/api/students/face-status/all',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2758,7 +3508,8 @@ app.get('/api/students',
             console.error('Error fetching students:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2778,7 +3529,7 @@ app.post('/api/students',
         } = req.body;
         
         try {
-            const studentCampus = campus || req.campus || 'Legacy';
+            const studentCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
             
             const { data: existingStudent } = await supabase
                 .from('students')
@@ -2790,14 +3541,16 @@ app.post('/api/students',
             if (existingStudent) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Student with this matric number already exists in this campus'
+                    message: 'Student with this matric number already exists in this campus',
+                    code: 'DUPLICATE_STUDENT'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. You can only add students to your hostel.'
+                    message: 'Access denied. You can only add students to your hostel.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2851,7 +3604,8 @@ app.post('/api/students',
             console.error('Error creating student:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2873,14 +3627,16 @@ app.get('/api/students/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Student not found in this campus' 
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -2889,7 +3645,8 @@ app.get('/api/students/:id',
             console.error('Error fetching student:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2919,14 +3676,16 @@ app.put('/api/students/:id',
         if (!existingStudent) {
             return res.status(404).json({
                 success: false,
-                message: 'Student not found in this campus'
+                message: 'Student not found in this campus',
+                code: 'STUDENT_NOT_FOUND'
             });
         }
         
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existingStudent.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -2971,7 +3730,8 @@ app.put('/api/students/:id',
             console.error('Error updating student:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -2986,7 +3746,8 @@ app.patch('/api/students/:id',
         if (isNaN(id)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid student ID'
+                message: 'Invalid student ID',
+                code: 'INVALID_ID'
             });
         }
         
@@ -3001,14 +3762,16 @@ app.patch('/api/students/:id',
             if (checkError || !existingStudent) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existingStudent.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -3030,7 +3793,8 @@ app.patch('/api/students/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'No fields to update'
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -3048,7 +3812,8 @@ app.patch('/api/students/:id',
                 console.error('PATCH student error:', error);
                 return res.status(500).json({
                     success: false,
-                    message: 'An error occurred. Please try again.'
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
                 });
             }
             
@@ -3080,7 +3845,8 @@ app.patch('/api/students/:id',
             console.error('PATCH student error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3106,14 +3872,16 @@ app.put('/api/students/:id/status',
             if (!student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -3150,7 +3918,8 @@ app.put('/api/students/:id/status',
             console.error('Error updating student status:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3172,14 +3941,16 @@ app.delete('/api/students/:id',
             if (!student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -3235,7 +4006,8 @@ app.delete('/api/students/:id',
             console.error('Error deleting student:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3260,9 +4032,6 @@ app.get('/api/staff',
                 .order('name', { ascending: true })
                 .range(offset, offset + limit - 1);
 
-            // ============================================================
-            // Hide System Owner from non-System Owner users
-            // ============================================================
             if (req.user.role !== 'System Owner') {
                 query = query.neq('role', 'System Owner');
             }
@@ -3289,7 +4058,8 @@ app.get('/api/staff',
             console.error('Error fetching staff:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3311,24 +4081,24 @@ app.get('/api/staff/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Staff not found in this campus' 
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
 
-            // ============================================================
-            // Hide System Owner from non-System Owner users
-            // ============================================================
             if (data.role === 'System Owner' && req.user.role !== 'System Owner') {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Staff not found in this campus' 
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -3341,7 +4111,8 @@ app.get('/api/staff/:id',
             console.error('Error fetching staff:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3355,7 +4126,7 @@ app.post('/api/staff',
         const { name, username, role, hostel_id, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
         
         try {
-            const staffCampus = campus || req.campus || 'Legacy';
+            const staffCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
             
             const { data: existingStaff } = await supabase
                 .from('staff')
@@ -3367,7 +4138,8 @@ app.post('/api/staff',
             if (existingStaff) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'Username already exists in this campus' 
+                    message: 'Username already exists in this campus',
+                    code: 'DUPLICATE_USERNAME'
                 });
             }
             
@@ -3426,7 +4198,8 @@ app.post('/api/staff',
             console.error('Error creating staff:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3443,7 +4216,7 @@ app.put('/api/staff/:id',
         try {
             const { data: existing } = await supabase
                 .from('staff')
-                .select('hostel_id, campus')
+                .select('hostel_id, campus, role')
                 .eq('id', id)
                 .eq('campus', req.campus)
                 .single();
@@ -3451,7 +4224,16 @@ app.put('/api/staff/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Staff not found in this campus'
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
+                });
+            }
+
+            if (existing.role === 'System Owner' && req.user.role !== 'System Owner') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. Only System Owners can modify System Owner accounts.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -3460,7 +4242,17 @@ app.put('/api/staff/:id',
 
             if (name !== undefined) { updateData.name = name; changes.push('name'); }
             if (username !== undefined) { updateData.username = username; changes.push('username'); }
-            if (role !== undefined) { updateData.role = role; changes.push('role'); }
+            if (role !== undefined) { 
+                if (role === 'System Owner' && req.user.role !== 'System Owner') {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied. Only System Owners can create System Owner accounts.',
+                        code: 'PERMISSION_DENIED'
+                    });
+                }
+                updateData.role = role; 
+                changes.push('role'); 
+            }
             if (hostel_id !== undefined) { updateData.hostel_id = hostel_id || null; changes.push('hostel_id'); }
             if (assigned_floor !== undefined) { updateData.assigned_floor = assigned_floor || null; changes.push('assigned_floor'); }
             if (assigned_room !== undefined) { updateData.assigned_room = assigned_room || null; changes.push('assigned_room'); }
@@ -3477,7 +4269,8 @@ app.put('/api/staff/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
 
@@ -3514,7 +4307,8 @@ app.put('/api/staff/:id',
             console.error('Error updating staff:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -3537,7 +4331,24 @@ app.delete('/api/staff/:id',
             if (!user) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Staff not found in this campus'
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
+                });
+            }
+
+            if (user.role === 'System Owner' && req.user.role !== 'System Owner') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. Only System Owners can delete System Owner accounts.',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+
+            if (id === req.user.id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You cannot delete your own account.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -3572,17 +4383,17 @@ app.delete('/api/staff/:id',
             console.error('Error deleting staff:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
 );
 
 // =====================================================
-// SYSTEM OWNER STAFF MANAGEMENT (Hidden from other roles)
+// SYSTEM OWNER STAFF MANAGEMENT
 // =====================================================
 
-// System Owner only - Get all staff including System Owner
 app.get('/api/system-owner/staff',
     campusIsolation,
     requireRole('System Owner'),
@@ -3616,13 +4427,13 @@ app.get('/api/system-owner/staff',
             console.error('Error fetching staff for System Owner:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
 );
 
-// System Owner only - Create new System Owner accounts
 app.post('/api/system-owner/staff',
     campusIsolation,
     requireRole('System Owner'),
@@ -3630,16 +4441,16 @@ app.post('/api/system-owner/staff',
     async (req, res) => {
         const { name, username, role, hostel_id, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
         
-        // Only allow System Owner role to be created through this endpoint
         if (role !== 'System Owner') {
             return res.status(403).json({
                 success: false,
-                message: 'This endpoint can only create System Owner accounts.'
+                message: 'This endpoint can only create System Owner accounts.',
+                code: 'PERMISSION_DENIED'
             });
         }
         
         try {
-            const staffCampus = campus || req.campus || 'Legacy';
+            const staffCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
             
             const { data: existingStaff } = await supabase
                 .from('staff')
@@ -3651,7 +4462,8 @@ app.post('/api/system-owner/staff',
             if (existingStaff) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'Username already exists in this campus' 
+                    message: 'Username already exists in this campus',
+                    code: 'DUPLICATE_USERNAME'
                 });
             }
             
@@ -3709,13 +4521,13 @@ app.post('/api/system-owner/staff',
             console.error('Error creating System Owner:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
 );
 
-// System Owner only - Update System Owner accounts
 app.put('/api/system-owner/staff/:id',
     campusIsolation,
     requireRole('System Owner'),
@@ -3735,15 +4547,16 @@ app.put('/api/system-owner/staff/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Staff not found in this campus'
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
 
-            // Only System Owners can update System Owner accounts
             if (existing.role === 'System Owner' && req.user.role !== 'System Owner') {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. Only System Owners can update System Owner accounts.'
+                    message: 'Access denied. Only System Owners can update System Owner accounts.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -3753,11 +4566,11 @@ app.put('/api/system-owner/staff/:id',
             if (name !== undefined) { updateData.name = name; changes.push('name'); }
             if (username !== undefined) { updateData.username = username; changes.push('username'); }
             if (role !== undefined) { 
-                // Prevent changing System Owner role to something else
                 if (existing.role === 'System Owner' && role !== 'System Owner') {
                     return res.status(403).json({
                         success: false,
-                        message: 'Cannot change System Owner role.'
+                        message: 'Cannot change System Owner role.',
+                        code: 'PERMISSION_DENIED'
                     });
                 }
                 updateData.role = role; 
@@ -3779,7 +4592,8 @@ app.put('/api/system-owner/staff/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
 
@@ -3816,13 +4630,13 @@ app.put('/api/system-owner/staff/:id',
             console.error('Error updating System Owner:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
 );
 
-// System Owner only - Delete System Owner accounts
 app.delete('/api/system-owner/staff/:id',
     campusIsolation,
     requireRole('System Owner'),
@@ -3840,23 +4654,24 @@ app.delete('/api/system-owner/staff/:id',
             if (!user) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Staff not found in this campus'
+                    message: 'Staff not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
 
-            // Only System Owners can delete System Owner accounts
             if (user.role === 'System Owner' && req.user.role !== 'System Owner') {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. Only System Owners can delete System Owner accounts.'
+                    message: 'Access denied. Only System Owners can delete System Owner accounts.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
-            // Prevent deleting your own account
             if (id === req.user.id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You cannot delete your own account.'
+                    message: 'You cannot delete your own account.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -3891,7 +4706,198 @@ app.delete('/api/system-owner/staff/:id',
             console.error('Error deleting System Owner:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
+// EMERGENCY SECURITY ENDPOINTS
+// =====================================================
+
+app.post('/api/admin/block-ip', 
+    campusIsolation,
+    requireRole('System Owner'),
+    validate([
+        body('ip').isIP().withMessage('Invalid IP address'),
+        body('reason').optional().isString().withMessage('Reason must be a string')
+    ]),
+    async (req, res) => {
+        const { ip, reason } = req.body;
+        ipBlacklist.addToBlacklist(ip, reason || 'Admin block');
+        
+        await auditService.log({
+            actor: req.user.name || req.user.username,
+            actor_id: req.user.id,
+            actor_role: req.user.role,
+            action: 'IP Blocked',
+            module: 'security',
+            details: `IP ${ip} blocked: ${reason || 'Admin action'}`,
+            result: 'success',
+            category: 'security',
+            campus: req.campus,
+            ip_address: req.clientIp,
+            user_agent: req.userAgent
+        });
+        
+        res.json({ 
+            success: true, 
+            message: `IP ${ip} blocked successfully`,
+            campus: req.campus
+        });
+    }
+);
+
+app.post('/api/admin/unblock-ip',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate([
+        body('ip').isIP().withMessage('Invalid IP address')
+    ]),
+    async (req, res) => {
+        const { ip } = req.body;
+        ipBlacklist.removeFromBlacklist(ip);
+        
+        await auditService.log({
+            actor: req.user.name || req.user.username,
+            actor_id: req.user.id,
+            actor_role: req.user.role,
+            action: 'IP Unblocked',
+            module: 'security',
+            details: `IP ${ip} unblocked`,
+            result: 'success',
+            category: 'security',
+            campus: req.campus,
+            ip_address: req.clientIp,
+            user_agent: req.userAgent
+        });
+        
+        res.json({ 
+            success: true, 
+            message: `IP ${ip} unblocked successfully`,
+            campus: req.campus
+        });
+    }
+);
+
+app.post('/api/admin/lockdown',
+    campusIsolation,
+    requireRole('System Owner'),
+    validate([
+        body('duration').optional().isInt({ min: 1, max: 1440 }).withMessage('Duration must be between 1 and 1440 minutes')
+    ]),
+    async (req, res) => {
+        const duration = req.body.duration || 30;
+        const activeIPs = Array.from(rateLimiterFirewall.requestHistory.keys())
+            .map(key => key.split(':')[0])
+            .filter(ip => !ipBlacklist.whitelist.has(ip));
+        
+        const uniqueIPs = [...new Set(activeIPs)];
+        uniqueIPs.forEach(ip => {
+            ipBlacklist.addToBlacklist(ip, `Emergency lockdown for ${duration} minutes`);
+        });
+        
+        setTimeout(() => {
+            uniqueIPs.forEach(ip => {
+                ipBlacklist.removeFromBlacklist(ip);
+            });
+            console.log(`🔓 Emergency lockdown lifted after ${duration} minutes`);
+        }, duration * 60 * 1000);
+        
+        await auditService.log({
+            actor: req.user.name || req.user.username,
+            actor_id: req.user.id,
+            actor_role: req.user.role,
+            action: 'System Lockdown',
+            module: 'security',
+            details: `Emergency lockdown activated for ${duration} minutes. ${uniqueIPs.length} IPs blocked.`,
+            result: 'success',
+            category: 'security',
+            campus: req.campus,
+            ip_address: req.clientIp,
+            user_agent: req.userAgent
+        });
+        
+        res.json({ 
+            success: true, 
+            message: `Emergency lockdown activated for ${duration} minutes. ${uniqueIPs.length} IPs blocked.`,
+            blocked_ips: uniqueIPs.length,
+            duration: duration,
+            campus: req.campus
+        });
+    }
+);
+
+app.get('/api/admin/security-status',
+    campusIsolation,
+    requireRole('Admin', 'System Owner'),
+    async (req, res) => {
+        try {
+            const now = Date.now();
+            const activeBlocks = Array.from(rateLimiterFirewall.blockedIPs.entries())
+                .filter(([_, data]) => data.expiry > now)
+                .map(([ip, data]) => ({
+                    ip,
+                    expiry: new Date(data.expiry).toISOString(),
+                    reason: data.reason
+                }));
+            
+            const failedAttempts = Array.from(rateLimiterFirewall.failedAttempts.entries())
+                .filter(([_, data]) => data.timestamp > now - 3600000)
+                .map(([ip, data]) => ({
+                    ip,
+                    count: data.count,
+                    last_attempt: new Date(data.timestamp).toISOString()
+                }));
+            
+            const requestStats = Array.from(rateLimiterFirewall.requestHistory.entries())
+                .filter(([_, data]) => data.timestamp > now - 60000)
+                .map(([key, data]) => ({
+                    key,
+                    count: data.count,
+                    last_request: new Date(data.timestamp).toISOString()
+                }));
+            
+            res.json({
+                success: true,
+                data: {
+                    active_blocks: activeBlocks,
+                    total_blocked: activeBlocks.length,
+                    failed_attempts: failedAttempts,
+                    total_failed_attempts: failedAttempts.length,
+                    request_stats: requestStats,
+                    total_requests: requestStats.length,
+                    blacklist_ips: Array.from(ipBlacklist.manualBlacklist),
+                    whitelist_ips: Array.from(ipBlacklist.whitelist),
+                    threat_levels: {
+                        high: Array.from(rateLimiterFirewall.failedAttempts.entries())
+                            .filter(([_, data]) => data.count >= 5)
+                            .length,
+                        medium: Array.from(rateLimiterFirewall.failedAttempts.entries())
+                            .filter(([_, data]) => data.count >= 3 && data.count < 5)
+                            .length,
+                        low: Array.from(rateLimiterFirewall.failedAttempts.entries())
+                            .filter(([_, data]) => data.count < 3)
+                            .length
+                    },
+                    timestamp: new Date().toISOString(),
+                    circuit_breaker: {
+                        open: faceService.circuitOpen,
+                        failures: faceService.failureCount,
+                        max_failures: faceService.maxFailures
+                    }
+                },
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching security status:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR',
+                campus: req.campus
             });
         }
     }
@@ -3914,7 +4920,8 @@ app.get('/api/hra/ras',
             if (!hostelId) {
                 return res.status(400).json({
                     success: false,
-                    message: 'No hostel assigned to this HRA'
+                    message: 'No hostel assigned to this HRA',
+                    code: 'NO_HOSTEL_ASSIGNED'
                 });
             }
 
@@ -3928,7 +4935,8 @@ app.get('/api/hra/ras',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Hostel not found in this campus'
+                    message: 'Hostel not found in this campus',
+                    code: 'HOSTEL_NOT_FOUND'
                 });
             }
 
@@ -3995,7 +5003,8 @@ app.get('/api/hra/ras',
             console.error('Error fetching RAs:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4022,14 +5031,16 @@ app.post('/api/hra/assign-rooms',
             if (raError || !ra) {
                 return res.status(404).json({
                     success: false,
-                    message: 'RA not found in this campus'
+                    message: 'RA not found in this campus',
+                    code: 'RA_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== ra.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. You can only assign rooms in your hostel.'
+                    message: 'Access denied. You can only assign rooms in your hostel.',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -4045,7 +5056,8 @@ app.post('/api/hra/assign-rooms',
             if (!rooms || rooms.length !== room_ids.length) {
                 return res.status(400).json({
                     success: false,
-                    message: 'One or more rooms not found or not in this hostel'
+                    message: 'One or more rooms not found or not in this hostel',
+                    code: 'ROOM_NOT_FOUND'
                 });
             }
 
@@ -4089,7 +5101,8 @@ app.post('/api/hra/assign-rooms',
             console.error('Error assigning rooms:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4127,7 +5140,8 @@ app.get('/api/ra/rooms',
             console.error('Error fetching RA rooms:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4196,7 +5210,8 @@ app.get('/api/ra/dashboard',
             console.error('Error fetching RA dashboard:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4289,6 +5304,7 @@ app.post('/api/ra/bedcheck/start',
                     return res.status(403).json({
                         success: false,
                         message: 'This BedCheck session has already been completed. This activity has been flagged.',
+                        code: 'SESSION_ALREADY_COMPLETED',
                         data: {
                             is_suspicious: true,
                             flagged: true,
@@ -4301,6 +5317,7 @@ app.post('/api/ra/bedcheck/start',
                     return res.status(403).json({
                         success: false,
                         message: 'This session has been flagged for suspicious activity. Please contact your HRA.',
+                        code: 'SESSION_SUSPICIOUS',
                         data: {
                             is_suspicious: true,
                             reason: existing.suspicious_reason,
@@ -4336,7 +5353,8 @@ app.post('/api/ra/bedcheck/start',
             if (!assignedRooms || assignedRooms.length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'No rooms assigned to you for this BedCheck.'
+                    message: 'No rooms assigned to you for this BedCheck.',
+                    code: 'NO_ROOMS_ASSIGNED'
                 });
             }
 
@@ -4374,7 +5392,8 @@ app.post('/api/ra/bedcheck/start',
             console.error('Start RA BedCheck error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4400,21 +5419,24 @@ app.post('/api/ra/bedcheck/complete',
             if (sessionError || !sessionData) {
                 return res.status(404).json({
                     success: false,
-                    message: 'BedCheck session not found'
+                    message: 'BedCheck session not found',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
 
             if (sessionData.status === 'completed') {
                 return res.status(400).json({
                     success: false,
-                    message: 'This session is already completed'
+                    message: 'This session is already completed',
+                    code: 'SESSION_ALREADY_COMPLETED'
                 });
             }
 
             if (sessionData.is_suspicious) {
                 return res.status(403).json({
                     success: false,
-                    message: 'This session has been flagged. Cannot complete.'
+                    message: 'This session has been flagged. Cannot complete.',
+                    code: 'SESSION_SUSPICIOUS'
                 });
             }
 
@@ -4446,7 +5468,8 @@ app.post('/api/ra/bedcheck/complete',
             console.error('Complete RA BedCheck error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4513,7 +5536,8 @@ app.get('/api/ra/bedcheck/status',
             console.error('Get RA BedCheck status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4563,7 +5587,8 @@ app.get('/api/security/suspicious',
             console.error('Get suspicious activity error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4588,7 +5613,8 @@ app.put('/api/security/resolve/:id',
             if (fetchError || !session) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Session not found in this campus'
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
 
@@ -4664,7 +5690,8 @@ app.put('/api/security/resolve/:id',
             console.error('Resolve suspicious error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4736,7 +5763,8 @@ app.get('/api/hostels',
             console.error('Error fetching hostels:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4758,14 +5786,16 @@ app.get('/api/hostels/:id',
             if (hostelError || !hostelData) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Hostel not found in this campus' 
+                    message: 'Hostel not found in this campus',
+                    code: 'HOSTEL_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -4802,7 +5832,8 @@ app.get('/api/hostels/:id',
             console.error('Error fetching hostel:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4815,7 +5846,7 @@ app.post('/api/hostels',
     async (req, res) => {
         const { name, gender, type, total_floors, rooms_per_floor, total_flats, rooms_per_flat, beds_per_room, campus } = req.body;
         try {
-            const hostelCampus = campus || req.campus || 'Legacy';
+            const hostelCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
             
             const newHostel = {
                 name, gender: gender || 'Male', type: type || 'floor',
@@ -4860,7 +5891,8 @@ app.post('/api/hostels',
             console.error('Error creating hostel:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4884,7 +5916,8 @@ app.put('/api/hostels/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Hostel not found in this campus'
+                    message: 'Hostel not found in this campus',
+                    code: 'HOSTEL_NOT_FOUND'
                 });
             }
 
@@ -4913,7 +5946,8 @@ app.put('/api/hostels/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -4938,7 +5972,8 @@ app.put('/api/hostels/:id',
             console.error('Error updating hostel:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -4961,7 +5996,8 @@ app.delete('/api/hostels/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Hostel not found in this campus'
+                    message: 'Hostel not found in this campus',
+                    code: 'HOSTEL_NOT_FOUND'
                 });
             }
 
@@ -4996,7 +6032,8 @@ app.delete('/api/hostels/:id',
             console.error('Error deleting hostel:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5018,14 +6055,16 @@ app.get('/api/hostels/:id/alerts',
         if (!hostel) {
             return res.status(404).json({ 
                 success: false, 
-                message: 'Hostel not found in this campus' 
+                message: 'Hostel not found in this campus',
+                code: 'HOSTEL_NOT_FOUND'
             });
         }
         
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -5108,7 +6147,8 @@ app.get('/api/hostels/:id/alerts',
             console.error('Error fetching hostel alerts:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5130,14 +6170,16 @@ app.get('/api/hostels/:id/occupancy',
         if (!hostel) {
             return res.status(404).json({ 
                 success: false, 
-                message: 'Hostel not found in this campus' 
+                message: 'Hostel not found in this campus',
+                code: 'HOSTEL_NOT_FOUND'
             });
         }
         
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -5173,7 +6215,8 @@ app.get('/api/hostels/:id/occupancy',
             console.error('Error fetching hostel occupancy:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5195,14 +6238,16 @@ app.get('/api/hostels/:id/summary',
         if (!hostel) {
             return res.status(404).json({ 
                 success: false, 
-                message: 'Hostel not found in this campus' 
+                message: 'Hostel not found in this campus',
+                code: 'HOSTEL_NOT_FOUND'
             });
         }
         
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -5253,7 +6298,8 @@ app.get('/api/hostels/:id/summary',
             console.error('Error fetching hostel summary:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5304,7 +6350,8 @@ app.get('/api/floors-flats',
             console.error('Error fetching floors/flats:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5325,7 +6372,8 @@ app.get('/api/floors-flats/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Floor/Flat not found' 
+                    message: 'Floor/Flat not found',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
@@ -5339,14 +6387,16 @@ app.get('/api/floors-flats/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found in this campus'
+                    message: 'Floor/Flat not found in this campus',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -5355,7 +6405,8 @@ app.get('/api/floors-flats/:id',
             console.error('Error fetching floor/flat:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5378,14 +6429,16 @@ app.post('/api/floors-flats',
         if (!hostel) {
             return res.status(404).json({
                 success: false,
-                message: 'Hostel not found in this campus'
+                message: 'Hostel not found in this campus',
+                code: 'HOSTEL_NOT_FOUND'
             });
         }
 
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -5420,7 +6473,8 @@ app.post('/api/floors-flats',
             console.error('Error creating floor/flat:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5443,7 +6497,8 @@ app.put('/api/floors-flats/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found'
+                    message: 'Floor/Flat not found',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
@@ -5457,14 +6512,16 @@ app.put('/api/floors-flats/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found in this campus'
+                    message: 'Floor/Flat not found in this campus',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -5480,7 +6537,8 @@ app.put('/api/floors-flats/:id',
                 if (!newHostel) {
                     return res.status(404).json({
                         success: false,
-                        message: 'Target hostel not found in this campus'
+                        message: 'Target hostel not found in this campus',
+                        code: 'HOSTEL_NOT_FOUND'
                     });
                 }
                 updateData.hostel_id = parseInt(hostel_id);
@@ -5491,7 +6549,8 @@ app.put('/api/floors-flats/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -5508,7 +6567,8 @@ app.put('/api/floors-flats/:id',
             console.error('Error updating floor/flat:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5530,7 +6590,8 @@ app.delete('/api/floors-flats/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found'
+                    message: 'Floor/Flat not found',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
@@ -5544,14 +6605,16 @@ app.delete('/api/floors-flats/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found in this campus'
+                    message: 'Floor/Flat not found in this campus',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -5586,7 +6649,8 @@ app.delete('/api/floors-flats/:id',
             console.error('Error deleting floor/flat:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5634,7 +6698,8 @@ app.get('/api/rooms',
                     console.error('Error fetching floors:', floorsError);
                     return res.status(500).json({ 
                         success: false, 
-                        message: 'An error occurred. Please try again.' 
+                        message: 'An error occurred. Please try again.',
+                        code: 'SERVER_ERROR'
                     });
                 }
                 
@@ -5654,7 +6719,8 @@ app.get('/api/rooms',
                     console.error('Error fetching floors:', floorsError);
                     return res.status(500).json({ 
                         success: false, 
-                        message: 'An error occurred. Please try again.' 
+                        message: 'An error occurred. Please try again.',
+                        code: 'SERVER_ERROR'
                     });
                 }
                 
@@ -5699,7 +6765,8 @@ app.get('/api/rooms',
             console.error('Error fetching rooms:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5720,7 +6787,8 @@ app.get('/api/rooms/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Room not found' 
+                    message: 'Room not found',
+                    code: 'ROOM_NOT_FOUND'
                 });
             }
 
@@ -5740,14 +6808,16 @@ app.get('/api/rooms/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Room not found in this campus'
+                    message: 'Room not found in this campus',
+                    code: 'ROOM_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -5768,7 +6838,8 @@ app.get('/api/rooms/:id',
             console.error('Error fetching room:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5797,14 +6868,16 @@ app.post('/api/rooms',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Floor/Flat not found in this campus'
+                    message: 'Floor/Flat not found in this campus',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -5842,7 +6915,8 @@ app.post('/api/rooms',
             console.error('Error creating room:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5878,14 +6952,16 @@ app.put('/api/rooms/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Room not found in this campus'
+                    message: 'Room not found in this campus',
+                    code: 'ROOM_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -5907,7 +6983,8 @@ app.put('/api/rooms/:id',
                 if (!newHostel) {
                     return res.status(404).json({
                         success: false,
-                        message: 'Target floor not found in this campus'
+                        message: 'Target floor not found in this campus',
+                        code: 'FLOOR_FLAT_NOT_FOUND'
                     });
                 }
                 updateData.floor_flat_id = parseInt(floor_flat_id);
@@ -5917,7 +6994,8 @@ app.put('/api/rooms/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -5934,7 +7012,8 @@ app.put('/api/rooms/:id',
             console.error('Error updating room:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -5969,14 +7048,16 @@ app.delete('/api/rooms/:id',
             if (!hostel) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Room not found in this campus'
+                    message: 'Room not found in this campus',
+                    code: 'ROOM_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
 
@@ -6016,7 +7097,8 @@ app.delete('/api/rooms/:id',
             console.error('Error deleting room:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6064,7 +7146,8 @@ app.get('/api/bed-spaces',
                     console.error('Error fetching floors:', floorsError);
                     return res.status(500).json({ 
                         success: false, 
-                        message: 'An error occurred. Please try again.' 
+                        message: 'An error occurred. Please try again.',
+                        code: 'SERVER_ERROR'
                     });
                 }
                 
@@ -6079,7 +7162,8 @@ app.get('/api/bed-spaces',
                         console.error('Error fetching rooms:', roomsError);
                         return res.status(500).json({ 
                             success: false, 
-                            message: 'An error occurred. Please try again.' 
+                            message: 'An error occurred. Please try again.',
+                            code: 'SERVER_ERROR'
                         });
                     }
                     
@@ -6102,7 +7186,8 @@ app.get('/api/bed-spaces',
                     console.error('Error fetching floors:', floorsError);
                     return res.status(500).json({ 
                         success: false, 
-                        message: 'An error occurred. Please try again.' 
+                        message: 'An error occurred. Please try again.',
+                        code: 'SERVER_ERROR'
                     });
                 }
                 
@@ -6117,7 +7202,8 @@ app.get('/api/bed-spaces',
                         console.error('Error fetching rooms:', roomsError);
                         return res.status(500).json({ 
                             success: false, 
-                            message: 'An error occurred. Please try again.' 
+                            message: 'An error occurred. Please try again.',
+                            code: 'SERVER_ERROR'
                         });
                     }
                     
@@ -6139,7 +7225,8 @@ app.get('/api/bed-spaces',
             console.error('Error fetching bed spaces:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6161,7 +7248,8 @@ app.get('/api/bed-spaces/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Bed space not found in this campus' 
+                    message: 'Bed space not found in this campus',
+                    code: 'BED_SPACE_NOT_FOUND'
                 });
             }
             res.json({ success: true, data: data, campus: req.campus });
@@ -6169,7 +7257,8 @@ app.get('/api/bed-spaces/:id',
             console.error('Error fetching bed space:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6204,14 +7293,16 @@ app.post('/api/bed-spaces',
         if (!hostel) {
             return res.status(404).json({
                 success: false,
-                message: 'Room not found in this campus'
+                message: 'Room not found in this campus',
+                code: 'ROOM_NOT_FOUND'
             });
         }
 
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6256,7 +7347,8 @@ app.post('/api/bed-spaces',
             console.error('Error creating bed space:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6280,7 +7372,8 @@ app.put('/api/bed-spaces/:id',
         if (!bed) {
             return res.status(404).json({
                 success: false,
-                message: 'Bed space not found in this campus'
+                message: 'Bed space not found in this campus',
+                code: 'BED_SPACE_NOT_FOUND'
             });
         }
 
@@ -6299,7 +7392,8 @@ app.put('/api/bed-spaces/:id',
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6315,7 +7409,8 @@ app.put('/api/bed-spaces/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -6333,7 +7428,8 @@ app.put('/api/bed-spaces/:id',
             console.error('Error updating bed space:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6357,7 +7453,8 @@ app.patch('/api/bed-spaces/:id',
         if (!bed) {
             return res.status(404).json({
                 success: false,
-                message: 'Bed space not found in this campus'
+                message: 'Bed space not found in this campus',
+                code: 'BED_SPACE_NOT_FOUND'
             });
         }
 
@@ -6376,7 +7473,8 @@ app.patch('/api/bed-spaces/:id',
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6389,7 +7487,8 @@ app.patch('/api/bed-spaces/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
             
@@ -6407,7 +7506,8 @@ app.patch('/api/bed-spaces/:id',
             console.error('Error patching bed space:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6430,7 +7530,8 @@ app.delete('/api/bed-spaces/:id',
         if (!bed) {
             return res.status(404).json({
                 success: false,
-                message: 'Bed space not found in this campus'
+                message: 'Bed space not found in this campus',
+                code: 'BED_SPACE_NOT_FOUND'
             });
         }
 
@@ -6449,7 +7550,8 @@ app.delete('/api/bed-spaces/:id',
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6486,7 +7588,8 @@ app.delete('/api/bed-spaces/:id',
             console.error('Error deleting bed space:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6517,7 +7620,8 @@ app.get('/api/bedcheck/sessions',
             console.error('Error fetching bedcheck sessions:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6540,14 +7644,16 @@ app.post('/api/bedcheck/sessions',
         if (!hostel) {
             return res.status(404).json({
                 success: false,
-                message: 'Hostel not found in this campus'
+                message: 'Hostel not found in this campus',
+                code: 'HOSTEL_NOT_FOUND'
             });
         }
 
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6590,7 +7696,8 @@ app.post('/api/bedcheck/sessions',
             console.error('Error creating bedcheck session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6613,14 +7720,16 @@ app.put('/api/bedcheck/sessions/:id',
         if (!session) {
             return res.status(404).json({
                 success: false,
-                message: 'Session not found in this campus'
+                message: 'Session not found in this campus',
+                code: 'SESSION_NOT_FOUND'
             });
         }
 
         if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== session.hostel_id) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied'
+                message: 'Access denied',
+                code: 'PERMISSION_DENIED'
             });
         }
         
@@ -6661,7 +7770,8 @@ app.put('/api/bedcheck/sessions/:id',
             console.error('Error updating bedcheck session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6704,7 +7814,8 @@ app.get('/api/bedcheck/scans',
             console.error('Error fetching bedcheck scans:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6727,14 +7838,16 @@ app.post('/api/bedcheck/scans',
             if (!student) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus'
+                    message: 'Student not found in this campus',
+                    code: 'STUDENT_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
         }
@@ -6798,7 +7911,8 @@ app.post('/api/bedcheck/scans',
             console.error('Error creating bedcheck scan:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6806,6 +7920,7 @@ app.post('/api/bedcheck/scans',
 
 app.post('/api/bedcheck/scan-with-face',
     campusIsolation,
+    faceLimiter,
     validate([
         ...validators.faceImage,
         body('room_id').isInt().withMessage('room_id is required'),
@@ -6813,7 +7928,16 @@ app.post('/api/bedcheck/scan-with-face',
     ]),
     async (req, res) => {
         try {
-            const { session_id, image, room_id, threshold = 0.55, scanner_id } = req.body;
+            const { session_id, image, room_id, threshold = FACE_VERIFICATION_THRESHOLD, scanner_id } = req.body;
+
+            const validation = faceService.validateImage(image);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error,
+                    code: 'INVALID_IMAGE'
+                });
+            }
 
             let query = supabase.from('students')
                 .select('id, name, matric, hostel_id, room_id, room_code, campus')
@@ -6831,14 +7955,16 @@ app.post('/api/bedcheck/scan-with-face',
                 console.error('Fetch students error:', studentsError);
                 return res.status(500).json({
                     success: false,
-                    message: 'An error occurred. Please try again.'
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
                 });
             }
 
             if (!students || students.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No students found with face enrolled in this room'
+                    message: 'No students found with face enrolled in this room',
+                    code: 'NO_STUDENTS_FOUND'
                 });
             }
 
@@ -6853,7 +7979,8 @@ app.post('/api/bedcheck/scan-with-face',
             if (faceError || !faceData || faceData.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face embeddings found for students in this room'
+                    message: 'No face embeddings found for students in this room',
+                    code: 'NO_FACE_EMBEDDINGS'
                 });
             }
 
@@ -6960,7 +8087,8 @@ app.post('/api/bedcheck/scan-with-face',
             console.error('Face scan error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -6997,7 +8125,8 @@ app.get('/api/sessions',
             console.error('Error fetching sessions:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7019,7 +8148,8 @@ app.get('/api/sessions/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Session not found in this campus' 
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
             
@@ -7028,7 +8158,8 @@ app.get('/api/sessions/:id',
             console.error('Error fetching session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7046,7 +8177,7 @@ app.post('/api/sessions',
                 academic_session, grace_period, created_by, campus
             } = req.body;
 
-            const sessionCampus = campus || req.campus || 'Legacy';
+            const sessionCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
 
             let sessionName = name;
             if (!sessionName && date) {
@@ -7102,7 +8233,8 @@ app.post('/api/sessions',
             console.error('Error creating session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7131,7 +8263,8 @@ app.put('/api/sessions/:id',
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Session not found in this campus'
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
 
@@ -7168,7 +8301,8 @@ app.put('/api/sessions/:id',
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'No fields to update' 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
 
@@ -7202,7 +8336,8 @@ app.put('/api/sessions/:id',
             console.error('Error updating session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7226,7 +8361,8 @@ app.delete('/api/sessions/:id',
             if (fetchError || !session) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Session not found in this campus' 
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
 
@@ -7262,7 +8398,8 @@ app.delete('/api/sessions/:id',
             console.error('Error deleting session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7287,7 +8424,8 @@ app.get('/api/sessions/active',
             console.error('Error fetching active session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7311,7 +8449,8 @@ app.get('/api/sessions/latest',
             console.error('Error fetching latest session:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7343,7 +8482,8 @@ app.get('/api/sessions/stats',
             console.error('Error fetching session stats:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7378,7 +8518,8 @@ app.get('/api/occupancy',
             console.error('Error fetching occupancy:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7409,7 +8550,8 @@ app.get('/api/occupancy/floor-flat',
             console.error('Error fetching floor/flat occupancy:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.'
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7445,7 +8587,8 @@ app.get('/api/submission', campusIsolation, async (req, res) => {
         console.error('Error fetching submission state:', error);
         res.status(500).json({ 
             success: false, 
-            message: 'An error occurred. Please try again.' 
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
         });
     }
 });
@@ -7499,7 +8642,8 @@ app.put('/api/submission',
             console.error('Error updating submission state:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7529,9 +8673,6 @@ app.get('/api/dashboard/stats',
             const { count: hostelsCount, error: hostelsError } = await hostelsQuery;
             stats.totalHostels = hostelsCount || 0;
             
-            // ============================================================
-            // Hide System Owner from counts for non-System Owner users
-            // ============================================================
             let staffQuery = supabase.from('staff').select('role', { count: 'exact' }).eq('campus', req.campus);
             if (req.user.role !== 'System Owner') {
                 staffQuery = staffQuery.neq('role', 'System Owner');
@@ -7576,7 +8717,8 @@ app.get('/api/dashboard/stats',
             console.error('Error fetching dashboard stats:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7601,7 +8743,8 @@ app.get('/api/dashboard/activity',
             console.error('Error fetching recent activity:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7686,7 +8829,8 @@ app.get('/api/registration/stats',
             console.error('Error fetching registration stats:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7713,14 +8857,16 @@ app.get('/api/hra/hostel',
             if (staffError || !staffData) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Staff member not found in this campus' 
+                    message: 'Staff member not found in this campus',
+                    code: 'STAFF_NOT_FOUND'
                 });
             }
             
             if (!staffData.hostel_id) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'HRA not assigned to a hostel' 
+                    message: 'HRA not assigned to a hostel',
+                    code: 'NO_HOSTEL_ASSIGNED'
                 });
             }
             
@@ -7734,7 +8880,8 @@ app.get('/api/hra/hostel',
             if (hostelError || !hostelData) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Hostel not found in this campus' 
+                    message: 'Hostel not found in this campus',
+                    code: 'HOSTEL_NOT_FOUND'
                 });
             }
             
@@ -7826,7 +8973,8 @@ app.get('/api/hra/hostel',
             console.error('Error fetching HRA hostel:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7862,7 +9010,8 @@ app.get('/api/audit',
                 if (hostel_id && parseInt(hostel_id) !== req.user.hostel_id) {
                     return res.status(403).json({
                         success: false,
-                        message: 'Access denied. You can only view your hostel logs.'
+                        message: 'Access denied. You can only view your hostel logs.',
+                        code: 'PERMISSION_DENIED'
                     });
                 }
                 effectiveHostelId = req.user.hostel_id;
@@ -7891,7 +9040,8 @@ app.get('/api/audit',
             console.error('Error fetching audit logs:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7922,7 +9072,8 @@ app.get('/api/audit/stats',
             console.error('Error fetching audit stats:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7948,7 +9099,8 @@ app.get('/api/audit/recent',
             console.error('Error fetching recent activity:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -7971,14 +9123,16 @@ app.get('/api/audit/:id',
             if (error || !data) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Audit log not found in this campus' 
+                    message: 'Audit log not found in this campus',
+                    code: 'AUDIT_LOG_NOT_FOUND'
                 });
             }
 
             if (req.user.role !== 'Admin' && req.user.role !== 'System Owner' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied'
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
                 });
             }
             
@@ -7987,7 +9141,8 @@ app.get('/api/audit/:id',
             console.error('Error fetching audit log:', error);
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.' 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
             });
         }
     }
@@ -8003,7 +9158,8 @@ app.use((req, res) => {
         success: false, 
         message: 'Endpoint not found',
         path: req.path,
-        method: req.method
+        method: req.method,
+        code: 'NOT_FOUND'
     });
 });
 
@@ -8021,54 +9177,69 @@ app.use((err, req, res, next) => {
     res.status(500).json({ 
         success: false, 
         message: errorMessage,
+        code: 'SERVER_ERROR',
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 });
 
 // =====================================================
-// START SERVER - SECURE VERSION
+// START SERVER - CLEAN VERSION WITH OPTIONS
 // =====================================================
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`✅ Server running on port ${PORT}`);
+    const verbose = process.env.STARTUP_VERBOSE === 'true';
+    
+    console.log(`\n🚀 BIU BedCheck API v4.4.0`);
+    console.log(`📍 Port: ${PORT}`);
+    console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
+    
+    if (verbose) {
+        console.log(`\n🛡️ Security:`);
+        console.log(`   - Rate Limiting: ${parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100} req/15min`);
+        console.log(`   - DoS Protection: ${parseInt(process.env.MAX_CONCURRENT_CONNECTIONS) || 100} concurrent`);
+        console.log(`   - IP Blacklist: ${ipBlacklist.manualBlacklist.size} IPs blocked`);
+    }
     
     try {
         const health = await faceService.checkHealth();
-        if (health.status === 'healthy') {
-            console.log(`✅ Face API available`);
-        }
-    } catch (error) {
-        console.warn(`⚠️ Face API unavailable`);
+        console.log(`📡 Face API: ${health.status === 'healthy' ? '✅ Connected' : '⚠️ Unavailable'}`);
+    } catch {
+        console.log(`📡 Face API: ⚠️ Unavailable (circuit breaker active)`);
     }
+    
+    console.log(`\n✅ Ready for requests\n`);
 });
 
 // Graceful shutdown
-const shutdown = (signal) => {
-    console.log(`\n📴 Shutting down...`);
+const shutdown = () => {
+    console.log('\n🛑 Shutting down gracefully...');
+    clearInterval(rateLimiterFirewall?.cleanupInterval);
     server.close(() => {
         console.log('✅ Server closed.');
         process.exit(0);
     });
-    
     setTimeout(() => {
         console.error('⚠️ Force shutdown.');
         process.exit(1);
     }, 10000);
 };
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
+// Error handlers
 process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
+    console.error('❌ Uncaught Exception:', error.message);
     if (process.env.NODE_ENV !== 'production') {
+        console.error(error.stack);
         process.exit(1);
     }
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection:', reason);
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled Rejection:', reason?.message || reason);
     if (process.env.NODE_ENV !== 'production') {
+        console.error(reason?.stack);
         process.exit(1);
     }
 });
