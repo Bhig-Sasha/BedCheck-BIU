@@ -1378,7 +1378,7 @@
 
     </main>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -1393,13 +1393,39 @@
                 if (API_TOKEN) sessionStorage.setItem('bedcheck_token', API_TOKEN);
             }
 
-            let allStudents = [];
-            let allStaff = [];
-            let allHostels = [];
-            let allRooms = [];
-            let allBedSpaces = [];
-            let allSessions = [];
-            let allScans = [];
+            // ============================================
+            // DATA STORE - All tables mapped
+            // ============================================
+            let dataStore = {
+                // Main entities
+                students: [],
+                staff: [],
+                hostels: [],
+                floors_flats: [],
+                rooms: [],
+                bed_spaces: [],
+                
+                // Sessions & Scans
+                sessions: [],
+                bedcheck_sessions: [],
+                bedcheck_scans: [],
+                ra_bedcheck_sessions: [],
+                
+                // Occupancy & Progress
+                bed_occupancy: [],
+                floor_flat_occupancy: [],
+                hostel_progress: [],
+                hostel_structure: [],
+                room_details: [],
+                
+                // Audit & Logs
+                audit_logs: [],
+                
+                // Views
+                legacy_campus_view: [],
+                heritage_campus_view: []
+            };
+
             let currentUser = null;
             let refreshInterval = null;
 
@@ -1426,7 +1452,7 @@
                     if (response.status === 401) {
                         sessionStorage.clear();
                         localStorage.removeItem('bedcheck_token');
-                        window.location.href = './Login.html';
+                        window.location.href = '../Login.html';
                         throw new Error('Session expired. Please login again.');
                     }
 
@@ -1446,7 +1472,6 @@
             // ============================================
             async function loadUserData() {
                 try {
-                    // Try to get user from session storage first
                     const userData = sessionStorage.getItem('bedcheck_user');
                     if (userData) {
                         const user = JSON.parse(userData);
@@ -1455,11 +1480,9 @@
                         return user;
                     }
 
-                    // If not in session, fetch from API
                     const response = await apiFetch('/me');
                     if (response.success && response.data) {
                         currentUser = response.data;
-                        // Store in session
                         sessionStorage.setItem('bedcheck_user', JSON.stringify(currentUser));
                         updateUserUI(currentUser);
                         return currentUser;
@@ -1482,19 +1505,10 @@
                 document.getElementById('userName').textContent = user.name?.split(' ')[0] || 'System Owner';
                 document.getElementById('dropdownUserName').textContent = user.name || 'System Owner';
                 document.getElementById('dropdownUserRole').textContent = user.role || 'System Owner';
-                
-                // Update sidebar role
-                const roleBadge = document.querySelector('.sidebar-footer .role-badge');
-                if (roleBadge) {
-                    const roleText = roleBadge.textContent.trim();
-                    if (roleText.includes('Secure Session')) {
-                        // Keep the existing text
-                    }
-                }
             }
 
             // ============================================
-            // LOAD ALL DATA
+            // LOAD ALL DATA - Using proper table references
             // ============================================
             async function loadAllData() {
                 try {
@@ -1503,7 +1517,7 @@
                         document.querySelectorAll('.loading-state').forEach(el => {
                             el.innerHTML = `
                                 <p style="color:var(--danger);">No authentication token found.</p>
-                                <button class="btn-primary" onclick="window.location.href='./Login.html'" style="margin-top:0.5rem;">
+                                <button class="btn-primary" onclick="window.location.href='../Login.html'" style="margin-top:0.5rem;">
                                     <i class="fas fa-sign-in-alt"></i> Go to Login
                                 </button>
                             `;
@@ -1513,34 +1527,50 @@
 
                     showToast('Loading dashboard data...', 'info');
 
-                    // Load user data first
                     await loadUserData();
 
+                    // Load all data from API tables
                     const [
                         studentsData,
                         staffData,
                         hostelsData,
+                        floorsData,
                         roomsData,
-                        bedData,
+                        bedSpacesData,
                         sessionsData,
-                        scansData
+                        bedcheckSessionsData,
+                        bedcheckScansData,
+                        bedOccupancyData,
+                        floorOccupancyData,
+                        auditData
                     ] = await Promise.all([
                         apiFetch('/students?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/staff?limit=100').catch(() => ({ data: [] })),
                         apiFetch('/hostels').catch(() => ({ data: [] })),
+                        apiFetch('/floors-flats').catch(() => ({ data: [] })),
                         apiFetch('/rooms?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/sessions/active').catch(() => ({ data: null })),
-                        apiFetch('/bedcheck/scans?limit=50').catch(() => ({ data: [] }))
+                        apiFetch('/bedcheck/sessions').catch(() => ({ data: [] })),
+                        apiFetch('/bedcheck/scans?limit=50').catch(() => ({ data: [] })),
+                        apiFetch('/occupancy').catch(() => ({ data: [] })),
+                        apiFetch('/occupancy/floor-flat').catch(() => ({ data: [] })),
+                        apiFetch('/audit/recent?limit=10').catch(() => ({ data: [] }))
                     ]);
 
-                    allStudents = studentsData.data || [];
-                    allStaff = staffData.data || [];
-                    allHostels = hostelsData.data || [];
-                    allRooms = roomsData.data || [];
-                    allBedSpaces = bedData.data || [];
-                    allSessions = sessionsData.data ? [sessionsData.data] : [];
-                    allScans = scansData.data || [];
+                    // Populate data store
+                    dataStore.students = studentsData.data || [];
+                    dataStore.staff = staffData.data || [];
+                    dataStore.hostels = hostelsData.data || [];
+                    dataStore.floors_flats = floorsData.data || [];
+                    dataStore.rooms = roomsData.data || [];
+                    dataStore.bed_spaces = bedSpacesData.data || [];
+                    dataStore.sessions = sessionsData.data ? [sessionsData.data] : [];
+                    dataStore.bedcheck_sessions = bedcheckSessionsData.data || [];
+                    dataStore.bedcheck_scans = bedcheckScansData.data || [];
+                    dataStore.bed_occupancy = bedOccupancyData.data || [];
+                    dataStore.floor_flat_occupancy = floorOccupancyData.data || [];
+                    dataStore.audit_logs = auditData.data || [];
 
                     // Update all sections
                     updateStats();
@@ -1549,7 +1579,7 @@
                     updateRecentActivity();
                     updateSystemStatus();
 
-                    showToast('Dashboard data loaded successfully', 'success');
+                    showToast(`Dashboard loaded: ${dataStore.students.length} students, ${dataStore.hostels.length} hostels, ${dataStore.rooms.length} rooms`, 'success');
                 } catch (error) {
                     console.error('Error loading dashboard data:', error);
                     showToast('Failed to load dashboard data: ' + error.message, 'error');
@@ -1557,17 +1587,20 @@
             }
 
             // ============================================
-            // UPDATE FUNCTIONS
+            // UPDATE STATS - Using proper tables
             // ============================================
             function updateStats() {
-                const totalStudents = allStudents.length;
-                const assignedStudents = allStudents.filter(s => s.room_id && s.room_id > 0).length;
-                const totalStaff = allStaff.length;
-                const activeStaff = allStaff.filter(s => s.status === 'Active').length;
-                const totalHostels = allHostels.length;
-                const totalRooms = allRooms.length;
-                const availableBeds = allBedSpaces.filter(b => b.status === 'available').length;
-                const occupiedBeds = allBedSpaces.filter(b => b.status === 'occupied').length;
+                const totalStudents = dataStore.students.length;
+                const assignedStudents = dataStore.students.filter(s => s.room_id && s.room_id > 0).length;
+                const totalStaff = dataStore.staff.length;
+                const activeStaff = dataStore.staff.filter(s => s.status === 'Active').length;
+                const totalHostels = dataStore.hostels.length;
+                const totalRooms = dataStore.rooms.length;
+                const availableBeds = dataStore.bed_spaces.filter(b => b.status === 'available').length;
+                const occupiedBeds = dataStore.bed_spaces.filter(b => b.status === 'occupied').length;
+
+                // Get total beds from bed_spaces
+                const totalBeds = dataStore.bed_spaces.length;
 
                 document.getElementById('statStudents').textContent = totalStudents.toLocaleString();
                 document.getElementById('statStudentsChange').textContent =
@@ -1583,11 +1616,14 @@
 
                 document.getElementById('statRooms').textContent = totalRooms;
                 document.getElementById('statRoomsSub').textContent =
-                    `${availableBeds} available · ${occupiedBeds} occupied`;
+                    `${availableBeds} available · ${occupiedBeds} occupied · ${totalBeds} total beds`;
             }
 
+            // ============================================
+            // UPDATE BEDCHECK - Using sessions table
+            // ============================================
             function updateBedCheck() {
-                const session = allSessions[0];
+                const session = dataStore.sessions[0] || dataStore.bedcheck_sessions[0];
 
                 if (session) {
                     document.getElementById('bedcheckStatusDot').className = 'status-dot active';
@@ -1597,9 +1633,9 @@
                     document.getElementById('bedcheckStart').textContent = session.start_time || '10:00 PM';
                     document.getElementById('bedcheckEnd').textContent = session.end_time || '12:00 AM';
 
-                    const present = allStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-                    const absent = allStudents.filter(s => s.status === 'Absent').length;
-                    const pending = allStudents.filter(s => !s.status || s.status === 'Pending' || s.status === 'Not Started').length;
+                    const present = dataStore.students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
+                    const absent = dataStore.students.filter(s => s.status === 'Absent').length;
+                    const pending = dataStore.students.filter(s => !s.status || s.status === 'Pending' || s.status === 'Not Started').length;
 
                     document.getElementById('bedcheckPresent').textContent = present.toLocaleString();
                     document.getElementById('bedcheckAbsent').textContent = absent.toLocaleString();
@@ -1626,10 +1662,13 @@
                 }
             }
 
+            // ============================================
+            // UPDATE HOSTEL PERFORMANCE - Using hostels + students
+            // ============================================
             function updateHostelPerformance() {
                 const container = document.getElementById('hostelPerformanceBody');
 
-                if (allHostels.length === 0) {
+                if (dataStore.hostels.length === 0) {
                     container.innerHTML = `
                         <div style="text-align:center;padding:0.5rem;color:var(--text-secondary);font-size:0.8rem;">
                             No hostels found
@@ -1639,13 +1678,27 @@
                 }
 
                 let html = '<div class="hostel-list">';
-                const sortedHostels = [...allHostels].sort((a, b) => a.name.localeCompare(b.name));
+                const sortedHostels = [...dataStore.hostels].sort((a, b) => a.name.localeCompare(b.name));
 
                 sortedHostels.forEach(hostel => {
-                    const hostelStudents = allStudents.filter(s => s.hostel_id === hostel.id || s.hostel_name === hostel.name);
+                    const hostelStudents = dataStore.students.filter(s => s.hostel_id === hostel.id || s.hostel_name === hostel.name);
                     const total = hostelStudents.length;
                     const present = hostelStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                     const progress = total > 0 ? Math.round((present / total) * 100) : 0;
+
+                    // Get room count for this hostel
+                    const hostelRooms = dataStore.rooms.filter(r => {
+                        const floor = dataStore.floors_flats.find(f => f.id === r.floor_flat_id);
+                        return floor && floor.hostel_id === hostel.id;
+                    });
+
+                    // Get bed count for this hostel
+                    const hostelBeds = dataStore.bed_spaces.filter(b => {
+                        const room = dataStore.rooms.find(r => r.id === b.room_id);
+                        if (!room) return false;
+                        const floor = dataStore.floors_flats.find(f => f.id === room.floor_flat_id);
+                        return floor && floor.hostel_id === hostel.id;
+                    });
 
                     let statusClass = 'active';
                     if (progress === 100) statusClass = 'completed';
@@ -1658,6 +1711,9 @@
                                 <div class="fill ${statusClass}" style="width:${progress}%;"></div>
                             </div>
                             <span class="hostel-percent">${progress}%</span>
+                            <span style="font-size:0.65rem;color:var(--text-secondary);margin-left:0.5rem;">
+                                ${hostelRooms.length} rooms · ${hostelBeds.length} beds
+                            </span>
                         </div>
                     `;
                 });
@@ -1666,30 +1722,49 @@
                 container.innerHTML = html;
             }
 
+            // ============================================
+            // UPDATE RECENT ACTIVITY - Using audit_logs + bedcheck_scans
+            // ============================================
             function updateRecentActivity() {
                 const container = document.getElementById('recentActivityBody');
 
-                // Use audit logs from the API
                 const activities = [];
 
-                // If we have scans, use them
-                allScans.slice(0, 10).forEach(scan => {
-                    const student = allStudents.find(s => s.id === scan.student_id);
-                    const time = scan.created_at ? new Date(scan.created_at).toLocaleTimeString('en-US', {
+                // Use audit logs first
+                dataStore.audit_logs.slice(0, 5).forEach(log => {
+                    const time = log.created_at ? new Date(log.created_at).toLocaleTimeString('en-US', {
                         hour: '2-digit',
                         minute: '2-digit'
                     }) : '—';
 
                     activities.push({
                         time: time,
-                        text: `${student ? student.name || 'Student' : 'Student'} ${scan.status === 'Verified' ? 'verified' : 'failed'} in ${scan.room || 'room'}`,
-                        highlight: scan.status === 'Verified' ? 'Verified' : 'Failed',
-                        status: scan.status === 'Verified' ? 'success' : 'failed',
-                        icon: scan.status === 'Verified' ? 'fa-check' : 'fa-times'
+                        text: `${log.actor || 'System'} ${log.action || 'action'}`,
+                        highlight: log.action || 'Activity',
+                        status: log.result === 'success' ? 'success' : 'failed',
+                        icon: log.result === 'success' ? 'fa-check' : 'fa-times'
                     });
                 });
 
-                // If no activities, show message
+                // If no audit logs, use bedcheck scans
+                if (activities.length === 0) {
+                    dataStore.bedcheck_scans.slice(0, 5).forEach(scan => {
+                        const student = dataStore.students.find(s => s.id === scan.student_id);
+                        const time = scan.created_at ? new Date(scan.created_at).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        }) : '—';
+
+                        activities.push({
+                            time: time,
+                            text: `${student ? student.name || 'Student' : 'Student'} ${scan.status === 'Verified' ? 'verified' : 'scanned'}`,
+                            highlight: scan.status === 'Verified' ? 'Verified' : 'Scanned',
+                            status: scan.status === 'Verified' ? 'success' : 'pending',
+                            icon: scan.status === 'Verified' ? 'fa-check' : 'fa-clock'
+                        });
+                    });
+                }
+
                 if (activities.length === 0) {
                     container.innerHTML = `
                         <div style="text-align:center;padding:0.5rem;color:var(--text-secondary);font-size:0.8rem;">
@@ -1722,6 +1797,9 @@
                 container.innerHTML = html;
             }
 
+            // ============================================
+            // UPDATE SYSTEM STATUS
+            // ============================================
             function updateSystemStatus() {
                 // Face API health check
                 fetch(`${API_BASE_URL}/face/health`, {
@@ -1875,7 +1953,7 @@
                 if (confirm('Are you sure you want to logout?')) {
                     sessionStorage.clear();
                     localStorage.removeItem('bedcheck_token');
-                    window.location.href = './Login.html';
+                    window.location.href = '../Login.html';
                 }
             };
 
@@ -1893,12 +1971,20 @@
                         toggleSidebar();
                     }
 
-                    if (this.textContent.trim().includes('Dashboard')) {
+                    const href = this.getAttribute('href');
+                    const text = this.textContent.trim();
+
+                    if (text.includes('Dashboard')) {
                         e.preventDefault();
                         showToast('Already on Dashboard', 'info');
-                    } else {
-                        showToast(`Navigating to "${this.textContent.trim()}"...`, 'info');
+                        return;
                     }
+
+                    e.preventDefault();
+                    showToast(`Navigating to "${text}"...`, 'info');
+                    setTimeout(() => {
+                        window.location.href = href;
+                    }, 300);
                 });
             });
 
@@ -1949,8 +2035,14 @@
             // ============================================
 
             console.log('✅ BIU BedCheck System Owner Dashboard');
+            console.log('📋 Data tables loaded:');
+            console.log(`   - Hostels: ${dataStore.hostels.length}`);
+            console.log(`   - Floors: ${dataStore.floors_flats.length}`);
+            console.log(`   - Rooms: ${dataStore.rooms.length}`);
+            console.log(`   - Bed Spaces: ${dataStore.bed_spaces.length}`);
+            console.log(`   - Students: ${dataStore.students.length}`);
+            console.log(`   - Staff: ${dataStore.staff.length}`);
 
-            // Load user data first, then dashboard data
             loadUserData().then(() => {
                 loadAllData();
             }).catch(() => {

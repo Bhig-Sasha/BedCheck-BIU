@@ -1763,7 +1763,7 @@
     <!-- ================================================
     JAVASCRIPT
     ================================================ -->
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -1778,14 +1778,35 @@
                 if (API_TOKEN) sessionStorage.setItem('bedcheck_token', API_TOKEN);
             }
 
-            let currentUser = null;
-            let allStudents = [];
-            let allHostels = [];
-            let allFloors = [];
-            let allRooms = [];
-            let allBedSpaces = [];
-            let filteredStudents = [];
+            // ============================================
+            // DATA STORE - All tables mapped
+            // ============================================
+            let dataStore = {
+                // Main entities
+                students: [],      // students table
+                staff: [],         // staff table
+                hostels: [],       // hostels table
+                floors_flats: [],  // floors_flats table
+                rooms: [],         // rooms table
+                bed_spaces: [],    // bed_spaces table
+                
+                // Sessions & Scans
+                sessions: [],            // sessions table
+                bedcheck_sessions: [],   // bedcheck_sessions table
+                bedcheck_scans: [],      // bedcheck_scans table
+                ra_bedcheck_sessions: [], // ra_bedcheck_sessions table
+                
+                // Occupancy & Views
+                bed_occupancy: [],      // bed_occupancy view
+                floor_flat_occupancy: [], // floor_flat_occupancy view
+                hostel_structure: [],   // hostel_structure view
+                room_details: [],       // room_details view
+                legacy_campus_view: [], // legacy_campus_view
+                heritage_campus_view: [] // heritage_campus_view
+            };
 
+            let currentUser = null;
+            let filteredStudents = [];
             let currentPage = 1;
             const pageSize = 25;
             let selectedStudents = new Set();
@@ -1869,7 +1890,7 @@
             }
 
             // ============================================
-            // LOAD DATA
+            // LOAD DATA - Using proper table references
             // ============================================
             async function loadAllData() {
                 try {
@@ -1885,25 +1906,40 @@
 
                     showToast('Loading students...', 'info');
 
-                    const [studentsData, hostelsData, floorsData, roomsData, bedData] = await Promise.all([
+                    // Load all data from API tables
+                    const [
+                        studentsData,
+                        hostelsData,
+                        floorsData,
+                        roomsData,
+                        bedData,
+                        bedOccupancyData,
+                        floorOccupancyData
+                    ] = await Promise.all([
                         apiFetch('/students?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/hostels').catch(() => ({ data: [] })),
                         apiFetch('/floors-flats').catch(() => ({ data: [] })),
                         apiFetch('/rooms?limit=1000').catch(() => ({ data: [] })),
-                        apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] }))
+                        apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] })),
+                        apiFetch('/occupancy').catch(() => ({ data: [] })),
+                        apiFetch('/occupancy/floor-flat').catch(() => ({ data: [] }))
                     ]);
 
-                    allStudents = studentsData.data || [];
-                    allHostels = hostelsData.data || [];
-                    allFloors = floorsData.data || [];
-                    allRooms = roomsData.data || [];
-                    allBedSpaces = bedData.data || [];
+                    // Populate data store
+                    dataStore.students = studentsData.data || [];
+                    dataStore.hostels = hostelsData.data || [];
+                    dataStore.floors_flats = floorsData.data || [];
+                    dataStore.rooms = roomsData.data || [];
+                    dataStore.bed_spaces = bedData.data || [];
+                    dataStore.bed_occupancy = bedOccupancyData.data || [];
+                    dataStore.floor_flat_occupancy = floorOccupancyData.data || [];
 
+                    // Populate filters
                     populateFilters();
                     updateStats();
                     applyFilters();
 
-                    showToast(`${allStudents.length} students loaded`, 'success');
+                    showToast(`${dataStore.students.length} students loaded`, 'success');
                 } catch (error) {
                     console.error('Error loading data:', error);
                     showToast('Failed to load students: ' + error.message, 'error');
@@ -1917,30 +1953,33 @@
             }
 
             // ============================================
-            // POPULATE FILTERS
+            // POPULATE FILTERS - Using proper tables
             // ============================================
             function populateFilters() {
+                // Hostel filter - from hostels table
                 const hostelSelect = document.getElementById('filterHostel');
                 hostelSelect.innerHTML = '<option value="">All Hostels</option>';
-                allHostels.forEach(h => {
+                dataStore.hostels.forEach(h => {
                     const opt = document.createElement('option');
                     opt.value = h.name;
                     opt.textContent = h.name;
                     hostelSelect.appendChild(opt);
                 });
 
+                // Transfer hostel dropdown - from hostels table
                 const transferSelect = document.getElementById('transferHostel');
                 transferSelect.innerHTML = '<option value="">Select Hostel</option>';
-                allHostels.forEach(h => {
+                dataStore.hostels.forEach(h => {
                     const opt = document.createElement('option');
                     opt.value = h.id;
                     opt.textContent = h.name;
                     transferSelect.appendChild(opt);
                 });
 
+                // Faculty filter - from students table
                 const facultySelect = document.getElementById('filterFaculty');
                 const faculties = new Set();
-                allStudents.forEach(s => {
+                dataStore.students.forEach(s => {
                     if (s.faculty) faculties.add(s.faculty);
                 });
                 facultySelect.innerHTML = '<option value="">All Faculties</option>';
@@ -1950,16 +1989,26 @@
                     opt.textContent = f;
                     facultySelect.appendChild(opt);
                 });
+
+                // Transfer floor dropdown - from floors_flats table
+                const floorSelect = document.getElementById('transferFloor');
+                floorSelect.innerHTML = '<option value="">Select Floor</option>';
+                dataStore.floors_flats.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f.id;
+                    opt.textContent = f.code || f.name;
+                    floorSelect.appendChild(opt);
+                });
             }
 
             // ============================================
-            // UPDATE STATS
+            // UPDATE STATS - Using proper tables
             // ============================================
             function updateStats() {
-                const total = allStudents.length;
-                const male = allStudents.filter(s => s.gender === 'Male').length;
-                const female = allStudents.filter(s => s.gender === 'Female').length;
-                const assigned = allStudents.filter(s => s.room_id && s.room_id > 0).length;
+                const total = dataStore.students.length;
+                const male = dataStore.students.filter(s => s.gender === 'Male').length;
+                const female = dataStore.students.filter(s => s.gender === 'Female').length;
+                const assigned = dataStore.students.filter(s => s.room_id && s.room_id > 0).length;
                 const unassigned = total - assigned;
 
                 document.getElementById('statTotal').textContent = total.toLocaleString();
@@ -1972,7 +2021,7 @@
             }
 
             // ============================================
-            // APPLY FILTERS
+            // APPLY FILTERS - Using proper tables
             // ============================================
             function applyFilters() {
                 const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -1981,7 +2030,7 @@
                 const levelFilter = document.getElementById('filterLevel').value;
                 const genderFilter = document.getElementById('filterGender').value;
 
-                filteredStudents = allStudents.filter(s => {
+                filteredStudents = dataStore.students.filter(s => {
                     const matchSearch = !searchTerm ||
                         (s.name && s.name.toLowerCase().includes(searchTerm)) ||
                         (s.matric && s.matric.toLowerCase().includes(searchTerm));
@@ -2000,7 +2049,7 @@
             }
 
             // ============================================
-            // RENDER TABLE
+            // RENDER TABLE - Using proper table references
             // ============================================
             function renderTable() {
                 const data = filteredStudents;
@@ -2034,9 +2083,12 @@
                     const initials = student.name ? student.name.split(' ').map(n => n[0]).join('').slice(0, 2)
                         .toUpperCase() : '?';
 
-                    const room = allRooms.find(r => r.id === student.room_id);
-                    const floor = allFloors.find(f => f.id === student.floor_flat_id);
-                    const bed = allBedSpaces.find(b => b.id === student.bed_space_id);
+                    // Find room from rooms table
+                    const room = dataStore.rooms.find(r => r.id === student.room_id);
+                    // Find floor from floors_flats table
+                    const floor = dataStore.floors_flats.find(f => f.id === student.floor_flat_id);
+                    // Find bed from bed_spaces table
+                    const bed = dataStore.bed_spaces.find(b => b.id === student.bed_space_id);
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
@@ -2054,7 +2106,7 @@
                         <td>${student.faculty || '—'}</td>
                         <td>${student.level || '—'}</td>
                         <td><span class="hostel-badge">${student.hostel_name || '—'}</span></td>
-                        <td>${floor ? floor.code : '—'}</td>
+                        <td>${floor ? floor.code || floor.name : '—'}</td>
                         <td>${room ? room.room_code : '—'}</td>
                         <td>${bed ? bed.bed_code : '—'}</td>
                         <td>
@@ -2191,6 +2243,7 @@
                 const loading = document.getElementById('tableLoading');
                 const table = document.getElementById('studentTable');
                 loading.style.display = 'block';
+                loading.innerHTML = `<div class="spinner"></div><p>Loading students...</p>`;
                 table.style.display = 'none';
                 loadAllData();
             };
@@ -2275,10 +2328,10 @@
             });
 
             // ============================================
-            // VIEW PROFILE
+            // VIEW PROFILE - Using proper table references
             // ============================================
             window.viewProfile = function(id) {
-                const student = allStudents.find(s => s.id === id);
+                const student = dataStore.students.find(s => s.id === id);
                 if (!student) {
                     showToast('Student not found', 'error');
                     return;
@@ -2299,9 +2352,12 @@
                 drawer.classList.add('open');
                 overlay.classList.add('show');
 
-                const room = allRooms.find(r => r.id === student.room_id);
-                const floor = allFloors.find(f => f.id === student.floor_flat_id);
-                const bed = allBedSpaces.find(b => b.id === student.bed_space_id);
+                // Find room from rooms table
+                const room = dataStore.rooms.find(r => r.id === student.room_id);
+                // Find floor from floors_flats table
+                const floor = dataStore.floors_flats.find(f => f.id === student.floor_flat_id);
+                // Find bed from bed_spaces table
+                const bed = dataStore.bed_spaces.find(b => b.id === student.bed_space_id);
                 const initials = student.name ? student.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() :
                 '?';
 
@@ -2325,7 +2381,7 @@
                     <div class="info-group">
                         <h5>Accommodation</h5>
                         <div class="info-row"><span class="label">Hostel</span><span class="value">${student.hostel_name || '—'}</span></div>
-                        <div class="info-row"><span class="label">Floor</span><span class="value">${floor ? floor.code : '—'}</span></div>
+                        <div class="info-row"><span class="label">Floor</span><span class="value">${floor ? floor.code || floor.name : '—'}</span></div>
                         <div class="info-row"><span class="label">Room</span><span class="value">${room ? room.room_code : '—'}</span></div>
                         <div class="info-row"><span class="label">Bed</span><span class="value">${bed ? bed.bed_code : '—'}</span></div>
                     </div>
@@ -2358,7 +2414,7 @@
             };
 
             window.viewBedCheckHistory = function(id) {
-                const student = allStudents.find(s => s.id === (id || currentStudentId));
+                const student = dataStore.students.find(s => s.id === (id || currentStudentId));
                 showToast(`Viewing BedCheck history for ${student ? student.name : 'student'}...`, 'info');
             };
 
@@ -2366,12 +2422,12 @@
             // STUDENT ACTIONS
             // ============================================
             window.editStudent = function(id) {
-                const student = allStudents.find(s => s.id === id);
+                const student = dataStore.students.find(s => s.id === id);
                 showToast(`Opening edit form for ${student ? student.name : 'student'}...`, 'info');
             };
 
             window.openTransfer = function(id) {
-                const student = allStudents.find(s => s.id === id);
+                const student = dataStore.students.find(s => s.id === id);
                 if (!student) {
                     showToast('Student not found', 'error');
                     return;
@@ -2381,12 +2437,15 @@
                 const modal = document.getElementById('transferModal');
                 modal.classList.add('show');
 
-                const room = allRooms.find(r => r.id === student.room_id);
-                const floor = allFloors.find(f => f.id === student.floor_flat_id);
-                const bed = allBedSpaces.find(b => b.id === student.bed_space_id);
+                // Find room from rooms table
+                const room = dataStore.rooms.find(r => r.id === student.room_id);
+                // Find floor from floors_flats table
+                const floor = dataStore.floors_flats.find(f => f.id === student.floor_flat_id);
+                // Find bed from bed_spaces table
+                const bed = dataStore.bed_spaces.find(b => b.id === student.bed_space_id);
 
                 document.getElementById('currentAssignment').textContent =
-                    `${student.hostel_name || '—'} · Floor ${floor ? floor.code : '—'} · Room ${room ? room.room_code : '—'} · Bed ${bed ? bed.bed_code : '—'}`;
+                    `${student.hostel_name || '—'} · Floor ${floor ? floor.code || floor.name : '—'} · Room ${room ? room.room_code : '—'} · Bed ${bed ? bed.bed_code : '—'}`;
 
                 document.getElementById('transferHostel').value = '';
                 document.getElementById('transferFloor').innerHTML = '<option value="">Select Floor</option>';
@@ -2401,7 +2460,8 @@
 
                 if (!hostelId) return;
 
-                const hostelFloors = allFloors.filter(f => f.hostel_id === parseInt(hostelId));
+                // Find floors from floors_flats table by hostel_id
+                const hostelFloors = dataStore.floors_flats.filter(f => f.hostel_id === parseInt(hostelId));
                 hostelFloors.forEach(f => {
                     const opt = document.createElement('option');
                     opt.value = f.id;
@@ -2417,7 +2477,8 @@
 
                 if (!floorId) return;
 
-                const floorRooms = allRooms.filter(r => r.floor_flat_id === parseInt(floorId));
+                // Find rooms from rooms table by floor_flat_id
+                const floorRooms = dataStore.rooms.filter(r => r.floor_flat_id === parseInt(floorId));
                 floorRooms.forEach(r => {
                     const opt = document.createElement('option');
                     opt.value = r.id;
@@ -2433,7 +2494,10 @@
 
                 if (!roomId) return;
 
-                const roomBeds = allBedSpaces.filter(b => b.room_id === parseInt(roomId) && b.status === 'available');
+                // Find beds from bed_spaces table by room_id
+                const roomBeds = dataStore.bed_spaces.filter(b => 
+                    b.room_id === parseInt(roomId) && b.status === 'available'
+                );
                 roomBeds.forEach(b => {
                     const opt = document.createElement('option');
                     opt.value = b.id;
@@ -2454,9 +2518,10 @@
                 }
 
                 try {
-                    const student = allStudents.find(s => s.id === currentStudentId);
+                    const student = dataStore.students.find(s => s.id === currentStudentId);
                     if (!student) throw new Error('Student not found');
 
+                    // Update student in students table
                     await apiFetch(`/students/${currentStudentId}`, {
                         method: 'PUT',
                         body: JSON.stringify({
@@ -2467,6 +2532,7 @@
                         })
                     });
 
+                    // Update old bed space in bed_spaces table
                     if (student.bed_space_id) {
                         await apiFetch(`/bed-spaces/${student.bed_space_id}`, {
                             method: 'PATCH',
@@ -2474,6 +2540,7 @@
                         });
                     }
 
+                    // Update new bed space in bed_spaces table
                     await apiFetch(`/bed-spaces/${bedId}`, {
                         method: 'PATCH',
                         body: JSON.stringify({ status: 'occupied', student_id: currentStudentId })
@@ -2488,7 +2555,7 @@
             };
 
             window.deleteStudent = function(id) {
-                const student = allStudents.find(s => s.id === id);
+                const student = dataStore.students.find(s => s.id === id);
                 if (confirm(`⚠️ Are you sure you want to permanently delete ${student ? student.name : 'this student'}? This action cannot be undone.`)) {
                     showToast(`Student ${student ? student.name : ''} deleted`, 'error');
                 }
@@ -2614,7 +2681,7 @@
             };
 
             // ============================================
-            // SIDEBAR NAVIGATION
+            // SIDEBAR NAVIGATION - FIXED VERSION
             // ============================================
             const navLinks = document.querySelectorAll('.sidebar-nav a');
             navLinks.forEach(function(link) {
@@ -2681,6 +2748,12 @@
             // INIT
             // ============================================
             console.log('✅ BIU BedCheck System Owner - Students');
+            console.log('📋 Data tables loaded:');
+            console.log(`   - Students: ${dataStore.students.length}`);
+            console.log(`   - Hostels: ${dataStore.hostels.length}`);
+            console.log(`   - Floors/Flats: ${dataStore.floors_flats.length}`);
+            console.log(`   - Rooms: ${dataStore.rooms.length}`);
+            console.log(`   - Bed Spaces: ${dataStore.bed_spaces.length}`);
 
             loadUserData().then(() => {
                 loadAllData();
