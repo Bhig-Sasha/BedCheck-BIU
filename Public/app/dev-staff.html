@@ -1864,7 +1864,7 @@
     <!-- ================================================
     JAVASCRIPT
     ================================================ -->
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -1879,13 +1879,31 @@
                 if (API_TOKEN) sessionStorage.setItem('bedcheck_token', API_TOKEN);
             }
 
-            let currentUser = null;
-            let allStaff = [];
-            let allHostels = [];
-            let allFloors = [];
-            let allRooms = [];
-            let filteredStaff = [];
+            // ============================================
+            // DATA STORE - All tables mapped
+            // ============================================
+            let dataStore = {
+                // Main entities
+                staff: [],         // staff table
+                hostels: [],       // hostels table
+                floors_flats: [],  // floors_flats table
+                rooms: [],         // rooms table
+                
+                // Session related
+                sessions: [],            // sessions table
+                bedcheck_sessions: [],   // bedcheck_sessions table
+                ra_bedcheck_sessions: [], // ra_bedcheck_sessions table
+                
+                // Assignments
+                ra_room_assignments: [], // ra_room_assignments table
+                room_verifications: [],  // room_verifications table
+                
+                // Audit
+                audit_logs: []           // audit_logs table
+            };
 
+            let currentUser = null;
+            let filteredStaff = [];
             let currentPage = 1;
             const pageSize = 25;
             let selectedStaff = new Set();
@@ -1968,7 +1986,7 @@
             }
 
             // ============================================
-            // LOAD DATA
+            // LOAD DATA - Using proper table references
             // ============================================
             async function loadAllData() {
                 try {
@@ -1984,24 +2002,28 @@
 
                     showToast('Loading staff...', 'info');
 
-                    const [staffData, hostelsData, floorsData, roomsData] = await Promise.all([
+                    // Load all data from API tables
+                    const [staffData, hostelsData, floorsData, roomsData, auditData] = await Promise.all([
                         apiFetch('/staff').catch(() => ({ data: [] })),
                         apiFetch('/hostels').catch(() => ({ data: [] })),
                         apiFetch('/floors-flats').catch(() => ({ data: [] })),
-                        apiFetch('/rooms?limit=500').catch(() => ({ data: [] }))
+                        apiFetch('/rooms?limit=500').catch(() => ({ data: [] })),
+                        apiFetch('/audit/recent?limit=10').catch(() => ({ data: [] }))
                     ]);
 
-                    allStaff = staffData.data || [];
-                    allHostels = hostelsData.data || [];
-                    allFloors = floorsData.data || [];
-                    allRooms = roomsData.data || [];
+                    // Populate data store
+                    dataStore.staff = staffData.data || [];
+                    dataStore.hostels = hostelsData.data || [];
+                    dataStore.floors_flats = floorsData.data || [];
+                    dataStore.rooms = roomsData.data || [];
+                    dataStore.audit_logs = auditData.data || [];
 
                     populateFilters();
                     updateStats();
                     updateProtectedSection();
                     applyFilters();
 
-                    showToast(`${allStaff.length} staff members loaded`, 'success');
+                    showToast(`${dataStore.staff.length} staff members loaded`, 'success');
                 } catch (error) {
                     console.error('Error loading data:', error);
                     showToast('Failed to load staff: ' + error.message, 'error');
@@ -2015,30 +2037,33 @@
             }
 
             // ============================================
-            // POPULATE FILTERS
+            // POPULATE FILTERS - Using proper tables
             // ============================================
             function populateFilters() {
+                // Hostel filter - from hostels table
                 const hostelSelect = document.getElementById('filterHostel');
                 hostelSelect.innerHTML = '<option value="">All Hostels</option>';
-                allHostels.forEach(h => {
+                dataStore.hostels.forEach(h => {
                     const opt = document.createElement('option');
                     opt.value = h.name || h.id;
                     opt.textContent = h.name || 'Unnamed Hostel';
                     hostelSelect.appendChild(opt);
                 });
 
+                // Staff hostel dropdown - from hostels table
                 const staffHostelSelect = document.getElementById('staffHostel');
                 staffHostelSelect.innerHTML = '<option value="">Select Hostel</option>';
-                allHostels.forEach(h => {
+                dataStore.hostels.forEach(h => {
                     const opt = document.createElement('option');
                     opt.value = h.id;
                     opt.textContent = h.name || 'Unnamed Hostel';
                     staffHostelSelect.appendChild(opt);
                 });
 
+                // Department filter - from staff table
                 const deptSelect = document.getElementById('filterDepartment');
                 const departments = new Set();
-                allStaff.forEach(s => {
+                dataStore.staff.forEach(s => {
                     if (s.department) departments.add(s.department);
                 });
                 deptSelect.innerHTML = '<option value="">All Departments</option>';
@@ -2049,28 +2074,29 @@
                     deptSelect.appendChild(opt);
                 });
 
+                // Floor dropdown - from floors_flats table
                 const floorSelect = document.getElementById('staffFloor');
                 floorSelect.innerHTML = '<option value="">Select Floor</option>';
-                allFloors.forEach(f => {
+                dataStore.floors_flats.forEach(f => {
                     const opt = document.createElement('option');
                     opt.value = f.id;
-                    opt.textContent = f.name || `Floor ${f.floor_number || ''}`;
+                    opt.textContent = f.code || f.name || `Floor ${f.level || ''}`;
                     floorSelect.appendChild(opt);
                 });
             }
 
             // ============================================
-            // UPDATE STATS
+            // UPDATE STATS - Using proper tables
             // ============================================
             function updateStats() {
-                const total = allStaff.length;
-                const systemOwners = allStaff.filter(s => s.role === 'System Owner').length;
+                const total = dataStore.staff.length;
+                const systemOwners = dataStore.staff.filter(s => s.role === 'System Owner').length;
                 const operational = total - systemOwners;
 
-                const admins = allStaff.filter(s => s.role === 'Administrator').length;
-                const rasd = allStaff.filter(s => s.role === 'RASD').length;
-                const hra = allStaff.filter(s => s.role === 'HRA').length;
-                const ra = allStaff.filter(s => s.role === 'RA').length;
+                const admins = dataStore.staff.filter(s => s.role === 'Administrator').length;
+                const rasd = dataStore.staff.filter(s => s.role === 'RASD').length;
+                const hra = dataStore.staff.filter(s => s.role === 'HRA').length;
+                const ra = dataStore.staff.filter(s => s.role === 'RA').length;
 
                 document.getElementById('statTotal').textContent = operational.toLocaleString();
                 document.getElementById('statTotalSub').textContent = `${operational} operational staff`;
@@ -2082,10 +2108,10 @@
             }
 
             // ============================================
-            // UPDATE PROTECTED SECTION
+            // UPDATE PROTECTED SECTION - Using staff table
             // ============================================
             function updateProtectedSection() {
-                const systemOwners = allStaff.filter(s => s.role === 'System Owner');
+                const systemOwners = dataStore.staff.filter(s => s.role === 'System Owner');
                 const container = document.getElementById('protectedBody');
 
                 if (systemOwners.length === 0) {
@@ -2123,7 +2149,7 @@
             }
 
             // ============================================
-            // APPLY FILTERS
+            // APPLY FILTERS - Using proper tables
             // ============================================
             function applyFilters() {
                 const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -2131,7 +2157,7 @@
                 const hostelFilter = document.getElementById('filterHostel').value;
                 const deptFilter = document.getElementById('filterDepartment').value;
 
-                filteredStaff = allStaff.filter(s => {
+                filteredStaff = dataStore.staff.filter(s => {
                     if (s.role === 'System Owner') return false;
 
                     const matchSearch = !searchTerm ||
@@ -2141,7 +2167,7 @@
                     const matchRole = !roleFilter || s.role === roleFilter;
                     const matchHostel = !hostelFilter || 
                         (s.hostel_name && s.hostel_name === hostelFilter) || 
-                        (s.hostel_id && allHostels.find(h => h.id === s.hostel_id)?.name === hostelFilter);
+                        (s.hostel_id && dataStore.hostels.find(h => h.id === s.hostel_id)?.name === hostelFilter);
                     const matchDept = !deptFilter || s.department === deptFilter;
 
                     return matchSearch && matchRole && matchHostel && matchDept;
@@ -2153,7 +2179,7 @@
             }
 
             // ============================================
-            // RENDER TABLE
+            // RENDER TABLE - Using proper table references
             // ============================================
             function renderTable() {
                 const data = filteredStaff;
@@ -2189,7 +2215,7 @@
 
                     const roleClass = staff.role ? staff.role.toLowerCase().replace(' ', '-') : 'ra';
                     const hostelName = staff.hostel_name || 
-                        (staff.hostel_id ? allHostels.find(h => h.id === staff.hostel_id)?.name || 'All Hostels' : 'All Hostels');
+                        (staff.hostel_id ? dataStore.hostels.find(h => h.id === staff.hostel_id)?.name || 'All Hostels' : 'All Hostels');
 
                     const lastLogin = staff.last_login ? new Date(staff.last_login).toLocaleTimeString('en-US', {
                         hour: '2-digit',
@@ -2410,10 +2436,10 @@
             });
 
             // ============================================
-            // VIEW PROFILE (Drawer)
+            // VIEW PROFILE (Drawer) - Using proper table references
             // ============================================
             window.viewProfile = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 if (!staff) {
                     showToast('Staff not found', 'error');
                     return;
@@ -2437,7 +2463,7 @@
                 const initials = staff.name ? staff.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() :
                 '?';
                 const hostelName = staff.hostel_name || 
-                    (staff.hostel_id ? allHostels.find(h => h.id === staff.hostel_id)?.name || 'All Hostels' : 'All Hostels');
+                    (staff.hostel_id ? dataStore.hostels.find(h => h.id === staff.hostel_id)?.name || 'All Hostels' : 'All Hostels');
 
                 body.innerHTML = `
                     <div class="profile-section">
@@ -2490,7 +2516,7 @@
             };
 
             window.viewStaffActivity = function(id) {
-                const staff = allStaff.find(s => s.id === (id || currentStaffId));
+                const staff = dataStore.staff.find(s => s.id === (id || currentStaffId));
                 showToast(`Viewing activity for ${staff ? staff.name : 'staff member'}...`, 'info');
             };
 
@@ -2498,7 +2524,7 @@
             // STAFF ACTIONS
             // ============================================
             window.editStaff = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 if (staff) {
                     document.getElementById('staffName').value = staff.name || '';
                     document.getElementById('staffUsername').value = staff.username || '';
@@ -2515,31 +2541,31 @@
             };
 
             window.changeRole = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 showToast(`Changing role for ${staff ? staff.name : 'staff member'}...`, 'info');
             };
 
             window.changeHostel = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 showToast(`Changing hostel assignment for ${staff ? staff.name : 'staff member'}...`, 'info');
             };
 
             window.resetPassword = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 if (confirm(`Reset password for ${staff ? staff.name : 'this staff member'}? A new temporary password will be generated.`)) {
                     showToast(`Password reset for ${staff ? staff.name : 'staff member'}`, 'success');
                 }
             };
 
             window.disableAccount = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 if (confirm(`Disable account for ${staff ? staff.name : 'this staff member'}?`)) {
                     showToast(`Account disabled for ${staff ? staff.name : 'staff member'}`, 'warning');
                 }
             };
 
             window.deleteStaff = function(id) {
-                const staff = allStaff.find(s => s.id === id);
+                const staff = dataStore.staff.find(s => s.id === id);
                 if (confirm(`⚠️ Are you sure you want to permanently delete ${staff ? staff.name : 'this staff member'}'s account? This action cannot be undone.`)) {
                     showToast(`Account deleted for ${staff ? staff.name : 'staff member'}`, 'error');
                 }
@@ -2768,7 +2794,7 @@
             };
 
             // ============================================
-            // SIDEBAR NAVIGATION
+            // SIDEBAR NAVIGATION - FIXED VERSION
             // ============================================
             const navLinks = document.querySelectorAll('.sidebar-nav a');
             navLinks.forEach(function(link) {
@@ -2824,6 +2850,11 @@
             // INIT
             // ============================================
             console.log('✅ BIU BedCheck System Owner - Staff & Roles');
+            console.log('📋 Data tables loaded:');
+            console.log(`   - Staff: ${dataStore.staff.length}`);
+            console.log(`   - Hostels: ${dataStore.hostels.length}`);
+            console.log(`   - Floors/Flats: ${dataStore.floors_flats.length}`);
+            console.log(`   - Rooms: ${dataStore.rooms.length}`);
 
             loadUserData().then(() => {
                 loadAllData();
