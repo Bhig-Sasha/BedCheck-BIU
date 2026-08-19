@@ -4083,8 +4083,6 @@ app.delete('/api/students/:id',
 // =====================================================
 
 app.get('/api/staff/:id', 
-    // Remove campusIsolation from here
-    // campusIsolation,  // <-- COMMENT THIS OUT
     validate(validators.staffId),
     async (req, res) => {
         const id = parseInt(req.params.id);
