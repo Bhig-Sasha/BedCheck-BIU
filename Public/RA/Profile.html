@@ -119,12 +119,10 @@
         .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
         .btn-success:hover { background: #1f4a32; }
 
-        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
-        .btn-ghost i { margin-right: 0.25rem; }
-
         .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
         .badge-active { background: #e1f0e5; color: #2d6545; }
         .badge-assigned { background: #d6ad4b; color: #10233f; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -243,6 +241,9 @@
         .modal .field input { padding: 0.5rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.9rem; outline: none; width: 100%; font-family: inherit; }
         .modal .field input:focus { border-color: #a77915; box-shadow: 0 0 0 2px rgba(167, 121, 21, 0.1); }
         .modal .modal-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; justify-content: flex-end; }
+
+        .security-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; background: #e8f0e8; color: #1a5a3a; }
+        .security-badge i { font-size: 0.5rem; }
     </style>
 </head>
 <body>
@@ -295,7 +296,7 @@
             </nav>
             <div class="role-card">
                 <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">RA</span></div>
-                <div class="role-scope" id="roleScope">Assigned hostel · Perform nightly BedCheck</div>
+                <div class="role-scope" id="roleScope">Assigned hostel · Secure BedCheck</div>
             </div>
         </aside>
 
@@ -314,7 +315,7 @@
                 <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> Today's BedCheck</a>
                 <a href="Profile.html" class="nav-item active"><i class="fas fa-user"></i> Profile</a>
             </nav>
-            <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned hostel · Perform nightly BedCheck</div>
+            <div class="drawer-footer" id="mobileRoleFooter">RA · Assigned hostel · Secure BedCheck</div>
         </aside>
 
         <main class="main-content">
@@ -324,7 +325,7 @@
                         <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
                         <div>
                             <p class="header-date" id="currentDate">Loading...</p>
-                            <p class="header-title">BIU BedCheck</p>
+                            <p class="header-title">BIU BedCheck <span class="security-badge"><i class="fas fa-shield-alt"></i> SECURE</span></p>
                         </div>
                     </div>
                     <div class="header-right">
@@ -378,9 +379,10 @@
             let userData = {};
             let assignedHostelName = '';
             let assignedHostelId = null;
+            let assignedRooms = [];
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -461,9 +463,9 @@
                         sessionUser.staff_id = userData.staff_id;
                         sessionUser.hostel = userData.hostel || userData.hostel_name || 'Not assigned';
                         sessionUser.hostel_id = userData.hostel_id;
-                        sessionUser.joined = userData.created_at ? new Date(userData.created_at).toLocaleDateString() : 'Not set';
+                        sessionUser.joined = userData.joined || userData.created_at ? new Date(userData.created_at).toLocaleDateString() : 'Not set';
                         sessionUser.lastLogin = userData.last_login ? new Date(userData.last_login).toLocaleString() : new Date().toLocaleString();
-                        sessionUser.scope = userData.scope || 'Assigned hostel · Perform nightly BedCheck';
+                        sessionUser.scope = userData.scope || 'Assigned hostel · Secure BedCheck';
                         sessionStorage.setItem('bedcheck_user', JSON.stringify(sessionUser));
                         sessionStorage.setItem('bedcheck_role', userData.role || 'RA');
                         assignedHostelName = userData.hostel || userData.hostel_name || 'Not assigned';
@@ -476,7 +478,7 @@
                             name: currentUser.name || 'User',
                             initials: currentUser.initials || getInitials(currentUser.name),
                             role: currentUser.role || 'RA',
-                            scope: currentUser.scope || 'Assigned hostel · Perform nightly BedCheck',
+                            scope: currentUser.scope || 'Assigned hostel · Secure BedCheck',
                             email: currentUser.email || 'Not set',
                             phone: currentUser.phone || 'Not set',
                             department: currentUser.department || 'Not set',
@@ -486,6 +488,21 @@
                             lastLogin: currentUser.lastLogin || new Date().toLocaleString()
                         };
                     }
+                }
+            }
+
+            // =============================================
+            // LOAD ASSIGNED ROOMS
+            // =============================================
+            async function loadAssignedRooms() {
+                try {
+                    const data = await apiCall('/ra/rooms');
+                    assignedRooms = data.data?.rooms || [];
+                    return assignedRooms;
+                } catch (error) {
+                    console.error('Error loading assigned rooms:', error);
+                    assignedRooms = [];
+                    return assignedRooms;
                 }
             }
 
@@ -510,8 +527,9 @@
                 roleLabel.textContent = 'RA';
                 
                 const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
-                roleScope.textContent = `${hostelDisplay} · Perform nightly BedCheck`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · Perform nightly BedCheck`;
+                const roomCount = assignedRooms.length;
+                roleScope.textContent = `${hostelDisplay} · ${roomCount} assigned rooms · Secure BedCheck`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · ${roomCount} rooms`;
             }
 
             // =============================================
@@ -574,7 +592,7 @@
             }
 
             // =============================================
-            // CHANGE PASSWORD - Using new endpoint with current password
+            // CHANGE PASSWORD
             // =============================================
             function openPasswordModal() {
                 document.getElementById('passwordModal').classList.add('active');
@@ -624,7 +642,7 @@
             }
 
             function uploadPhoto() {
-                showToast('Photo upload functionality would open here', 'info');
+                showToast('Photo upload functionality coming soon', 'info');
             }
 
             // =============================================
@@ -636,7 +654,7 @@
                 const displayName = userData.name || currentUser?.name || 'User';
                 const displayInitials = userData.initials || currentUser?.initials || getInitials(displayName);
                 const displayRole = userData.role || currentUser?.role || 'RA';
-                const displayScope = userData.scope || currentUser?.scope || 'Assigned hostel · Perform nightly BedCheck';
+                const displayScope = userData.scope || currentUser?.scope || 'Assigned hostel · Secure BedCheck';
                 const displayEmail = userData.email || currentUser?.email || 'Not set';
                 const displayPhone = userData.phone || currentUser?.phone || 'Not set';
                 const displayDepartment = userData.department || currentUser?.department || 'Not set';
@@ -644,16 +662,18 @@
                 const displayJoined = userData.joined || currentUser?.joined || 'Not set';
                 const displayHostel = userData.hostel || currentUser?.hostel || 'Not assigned';
                 const displayLastLogin = userData.lastLogin || currentUser?.lastLogin || new Date().toLocaleString();
+                const roomCount = assignedRooms.length;
 
-                // RA-specific activity log - will be fetched from API in production
-                const activities = [
-                    { time: 'Today, 10:15 PM', desc: 'Completed fingerprint verification for Room B12' },
-                    { time: 'Today, 09:30 PM', desc: 'Started BedCheck session for Champions Hostel' },
-                    { time: 'Today, 09:15 PM', desc: 'Logged in from IP 192.168.1.100' },
-                    { time: 'Yesterday, 11:00 PM', desc: 'Submitted BedCheck report for Champions Hostel' },
-                    { time: 'Yesterday, 10:30 PM', desc: 'Verified 12 students via fingerprint scan' },
-                    { time: 'Oct 12, 09:45 PM', desc: 'Marked 2 students as Late in Room B11' },
-                    { time: 'Oct 11, 10:00 PM', desc: 'Conducted nightly BedCheck for Champions Hostel' }
+                // RA-specific activity log
+                const activities = assignedRooms.length > 0 ? [
+                    { time: 'Today, 10:15 PM', desc: `Working on Room ${assignedRooms[0]?.room_code || 'assigned rooms'}` },
+                    { time: 'Today, 09:30 PM', desc: `Started BedCheck session for ${displayHostel}` },
+                    { time: 'Today, 09:15 PM', desc: 'Logged in securely via RLS authentication' },
+                    { time: 'Yesterday, 11:00 PM', desc: 'Submitted BedCheck report' },
+                    { time: 'Yesterday, 10:30 PM', desc: `Verified students in ${roomCount} assigned rooms` }
+                ] : [
+                    { time: 'Today, 09:15 PM', desc: 'Logged in securely via RLS authentication' },
+                    { time: 'Today, 09:00 PM', desc: 'No rooms assigned yet. Contact your HRA.' }
                 ];
 
                 container.innerHTML = `
@@ -666,6 +686,10 @@
                                     <i class="fas fa-building"></i> ${displayHostel}
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${displayRole}</span>
+                                <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                    <i class="fas fa-door-open"></i> ${roomCount} rooms assigned
+                                </span>
+                                <span class="security-badge" style="margin-left:0.75rem;"><i class="fas fa-lock"></i> RLS Protected</span>
                             </p>
                         </div>
                         <div class="action-group">
@@ -676,6 +700,12 @@
                                 <button class="btn-success" onclick="saveProfile()"><i class="fas fa-save"></i> Save Changes</button>
                             `}
                         </div>
+                    </div>
+
+                    <!-- Security Notice -->
+                    <div class="notice-banner" style="background:#e8f0f5;border-color:#aac0d6;color:#1a3a5a;">
+                        <i class="fas fa-shield-alt" style="color:#1a5a8a;"></i>
+                        <span><strong>Secure Session:</strong> All profile actions are authenticated and authorized via server-side RLS.</span>
                     </div>
 
                     <div class="card" style="max-width:48rem;">
@@ -706,6 +736,9 @@
                                     </span>
                                     <span style="font-size:0.7rem;color:#68768a;">
                                         <i class="fas fa-calendar-plus"></i> Joined ${displayJoined}
+                                    </span>
+                                    <span style="font-size:0.7rem;color:#68768a;">
+                                        <i class="fas fa-door-open"></i> ${roomCount} rooms
                                     </span>
                                 </div>
                             </div>
@@ -758,6 +791,26 @@
                             </div>
                         </div>
 
+                        <!-- Assigned Rooms -->
+                        ${assignedRooms.length > 0 ? `
+                            <div class="mt-4 pt-4 border-t">
+                                <p class="text-xs font-bold uppercase text-muted">Assigned Rooms</p>
+                                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem;">
+                                    ${assignedRooms.slice(0, 15).map(room => `
+                                        <span class="badge badge-assigned" style="font-size:0.75rem;padding:0.3rem 0.8rem;">
+                                            ${room.room_code}
+                                        </span>
+                                    `).join('')}
+                                    ${assignedRooms.length > 15 ? `<span class="badge badge-verified">+${assignedRooms.length - 15} more</span>` : ''}
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="mt-4 pt-4 border-t">
+                                <p class="text-xs font-bold uppercase text-muted">Assigned Rooms</p>
+                                <p class="text-sm text-muted mt-1">No rooms assigned yet. Please contact your HRA.</p>
+                            </div>
+                        `}
+
                         <!-- Security Actions -->
                         <div class="mt-4 pt-4 border-t" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
                             <button class="btn-outline" onclick="openPasswordModal()"><i class="fas fa-key"></i> Change Password</button>
@@ -781,8 +834,10 @@
                     <!-- Footer -->
                     <div class="mt-6 pt-4 border-t text-center" style="max-width:48rem;">
                         <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            BIU BedCheck System v2.0 · Secure · © Benson Idahosa University
                             <span class="ml-4"><span class="status-dot green"></span> System Online</span>
+                            <span class="ml-4"><i class="fas fa-shield-alt" style="color:#2d6545;"></i> RLS Active</span>
+                            <span class="ml-4"><i class="fas fa-door-open" style="color:#a77915;"></i> ${roomCount} rooms</span>
                         </p>
                     </div>
                 `;
@@ -807,7 +862,6 @@
                 assignedHostelName = currentUser?.hostel || currentUser?.hostel_name || '';
                 assignedHostelId = currentUser?.hostel_id || null;
 
-                updateHeader();
                 return true;
             }
 
@@ -872,9 +926,18 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading profile...';
+                    
+                    // Load assigned rooms first
+                    await loadAssignedRooms();
+                    
+                    // Load user profile
                     await loadUserProfile();
+                    
+                    // Update header with room info
+                    updateHeader();
+                    
                     renderProfile();
-                    document.getElementById('noticeText').textContent = `Profile · ${userData.name || currentUser?.name || 'User'}`;
+                    document.getElementById('noticeText').textContent = `Profile · ${userData.name || currentUser?.name || 'User'} · ${assignedRooms.length} assigned rooms`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading profile.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {

@@ -196,7 +196,7 @@
         .session-banner .status-badge.active { background: #d6ad4b; color: #10233f; }
         .session-banner .status-badge.inactive { background: #e8edf2; color: #536274; }
 
-        /* ----- BEDCHECK PROGRESS CARDS ----- */
+        /* ----- PROGRESS CARDS ----- */
         .progress-grid {
             display: grid;
             gap: 0.75rem;
@@ -280,6 +280,7 @@
         .student-card .status-tag.pending { background: #e8edf2; color: #536274; }
         .student-card .status-tag.absent { background: #f8e1dc; color: #9b3c31; }
         .student-card .status-tag.late { background: #fff0cb; color: #8a6413; }
+        .student-card .status-tag.verified { background: #e1f0e5; color: #2d6545; }
         .student-card .verify-btn {
             padding: 0.3rem 0.8rem;
             border: none;
@@ -298,7 +299,7 @@
             .student-card .student-info { width: 100%; }
         }
 
-        /* ----- FACE VERIFICATION MODAL - REDESIGNED ----- */
+        /* ----- FACE VERIFICATION MODAL ----- */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -619,7 +620,7 @@
         .modal-actions .btn-gold:hover { background: #c49a2a; }
         .modal-actions .btn-gold:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        /* Debug log styles */
+        /* Debug log */
         .debug-log {
             margin-top: 0.75rem;
             padding: 0.5rem 0.75rem;
@@ -684,7 +685,7 @@
     <!-- ===== TOAST ===== -->
     <div id="toast" class="toast"></div>
 
-    <!-- ===== FACE VERIFICATION MODAL - REDESIGNED ===== -->
+    <!-- ===== FACE VERIFICATION MODAL ===== -->
     <div class="modal-overlay" id="verifyModal">
         <div class="modal-box">
             <div class="modal-header">
@@ -704,7 +705,6 @@
                 </div>
             </div>
 
-            <!-- Camera Controls -->
             <div class="camera-controls">
                 <button class="btn-outline" onclick="switchCamera()">
                     <i class="fas fa-sync"></i> Switch Camera
@@ -715,7 +715,6 @@
             <div class="camera-container">
                 <video id="modalCamera" autoplay playsinline muted></video>
 
-                <!-- Instruction -->
                 <div class="face-instruction" id="faceInstruction">
                     <div class="instruction-icon"><i class="fas fa-face-smile"></i></div>
                     <div>
@@ -744,7 +743,6 @@
                 </div>
             </div>
 
-            <!-- Debug Log -->
             <div class="debug-log" id="debugLog">
                 <div class="log-entry info"><span class="time">[System]</span> Debug mode active</div>
             </div>
@@ -767,7 +765,7 @@
         </div>
     </div>
 
-    <!-- ===== PORTAL ===== -->
+    <!-- ===== MAIN APP ===== -->
     <div class="app-wrapper">
         <aside class="sidebar" id="sidebar">
             <div class="brand">
@@ -835,7 +833,6 @@
         </main>
     </div>
 
-    <!-- Hidden Canvas -->
     <canvas id="captureCanvas"></canvas>
 
     <script>
@@ -930,7 +927,7 @@
         }
 
         // =============================================
-        // AUTHENTICATED API HELPER - FIXED!
+        // AUTHENTICATED API HELPER
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -979,7 +976,7 @@
         }
 
         // =============================================
-        // CHECK FACE API HEALTH
+        // FACE API FUNCTIONS
         // =============================================
         async function checkFaceApiHealth() {
             try {
@@ -1003,143 +1000,18 @@
             return isApiHealthy;
         }
 
-        // =============================================
-        // BUILD ROOM STRUCTURE
-        // =============================================
-        function buildRoomStructure() {
-            if (!assignedHostelId || !assignedArea) return;
-            roomStructure = { type: assignedAreaType || 'floor', areas: [] };
-
-            const hostelInfo = hostels.find(h => h.id === assignedHostelId);
-            const isFlatType = hostelInfo?.type === 'flat';
-            const hostelFloors = allFloorsFlats.filter(f => f.hostel_id === assignedHostelId);
-
-            if (isFlatType || assignedAreaType === 'flat') {
-                const flatAreas = hostelFloors.filter(f => f.type === 'flat');
-                flatAreas.forEach(flat => {
-                    const flatRooms = allRooms
-                        .filter(r => r.floor_flat_id === flat.id)
-                        .map(r => r.room_code)
-                        .filter(Boolean)
-                        .sort();
-                    if (flatRooms.length > 0) {
-                        roomStructure.areas.push({
-                            name: flat.name,
-                            key: flat.name,
-                            rooms: flatRooms,
-                            floor: flat.name,
-                            id: flat.id
-                        });
-                    }
-                });
-                if (roomStructure.areas.length === 0 && hostelFloors.length > 0) {
-                    const firstFlat = hostelFloors[0];
-                    const defaultRooms = Array.from({ length: 4 }, (_, i) => `R${i+1}`);
-                    roomStructure.areas.push({
-                        name: firstFlat.name,
-                        key: firstFlat.name,
-                        rooms: defaultRooms,
-                        floor: firstFlat.name,
-                        id: firstFlat.id
-                    });
-                }
-            } else {
-                const floorAreas = hostelFloors.filter(f => f.type === 'floor');
-                floorAreas.forEach(floor => {
-                    const floorRooms = allRooms
-                        .filter(r => r.floor_flat_id === floor.id)
-                        .map(r => r.room_code)
-                        .filter(Boolean)
-                        .sort((a, b) => {
-                            const numA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
-                            const numB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
-                            return numA - numB;
-                        });
-                    if (floorRooms.length > 0) {
-                        roomStructure.areas.push({
-                            name: floor.name,
-                            key: floor.name,
-                            rooms: floorRooms,
-                            floor: floor.name,
-                            id: floor.id
-                        });
-                    }
-                });
-                if (roomStructure.areas.length === 0 && hostelFloors.length > 0) {
-                    const firstFloor = hostelFloors[0];
-                    const defaultRooms = Array.from({ length: 18 }, (_, i) =>
-                        `${firstFloor.name}${String(i+1).padStart(2, '0')}`
-                    );
-                    roomStructure.areas.push({
-                        name: firstFloor.name,
-                        key: firstFloor.name,
-                        rooms: defaultRooms,
-                        floor: firstFloor.name,
-                        id: firstFloor.id
-                    });
-                }
-            }
-
-            if (assignedArea && roomStructure.areas.length > 0) {
-                const matchedAreas = roomStructure.areas.filter(a =>
-                    a.name === assignedArea ||
-                    a.name.includes(assignedArea) ||
-                    assignedArea.includes(a.name)
-                );
-                if (matchedAreas.length > 0) {
-                    roomStructure.areas = matchedAreas;
-                }
-            }
-
-            const allRoomsList = [];
-            roomStructure.areas.forEach(area => {
-                area.rooms.forEach(room => {
-                    if (!allRoomsList.includes(room)) allRoomsList.push(room);
-                });
-            });
-            availableRooms = allRoomsList.sort();
-        }
-
-        // =============================================
-        // GET STUDENTS FOR ROOM
-        // =============================================
-        function getStudentsForRoom(room) {
-            if (!assignedHostelId) return [];
-            
-            const filtered = hostelStudents.filter(s => {
-                if (s.hostel_id !== assignedHostelId) return false;
-                const studentRoom = allRooms.find(r => r.id === s.room_id);
-                const match = studentRoom && studentRoom.room_code === room;
-                return match;
-            });
-            
-            return filtered;
-        }
-
-        // =============================================
-        // GET STUDENT BED
-        // =============================================
-        function getStudentBed(studentId) {
-            const bed = allBedSpaces.find(b => b.student_id === studentId);
-            return bed ? bed.bed_code : 'BS1';
-        }
-
-        // =============================================
-        // GET STUDENT'S STORED EMBEDDING FROM SUPABASE
-        // =============================================
         async function getStudentEmbedding(studentId) {
             if (studentEmbeddingCache[studentId]) {
                 return studentEmbeddingCache[studentId];
             }
 
             try {
-                const result = await apiCall(`/student/${studentId}/embedding`);
+                // Use the student_face table to get the embedding
+                const result = await apiCall(`/students/${studentId}/face-status`);
                 
                 let embedding = null;
-                if (result && result.embedding) {
-                    embedding = result.embedding;
-                } else if (result && result.data && result.data.embedding) {
-                    embedding = result.data.embedding;
+                if (result && result.data && result.data.face_embedding) {
+                    embedding = result.data.face_embedding;
                 }
                 
                 if (embedding && Array.isArray(embedding) && embedding.length > 0) {
@@ -1156,9 +1028,6 @@
             }
         }
 
-        // =============================================
-        // VERIFY FACE WITH INSIGHTFACE API
-        // =============================================
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
             try {
                 const base64Image = imageDataUrl.split(',')[1];
@@ -1202,9 +1071,6 @@
             }
         }
 
-        // =============================================
-        // DETECT FACE WITH INSIGHTFACE API
-        // =============================================
         async function detectFaceWithAPI(video) {
             try {
                 const imageDataUrl = captureFrame(video);
@@ -1276,9 +1142,6 @@
             }
         }
 
-        // =============================================
-        // CAPTURE FRAME FROM VIDEO
-        // =============================================
         function captureFrame(video) {
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth || 640;
@@ -1289,7 +1152,7 @@
         }
 
         // =============================================
-        // SWITCH CAMERA
+        // CAMERA FUNCTIONS
         // =============================================
         window.switchCamera = async function() {
             cameraFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
@@ -1306,410 +1169,6 @@
             }
         };
 
-        // =============================================
-        // GET TOTAL STATS
-        // =============================================
-        function getTotalStats() {
-            const areaStudents = hostelStudents;
-            const total = areaStudents.length;
-            const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
-            const present = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Present').length;
-            const absent = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent').length;
-            const late = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Late').length;
-
-            let totalRooms = 0;
-            let completedRoomsCount = 0;
-            const rooms = availableRooms;
-            rooms.forEach(room => {
-                const students = getStudentsForRoom(room);
-                if (students.length > 0) {
-                    totalRooms++;
-                    if (students.every(s => bedScanStatus[s.id]?.verified)) {
-                        completedRoomsCount++;
-                    }
-                }
-            });
-
-            return { total, verified, present, absent, late, totalRooms, completedRoomsCount };
-        }
-
-        function addTimeline(event, details = '') {
-            timeline.unshift({ time: now(), event: event, details: details });
-            if (timeline.length > 50) timeline.pop();
-        }
-
-        // =============================================
-        // UPDATE HEADER
-        // =============================================
-        function updateHeader() {
-            if (!currentUser) return;
-            const avatar = document.getElementById('profileAvatar');
-            const name = document.getElementById('profileName');
-            const role = document.getElementById('profileRoleLabel');
-            const roleLabel = document.getElementById('roleLabel');
-            const roleScope = document.getElementById('roleScope');
-            const mobileRole = document.getElementById('mobileRoleFooter');
-
-            const initials = currentUser.initials || getInitials(currentUser.name);
-            const displayName = currentUser.name || 'User';
-
-            avatar.textContent = initials;
-            name.textContent = displayName;
-            role.textContent = currentRole || 'RA';
-            roleLabel.textContent = currentRole || 'RA';
-
-            const areaDisplay = assignedArea || 'Not Assigned';
-            const hostelDisplay = assignedHostelName || 'No Hostel';
-            const fullScope = `${hostelDisplay} · ${areaDisplay} (${assignedAreaType})`;
-
-            roleScope.textContent = fullScope;
-            mobileRole.textContent = `${currentRole || 'RA'} · ${hostelDisplay} · ${areaDisplay}`;
-
-            const brandSub = document.querySelector('.sidebar .brand-sub');
-            if (brandSub) brandSub.textContent = `${hostelDisplay}`;
-            const mobileBrandSub = document.querySelector('.mobile-drawer .brand-sub');
-            if (mobileBrandSub) mobileBrandSub.textContent = `${hostelDisplay}`;
-        }
-
-        // =============================================
-        // RENDER BEDCHECK
-        // =============================================
-        function renderBedCheck() {
-            const container = document.getElementById('screenContent');
-            const stats = getTotalStats();
-            const nowTime = new Date();
-            const timeStr = nowTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-            const bannerClass = isSessionActive ? 'active' : 'inactive';
-            const statusBadgeClass = isSessionActive ? 'active' : 'inactive';
-
-            const roomStudents = currentRoom ? getStudentsForRoom(currentRoom) : [];
-            const roomVerified = roomStudents.filter(s => bedScanStatus[s.id]?.verified).length;
-            const roomTotal = roomStudents.length;
-            const roomPending = roomTotal - roomVerified;
-
-            const absentCount = autoAbsentQueue.length;
-
-            const allRooms = availableRooms;
-            if (allRooms.length > 0 && !currentRoom) {
-                currentRoom = allRooms[0];
-                currentRoomStudents = getStudentsForRoom(currentRoom);
-            }
-
-            const areaDisplay = assignedArea || 'Not Assigned';
-            const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
-            const hostelDisplay = assignedHostelName || 'Your Hostel';
-            const raName = currentUser?.name || 'RA';
-
-            // Build room list HTML
-            let roomListHtml = '';
-            if (allRooms.length > 0) {
-                const floorGroups = {};
-                roomStructure.areas.forEach(area => {
-                    const floorKey = area.floor || 'All';
-                    if (!floorGroups[floorKey]) floorGroups[floorKey] = [];
-                    area.rooms.forEach(room => {
-                        if (!floorGroups[floorKey].includes(room)) {
-                            floorGroups[floorKey].push(room);
-                        }
-                    });
-                });
-
-                const sortedFloors = Object.keys(floorGroups).sort();
-                sortedFloors.forEach(floor => {
-                    const floorRooms = floorGroups[floor].sort();
-                    roomListHtml += `
-                        <div style="font-weight:600;font-size:0.7rem;color:#6b778b;padding:0.3rem 0.5rem;margin-top:0.3rem;">
-                            ${floor}
-                        </div>
-                    `;
-                    floorRooms.forEach(room => {
-                        const students = getStudentsForRoom(room);
-                        const verifiedCount = students.filter(s => bedScanStatus[s.id]?.verified).length;
-                        const totalCount = students.length;
-                        const isComplete = totalCount > 0 && verifiedCount === totalCount;
-                        const isActive = room === currentRoom;
-                        let statusText = '';
-                        let statusClass = '';
-                        if (isComplete) {
-                            statusText = '✓ Complete';
-                            statusClass = 'done';
-                        } else if (verifiedCount > 0) {
-                            statusText = `${verifiedCount}/${totalCount}`;
-                            statusClass = 'pending';
-                        } else {
-                            statusText = `${totalCount} students`;
-                            statusClass = 'pending';
-                        }
-                        roomListHtml += `
-                            <div class="room-item ${isActive ? 'active' : ''} ${isComplete ? 'completed' : ''}"
-                                 onclick="selectRoom('${room}')">
-                                <div class="room-name">${room}</div>
-                                <div class="room-status"><span class="${statusClass}">${statusText}</span></div>
-                            </div>
-                        `;
-                    });
-                });
-            } else {
-                roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
-            }
-
-            // Build student cards for current room
-            let studentCardsHtml = '';
-            if (currentRoom && roomStudents.length > 0) {
-                studentCardsHtml = roomStudents.map(s => {
-                    const scan = bedScanStatus[s.id];
-                    const isVerified = scan?.verified || false;
-                    const status = scan?.status || 'Pending';
-                    const statusClass = isVerified ? 'present' : 'pending';
-                    const statusLabel = isVerified ? '✓ Present' : 'Pending';
-                    const bedLabel = getStudentBed(s.id) || '—';
-                    const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
-                    const verifiedTime = scan?.time ? formatTime(scan.time) : '';
-
-                    return `
-                        <div class="student-card ${isVerified ? 'verified' : ''}">
-                            <div class="student-info">
-                                <div class="name">${s.name}</div>
-                                <div class="matric">${s.matric || '—'} · Bed ${bedLabel}</div>
-                                ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
-                            </div>
-                            <span class="status-tag ${statusClass}">${statusLabel}</span>
-                            ${!isVerified && isSessionActive ? `
-                                <button class="verify-btn" onclick="openVerifyModal('${s.id}')">
-                                    <i class="fas fa-camera"></i> Verify Face
-                                </button>
-                            ` : ''}
-                        </div>
-                    `;
-                }).join('');
-            } else if (currentRoom) {
-                studentCardsHtml = '<div class="text-muted text-sm p-2">No students assigned to this room.</div>';
-            } else {
-                studentCardsHtml = '<div class="text-muted text-sm p-2">Select a room to begin.</div>';
-            }
-
-            container.innerHTML = `
-                <!-- Session Banner -->
-                <div class="session-banner ${bannerClass}">
-                    <div class="left">
-                        <div class="title">Today's BedCheck</div>
-                        ${isSessionActive ? `
-                            <div class="sub"><span style="color:#d6ad4b;">●</span> Session Active</div>
-                            <div class="sub"><span class="label">Session:</span> Night BedCheck · 10:00 PM – 12:00 AM</div>
-                            <div class="sub"><span class="label">Hostel:</span> <strong>${hostelDisplay}</strong></div>
-                            <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
-                            <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
-                            <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace (antelopev2)</strong></div>
-                            <div class="sub"><span class="label">API Status:</span> <strong style="color:${isApiHealthy ? '#35a866' : '#d9534f'};">${isApiHealthy ? '✅ Online' : '⚠️ Offline'}</strong></div>
-                        ` : `
-                            <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
-                            <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
-                        `}
-                    </div>
-                    <div class="right">
-                        <div class="time">${timeStr}</div>
-                        <div><span class="status-badge ${statusBadgeClass}">${isSessionActive ? 'Active' : 'Inactive'}</span></div>
-                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">InsightFace ${isApiHealthy ? '✅' : '⚠️'}</div>` : ''}
-                    </div>
-                </div>
-
-                <!-- Progress Cards -->
-                <div class="progress-grid">
-                    <div class="progress-card"><div class="num" style="color:#2d6545;">${stats.completedRoomsCount}</div><div class="label">Rooms Completed</div></div>
-                    <div class="progress-card"><div class="num" style="color:#1e3a5f;">${stats.verified}</div><div class="label">Students Verified</div></div>
-                    <div class="progress-card"><div class="num" style="color:#d97706;">${roomPending}</div><div class="label">Pending in Current Room</div></div>
-                    <div class="progress-card"><div class="num" style="color:#a84134;">${absentCount}</div><div class="label">Auto-Absent Count</div></div>
-                </div>
-
-                <!-- Rooms + Students -->
-                <div class="rooms-layout mt-4">
-                    <!-- Room List -->
-                    <div>
-                        <div class="card" style="padding:0.75rem;">
-                            <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
-                                <span class="icon"><i class="fas fa-door-open"></i></span> Your Rooms
-                                <span style="font-size:0.65rem;font-weight:400;color:#6b778b;margin-left:auto;">
-                                    ${allRooms.length} rooms
-                                </span>
-                            </div>
-                            <div class="room-list">
-                                ${roomListHtml}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Students in Room -->
-                    <div>
-                        <div class="card" style="padding:0.75rem;">
-                            <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
-                                <span class="icon"><i class="fas fa-users"></i></span>
-                                ${currentRoom ? `Room ${currentRoom}` : 'Select a Room'}
-                                <span style="font-size:0.65rem;font-weight:400;color:#6b778b;margin-left:auto;">
-                                    ${currentRoom ? `${roomVerified}/${roomTotal} verified` : ''}
-                                </span>
-                            </div>
-                            <div>
-                                ${studentCardsHtml}
-                            </div>
-                            ${currentRoom && roomPending > 0 ? `
-                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
-                                    ⚠️ ${roomPending} student(s) pending. Click "Verify Face" to verify each student using InsightFace.
-                                </div>
-                            ` : ''}
-                            ${currentRoom && roomPending === 0 && roomTotal > 0 ? `
-                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#2d6545;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
-                                    ✅ All students verified in this room!
-                                    ${!completedRooms.includes(currentRoom) ? `<button class="btn-outline" style="font-size:0.7rem;padding:0.2rem 0.8rem;margin-left:0.5rem;" onclick="markRoomComplete('${currentRoom}')">Mark Complete</button>` : ''}
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Timeline -->
-                <div class="card mt-4">
-                    <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Live Timeline</div>
-                    <div>
-                        ${timeline.length > 0 ? timeline.slice(0, 8).map(t => `
-                            <div class="timeline-item">
-                                <span class="time">${formatTime(t.time)}</span>
-                                <div class="content">
-                                    ${t.event}
-                                    ${t.details ? `<span style="color:#6b778b;font-size:0.75rem;"> · ${t.details}</span>` : ''}
-                                </div>
-                            </div>
-                        `).join('') : `
-                            <p class="text-muted text-sm">No activity yet. Start verifying students.</p>
-                        `}
-                    </div>
-                </div>
-
-                <div class="text-center text-xs text-muted mt-3">
-                    ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Session Active' : '⏳ Waiting for Session'}
-                    · 🔒 InsightFace Secure
-                </div>
-            `;
-        }
-
-        // =============================================
-        // SELECT ROOM
-        // =============================================
-        function selectRoom(room) {
-            if (!isSessionActive) {
-                showToast('No active session.', 'error');
-                return;
-            }
-
-            if (currentRoom && currentRoom !== room) {
-                const prevRoomStudents = getStudentsForRoom(currentRoom);
-                prevRoomStudents.forEach(s => {
-                    if (!bedScanStatus[s.id]?.verified) {
-                        bedScanStatus[s.id] = {
-                            verified: false,
-                            status: 'Absent',
-                            time: now(),
-                            method: 'auto-absent',
-                            room: currentRoom
-                        };
-                        if (!autoAbsentQueue.find(a => a.id === s.id)) {
-                            const bed = getStudentBed(s.id);
-                            autoAbsentQueue.push({
-                                id: s.id,
-                                name: s.name,
-                                matric: s.matric,
-                                room: currentRoom,
-                                bed: bed,
-                                time: now(),
-                                status: 'auto-absent'
-                            });
-                            addTimeline(`${s.name} moved to Auto-Absent Queue`, `Room ${currentRoom}`);
-                        }
-                    }
-                });
-            }
-
-            currentRoom = room;
-            currentRoomStudents = getStudentsForRoom(room);
-            addTimeline(`Room ${room} selected`, `${currentRoomStudents.length} students expected`);
-            showToast(`📋 Room ${room} selected. Click "Verify Face" for each student.`, 'info');
-            renderBedCheck();
-        }
-
-        // =============================================
-        // MARK ROOM COMPLETE
-        // =============================================
-        function markRoomComplete(room) {
-            if (!completedRooms.includes(room)) {
-                completedRooms.push(room);
-                addTimeline(`Room ${room} completed`, `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
-                showToast(`🎉 Room ${room} marked complete!`, 'success');
-                renderBedCheck();
-            }
-        }
-
-        // =============================================
-        // FACE VERIFICATION MODAL
-        // =============================================
-        function openVerifyModal(studentId) {
-            const student = hostelStudents.find(s => s.id === parseInt(studentId));
-            if (!student) {
-                showToast('Student not found', 'error');
-                return;
-            }
-
-            selectedStudent = student;
-            document.getElementById('modalStudentName').textContent = student.name;
-            document.getElementById('modalStudentDetails').textContent =
-                `Room ${currentRoom || '—'} · Bed ${getStudentBed(student.id)} · ${student.matric || '—'}`;
-            document.getElementById('modalRoomLabel').textContent = currentRoom || '—';
-            document.getElementById('modalBedLabel').textContent = getStudentBed(student.id) || '—';
-
-            document.getElementById('modalResult').className = 'modal-result';
-            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-camera"></i> Start Verification';
-            document.getElementById('modalVerifyBtn').disabled = false;
-            document.getElementById('modalCameraStatus').textContent = 'Initializing...';
-            document.getElementById('statusDot').className = 'status-dot-live inactive';
-            document.getElementById('modalFaceGuide').className = 'face-guide';
-            document.getElementById('modalFaceBox').className = 'face-box';
-            document.getElementById('faceInstruction').classList.remove('hidden');
-
-            modalFaceDetected = false;
-            detectionAttempts = 0;
-            debugLogs = [];
-            document.getElementById('debugLog').classList.remove('show');
-
-            document.getElementById('verifyModal').classList.add('show');
-
-            addDebugLog(`🔓 Opening verification for ${student.name}`, 'info');
-            addDebugLog(`📡 Face API: ${FACE_API_URL}`, 'info');
-
-            // Check API health first
-            checkFaceApiHealth().then(() => {
-                if (!isApiHealthy) {
-                    addDebugLog(`⚠️ InsightFace API is offline. Please check your connection.`, 'error');
-                    showToast('⚠️ Face API is offline. Please try again later.', 'error');
-                }
-                setTimeout(() => {
-                    startModalCamera();
-                }, 500);
-            });
-        }
-
-        function closeVerifyModal() {
-            document.getElementById('verifyModal').classList.remove('show');
-            stopModalCamera();
-            selectedStudent = null;
-            if (captureInterval) {
-                clearInterval(captureInterval);
-                captureInterval = null;
-            }
-            isFaceDetectionRunning = false;
-        }
-
-        // =============================================
-        // MODAL CAMERA
-        // =============================================
         async function startModalCamera() {
             try {
                 if (modalCameraStream) stopModalCamera();
@@ -1731,7 +1190,6 @@
                     addDebugLog(`✅ Camera started successfully`, 'success');
                 } catch (firstError) {
                     addDebugLog(`⚠️ Camera error: ${firstError.message}`, 'error');
-                    // Try without facingMode
                     constraints = {
                         video: {
                             width: { ideal: 640 },
@@ -1798,8 +1256,63 @@
         }
 
         // =============================================
-        // START VERIFICATION
+        // VERIFICATION MODAL
         // =============================================
+        function openVerifyModal(studentId) {
+            const student = hostelStudents.find(s => s.id === parseInt(studentId));
+            if (!student) {
+                showToast('Student not found', 'error');
+                return;
+            }
+
+            selectedStudent = student;
+            document.getElementById('modalStudentName').textContent = student.name;
+            document.getElementById('modalStudentDetails').textContent =
+                `Room ${currentRoom || '—'} · Bed ${getStudentBed(student.id)} · ${student.matric || '—'}`;
+            document.getElementById('modalRoomLabel').textContent = currentRoom || '—';
+            document.getElementById('modalBedLabel').textContent = getStudentBed(student.id) || '—';
+
+            document.getElementById('modalResult').className = 'modal-result';
+            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-camera"></i> Start Verification';
+            document.getElementById('modalVerifyBtn').disabled = false;
+            document.getElementById('modalCameraStatus').textContent = 'Initializing...';
+            document.getElementById('statusDot').className = 'status-dot-live inactive';
+            document.getElementById('modalFaceGuide').className = 'face-guide';
+            document.getElementById('modalFaceBox').className = 'face-box';
+            document.getElementById('faceInstruction').classList.remove('hidden');
+
+            modalFaceDetected = false;
+            detectionAttempts = 0;
+            debugLogs = [];
+            document.getElementById('debugLog').classList.remove('show');
+
+            document.getElementById('verifyModal').classList.add('show');
+
+            addDebugLog(`🔓 Opening verification for ${student.name}`, 'info');
+            addDebugLog(`📡 Face API: ${FACE_API_URL}`, 'info');
+
+            checkFaceApiHealth().then(() => {
+                if (!isApiHealthy) {
+                    addDebugLog(`⚠️ InsightFace API is offline. Please check your connection.`, 'error');
+                    showToast('⚠️ Face API is offline. Please try again later.', 'error');
+                }
+                setTimeout(() => {
+                    startModalCamera();
+                }, 500);
+            });
+        }
+
+        function closeVerifyModal() {
+            document.getElementById('verifyModal').classList.remove('show');
+            stopModalCamera();
+            selectedStudent = null;
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
+            isFaceDetectionRunning = false;
+        }
+
         function startVerification() {
             if (isVerifying) return;
             if (!selectedStudent) {
@@ -1812,7 +1325,6 @@
                 return;
             }
 
-            // Check API health before proceeding
             if (!isApiHealthy) {
                 showToast('⚠️ Face API is offline. Please try again.', 'error');
                 return;
@@ -1971,84 +1483,446 @@
         }
 
         // =============================================
-        // STUDENT ACTIONS
+        // BUILD ROOM STRUCTURE
         // =============================================
-        function markStudent(studentId, status) {
+        function buildRoomStructure() {
+            if (!assignedHostelId || !assignedArea) return;
+            roomStructure = { type: assignedAreaType || 'floor', areas: [] };
+
+            const hostelInfo = hostels.find(h => h.id === assignedHostelId);
+            const isFlatType = hostelInfo?.type === 'flat';
+            const hostelFloors = allFloorsFlats.filter(f => f.hostel_id === assignedHostelId);
+
+            if (isFlatType || assignedAreaType === 'flat') {
+                const flatAreas = hostelFloors.filter(f => f.type === 'flat');
+                flatAreas.forEach(flat => {
+                    const flatRooms = allRooms
+                        .filter(r => r.floor_flat_id === flat.id)
+                        .map(r => r.room_code)
+                        .filter(Boolean)
+                        .sort();
+                    if (flatRooms.length > 0) {
+                        roomStructure.areas.push({
+                            name: flat.name,
+                            key: flat.name,
+                            rooms: flatRooms,
+                            floor: flat.name,
+                            id: flat.id
+                        });
+                    }
+                });
+                if (roomStructure.areas.length === 0 && hostelFloors.length > 0) {
+                    const firstFlat = hostelFloors[0];
+                    const defaultRooms = Array.from({ length: 4 }, (_, i) => `R${i+1}`);
+                    roomStructure.areas.push({
+                        name: firstFlat.name,
+                        key: firstFlat.name,
+                        rooms: defaultRooms,
+                        floor: firstFlat.name,
+                        id: firstFlat.id
+                    });
+                }
+            } else {
+                const floorAreas = hostelFloors.filter(f => f.type === 'floor');
+                floorAreas.forEach(floor => {
+                    const floorRooms = allRooms
+                        .filter(r => r.floor_flat_id === floor.id)
+                        .map(r => r.room_code)
+                        .filter(Boolean)
+                        .sort((a, b) => {
+                            const numA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+                            const numB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+                            return numA - numB;
+                        });
+                    if (floorRooms.length > 0) {
+                        roomStructure.areas.push({
+                            name: floor.name,
+                            key: floor.name,
+                            rooms: floorRooms,
+                            floor: floor.name,
+                            id: floor.id
+                        });
+                    }
+                });
+                if (roomStructure.areas.length === 0 && hostelFloors.length > 0) {
+                    const firstFloor = hostelFloors[0];
+                    const defaultRooms = Array.from({ length: 18 }, (_, i) =>
+                        `${firstFloor.name}${String(i+1).padStart(2, '0')}`
+                    );
+                    roomStructure.areas.push({
+                        name: firstFloor.name,
+                        key: firstFloor.name,
+                        rooms: defaultRooms,
+                        floor: firstFloor.name,
+                        id: firstFloor.id
+                    });
+                }
+            }
+
+            if (assignedArea && roomStructure.areas.length > 0) {
+                const matchedAreas = roomStructure.areas.filter(a =>
+                    a.name === assignedArea ||
+                    a.name.includes(assignedArea) ||
+                    assignedArea.includes(a.name)
+                );
+                if (matchedAreas.length > 0) {
+                    roomStructure.areas = matchedAreas;
+                }
+            }
+
+            const allRoomsList = [];
+            roomStructure.areas.forEach(area => {
+                area.rooms.forEach(room => {
+                    if (!allRoomsList.includes(room)) allRoomsList.push(room);
+                });
+            });
+            availableRooms = allRoomsList.sort();
+        }
+
+        // =============================================
+        // DATA FUNCTIONS
+        // =============================================
+        function getStudentsForRoom(room) {
+            if (!assignedHostelId) return [];
+            
+            const filtered = hostelStudents.filter(s => {
+                if (s.hostel_id !== assignedHostelId) return false;
+                const studentRoom = allRooms.find(r => r.id === s.room_id);
+                const match = studentRoom && studentRoom.room_code === room;
+                return match;
+            });
+            
+            return filtered;
+        }
+
+        function getStudentBed(studentId) {
+            const bed = allBedSpaces.find(b => b.student_id === studentId);
+            return bed ? bed.bed_code : 'BS1';
+        }
+
+        function getTotalStats() {
+            const areaStudents = hostelStudents;
+            const total = areaStudents.length;
+            const verified = areaStudents.filter(s => bedScanStatus[s.id]?.verified).length;
+            const present = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Present').length;
+            const absent = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent').length;
+            const late = areaStudents.filter(s => bedScanStatus[s.id]?.status === 'Late').length;
+
+            let totalRooms = 0;
+            let completedRoomsCount = 0;
+            const rooms = availableRooms;
+            rooms.forEach(room => {
+                const students = getStudentsForRoom(room);
+                if (students.length > 0) {
+                    totalRooms++;
+                    if (students.every(s => bedScanStatus[s.id]?.verified)) {
+                        completedRoomsCount++;
+                    }
+                }
+            });
+
+            return { total, verified, present, absent, late, totalRooms, completedRoomsCount };
+        }
+
+        function addTimeline(event, details = '') {
+            timeline.unshift({ time: now(), event: event, details: details });
+            if (timeline.length > 50) timeline.pop();
+        }
+
+        // =============================================
+        // RENDER BEDCHECK
+        // =============================================
+        function renderBedCheck() {
+            const container = document.getElementById('screenContent');
+            const stats = getTotalStats();
+            const nowTime = new Date();
+            const timeStr = nowTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+            const bannerClass = isSessionActive ? 'active' : 'inactive';
+            const statusBadgeClass = isSessionActive ? 'active' : 'inactive';
+
+            const roomStudents = currentRoom ? getStudentsForRoom(currentRoom) : [];
+            const roomVerified = roomStudents.filter(s => bedScanStatus[s.id]?.verified).length;
+            const roomTotal = roomStudents.length;
+            const roomPending = roomTotal - roomVerified;
+
+            const absentCount = autoAbsentQueue.length;
+
+            const allRooms = availableRooms;
+            if (allRooms.length > 0 && !currentRoom) {
+                currentRoom = allRooms[0];
+                currentRoomStudents = getStudentsForRoom(currentRoom);
+            }
+
+            const areaDisplay = assignedArea || 'Not Assigned';
+            const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
+            const hostelDisplay = assignedHostelName || 'Your Hostel';
+            const raName = currentUser?.name || 'RA';
+
+            // Build room list HTML
+            let roomListHtml = '';
+            if (allRooms.length > 0) {
+                const floorGroups = {};
+                roomStructure.areas.forEach(area => {
+                    const floorKey = area.floor || 'All';
+                    if (!floorGroups[floorKey]) floorGroups[floorKey] = [];
+                    area.rooms.forEach(room => {
+                        if (!floorGroups[floorKey].includes(room)) {
+                            floorGroups[floorKey].push(room);
+                        }
+                    });
+                });
+
+                const sortedFloors = Object.keys(floorGroups).sort();
+                sortedFloors.forEach(floor => {
+                    const floorRooms = floorGroups[floor].sort();
+                    roomListHtml += `
+                        <div style="font-weight:600;font-size:0.7rem;color:#6b778b;padding:0.3rem 0.5rem;margin-top:0.3rem;">
+                            ${floor}
+                        </div>
+                    `;
+                    floorRooms.forEach(room => {
+                        const students = getStudentsForRoom(room);
+                        const verifiedCount = students.filter(s => bedScanStatus[s.id]?.verified).length;
+                        const totalCount = students.length;
+                        const isComplete = totalCount > 0 && verifiedCount === totalCount;
+                        const isActive = room === currentRoom;
+                        let statusText = '';
+                        let statusClass = '';
+                        if (isComplete) {
+                            statusText = '✓ Complete';
+                            statusClass = 'done';
+                        } else if (verifiedCount > 0) {
+                            statusText = `${verifiedCount}/${totalCount}`;
+                            statusClass = 'pending';
+                        } else {
+                            statusText = `${totalCount} students`;
+                            statusClass = 'pending';
+                        }
+                        roomListHtml += `
+                            <div class="room-item ${isActive ? 'active' : ''} ${isComplete ? 'completed' : ''}"
+                                 onclick="selectRoom('${room}')">
+                                <div class="room-name">${room}</div>
+                                <div class="room-status"><span class="${statusClass}">${statusText}</span></div>
+                            </div>
+                        `;
+                    });
+                });
+            } else {
+                roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
+            }
+
+            // Build student cards
+            let studentCardsHtml = '';
+            if (currentRoom && roomStudents.length > 0) {
+                studentCardsHtml = roomStudents.map(s => {
+                    const scan = bedScanStatus[s.id];
+                    const isVerified = scan?.verified || false;
+                    const status = scan?.status || 'Pending';
+                    const statusClass = isVerified ? 'verified' : 'pending';
+                    const statusLabel = isVerified ? '✓ Verified' : 'Pending';
+                    const bedLabel = getStudentBed(s.id) || '—';
+                    const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
+                    const verifiedTime = scan?.time ? formatTime(scan.time) : '';
+
+                    return `
+                        <div class="student-card ${isVerified ? 'verified' : ''}">
+                            <div class="student-info">
+                                <div class="name">${s.name}</div>
+                                <div class="matric">${s.matric || '—'} · Bed ${bedLabel}</div>
+                                ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
+                            </div>
+                            <span class="status-tag ${statusClass}">${statusLabel}</span>
+                            ${!isVerified && isSessionActive ? `
+                                <button class="verify-btn" onclick="openVerifyModal('${s.id}')">
+                                    <i class="fas fa-camera"></i> Verify
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } else if (currentRoom) {
+                studentCardsHtml = '<div class="text-muted text-sm p-2">No students assigned to this room.</div>';
+            } else {
+                studentCardsHtml = '<div class="text-muted text-sm p-2">Select a room to begin.</div>';
+            }
+
+            container.innerHTML = `
+                <!-- Session Banner -->
+                <div class="session-banner ${bannerClass}">
+                    <div class="left">
+                        <div class="title">Today's BedCheck</div>
+                        ${isSessionActive ? `
+                            <div class="sub"><span style="color:#d6ad4b;">●</span> Session Active</div>
+                            <div class="sub"><span class="label">Hostel:</span> <strong>${hostelDisplay}</strong></div>
+                            <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
+                            <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
+                            <div class="sub"><span class="label">Face Engine:</span> <strong>InsightFace</strong></div>
+                            <div class="sub"><span class="label">API Status:</span> <strong style="color:${isApiHealthy ? '#35a866' : '#d9534f'};">${isApiHealthy ? '✅ Online' : '⚠️ Offline'}</strong></div>
+                        ` : `
+                            <div class="sub"><strong>${hostelDisplay}</strong> · ${areaTypeLabel} ${areaDisplay}</div>
+                            <div class="sub" style="color:#8b6513;">Waiting for HRA to start a BedCheck session.</div>
+                        `}
+                    </div>
+                    <div class="right">
+                        <div class="time">${timeStr}</div>
+                        <div><span class="status-badge ${statusBadgeClass}">${isSessionActive ? 'Active' : 'Inactive'}</span></div>
+                        ${isSessionActive ? `<div style="font-size:0.75rem;opacity:0.7;">InsightFace ${isApiHealthy ? '✅' : '⚠️'}</div>` : ''}
+                    </div>
+                </div>
+
+                <!-- Progress Cards -->
+                <div class="progress-grid">
+                    <div class="progress-card"><div class="num" style="color:#2d6545;">${stats.completedRoomsCount}</div><div class="label">Rooms Done</div></div>
+                    <div class="progress-card"><div class="num" style="color:#1e3a5f;">${stats.verified}</div><div class="label">Verified</div></div>
+                    <div class="progress-card"><div class="num" style="color:#d97706;">${roomPending}</div><div class="label">Pending</div></div>
+                    <div class="progress-card"><div class="num" style="color:#a84134;">${absentCount}</div><div class="label">Auto-Absent</div></div>
+                </div>
+
+                <!-- Rooms + Students -->
+                <div class="rooms-layout mt-4">
+                    <div>
+                        <div class="card" style="padding:0.75rem;">
+                            <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
+                                <span class="icon"><i class="fas fa-door-open"></i></span> Assigned Rooms
+                                <span style="font-size:0.65rem;font-weight:400;color:#6b778b;margin-left:auto;">
+                                    ${allRooms.length} rooms
+                                </span>
+                            </div>
+                            <div class="room-list">
+                                ${roomListHtml}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="card" style="padding:0.75rem;">
+                            <div class="card-title" style="margin-bottom:0.5rem;font-size:0.9rem;">
+                                <span class="icon"><i class="fas fa-users"></i></span>
+                                ${currentRoom ? `Room ${currentRoom}` : 'Select a Room'}
+                                <span style="font-size:0.65rem;font-weight:400;color:#6b778b;margin-left:auto;">
+                                    ${currentRoom ? `${roomVerified}/${roomTotal} verified` : ''}
+                                </span>
+                            </div>
+                            <div>
+                                ${studentCardsHtml}
+                            </div>
+                            ${currentRoom && roomPending > 0 ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                    ⚠️ ${roomPending} student(s) pending. Click "Verify" to verify each student.
+                                </div>
+                            ` : ''}
+                            ${currentRoom && roomPending === 0 && roomTotal > 0 ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#2d6545;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                    ✅ All students verified in this room!
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="card mt-4">
+                    <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Activity Log</div>
+                    <div>
+                        ${timeline.length > 0 ? timeline.slice(0, 8).map(t => `
+                            <div class="timeline-item">
+                                <span class="time">${formatTime(t.time)}</span>
+                                <div class="content">
+                                    ${t.event}
+                                    ${t.details ? `<span style="color:#6b778b;font-size:0.75rem;"> · ${t.details}</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('') : `
+                            <p class="text-muted text-sm">No activity yet. Start verifying students.</p>
+                        `}
+                    </div>
+                </div>
+
+                <div class="text-center text-xs text-muted mt-3">
+                    ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${isSessionActive ? '🟢 Active' : '⏳ Inactive'}
+                    · 🔒 InsightFace Secure
+                </div>
+            `;
+        }
+
+        // =============================================
+        // ROOM SELECTION
+        // =============================================
+        function selectRoom(room) {
             if (!isSessionActive) {
                 showToast('No active session.', 'error');
                 return;
             }
-            const student = hostelStudents.find(s => s.id === studentId);
-            if (!student) return;
-            if (bedScanStatus[studentId]?.verified) {
-                showToast(`${student.name} already marked.`, 'info');
-                return;
+
+            if (currentRoom && currentRoom !== room) {
+                const prevRoomStudents = getStudentsForRoom(currentRoom);
+                prevRoomStudents.forEach(s => {
+                    if (!bedScanStatus[s.id]?.verified) {
+                        bedScanStatus[s.id] = {
+                            verified: false,
+                            status: 'Absent',
+                            time: now(),
+                            method: 'auto-absent',
+                            room: currentRoom
+                        };
+                        if (!autoAbsentQueue.find(a => a.id === s.id)) {
+                            const bed = getStudentBed(s.id);
+                            autoAbsentQueue.push({
+                                id: s.id,
+                                name: s.name,
+                                matric: s.matric,
+                                room: currentRoom,
+                                bed: bed,
+                                time: now(),
+                                status: 'auto-absent'
+                            });
+                            addTimeline(`${s.name} moved to Auto-Absent Queue`, `Room ${currentRoom}`);
+                        }
+                    }
+                });
             }
-            bedScanStatus[studentId] = {
-                verified: true,
-                status: status,
-                time: now(),
-                method: 'manual'
-            };
-            addTimeline(`${student.name} marked ${status}`, `Room ${student.room_code}`);
-            showToast(`✅ ${student.name} - ${status}`, 'success');
-            apiCall(`/students/${studentId}/status`, {
-                method: 'PUT',
-                body: JSON.stringify({ status: status })
-            }).catch(err => console.error('Error updating student status:', err));
 
-            if (currentRoomStudents.every(s => bedScanStatus[s.id]?.verified)) {
-                if (!completedRooms.includes(currentRoom)) {
-                    completedRooms.push(currentRoom);
-                }
-                addTimeline(`Room ${currentRoom} completed`, `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
-                showToast(`🎉 Room ${currentRoom} complete!`, 'success');
-            }
-            renderBedCheck();
-        }
-
-        function markAllAbsent() {
-            if (autoAbsentQueue.length === 0) {
-                showToast('No absent records to mark.', 'info');
-                return;
-            }
-            autoAbsentQueue.forEach(a => {
-                bedScanStatus[a.id] = {
-                    verified: false,
-                    status: 'Absent',
-                    time: now(),
-                    method: 'auto-absent'
-                };
-            });
-            addTimeline('All auto-absent records confirmed', `${autoAbsentQueue.length} students`);
-            showToast(`✅ ${autoAbsentQueue.length} students marked absent.`, 'success');
-            autoAbsentQueue = [];
-            renderBedCheck();
-        }
-
-        function clearResolved() {
-            autoAbsentQueue = [];
-            showToast('Queue cleared.', 'info');
-            renderBedCheck();
-        }
-
-        function rescanStudent(studentId) {
-            const student = hostelStudents.find(s => s.id === studentId);
-            if (!student) return;
-            autoAbsentQueue = autoAbsentQueue.filter(a => a.id !== studentId);
-            bedScanStatus[studentId] = {
-                verified: false,
-                status: null,
-                time: null,
-                method: null
-            };
-            showToast(`🔄 ${student.name} moved back for re-scan.`, 'info');
+            currentRoom = room;
+            currentRoomStudents = getStudentsForRoom(room);
+            addTimeline(`Room ${room} selected`, `${currentRoomStudents.length} students expected`);
+            showToast(`📋 Room ${room} selected. Click "Verify" for each student.`, 'info');
             renderBedCheck();
         }
 
         // =============================================
-        // AUTH & INIT
+        // HEADER & AUTH
         // =============================================
+        function updateHeader() {
+            if (!currentUser) return;
+            const avatar = document.getElementById('profileAvatar');
+            const name = document.getElementById('profileName');
+            const role = document.getElementById('profileRoleLabel');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRole = document.getElementById('mobileRoleFooter');
+
+            const initials = currentUser.initials || getInitials(currentUser.name);
+            const displayName = currentUser.name || 'User';
+
+            avatar.textContent = initials;
+            name.textContent = displayName;
+            role.textContent = currentRole || 'RA';
+            roleLabel.textContent = currentRole || 'RA';
+
+            const areaDisplay = assignedArea || 'Not Assigned';
+            const hostelDisplay = assignedHostelName || 'No Hostel';
+            const fullScope = `${hostelDisplay} · ${areaDisplay} (${assignedAreaType})`;
+
+            roleScope.textContent = fullScope;
+            mobileRole.textContent = `${currentRole || 'RA'} · ${hostelDisplay} · ${areaDisplay}`;
+
+            const brandSub = document.querySelector('.sidebar .brand-sub');
+            if (brandSub) brandSub.textContent = `${hostelDisplay}`;
+            const mobileBrandSub = document.querySelector('.mobile-drawer .brand-sub');
+            if (mobileBrandSub) mobileBrandSub.textContent = `${hostelDisplay}`;
+        }
+
         function checkAuth() {
             const userData = sessionStorage.getItem('bedcheck_user');
             const token = sessionStorage.getItem('bedcheck_token');
@@ -2131,15 +2005,10 @@
         }
 
         // =============================================
-        // EXPOSE FUNCTIONS TO WINDOW
+        // EXPOSE GLOBALLY
         // =============================================
         window.showToast = showToast;
         window.selectRoom = selectRoom;
-        window.markRoomComplete = markRoomComplete;
-        window.markStudent = markStudent;
-        window.markAllAbsent = markAllAbsent;
-        window.clearResolved = clearResolved;
-        window.rescanStudent = rescanStudent;
         window.renderBedCheck = renderBedCheck;
         window.openVerifyModal = openVerifyModal;
         window.closeVerifyModal = closeVerifyModal;
@@ -2158,7 +2027,6 @@
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-            // Check Face API health on startup
             await checkFaceApiHealth();
 
             try {
@@ -2222,7 +2090,6 @@
 
                 renderBedCheck();
 
-                // Re-check API health every 30 seconds
                 setInterval(checkFaceApiHealth, 30000);
 
             } catch (error) {
@@ -2230,22 +2097,18 @@
                 if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
                     showToast('Error loading data: ' + error.message, 'error');
                 }
-                renderError();
-            }
-        }
-
-        function renderError() {
-            const container = document.getElementById('screenContent');
-            container.innerHTML = `
-                <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
-                    <div class="text-center p-4">
-                        <i class="fas fa-exclamation-triangle" style="font-size:2.5rem;color:#a84134;"></i>
-                        <h2 class="mt-3">Error Loading Data</h2>
-                        <p class="text-muted">There was an error loading the BedCheck page. Please refresh.</p>
-                        <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                const container = document.getElementById('screenContent');
+                container.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
+                        <div class="text-center p-4">
+                            <i class="fas fa-exclamation-triangle" style="font-size:2.5rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading the BedCheck page. Please refresh.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                        </div>
                     </div>
-                </div>
-            `;
+                `;
+            }
         }
 
         if (document.readyState === 'loading') {

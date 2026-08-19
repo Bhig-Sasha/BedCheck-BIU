@@ -1,5 +1,6 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.5.0
+// SECURE PRODUCTION VERSION v4.6.0 - RA ASSIGNMENT FIX
+// ============================================================
 
 const express = require('express');
 const cors = require('cors');
@@ -1842,7 +1843,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         name: 'BIU BedCheck API',
-        version: '4.5.0',
+        version: '4.6.0',
         status: 'running',
         environment: process.env.NODE_ENV || 'production',
         security: {
@@ -1873,8 +1874,7 @@ app.get('/api/security/status', (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS
-// =====================================================
+// AUTHENTICATION ENDPOINTS// =====================================================
 
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
     const { username, password } = req.body;
@@ -4931,6 +4931,7 @@ app.get('/api/hra/ras',
     async (req, res) => {
         try {
             let hostelId = req.user.hostel_id;
+            
             if ((req.user.role === 'Admin' || req.user.role === 'Developer') && req.query.hostel_id) {
                 hostelId = parseInt(req.query.hostel_id);
             }
@@ -4943,14 +4944,14 @@ app.get('/api/hra/ras',
                 });
             }
 
-            const { data: hostel } = await supabase
+            const { data: hostel, error: hostelError } = await supabase
                 .from('hostels')
                 .select('id, name, assignment_type')
                 .eq('id', hostelId)
                 .eq('campus', req.campus)
                 .single();
 
-            if (!hostel) {
+            if (hostelError || !hostel) {
                 return res.status(404).json({
                     success: false,
                     message: 'Hostel not found in this campus',
@@ -4974,7 +4975,11 @@ app.get('/api/hra/ras',
             if (raIds.length > 0) {
                 const { data: assignData } = await supabase
                     .from('ra_room_assignments')
-                    .select('ra_id, room_id, rooms(room_code, id)')
+                    .select(`
+                        ra_id, 
+                        room_id,
+                        rooms!inner (room_code, id)
+                    `)
                     .in('ra_id', raIds)
                     .eq('status', 'active')
                     .eq('campus', req.campus);
@@ -4983,8 +4988,16 @@ app.get('/api/hra/ras',
 
             const { data: rooms, error: roomsError } = await supabase
                 .from('rooms')
-                .select('id, room_code, capacity, occupied, status, floor_flat_id, floors_flats(name)')
-                .eq('hostel_id', hostelId)
+                .select(`
+                    id, 
+                    room_code, 
+                    capacity, 
+                    occupied, 
+                    status, 
+                    floor_flat_id,
+                    floors_flats!inner (name)
+                `)
+                .eq('floors_flats.hostel_id', hostelId)
                 .eq('status', 'active');
 
             if (roomsError) throw roomsError;
@@ -5005,14 +5018,25 @@ app.get('/api/hra/ras',
                 };
             });
 
+            const assignedRoomIds = new Set(assignments.map(a => a.room_id));
+            const totalRooms = rooms?.length || 0;
+            const assignedRoomsCount = assignedRoomIds.size;
+            const unassignedRoomsCount = totalRooms - assignedRoomsCount;
+
             res.json({
                 success: true,
                 data: {
-                    hostel: { id: hostel.id, name: hostel.name, assignment_type: hostel.assignment_type || 'room_range' },
+                    hostel: { 
+                        id: hostel.id, 
+                        name: hostel.name, 
+                        assignment_type: hostel.assignment_type || 'room_range' 
+                    },
                     ras: enrichedRas,
                     rooms: rooms || [],
                     total_ras: ras.length,
-                    total_rooms: rooms?.length || 0
+                    total_rooms: totalRooms,
+                    assigned_rooms_count: assignedRoomsCount,
+                    unassigned_rooms_count: unassignedRoomsCount
                 },
                 campus: req.campus
             });
@@ -5037,6 +5061,14 @@ app.post('/api/hra/assign-rooms',
             const { ra_id, room_ids } = req.body;
             const hraId = req.user.id;
 
+            if (!req.user.hostel_id && req.user.role !== 'Admin' && req.user.role !== 'Developer') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'You are not assigned to a hostel.',
+                    code: 'NO_HOSTEL_ASSIGNED'
+                });
+            }
+
             const { data: ra, error: raError } = await supabase
                 .from('staff')
                 .select('id, name, hostel_id, campus')
@@ -5054,7 +5086,7 @@ app.post('/api/hra/assign-rooms',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== ra.hostel_id) {
+            if (req.user.role === 'HRA' && req.user.hostel_id !== ra.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only assign rooms in your hostel.',
@@ -5064,9 +5096,14 @@ app.post('/api/hra/assign-rooms',
 
             const { data: rooms, error: roomsError } = await supabase
                 .from('rooms')
-                .select('id, room_code, hostel_id')
+                .select(`
+                    id, 
+                    room_code, 
+                    floor_flat_id,
+                    floors_flats!inner (hostel_id)
+                `)
                 .in('id', room_ids)
-                .eq('hostel_id', ra.hostel_id)
+                .eq('floors_flats.hostel_id', ra.hostel_id)
                 .eq('status', 'active');
 
             if (roomsError) throw roomsError;
@@ -5098,11 +5135,29 @@ app.post('/api/hra/assign-rooms',
             const { data: assignedData, error: assignError } = await supabase
                 .from('ra_room_assignments')
                 .insert(assignments)
-                .select();
+                .select(`
+                    *,
+                    rooms!inner (room_code)
+                `);
 
             if (assignError) throw assignError;
 
-            await auditEvents.raRoomAssigned(ra, rooms, req.user, req);
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'RA Room Assignment',
+                module: 'ra_assignments',
+                details: `Assigned ${rooms.length} rooms to RA ${ra.name}`,
+                context: `Rooms: ${rooms.map(r => r.room_code).join(', ')}`,
+                result: 'success',
+                category: 'staff',
+                tone: 'blue',
+                hostel_id: ra.hostel_id,
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
 
             res.json({
                 success: true,
@@ -5126,6 +5181,357 @@ app.post('/api/hra/assign-rooms',
     }
 );
 
+app.delete('/api/hra/remove-rooms/:ra_id',
+    campusIsolation,
+    requireRole('HRA', 'Admin', 'Developer'),
+    validate([
+        param('ra_id').isInt().withMessage('Invalid RA ID'),
+        body('room_ids').isArray().withMessage('room_ids must be an array')
+    ]),
+    async (req, res) => {
+        try {
+            const raId = parseInt(req.params.ra_id);
+            const { room_ids } = req.body;
+
+            const { data: ra, error: raError } = await supabase
+                .from('staff')
+                .select('id, name, hostel_id, campus')
+                .eq('id', raId)
+                .eq('role', 'RA')
+                .eq('status', 'Active')
+                .eq('campus', req.campus)
+                .single();
+
+            if (raError || !ra) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'RA not found in this campus',
+                    code: 'RA_NOT_FOUND'
+                });
+            }
+
+            if (req.user.role === 'HRA' && req.user.hostel_id !== ra.hostel_id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. You can only manage RAs in your hostel.',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+
+            const { data, error } = await supabase
+                .from('ra_room_assignments')
+                .delete()
+                .eq('ra_id', raId)
+                .in('room_id', room_ids)
+                .eq('campus', req.campus)
+                .select();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'RA Rooms Removed',
+                module: 'ra_assignments',
+                details: `Removed ${room_ids.length} rooms from RA ${ra.name}`,
+                context: `Room IDs: ${room_ids.join(', ')}`,
+                result: 'success',
+                category: 'staff',
+                tone: 'gold',
+                hostel_id: ra.hostel_id,
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                message: `Removed ${room_ids.length} rooms from ${ra.name}`,
+                data: { removed_count: room_ids.length },
+                campus: req.campus
+            });
+
+        } catch (error) {
+            console.error('Error removing rooms:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/hra/hostel-overview',
+    campusIsolation,
+    requireRole('HRA', 'Admin', 'Developer'),
+    async (req, res) => {
+        try {
+            let hostelId = req.user.hostel_id;
+            
+            if ((req.user.role === 'Admin' || req.user.role === 'Developer') && req.query.hostel_id) {
+                hostelId = parseInt(req.query.hostel_id);
+            }
+
+            if (!hostelId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No hostel assigned',
+                    code: 'NO_HOSTEL_ASSIGNED'
+                });
+            }
+
+            const { data: hostel, error: hostelError } = await supabase
+                .from('hostels')
+                .select('*')
+                .eq('id', hostelId)
+                .eq('campus', req.campus)
+                .single();
+
+            if (hostelError || !hostel) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Hostel not found',
+                    code: 'HOSTEL_NOT_FOUND'
+                });
+            }
+
+            const { data: ras, error: rasError } = await supabase
+                .from('staff')
+                .select('id, name, username, email, phone, status')
+                .eq('hostel_id', hostelId)
+                .eq('role', 'RA')
+                .eq('status', 'Active')
+                .eq('campus', req.campus);
+
+            if (rasError) throw rasError;
+
+            const raIds = ras.map(r => r.id);
+            let assignments = [];
+            if (raIds.length > 0) {
+                const { data: assignData } = await supabase
+                    .from('ra_room_assignments')
+                    .select('ra_id, room_id, rooms(room_code)')
+                    .in('ra_id', raIds)
+                    .eq('status', 'active')
+                    .eq('campus', req.campus);
+                assignments = assignData || [];
+            }
+
+            const enrichedRas = ras.map(ra => {
+                const raAssignments = assignments.filter(a => a.ra_id === ra.id);
+                return {
+                    ...ra,
+                    assigned_rooms: raAssignments.length,
+                    assigned_room_codes: raAssignments.map(a => a.rooms?.room_code).filter(Boolean).sort()
+                };
+            });
+
+            const { data: students, error: studentsError } = await supabase
+                .from('students')
+                .select('status, face_enrolled')
+                .eq('hostel_id', hostelId)
+                .eq('campus', req.campus);
+
+            if (studentsError) throw studentsError;
+
+            const totalStudents = students?.length || 0;
+            const present = students?.filter(s => s.status === 'Present').length || 0;
+            const absent = students?.filter(s => s.status === 'Absent').length || 0;
+            const faceEnrolled = students?.filter(s => s.face_enrolled === true).length || 0;
+
+            const { data: bedSpaces, error: bedError } = await supabase
+                .from('bed_spaces')
+                .select('status')
+                .eq('campus', req.campus)
+                .in('room_id', (await supabase
+                    .from('rooms')
+                    .select('id')
+                    .eq('campus', req.campus)
+                    .in('floor_flat_id', (await supabase
+                        .from('floors_flats')
+                        .select('id')
+                        .eq('hostel_id', hostelId)
+                        .eq('campus', req.campus))
+                        .data?.map(f => f.id) || [])
+                ).data?.map(r => r.id) || []);
+
+            const totalBeds = bedSpaces?.length || 0;
+            const occupiedBeds = bedSpaces?.filter(b => b.status === 'occupied').length || 0;
+
+            res.json({
+                success: true,
+                data: {
+                    hostel: {
+                        id: hostel.id,
+                        name: hostel.name,
+                        type: hostel.type,
+                        gender: hostel.gender,
+                        total_rooms: hostel.total_rooms,
+                        total_beds: hostel.total_beds
+                    },
+                    ras: enrichedRas,
+                    total_ras: ras.length,
+                    students: {
+                        total: totalStudents,
+                        present,
+                        absent,
+                        face_enrolled
+                    },
+                    beds: {
+                        total: totalBeds,
+                        occupied: occupiedBeds,
+                        available: totalBeds - occupiedBeds,
+                        occupancy_rate: totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0
+                    }
+                },
+                campus: req.campus
+            });
+
+        } catch (error) {
+            console.error('Error fetching hostel overview:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
+// RA DASHBOARD - WITH ROOM ASSIGNMENTS
+// =====================================================
+
+app.get('/api/ra/dashboard',
+    campusIsolation,
+    requireRole('RA'),
+    async (req, res) => {
+        try {
+            const raId = req.user.id;
+
+            const { data: assignments, error: roomsError } = await supabase
+                .from('ra_room_assignments')
+                .select(`
+                    room_id,
+                    rooms!inner (
+                        id, room_code, capacity, occupied, status,
+                        floor_flat_id,
+                        floors_flats!inner (
+                            name, hostel_id,
+                            hostels!inner (id, name, campus)
+                        )
+                    )
+                `)
+                .eq('ra_id', raId)
+                .eq('status', 'active')
+                .eq('campus', req.campus);
+
+            if (roomsError) {
+                console.error('Fetch RA rooms error:', roomsError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
+
+            const assignedRooms = assignments
+                .map(a => a.rooms)
+                .filter(Boolean)
+                .map(room => ({
+                    id: room.id,
+                    room_code: room.room_code,
+                    capacity: room.capacity || 4,
+                    occupied: room.occupied || 0,
+                    floor: room.floors_flats?.name || 'Unknown',
+                    hostel: room.floors_flats?.hostels?.name || 'Unknown',
+                    hostel_id: room.floors_flats?.hostel_id || null
+                }));
+
+            if (assignedRooms.length === 0) {
+                return res.json({
+                    success: true,
+                    data: {
+                        assigned_rooms: [],
+                        room_count: 0,
+                        room_codes: [],
+                        active_session: null,
+                        has_active_session: false,
+                        has_completed_today: false,
+                        is_suspicious: false,
+                        can_start_new: false,
+                        message: 'No rooms assigned. Please contact your HRA.'
+                    },
+                    campus: req.campus
+                });
+            }
+
+            const hostelId = assignedRooms[0]?.hostel_id || req.user.hostel_id;
+
+            const { data: activeSession } = await supabase
+                .from('ra_bedcheck_sessions')
+                .select('*')
+                .eq('ra_id', raId)
+                .eq('campus', req.campus)
+                .eq('status', 'started')
+                .maybeSingle();
+
+            const today = new Date().toISOString().split('T')[0];
+            const { data: completedToday } = await supabase
+                .from('ra_bedcheck_sessions')
+                .select('id')
+                .eq('ra_id', raId)
+                .eq('campus', req.campus)
+                .eq('status', 'completed')
+                .gte('completed_at', `${today}T00:00:00`)
+                .lt('completed_at', `${today}T23:59:59`)
+                .maybeSingle();
+
+            const { data: suspiciousData } = await supabase
+                .from('ra_bedcheck_sessions')
+                .select('id, is_suspicious, suspicious_reason')
+                .eq('ra_id', raId)
+                .eq('campus', req.campus)
+                .eq('is_suspicious', true)
+                .maybeSingle();
+
+            res.json({
+                success: true,
+                data: {
+                    assigned_rooms: assignedRooms,
+                    room_count: assignedRooms.length,
+                    room_codes: assignedRooms.map(r => r.room_code).sort(),
+                    hostel_id: hostelId,
+                    active_session: activeSession || null,
+                    has_active_session: !!activeSession,
+                    has_completed_today: !!completedToday,
+                    is_suspicious: !!suspiciousData,
+                    suspicious_reason: suspiciousData?.suspicious_reason || null,
+                    can_start_new: !activeSession && !completedToday && !suspiciousData,
+                    message: !activeSession && !completedToday && !suspiciousData 
+                        ? 'You can start your BedCheck now' 
+                        : activeSession 
+                            ? 'You have an active BedCheck session' 
+                            : completedToday 
+                                ? 'You have already completed today\'s BedCheck' 
+                                : 'Your account has been flagged for review'
+                },
+                campus: req.campus
+            });
+
+        } catch (error) {
+            console.error('Error fetching RA dashboard:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
 app.get('/api/ra/rooms',
     campusIsolation,
     requireRole('RA'),
@@ -5135,14 +5541,43 @@ app.get('/api/ra/rooms',
 
             const { data: assignments, error } = await supabase
                 .from('ra_room_assignments')
-                .select('room_id, rooms(room_code, id, capacity, occupied, status, floor_flat_id, floors_flats(name))')
+                .select(`
+                    room_id,
+                    rooms!inner (
+                        id, room_code, capacity, occupied, status,
+                        floor_flat_id,
+                        floors_flats!inner (
+                            name, hostel_id,
+                            hostels!inner (id, name, campus)
+                        )
+                    )
+                `)
                 .eq('ra_id', raId)
                 .eq('status', 'active')
                 .eq('campus', req.campus);
 
-            if (error) throw error;
+            if (error) {
+                console.error('Fetch RA rooms error:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
 
-            const rooms = assignments.map(a => a.rooms).filter(Boolean);
+            const rooms = assignments
+                .map(a => a.rooms)
+                .filter(Boolean)
+                .map(room => ({
+                    id: room.id,
+                    room_code: room.room_code,
+                    capacity: room.capacity || 4,
+                    occupied: room.occupied || 0,
+                    available: (room.capacity || 4) - (room.occupied || 0),
+                    floor: room.floors_flats?.name || 'Unknown',
+                    hostel: room.floors_flats?.hostels?.name || 'Unknown',
+                    hostel_id: room.floors_flats?.hostel_id || null
+                }));
 
             res.json({
                 success: true,
@@ -5165,80 +5600,6 @@ app.get('/api/ra/rooms',
     }
 );
 
-app.get('/api/ra/dashboard',
-    campusIsolation,
-    requireRole('RA'),
-    async (req, res) => {
-        try {
-            const raId = req.user.id;
-
-            const { data: assignments, error: roomsError } = await supabase
-                .from('ra_room_assignments')
-                .select('room_id, rooms(room_code, id, capacity, occupied, status, floor_flat_id, floors_flats(name))')
-                .eq('ra_id', raId)
-                .eq('status', 'active')
-                .eq('campus', req.campus);
-
-            if (roomsError) throw roomsError;
-
-            const rooms = assignments.map(a => a.rooms).filter(Boolean);
-
-            const today = new Date().toISOString().split('T')[0];
-            const { data: sessions, error: sessionsError } = await supabase
-                .from('ra_bedcheck_sessions')
-                .select('*, staff(name)')
-                .eq('ra_id', raId)
-                .eq('campus', req.campus)
-                .order('created_at', { ascending: false })
-                .limit(5);
-
-            if (sessionsError) throw sessionsError;
-
-            const activeSession = sessions?.find(s => s.status === 'started');
-            const completedToday = sessions?.some(s => {
-                const completedDate = s.completed_at ? new Date(s.completed_at).toISOString().split('T')[0] : null;
-                return s.status === 'completed' && completedDate === today;
-            });
-            const hasSuspicious = sessions?.some(s => s.is_suspicious);
-
-            res.json({
-                success: true,
-                data: {
-                    assigned_rooms: rooms || [],
-                    room_count: rooms?.length || 0,
-                    room_codes: rooms.map(r => r.room_code).sort(),
-                    active_session: activeSession || null,
-                    has_active_session: !!activeSession,
-                    has_completed_today: completedToday || false,
-                    is_suspicious: hasSuspicious || false,
-                    recent_sessions: sessions || [],
-                    can_start_new: !activeSession && !completedToday && !hasSuspicious,
-                    message: !activeSession && !completedToday && !hasSuspicious 
-                        ? 'You can start your BedCheck now' 
-                        : activeSession 
-                            ? 'You have an active BedCheck session' 
-                            : completedToday 
-                                ? 'You have already completed today\'s BedCheck' 
-                                : 'Your account has been flagged for review'
-                },
-                campus: req.campus
-            });
-
-        } catch (error) {
-            console.error('Error fetching RA dashboard:', error);
-            res.status(500).json({
-                success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-// =====================================================
-// RA BEDCHECK SESSION MANAGEMENT
-// =====================================================
-
 app.post('/api/ra/bedcheck/start',
     campusIsolation,
     requireRole('RA'),
@@ -5247,6 +5608,23 @@ app.post('/api/ra/bedcheck/start',
         try {
             const { session_id } = req.body;
             const raId = req.user.id;
+
+            const { data: assignedRooms, error: roomsError } = await supabase
+                .from('ra_room_assignments')
+                .select('room_id, rooms(room_code, id, floor_flat_id)')
+                .eq('ra_id', raId)
+                .eq('status', 'active')
+                .eq('campus', req.campus);
+
+            if (roomsError) throw roomsError;
+
+            if (!assignedRooms || assignedRooms.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No rooms assigned to you. Please contact your HRA.',
+                    code: 'NO_ROOMS_ASSIGNED'
+                });
+            }
 
             const { data: existing, error: checkError } = await supabase
                 .from('ra_bedcheck_sessions')
@@ -5271,49 +5649,42 @@ app.post('/api/ra/bedcheck/start',
                         })
                         .eq('id', existing.id);
 
-                    const { data: raData } = await supabase
-                        .from('staff')
-                        .select('name, hostel_id')
-                        .eq('id', raId)
-                        .single();
-
                     await supabase
                         .from('notifications')
-                        .insert({
-                            title: '⚠️ Suspicious Activity: RA Login Attempt',
-                            detail: `RA ${raData?.name || 'Unknown'} attempted to start BedCheck after completion`,
-                            body: `RA tried to log in again after completing tonight's BedCheck. This has been flagged for review.`,
-                            type: 'security',
-                            priority: 'high',
-                            hostel_id: raData?.hostel_id,
-                            campus: req.campus,
-                            recipient_role: 'HRA',
-                            actor: 'System',
-                            action: 'Suspicious Login',
-                            tone: 'red',
-                            read: false,
-                            created_at: new Date().toISOString()
-                        });
-
-                    await supabase
-                        .from('notifications')
-                        .insert({
-                            title: '⚠️ Suspicious Activity: RA Login Attempt',
-                            detail: `RA ${raData?.name || 'Unknown'} attempted to start BedCheck after completion`,
-                            body: `RA tried to log in again after completing tonight's BedCheck. HRA has been notified.`,
-                            type: 'security',
-                            priority: 'high',
-                            campus: req.campus,
-                            recipient_role: 'RASD',
-                            actor: 'System',
-                            action: 'Suspicious Login',
-                            tone: 'red',
-                            read: false,
-                            created_at: new Date().toISOString()
-                        });
+                        .insert([
+                            {
+                                title: '⚠️ Suspicious Activity: RA Login Attempt',
+                                detail: `RA ${req.user.name} attempted to start BedCheck after completion`,
+                                body: `RA tried to log in again after completing tonight's BedCheck. This has been flagged for review.`,
+                                type: 'security',
+                                priority: 'high',
+                                hostel_id: req.user.hostel_id,
+                                campus: req.campus,
+                                recipient_role: 'HRA',
+                                actor: 'System',
+                                action: 'Suspicious Login',
+                                tone: 'red',
+                                read: false,
+                                created_at: new Date().toISOString()
+                            },
+                            {
+                                title: '⚠️ Suspicious Activity: RA Login Attempt',
+                                detail: `RA ${req.user.name} attempted to start BedCheck after completion`,
+                                body: `RA tried to log in again after completing tonight's BedCheck. HRA has been notified.`,
+                                type: 'security',
+                                priority: 'high',
+                                campus: req.campus,
+                                recipient_role: 'RASD',
+                                actor: 'System',
+                                action: 'Suspicious Login',
+                                tone: 'red',
+                                read: false,
+                                created_at: new Date().toISOString()
+                            }
+                        ]);
 
                     await auditEvents.raSuspiciousFlagged(
-                        { name: raData?.name || 'Unknown', hostel_id: raData?.hostel_id },
+                        { name: req.user.name, hostel_id: req.user.hostel_id },
                         { id: session_id },
                         'RA attempted to start a completed session',
                         req
@@ -5357,23 +5728,6 @@ app.post('/api/ra/bedcheck/start',
                         campus: req.campus
                     });
                 }
-            }
-
-            const { data: assignedRooms, error: roomsError } = await supabase
-                .from('ra_room_assignments')
-                .select('room_id, rooms(room_code, id, floor_flat_id)')
-                .eq('ra_id', raId)
-                .eq('status', 'active')
-                .eq('campus', req.campus);
-
-            if (roomsError) throw roomsError;
-
-            if (!assignedRooms || assignedRooms.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No rooms assigned to you for this BedCheck.',
-                    code: 'NO_ROOMS_ASSIGNED'
-                });
             }
 
             const { data: sessionData, error: sessionError } = await supabase
@@ -9179,7 +9533,6 @@ app.get('/api/developer/system/stats',
     requireRole('Developer'),
     async (req, res) => {
         try {
-            // Get counts from all tables
             const [
                 studentsCount,
                 staffCount,
@@ -9281,7 +9634,6 @@ app.get('/api/developer/backup/full',
     requireRole('Developer'),
     async (req, res) => {
         try {
-            // Fetch all data from all tables
             const [
                 students,
                 staff,
@@ -9349,7 +9701,6 @@ app.get('/api/developer/backup/full',
                 }
             };
 
-            // Log the backup
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
@@ -9394,7 +9745,6 @@ app.post('/api/developer/query',
         try {
             const { query, params = {} } = req.body;
 
-            // Security: Block dangerous operations
             const dangerousPatterns = [
                 /DROP\s+TABLE/i,
                 /DROP\s+DATABASE/i,
@@ -9431,8 +9781,6 @@ app.post('/api/developer/query',
                 }
             }
 
-            // Execute the query using Supabase RPC or raw SQL
-            // Note: You need to create a function in Supabase called 'execute_sql'
             const { data, error } = await supabase.rpc('execute_sql', {
                 query_text: query,
                 query_params: params
@@ -9482,7 +9830,6 @@ app.get('/api/developer/health/full',
     requireRole('Developer'),
     async (req, res) => {
         try {
-            // Check database connection
             const dbStart = Date.now();
             const { data: dbTest, error: dbError } = await supabase
                 .from('students')
@@ -9490,7 +9837,6 @@ app.get('/api/developer/health/full',
                 .limit(1);
             const dbLatency = Date.now() - dbStart;
 
-            // Check Face API
             const faceStart = Date.now();
             let faceStatus = 'unknown';
             let faceLatency = 0;
@@ -9503,7 +9849,6 @@ app.get('/api/developer/health/full',
                 faceLatency = Date.now() - faceStart;
             }
 
-            // Check memory usage
             const memoryUsage = process.memoryUsage();
 
             const health = {
@@ -9690,7 +10035,6 @@ app.put('/api/developer/users/:id/role',
             const id = parseInt(req.params.id);
             const { role, reason } = req.body;
 
-            // Prevent changing own role
             if (id === req.user.id) {
                 return res.status(403).json({
                     success: false,
@@ -9773,7 +10117,6 @@ app.post('/api/developer/maintenance',
         try {
             const { enabled, message } = req.body;
 
-            // Update system settings
             const { data, error } = await supabase
                 .from('system_settings')
                 .upsert({
@@ -9858,22 +10201,14 @@ app.use((err, req, res, next) => {
 });
 
 // =====================================================
-// START SERVER - CLEAN VERSION WITH OPTIONS
+// START SERVER
 // =====================================================
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-    const verbose = process.env.STARTUP_VERBOSE === 'true';
-    
-    console.log(`\n🚀 BIU BedCheck API v4.5.0`);
+    console.log(`\n🚀 BIU BedCheck API v4.6.0`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
-    
-    if (verbose) {
-        console.log(`\n🛡️ Security:`);
-        console.log(`   - Rate Limiting: ${parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100} req/15min`);
-        console.log(`   - DoS Protection: ${parseInt(process.env.MAX_CONCURRENT_CONNECTIONS) || 100} concurrent`);
-        console.log(`   - IP Blacklist: ${ipBlacklist.manualBlacklist.size} IPs blocked`);
-    }
+    console.log(`🏢 RA Assignment System: ENABLED`);
     
     try {
         const health = await faceService.checkHealth();
