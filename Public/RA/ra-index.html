@@ -1005,11 +1005,6 @@
                 assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || currentUser.assignedArea || '';
                 assignedArea = assignedFloor;
 
-                // If no hostel from user, try to get from staff data
-                if (!assignedHostelId && currentUser.id) {
-                    // We'll fetch this in init
-                }
-
                 return true;
             }
 
@@ -1056,7 +1051,7 @@
             window.changePage = changePage;
 
             // =============================================
-            // INIT
+            // INIT - FIXED TO GET BOTH HOSTEL AND FLAT
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1071,11 +1066,12 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
-                    // If no hostel from user session, fetch staff data
-                    if (!assignedHostelId && currentUser && currentUser.id) {
+                    // FIRST: Fetch staff data to get hostel and assigned floor
+                    if (currentUser && currentUser.id) {
                         try {
                             const userData = await apiCall(`/staff/${currentUser.id}`);
                             if (userData.data) {
+                                // Set hostel from staff data
                                 assignedHostelId = userData.data.hostel_id || assignedHostelId;
                                 assignedHostelName = userData.data.hostel || userData.data.hostel_name || assignedHostelName;
                                 assignedFloor = userData.data.assigned_floor || userData.data.assigned_flat || assignedFloor;
@@ -1086,15 +1082,19 @@
                         }
                     }
 
+                    // Load hostels to get proper names
+                    await loadHostels();
+
+                    // If we have hostel ID but no name, get it from hostels list
+                    if (assignedHostelId && !assignedHostelName) {
+                        const hostel = hostels.find(h => h.id === assignedHostelId);
+                        if (hostel) assignedHostelName = hostel.name;
+                    }
+
                     // Load assigned rooms
                     await loadAssignedRooms();
-                    
-                    // Load hostels, staff, and floors/flats
-                    await loadHostels();
-                    await loadStaff();
-                    await loadFloorsFlats();
 
-                    // If still no hostel, try to get from first assigned room
+                    // If still no hostel, try to get from assigned rooms
                     if (!assignedHostelId && assignedRooms.length > 0) {
                         const firstRoom = assignedRooms[0];
                         if (firstRoom.hostel_id) {
@@ -1107,6 +1107,18 @@
                             assignedFloor = firstRoom.floor;
                         }
                     }
+
+                    // Load floors/flats for the hostel
+                    await loadFloorsFlats();
+
+                    // If we have a floor/flat ID but no name, get it from floors_flats
+                    if (assignedFloor && !isNaN(assignedFloor)) {
+                        const floor = floorsFlats.find(f => f.id === parseInt(assignedFloor));
+                        if (floor) assignedArea = floor.name;
+                    }
+
+                    // Load staff for HRA info
+                    await loadStaff();
 
                     // Load students
                     await loadStudents();
