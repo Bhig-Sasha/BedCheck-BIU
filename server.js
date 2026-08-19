@@ -1,6 +1,5 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.4.0 - FULLY HARDENED - COMPLETE
-// ALL ENDPOINTS INCLUDED - Developer Role Updated
+// SECURE PRODUCTION VERSION v4.5.0
 
 const express = require('express');
 const cors = require('cors');
@@ -1247,6 +1246,31 @@ const validators = {
     suspiciousResolve: [
         body('resolution').isIn(['cleared', 'warning', 'escalated']).withMessage('Invalid resolution status'),
         body('notes').optional().isString().withMessage('notes must be a string')
+    ],
+    // =============================================
+    // DEVELOPER VALIDATORS
+    // =============================================
+    executeQuery: [
+        body('query').isString().notEmpty().withMessage('Query is required'),
+        body('params').optional().isObject().withMessage('Params must be an object')
+    ],
+    developerAction: [
+        body('action').isString().notEmpty().withMessage('Action is required'),
+        body('target').optional().isString().withMessage('Target must be a string'),
+        body('data').optional().isObject().withMessage('Data must be an object')
+    ],
+    developerSettings: [
+        body('value').notEmpty().withMessage('Value is required'),
+        body('category').optional().isString().withMessage('Category must be a string'),
+        body('description').optional().isString().withMessage('Description must be a string')
+    ],
+    developerRoleChange: [
+        body('role').isIn(['RA', 'HRA', 'Admin', 'RASD', 'Developer']).withMessage('Invalid role'),
+        body('reason').optional().isString().withMessage('Reason must be a string')
+    ],
+    developerMaintenance: [
+        body('enabled').isBoolean().withMessage('Enabled must be a boolean'),
+        body('message').optional().isString().withMessage('Message must be a string')
     ]
 };
 
@@ -1822,7 +1846,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         name: 'BIU BedCheck API',
-        version: '4.4.0',
+        version: '4.5.0',
         status: 'running',
         environment: process.env.NODE_ENV || 'production',
         security: {
@@ -8291,7 +8315,7 @@ app.put('/api/sessions/:id',
             if (campus !== undefined) { 
                 updateData.campus = campus;
                 updateData.campus_code = campus === 'Legacy' ? 'LEG' : 'HER';
-                changes.push('campus');
+                changes.push('campus'); 
             }
 
             updateData.updated_at = new Date().toISOString();
@@ -9147,6 +9171,663 @@ app.get('/api/audit/:id',
 );
 
 // =====================================================
+// ⚡ DEVELOPER POWER ENDPOINTS
+// =====================================================
+
+// ============================================
+// DEVELOPER: System Overview & Stats
+// ============================================
+
+app.get('/api/developer/system/stats',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            // Get counts from all tables
+            const [
+                studentsCount,
+                staffCount,
+                hostelsCount,
+                floorsCount,
+                roomsCount,
+                bedSpacesCount,
+                sessionsCount,
+                bedcheckSessionsCount,
+                bedcheckScansCount,
+                auditCount
+            ] = await Promise.all([
+                supabase.from('students').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('staff').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('hostels').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('floors_flats').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('rooms').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('bed_spaces').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('bedcheck_sessions').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('bedcheck_scans').select('*', { count: 'exact', head: true }).eq('campus', req.campus),
+                supabase.from('audit_logs').select('*', { count: 'exact', head: true }).eq('campus', req.campus)
+            ]);
+
+            res.json({
+                success: true,
+                data: {
+                    tables: {
+                        students: studentsCount.count || 0,
+                        staff: staffCount.count || 0,
+                        hostels: hostelsCount.count || 0,
+                        floors_flats: floorsCount.count || 0,
+                        rooms: roomsCount.count || 0,
+                        bed_spaces: bedSpacesCount.count || 0,
+                        sessions: sessionsCount.count || 0,
+                        bedcheck_sessions: bedcheckSessionsCount.count || 0,
+                        bedcheck_scans: bedcheckScansCount.count || 0,
+                        audit_logs: auditCount.count || 0
+                    },
+                    total_records: (studentsCount.count || 0) + (staffCount.count || 0) + 
+                                  (hostelsCount.count || 0) + (floorsCount.count || 0) + 
+                                  (roomsCount.count || 0) + (bedSpacesCount.count || 0) + 
+                                  (sessionsCount.count || 0) + (bedcheckSessionsCount.count || 0) + 
+                                  (bedcheckScansCount.count || 0) + (auditCount.count || 0),
+                    campus: req.campus
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching system stats:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: All Students with Full Details
+// ============================================
+
+app.get('/api/developer/students/all',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('students')
+                .select('*')
+                .eq('campus', req.campus)
+                .order('id', { ascending: true });
+
+            if (error) throw error;
+
+            res.json({
+                success: true,
+                data: data,
+                count: data.length,
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching all students:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: Full Database Backup
+// ============================================
+
+app.get('/api/developer/backup/full',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            // Fetch all data from all tables
+            const [
+                students,
+                staff,
+                hostels,
+                floors,
+                rooms,
+                bedSpaces,
+                sessions,
+                bedcheckSessions,
+                bedcheckScans,
+                auditLogs,
+                raSessions,
+                raAssignments,
+                studentFace,
+                systemSettings,
+                submissionState
+            ] = await Promise.all([
+                supabase.from('students').select('*').eq('campus', req.campus),
+                supabase.from('staff').select('*').eq('campus', req.campus),
+                supabase.from('hostels').select('*').eq('campus', req.campus),
+                supabase.from('floors_flats').select('*').eq('campus', req.campus),
+                supabase.from('rooms').select('*').eq('campus', req.campus),
+                supabase.from('bed_spaces').select('*').eq('campus', req.campus),
+                supabase.from('sessions').select('*').eq('campus', req.campus),
+                supabase.from('bedcheck_sessions').select('*').eq('campus', req.campus),
+                supabase.from('bedcheck_scans').select('*').eq('campus', req.campus),
+                supabase.from('audit_logs').select('*').eq('campus', req.campus),
+                supabase.from('ra_bedcheck_sessions').select('*').eq('campus', req.campus),
+                supabase.from('ra_room_assignments').select('*').eq('campus', req.campus),
+                supabase.from('student_face').select('*').eq('campus', req.campus),
+                supabase.from('system_settings').select('*').eq('campus', req.campus),
+                supabase.from('submission_state').select('*').eq('campus', req.campus)
+            ]);
+
+            const backup = {
+                timestamp: new Date().toISOString(),
+                campus: req.campus,
+                tables: {
+                    students: students.data || [],
+                    staff: staff.data || [],
+                    hostels: hostels.data || [],
+                    floors_flats: floors.data || [],
+                    rooms: rooms.data || [],
+                    bed_spaces: bedSpaces.data || [],
+                    sessions: sessions.data || [],
+                    bedcheck_sessions: bedcheckSessions.data || [],
+                    bedcheck_scans: bedcheckScans.data || [],
+                    audit_logs: auditLogs.data || [],
+                    ra_bedcheck_sessions: raSessions.data || [],
+                    ra_room_assignments: raAssignments.data || [],
+                    student_face: studentFace.data || [],
+                    system_settings: systemSettings.data || [],
+                    submission_state: submissionState.data || []
+                },
+                summary: {
+                    total_tables: 15,
+                    total_records: (students.data?.length || 0) + (staff.data?.length || 0) +
+                                   (hostels.data?.length || 0) + (floors.data?.length || 0) +
+                                   (rooms.data?.length || 0) + (bedSpaces.data?.length || 0) +
+                                   (sessions.data?.length || 0) + (bedcheckSessions.data?.length || 0) +
+                                   (bedcheckScans.data?.length || 0) + (auditLogs.data?.length || 0) +
+                                   (raSessions.data?.length || 0) + (raAssignments.data?.length || 0) +
+                                   (studentFace.data?.length || 0) + (systemSettings.data?.length || 0) +
+                                   (submissionState.data?.length || 0)
+                }
+            };
+
+            // Log the backup
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: 'Full Database Backup',
+                module: 'system',
+                details: `Developer ${req.user.name} created full database backup`,
+                context: `${backup.summary.total_records} records backed up`,
+                result: 'success',
+                category: 'system',
+                tone: 'blue',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                data: backup,
+                message: 'Full database backup created successfully'
+            });
+        } catch (error) {
+            console.error('Error creating backup:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: Execute Raw Query (Super Admin)
+// ============================================
+
+app.post('/api/developer/query',
+    campusIsolation,
+    requireRole('Developer'),
+    validate(validators.executeQuery),
+    async (req, res) => {
+        try {
+            const { query, params = {} } = req.body;
+
+            // Security: Block dangerous operations
+            const dangerousPatterns = [
+                /DROP\s+TABLE/i,
+                /DROP\s+DATABASE/i,
+                /TRUNCATE\s+TABLE/i,
+                /ALTER\s+TABLE/i,
+                /CREATE\s+TABLE/i,
+                /DELETE\s+FROM\s+\w+\s+WHERE\s+1\s*=\s*1/i,
+                /UPDATE\s+\w+\s+SET\s+\w+\s*=\s*\w+\s+WHERE\s+1\s*=\s*1/i
+            ];
+
+            for (const pattern of dangerousPatterns) {
+                if (pattern.test(query)) {
+                    await auditService.log({
+                        actor: req.user.name || req.user.username,
+                        actor_id: req.user.id,
+                        actor_role: 'Developer',
+                        action: 'Dangerous Query Blocked',
+                        module: 'security',
+                        details: `Attempted dangerous query: ${query.substring(0, 100)}`,
+                        context: 'Query blocked by security filter',
+                        result: 'failed',
+                        category: 'security',
+                        tone: 'red',
+                        campus: req.campus,
+                        ip_address: req.clientIp,
+                        user_agent: req.userAgent
+                    });
+
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Dangerous query blocked for security reasons',
+                        code: 'QUERY_BLOCKED'
+                    });
+                }
+            }
+
+            // Execute the query using Supabase RPC or raw SQL
+            // Note: You need to create a function in Supabase called 'execute_sql'
+            const { data, error } = await supabase.rpc('execute_sql', {
+                query_text: query,
+                query_params: params
+            });
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: 'Custom Query Executed',
+                module: 'system',
+                details: `Executed custom query: ${query.substring(0, 100)}`,
+                context: `Query returned ${data?.length || 0} rows`,
+                result: 'success',
+                category: 'system',
+                tone: 'blue',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                data: data,
+                count: data?.length || 0,
+                message: 'Query executed successfully'
+            });
+        } catch (error) {
+            console.error('Error executing query:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: System Health Check (Full)
+// ============================================
+
+app.get('/api/developer/health/full',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            // Check database connection
+            const dbStart = Date.now();
+            const { data: dbTest, error: dbError } = await supabase
+                .from('students')
+                .select('id', { count: 'exact', head: true })
+                .limit(1);
+            const dbLatency = Date.now() - dbStart;
+
+            // Check Face API
+            const faceStart = Date.now();
+            let faceStatus = 'unknown';
+            let faceLatency = 0;
+            try {
+                const faceHealth = await faceService.checkHealth();
+                faceStatus = faceHealth.status || 'healthy';
+                faceLatency = Date.now() - faceStart;
+            } catch (faceError) {
+                faceStatus = 'unhealthy';
+                faceLatency = Date.now() - faceStart;
+            }
+
+            // Check memory usage
+            const memoryUsage = process.memoryUsage();
+
+            const health = {
+                status: dbError ? 'unhealthy' : 'healthy',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime(),
+                database: {
+                    status: dbError ? 'unhealthy' : 'healthy',
+                    latency: `${dbLatency}ms`,
+                    error: dbError?.message || null
+                },
+                face_api: {
+                    status: faceStatus,
+                    latency: `${faceLatency}ms`,
+                    circuit_breaker: faceService.circuitOpen ? 'open' : 'closed',
+                    failures: faceService.failureCount
+                },
+                memory: {
+                    rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
+                    heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
+                    heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`,
+                    external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`
+                },
+                system: {
+                    platform: process.platform,
+                    arch: process.arch,
+                    node_version: process.version,
+                    cpu_cores: require('os').cpus().length,
+                    total_memory: `${Math.round(require('os').totalmem() / 1024 / 1024 / 1024)} GB`,
+                    free_memory: `${Math.round(require('os').freemem() / 1024 / 1024 / 1024)} GB`
+                },
+                campus: req.campus
+            };
+
+            res.json({
+                success: true,
+                data: health
+            });
+        } catch (error) {
+            console.error('Error checking system health:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: System Settings Management
+// ============================================
+
+app.get('/api/developer/settings/all',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('system_settings')
+                .select('*')
+                .eq('campus', req.campus)
+                .order('category', { ascending: true })
+                .order('key', { ascending: true });
+
+            if (error) throw error;
+
+            res.json({
+                success: true,
+                data: data,
+                count: data.length,
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching settings:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.put('/api/developer/settings/:key',
+    campusIsolation,
+    requireRole('Developer'),
+    validate(validators.developerSettings),
+    async (req, res) => {
+        try {
+            const { key } = req.params;
+            const { value, category, description } = req.body;
+
+            const { data, error } = await supabase
+                .from('system_settings')
+                .upsert({
+                    key: key,
+                    value: value,
+                    category: category || 'general',
+                    description: description || null,
+                    updated_at: new Date().toISOString(),
+                    campus: req.campus
+                }, {
+                    onConflict: 'key'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: 'System Setting Updated',
+                module: 'system',
+                details: `Updated setting ${key} to ${value}`,
+                context: `Category: ${category || 'general'}`,
+                result: 'success',
+                category: 'system',
+                tone: 'gold',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                data: data,
+                message: `Setting ${key} updated successfully`
+            });
+        } catch (error) {
+            console.error('Error updating setting:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: User Management (All Users)
+// ============================================
+
+app.get('/api/developer/users/all',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('staff')
+                .select('*')
+                .eq('campus', req.campus)
+                .order('role', { ascending: true })
+                .order('name', { ascending: true });
+
+            if (error) throw error;
+
+            res.json({
+                success: true,
+                data: data,
+                count: data.length,
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching all users:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.put('/api/developer/users/:id/role',
+    campusIsolation,
+    requireRole('Developer'),
+    validate(validators.developerRoleChange),
+    async (req, res) => {
+        try {
+            const id = parseInt(req.params.id);
+            const { role, reason } = req.body;
+
+            // Prevent changing own role
+            if (id === req.user.id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You cannot change your own role',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+
+            const { data: user, error: fetchError } = await supabase
+                .from('staff')
+                .select('name, role')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+
+            if (fetchError || !user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'User not found in this campus',
+                    code: 'USER_NOT_FOUND'
+                });
+            }
+
+            const oldRole = user.role;
+
+            const { data, error } = await supabase
+                .from('staff')
+                .update({
+                    role: role,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: 'User Role Changed (Developer)',
+                module: 'staff',
+                details: `Changed ${user.name} role from ${oldRole} to ${role}`,
+                context: `Reason: ${reason || 'No reason provided'}`,
+                result: 'success',
+                category: 'staff',
+                tone: 'gold',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                data: data,
+                message: `Role changed from ${oldRole} to ${role} successfully`
+            });
+        } catch (error) {
+            console.error('Error changing user role:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// ============================================
+// DEVELOPER: System Maintenance Mode
+// ============================================
+
+app.post('/api/developer/maintenance',
+    campusIsolation,
+    requireRole('Developer'),
+    validate(validators.developerMaintenance),
+    async (req, res) => {
+        try {
+            const { enabled, message } = req.body;
+
+            // Update system settings
+            const { data, error } = await supabase
+                .from('system_settings')
+                .upsert({
+                    key: 'maintenance_mode',
+                    value: enabled ? 'true' : 'false',
+                    category: 'system',
+                    description: message || 'System maintenance in progress',
+                    updated_at: new Date().toISOString(),
+                    campus: req.campus
+                }, {
+                    onConflict: 'key'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: enabled ? 'Maintenance Mode Enabled' : 'Maintenance Mode Disabled',
+                module: 'system',
+                details: `Developer ${req.user.name} ${enabled ? 'enabled' : 'disabled'} maintenance mode`,
+                context: `Message: ${message || 'No message provided'}`,
+                result: 'success',
+                category: 'system',
+                tone: enabled ? 'red' : 'green',
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({
+                success: true,
+                data: data,
+                message: `Maintenance mode ${enabled ? 'enabled' : 'disabled'} successfully`
+            });
+        } catch (error) {
+            console.error('Error toggling maintenance mode:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
 // CATCH-ALL 404 HANDLER
 // =====================================================
 
@@ -9187,7 +9868,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, '0.0.0.0', async () => {
     const verbose = process.env.STARTUP_VERBOSE === 'true';
     
-    console.log(`\n🚀 BIU BedCheck API v4.4.0`);
+    console.log(`\n🚀 BIU BedCheck API v4.5.0`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
     
