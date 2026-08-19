@@ -4082,42 +4082,98 @@ app.delete('/api/students/:id',
 // STAFF CRUD
 // =====================================================
 
-app.get('/api/staff', 
+app.get('/api/staff/:id', 
     campusIsolation,
-    validate(validators.pagination),
+    validate(validators.staffId),
     async (req, res) => {
+        const id = parseInt(req.params.id);
         try {
-            const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-            const offset = parseInt(req.query.offset) || 0;
-            
-            let query = supabase
+            // Get staff data with hostel and floor/flat details
+            const { data, error } = await supabase
                 .from('staff')
-                .select('id, name, username, role, hostel_id, assigned_floor, assigned_room, status, email, phone, department, initials, joined, last_login, campus, campus_code')
-                .eq('campus', req.campus)
-                .order('name', { ascending: true })
-                .range(offset, offset + limit - 1);
+                .select(`
+                    id, 
+                    name, 
+                    username, 
+                    role, 
+                    hostel_id,
+                    assigned_floor, 
+                    assigned_room, 
+                    status, 
+                    email, 
+                    phone, 
+                    department, 
+                    initials, 
+                    joined, 
+                    last_login, 
+                    campus, 
+                    campus_code,
+                    hostels!hostel_id (
+                        id,
+                        name as hostel_name,
+                        type as hostel_type,
+                        gender as hostel_gender
+                    ),
+                    floors_flats!assigned_floor (
+                        id,
+                        name as floor_name,
+                        type as floor_type
+                    )
+                `)
+                .eq('id', id)
+                .maybeSingle();
 
-            if (req.user.role !== 'Developer') {
-                query = query.neq('role', 'Developer');
+            if (error || !data) {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Staff not found',
+                    code: 'STAFF_NOT_FOUND'
+                });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
+            // Check if staff is Developer and user is not Developer
+            if (data.role === 'Developer' && req.user.role !== 'Developer') {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Staff not found',
+                    code: 'STAFF_NOT_FOUND'
+                });
             }
 
-            const { data, error, count } = await query;
-            if (error) throw error;
+            // Check hostel access permission - if no hostel_id, allow but warn
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer') {
+                if (!data.hostel_id) {
+                    console.warn(`⚠️ User ${data.name} (ID: ${data.id}) has no hostel assigned`);
+                    // Still return the data but with a warning
+                } else if (req.user.hostel_id !== data.hostel_id) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied',
+                        code: 'PERMISSION_DENIED'
+                    });
+                }
+            }
 
-            const sanitizedData = data.map(item => ({
-                ...item,
-                staff_id: item.id
-            }));
+            // Format the response with nested data
+            const formattedData = {
+                ...data,
+                hostel_id: data.hostel_id,
+                hostel: data.hostels?.hostel_name || null,
+                hostel_name: data.hostels?.hostel_name || null,
+                hostel_type: data.hostels?.hostel_type || null,
+                hostel_gender: data.hostels?.hostel_gender || null,
+                assigned_floor: data.assigned_floor,
+                assigned_floor_name: data.floors_flats?.floor_name || null,
+                assigned_floor_type: data.floors_flats?.floor_type || null,
+                assigned_room: data.assigned_room,
+                hostels: undefined,
+                floors_flats: undefined
+            };
 
             res.json({ 
                 success: true, 
-                data: sanitizedData,
-                pagination: { limit, offset, total: count || data.length },
-                campus: req.campus
+                data: { ...formattedData, staff_id: formattedData.id },
+                campus: data.campus || req.campus
             });
         } catch (error) {
             console.error('Error fetching staff:', error);
