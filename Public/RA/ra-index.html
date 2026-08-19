@@ -477,7 +477,6 @@
 
             async function loadFloorsFlats() {
                 try {
-                    // The server endpoint is /floors-flats (with hyphen)
                     const data = await apiCall(`/floors-flats?hostel_id=${assignedHostelId || ''}`);
                     floorsFlats = data.data || [];
                     return floorsFlats;
@@ -525,6 +524,7 @@
             // GET HOSTEL NAME
             // =============================================
             function getHostelName(hostelId) {
+                if (!hostelId) return 'No Hostel';
                 const hostel = hostels.find(h => h.id === hostelId);
                 return hostel ? hostel.name : 'Unknown Hostel';
             }
@@ -533,6 +533,7 @@
             // GET FLOOR NAME
             // =============================================
             function getFloorName(floorId) {
+                if (!floorId) return null;
                 const floor = floorsFlats.find(f => f.id === floorId);
                 return floor ? floor.name : null;
             }
@@ -643,7 +644,7 @@
             function renderDashboard() {
                 const container = document.getElementById('screenContent');
 
-                const displayHostel = assignedHostelName || getHostelName(assignedHostelId) || 'No Hostel';
+                const displayHostel = assignedHostelName || getHostelName(assignedHostelId);
                 const displayArea = assignedArea || assignedFloor || 'No Floor';
                 const totalStudents = filteredStudents.length;
                 const present = filteredStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
@@ -1053,7 +1054,7 @@
             window.changePage = changePage;
 
             // =============================================
-            // INIT - FIXED TO GET BOTH HOSTEL AND FLAT
+            // INIT - FIXED: Get hostel from assigned rooms or hostels list
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1068,36 +1069,14 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
-                    // FIRST: Fetch staff data to get hostel and assigned floor
-                    if (currentUser && currentUser.id) {
-                        try {
-                            const userData = await apiCall(`/staff/${currentUser.id}`);
-                            if (userData.data) {
-                                // Set hostel from staff data
-                                assignedHostelId = userData.data.hostel_id || assignedHostelId;
-                                assignedHostelName = userData.data.hostel || userData.data.hostel_name || assignedHostelName;
-                                assignedFloor = userData.data.assigned_floor || userData.data.assigned_flat || assignedFloor;
-                                assignedArea = assignedFloor;
-                            }
-                        } catch (e) {
-                            console.warn('Could not fetch staff details:', e);
-                        }
-                    }
-
-                    // Load hostels to get proper names
+                    // Load hostels first to get names
                     await loadHostels();
 
-                    // If we have hostel ID but no name, get it from hostels list
-                    if (assignedHostelId && !assignedHostelName) {
-                        const hostel = hostels.find(h => h.id === assignedHostelId);
-                        if (hostel) assignedHostelName = hostel.name;
-                    }
-
-                    // Load assigned rooms
+                    // Load assigned rooms to get hostel info
                     await loadAssignedRooms();
 
-                    // If still no hostel, try to get from assigned rooms
-                    if (!assignedHostelId && assignedRooms.length > 0) {
+                    // If assigned rooms exist, get hostel from first room
+                    if (assignedRooms.length > 0) {
                         const firstRoom = assignedRooms[0];
                         if (firstRoom.hostel_id) {
                             assignedHostelId = firstRoom.hostel_id;
@@ -1110,17 +1089,30 @@
                         }
                     }
 
-                    // Load floors/flats for the hostel
-                    await loadFloorsFlats();
-
-                    // If we have a floor/flat ID but no name, get it from floors_flats
-                    if (assignedFloor && !isNaN(assignedFloor)) {
-                        const floor = floorsFlats.find(f => f.id === parseInt(assignedFloor));
-                        if (floor) assignedArea = floor.name;
+                    // If still no hostel, try user session data
+                    if (!assignedHostelId && currentUser) {
+                        assignedHostelId = currentUser.hostel_id || null;
+                        if (assignedHostelId) {
+                            const hostel = hostels.find(h => h.id === assignedHostelId);
+                            if (hostel) assignedHostelName = hostel.name;
+                        }
+                        assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
+                        assignedArea = assignedFloor;
                     }
 
                     // Load staff for HRA info
                     await loadStaff();
+
+                    // Load floors/flats for the hostel
+                    if (assignedHostelId) {
+                        await loadFloorsFlats();
+
+                        // If we have a floor/flat ID but no name, get it from floors_flats
+                        if (assignedFloor && !isNaN(assignedFloor)) {
+                            const floor = floorsFlats.find(f => f.id === parseInt(assignedFloor));
+                            if (floor) assignedArea = floor.name;
+                        }
+                    }
 
                     // Load students
                     await loadStudents();
