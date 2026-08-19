@@ -1874,7 +1874,8 @@ app.get('/api/security/status', (req, res) => {
 });
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS// =====================================================
+// AUTHENTICATION ENDPOINTS
+// =====================================================
 
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
     const { username, password } = req.body;
@@ -1889,9 +1890,40 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
             });
         }
 
+        // Get staff with hostel and floor details
         const { data, error } = await supabase
             .from('staff')
-            .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, staff_id, joined, status, password, campus, campus_code')
+            .select(`
+                id, 
+                username, 
+                role, 
+                name, 
+                initials, 
+                scope, 
+                hostel_id,
+                assigned_floor, 
+                assigned_room, 
+                is_admin, 
+                email, 
+                phone, 
+                department, 
+                staff_id, 
+                joined, 
+                status, 
+                password, 
+                campus, 
+                campus_code,
+                hostels!hostel_id (
+                    id,
+                    name as hostel_name,
+                    type as hostel_type
+                ),
+                floors_flats!assigned_floor (
+                    id,
+                    name as floor_name,
+                    type as floor_type
+                )
+            `)
             .eq('username', username)
             .maybeSingle();
         
@@ -1961,12 +1993,27 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
+        // Format user data with hostel and floor info
+        const formattedUser = {
+            ...userWithoutPassword,
+            hostel: user.hostels?.hostel_name || null,
+            hostel_name: user.hostels?.hostel_name || null,
+            hostel_type: user.hostels?.hostel_type || null,
+            assigned_floor: user.assigned_floor,
+            assigned_floor_name: user.floors_flats?.floor_name || null,
+            assigned_floor_type: user.floors_flats?.floor_type || null,
+            assigned_room: user.assigned_room,
+            // Remove nested objects
+            hostels: undefined,
+            floors_flats: undefined
+        };
+
         const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
 
         res.json({ 
             success: true, 
             data: {
-                user: userWithoutPassword,
+                user: formattedUser,
                 token: token,
                 expiresIn: process.env.JWT_EXPIRY || '8h',
                 campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
@@ -4083,18 +4130,51 @@ app.get('/api/staff',
     }
 );
 
+// =====================================================
+// GET STAFF BY ID - WITH HOSTEL AND ASSIGNMENT DETAILS (Updated)
+// =====================================================
+
 app.get('/api/staff/:id', 
     campusIsolation,
     validate(validators.staffId),
     async (req, res) => {
         const id = parseInt(req.params.id);
         try {
+            // Get staff data with hostel and floor/flat details
             const { data, error } = await supabase
                 .from('staff')
-                .select('id, name, username, role, hostel_id, assigned_floor, assigned_room, status, email, phone, department, initials, joined, last_login, campus, campus_code')
+                .select(`
+                    id, 
+                    name, 
+                    username, 
+                    role, 
+                    hostel_id,
+                    assigned_floor, 
+                    assigned_room, 
+                    status, 
+                    email, 
+                    phone, 
+                    department, 
+                    initials, 
+                    joined, 
+                    last_login, 
+                    campus, 
+                    campus_code,
+                    hostels!hostel_id (
+                        id,
+                        name as hostel_name,
+                        type as hostel_type,
+                        gender as hostel_gender
+                    ),
+                    floors_flats!assigned_floor (
+                        id,
+                        name as floor_name,
+                        type as floor_type
+                    )
+                `)
                 .eq('id', id)
                 .eq('campus', req.campus)
-                .single();
+                .maybeSingle();
 
             if (error || !data) {
                 return res.status(404).json({ 
@@ -4104,6 +4184,7 @@ app.get('/api/staff/:id',
                 });
             }
 
+            // Check if staff is Developer and user is not Developer
             if (data.role === 'Developer' && req.user.role !== 'Developer') {
                 return res.status(404).json({ 
                     success: false, 
@@ -4112,6 +4193,7 @@ app.get('/api/staff/:id',
                 });
             }
 
+            // Check hostel access permission
             if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
@@ -4120,9 +4202,26 @@ app.get('/api/staff/:id',
                 });
             }
 
+            // Format the response with nested data
+            const formattedData = {
+                ...data,
+                hostel_id: data.hostel_id,
+                hostel: data.hostels?.hostel_name || null,
+                hostel_name: data.hostels?.hostel_name || null,
+                hostel_type: data.hostels?.hostel_type || null,
+                hostel_gender: data.hostels?.hostel_gender || null,
+                assigned_floor: data.assigned_floor,
+                assigned_floor_name: data.floors_flats?.floor_name || null,
+                assigned_floor_type: data.floors_flats?.floor_type || null,
+                assigned_room: data.assigned_room,
+                // Remove nested objects from response
+                hostels: undefined,
+                floors_flats: undefined
+            };
+
             res.json({ 
                 success: true, 
-                data: { ...data, staff_id: data.id },
+                data: { ...formattedData, staff_id: formattedData.id },
                 campus: req.campus
             });
         } catch (error) {
