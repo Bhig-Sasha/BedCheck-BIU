@@ -5954,9 +5954,15 @@ app.get('/api/ra/bedcheck/status',
             const raId = req.user.id;
             const { session_id } = req.query;
 
+            // Build query using Supabase query builder
             let query = supabase
                 .from('ra_bedcheck_sessions')
-                .select('*, staff(name)')
+                .select(`
+                    *,
+                    staff!ra_id (
+                        name
+                    )
+                `)
                 .eq('ra_id', raId)
                 .eq('campus', req.campus);
 
@@ -5968,8 +5974,16 @@ app.get('/api/ra/bedcheck/status',
                 .order('created_at', { ascending: false })
                 .limit(10);
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error fetching RA sessions:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
 
+            // Get assigned rooms count
             const { data: roomsData, error: roomsError } = await supabase
                 .from('ra_room_assignments')
                 .select('room_id', { count: 'exact' })
@@ -5977,9 +5991,13 @@ app.get('/api/ra/bedcheck/status',
                 .eq('status', 'active')
                 .eq('campus', req.campus);
 
-            if (roomsError) throw roomsError;
+            if (roomsError) {
+                console.error('Error fetching rooms:', roomsError);
+                // Don't fail the request, just set rooms to 0
+            }
 
-            const { data: activeSession } = await supabase
+            // Get active session
+            const { data: activeSession, error: activeError } = await supabase
                 .from('ra_bedcheck_sessions')
                 .select('*')
                 .eq('ra_id', raId)
@@ -5987,14 +6005,24 @@ app.get('/api/ra/bedcheck/status',
                 .eq('status', 'started')
                 .maybeSingle();
 
+            if (activeError) {
+                console.error('Error fetching active session:', activeError);
+            }
+
+            // Format the response
+            const formattedSessions = data?.map(session => ({
+                ...session,
+                staff: session.staff || { name: 'Unknown' }
+            })) || [];
+
             res.json({
                 success: true,
                 data: {
-                    sessions: data || [],
+                    sessions: formattedSessions,
                     assigned_rooms: roomsData?.length || 0,
                     active_session: activeSession || null,
                     has_active_session: !!activeSession,
-                    has_completed_today: data?.some(s => {
+                    has_completed_today: formattedSessions.some(s => {
                         const today = new Date().toDateString();
                         const completedAt = s.completed_at ? new Date(s.completed_at).toDateString() : null;
                         return s.status === 'completed' && completedAt === today;
