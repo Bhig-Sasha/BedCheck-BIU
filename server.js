@@ -24,7 +24,7 @@ const DASHBOARD_ROUTES = {
     'HRA': '/HRA/hra-index.html',
     'RA': '/RA/ra-index.html',
     'Developer': '/app/dev-index.html',
-    'Student': '/students'
+    'Student': '/student/hub.html'
 };
 
 // =====================================================
@@ -850,7 +850,7 @@ app.use((req, res, next) => {
 });
 
 // =====================================================
-// CORS - Hardened
+// CORS
 // =====================================================
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
@@ -859,11 +859,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const defaultOrigins = [
     'https://bed-check-biu.vercel.app',
-    'https://bed-check-biu-*.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173'
+    'https://bed-check-biu-*.vercel.app'
 ];
 
 const allOrigins = [...allowedOrigins, ...defaultOrigins];
@@ -1996,7 +1992,7 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 app.use(authMiddleware);
 
 // =====================================================
-// AUTHENTICATION ENDPOINTS (Protected)
+// AUTHENTICATION ENDPOINTS
 // =====================================================
 
 app.post('/api/auth/logout', async (req, res) => {
@@ -5720,7 +5716,7 @@ app.put('/api/security/resolve/:id',
 );
 
 // =====================================================
-// HOSTEL CRUD (Protected)
+// HOSTEL CRUD
 // =====================================================
 
 app.get('/api/hostels',
