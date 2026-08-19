@@ -520,11 +520,28 @@
                 if (data.data) {
                     const userData = data.data;
                     
-                    assignedHostelId = userData.hostel_id;
-                    assignedHostelName = userData.hostel_name || userData.hostel;
-                    assignedFloor = userData.assigned_floor;
-                    assignedFloorName = userData.assigned_floor_name;
-                    assignedArea = assignedFloorName || assignedFloor;
+                    // Try multiple possible field names
+                    assignedHostelId = userData.hostel_id || userData.hostelId || null;
+                    assignedHostelName = userData.hostel_name || userData.hostel || userData.hostels?.name || '';
+                    assignedFloor = userData.assigned_floor || userData.assigned_flat || '';
+                    assignedFloorName = userData.assigned_floor_name || userData.assigned_flat_name || '';
+                    assignedArea = assignedFloorName || assignedFloor || '';
+                    
+                    // If no hostel, try to get from currentUser
+                    if (!assignedHostelId && currentUser.hostel_id) {
+                        assignedHostelId = currentUser.hostel_id;
+                    }
+                    if (!assignedHostelName && currentUser.hostel) {
+                        assignedHostelName = currentUser.hostel;
+                    }
+                    
+                    // If we have hostel_id but no name, try to get it from hostels list
+                    if (assignedHostelId && !assignedHostelName) {
+                        const hostel = hostels.find(h => h.id === assignedHostelId);
+                        if (hostel) {
+                            assignedHostelName = hostel.name;
+                        }
+                    }
                     
                     if (!assignedHostelId) {
                         throw new Error('No hostel assigned to this user');
