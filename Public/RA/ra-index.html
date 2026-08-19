@@ -243,11 +243,6 @@
         .error-container .error-icon { font-size: 3rem; color: #a84134; margin-bottom: 1rem; }
         .error-container h2 { margin-bottom: 0.5rem; }
         .error-container p { color: #68768a; max-width: 400px; margin: 0 auto 1.5rem; }
-
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #e8e4de; }
-        ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
     </style>
 </head>
 <body>
@@ -355,9 +350,12 @@
             let assignedRooms = [];
             let hostels = [];
             let staffMembers = [];
+            let floorsFlats = [];
             let currentPage = 1;
             let assignedHostelId = null;
             let assignedHostelName = '';
+            let assignedFloor = '';
+            let assignedArea = '';
             let sessionStatus = 'unavailable';
             let isSessionActive = false;
 
@@ -477,6 +475,17 @@
                 return staffMembers;
             }
 
+            async function loadFloorsFlats() {
+                try {
+                    const data = await apiCall(`/floors-flats?hostel_id=${assignedHostelId || ''}`);
+                    floorsFlats = data.data || [];
+                    return floorsFlats;
+                } catch (error) {
+                    floorsFlats = [];
+                    return floorsFlats;
+                }
+            }
+
             async function loadAssignedRooms() {
                 const data = await apiCall('/ra/rooms');
                 assignedRooms = data.data?.rooms || [];
@@ -504,9 +513,10 @@
                 roleLabel.textContent = 'RA';
 
                 const hostelDisplay = assignedHostelName || currentUser?.hostel || 'No Hostel';
+                const areaDisplay = assignedArea || assignedFloor || 'No Floor';
                 const roomCount = assignedRooms.length;
-                roleScope.textContent = `${hostelDisplay} · ${roomCount} rooms`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · ${roomCount} rooms`;
+                roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
             }
 
             // =============================================
@@ -515,6 +525,14 @@
             function getHostelName(hostelId) {
                 const hostel = hostels.find(h => h.id === hostelId);
                 return hostel ? hostel.name : 'Unknown Hostel';
+            }
+
+            // =============================================
+            // GET FLOOR NAME
+            // =============================================
+            function getFloorName(floorId) {
+                const floor = floorsFlats.find(f => f.id === floorId);
+                return floor ? floor.name : null;
             }
 
             // =============================================
@@ -624,6 +642,7 @@
                 const container = document.getElementById('screenContent');
 
                 const displayHostel = assignedHostelName || getHostelName(assignedHostelId) || 'No Hostel';
+                const displayArea = assignedArea || assignedFloor || 'No Floor';
                 const totalStudents = filteredStudents.length;
                 const present = filteredStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = filteredStudents.filter(s => s.status === 'Absent').length || 0;
@@ -673,6 +692,9 @@
                                 <span class="assigned-hostel-badge">
                                     <i class="fas fa-building"></i> ${displayHostel}
                                 </span>
+                                <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                    <i class="fas fa-layer-group"></i> ${displayArea}
+                                </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
                                 <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
                                     <i class="fas fa-door-open"></i> ${assignedRooms.length} rooms
@@ -716,7 +738,7 @@
                             <div class="metric-icon navy"><i class="fas fa-users"></i></div>
                             <div class="metric-value">${totalStudents}</div>
                             <div class="metric-title">Assigned Students</div>
-                            <div class="metric-detail">In ${assignedRooms.length} rooms</div>
+                            <div class="metric-detail">In ${displayArea}</div>
                         </div>
                         <div class="metric-card" style="border-left:3px solid #2d6545;">
                             <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
@@ -750,6 +772,10 @@
                                 <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
                                     <span class="text-muted">Type</span>
                                     <span class="font-bold">${hostelInfo?.type || '—'}</span>
+                                </div>
+                                <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                                    <span class="text-muted">Assigned Area</span>
+                                    <span class="font-bold">${displayArea}</span>
                                 </div>
                                 <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
                                     <span class="text-muted">Assigned Rooms</span>
@@ -839,8 +865,9 @@
                         <p class="text-xs text-muted">
                             BIU BedCheck System v2.0 · © Benson Idahosa University
                             <span class="ml-4"><span class="status-dot green"></span> Online</span>
+                            <span class="ml-4"><i class="fas fa-layer-group"></i> ${displayArea}</span>
                             <span class="ml-4"><i class="fas fa-door-open"></i> ${assignedRooms.length} rooms</span>
-                            ${sessionStatus === 'unavailable' ? `<span class="ml-4"><i class="fas fa-exclamation-triangle" style="color:#8a3328;"></i> Session status unavailable</span>` : ''}
+                            ${sessionStatus === 'unavailable' ? `<span class="ml-4"><i class="fas fa-exclamation-triangle" style="color:#8a3328;"></i> Status unavailable</span>` : ''}
                         </p>
                     </div>
                 `;
@@ -972,9 +999,16 @@
                     return false;
                 }
 
-                if (currentUser.hostel_id) assignedHostelId = currentUser.hostel_id;
-                if (currentUser.hostel) assignedHostelName = currentUser.hostel;
-                if (currentUser.hostel_name) assignedHostelName = currentUser.hostel_name;
+                // Get hostel from user data
+                assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
+                assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
+                assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || currentUser.assignedArea || '';
+                assignedArea = assignedFloor;
+
+                // If no hostel from user, try to get from staff data
+                if (!assignedHostelId && currentUser.id) {
+                    // We'll fetch this in init
+                }
 
                 return true;
             }
@@ -1037,41 +1071,47 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
+                    // If no hostel from user session, fetch staff data
+                    if (!assignedHostelId && currentUser && currentUser.id) {
+                        try {
+                            const userData = await apiCall(`/staff/${currentUser.id}`);
+                            if (userData.data) {
+                                assignedHostelId = userData.data.hostel_id || assignedHostelId;
+                                assignedHostelName = userData.data.hostel || userData.data.hostel_name || assignedHostelName;
+                                assignedFloor = userData.data.assigned_floor || userData.data.assigned_flat || assignedFloor;
+                                assignedArea = assignedFloor;
+                            }
+                        } catch (e) {
+                            console.warn('Could not fetch staff details:', e);
+                        }
+                    }
+
                     // Load assigned rooms
                     await loadAssignedRooms();
                     
-                    // Load hostels and staff
+                    // Load hostels, staff, and floors/flats
                     await loadHostels();
                     await loadStaff();
+                    await loadFloorsFlats();
 
-                    // Get hostel info from assigned rooms
-                    if (assignedRooms.length > 0 && !assignedHostelId) {
+                    // If still no hostel, try to get from first assigned room
+                    if (!assignedHostelId && assignedRooms.length > 0) {
                         const firstRoom = assignedRooms[0];
                         if (firstRoom.hostel_id) {
                             assignedHostelId = firstRoom.hostel_id;
                             const hostel = hostels.find(h => h.id === assignedHostelId);
                             if (hostel) assignedHostelName = hostel.name;
                         }
-                    }
-
-                    // If still no hostel, try user data
-                    if (!assignedHostelId && currentUser) {
-                        try {
-                            const userData = await apiCall(`/staff/${currentUser.id}`);
-                            if (userData.data && userData.data.hostel_id) {
-                                assignedHostelId = userData.data.hostel_id;
-                                const hostel = hostels.find(h => h.id === assignedHostelId);
-                                if (hostel) assignedHostelName = hostel.name;
-                            }
-                        } catch (e) {
-                            console.warn('Could not fetch user details:', e);
+                        if (firstRoom.floor) {
+                            assignedArea = firstRoom.floor;
+                            assignedFloor = firstRoom.floor;
                         }
                     }
 
                     // Load students
                     await loadStudents();
 
-                    // Try to get session status - if it fails, just show unavailable
+                    // Try to get session status
                     try {
                         const statusData = await apiCall('/ra/bedcheck/status');
                         const sessions = statusData.data?.sessions || [];
@@ -1098,10 +1138,11 @@
                     updateHeader();
 
                     const hostelDisplay = assignedHostelName || getHostelName(assignedHostelId) || 'No Hostel';
+                    const areaDisplay = assignedArea || 'No Floor';
                     const roomDisplay = assignedRooms.length > 0 ? `${assignedRooms.length} rooms` : 'no rooms assigned';
                     const statusDisplay = sessionStatus === 'unavailable' ? ' (status unavailable)' : '';
                     document.getElementById('noticeText').textContent =
-                        `Session · ${filteredStudents.length} students in ${hostelDisplay} · ${roomDisplay}${statusDisplay}`;
+                        `Session · ${filteredStudents.length} students in ${hostelDisplay} · ${areaDisplay} · ${roomDisplay}${statusDisplay}`;
 
                     renderDashboard();
 
