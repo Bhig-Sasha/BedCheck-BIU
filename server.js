@@ -4083,12 +4083,13 @@ app.delete('/api/students/:id',
 // =====================================================
 
 app.get('/api/staff/:id', 
-    campusIsolation,
+    // Remove campusIsolation from here
+    // campusIsolation,  // <-- COMMENT THIS OUT
     validate(validators.staffId),
     async (req, res) => {
         const id = parseInt(req.params.id);
         try {
-            // Get staff data with hostel and floor/flat details
+            // Get staff data - don't filter by campus
             const { data, error } = await supabase
                 .from('staff')
                 .select(`
@@ -4132,7 +4133,7 @@ app.get('/api/staff/:id',
             }
 
             // Check if staff is Developer and user is not Developer
-            if (data.role === 'Developer' && req.user.role !== 'Developer') {
+            if (data.role === 'Developer' && req.user?.role !== 'Developer') {
                 return res.status(404).json({ 
                     success: false, 
                     message: 'Staff not found',
@@ -4140,21 +4141,7 @@ app.get('/api/staff/:id',
                 });
             }
 
-            // Check hostel access permission - if no hostel_id, allow but warn
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer') {
-                if (!data.hostel_id) {
-                    console.warn(`⚠️ User ${data.name} (ID: ${data.id}) has no hostel assigned`);
-                    // Still return the data but with a warning
-                } else if (req.user.hostel_id !== data.hostel_id) {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'Access denied',
-                        code: 'PERMISSION_DENIED'
-                    });
-                }
-            }
-
-            // Format the response with nested data
+            // Format the response
             const formattedData = {
                 ...data,
                 hostel_id: data.hostel_id,
@@ -4173,7 +4160,7 @@ app.get('/api/staff/:id',
             res.json({ 
                 success: true, 
                 data: { ...formattedData, staff_id: formattedData.id },
-                campus: data.campus || req.campus
+                campus: data.campus || req.campus || 'Legacy'
             });
         } catch (error) {
             console.error('Error fetching staff:', error);
@@ -4187,7 +4174,7 @@ app.get('/api/staff/:id',
 );
 
 // =====================================================
-// GET STAFF BY ID - WITH HOSTEL AND ASSIGNMENT DETAILS (Updated)
+// GET STAFF BY ID - WITH HOSTEL AND ASSIGNMENT DETAILS
 // =====================================================
 
 app.get('/api/staff/:id', 
