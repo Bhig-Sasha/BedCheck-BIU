@@ -134,6 +134,7 @@
         .badge-assigned { background: #d6ad4b; color: #10233f; }
         .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-inactive { background: #e8edf2; color: #536274; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -251,6 +252,11 @@
         .session-status-banner { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; background: #f5f1e8; border: 1px solid #ded6c9; }
         .session-status-banner.active { background: #e1f0e5; border-color: #2d6545; color: #1a4a2a; }
         .session-status-banner .status-label { font-weight: 600; }
+
+        .error-container { text-align: center; padding: 3rem 1rem; }
+        .error-container .error-icon { font-size: 3rem; color: #a84134; margin-bottom: 1rem; }
+        .error-container h2 { margin-bottom: 0.5rem; }
+        .error-container p { color: #68768a; max-width: 400px; margin: 0 auto 1.5rem; }
     </style>
 </head>
 <body>
@@ -270,7 +276,9 @@
             </div>
             <p class="workspace-label">Workspace</p>
             <nav id="desktopNav">
-                <a href="#" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+                <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
                 <div class="role-title"><i class="fas fa-user-tag"></i> <span id="roleLabel">RA</span></div>
@@ -289,7 +297,7 @@
                 </div>
             </div>
             <nav id="mobileNav">
-                <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="ra-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
@@ -445,100 +453,75 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - NO FALLBACKS!
             // =============================================
             async function loadStudents() {
-                try {
-                    // Use limit parameter correctly - max 100
-                    const limit = Math.min(ITEMS_PER_PAGE * 10, 100);
-                    const data = await apiCall(`/students?hostel_id=${assignedHostelId || ''}&limit=${limit}`);
-                    allStudents = data.data || [];
-                    
-                    if (assignedRooms.length > 0) {
-                        const assignedRoomIds = assignedRooms.map(r => r.id);
-                        filteredStudents = allStudents.filter(s => 
-                            s.room_id && assignedRoomIds.includes(s.room_id)
-                        );
-                    } else {
-                        filteredStudents = allStudents;
-                    }
-                    
-                    return filteredStudents;
-                } catch (error) {
-                    console.error('Error loading students:', error);
-                    allStudents = [];
-                    filteredStudents = [];
-                    return [];
+                const limit = Math.min(ITEMS_PER_PAGE * 10, 100);
+                let endpoint = `/students?limit=${limit}`;
+                
+                if (assignedHostelId) {
+                    endpoint += `&hostel_id=${assignedHostelId}`;
                 }
+                
+                const data = await apiCall(endpoint);
+                allStudents = data.data || [];
+                
+                if (assignedRooms.length > 0) {
+                    const assignedRoomIds = assignedRooms.map(r => r.id);
+                    filteredStudents = allStudents.filter(s => 
+                        s.room_id && assignedRoomIds.includes(s.room_id)
+                    );
+                } else {
+                    filteredStudents = allStudents;
+                }
+                
+                return filteredStudents;
             }
 
             async function loadHostels() {
-                try {
-                    const data = await apiCall('/hostels');
-                    hostels = data.data || [];
-                    return hostels;
-                } catch (error) {
-                    hostels = [];
-                    return hostels;
-                }
+                const data = await apiCall('/hostels');
+                hostels = data.data || [];
+                return hostels;
             }
 
             async function loadStaff() {
-                try {
-                    const data = await apiCall('/staff?limit=100');
-                    staffMembers = data.data || [];
-                    return staffMembers;
-                } catch (error) {
-                    staffMembers = [];
-                    return staffMembers;
-                }
+                const data = await apiCall('/staff?limit=100');
+                staffMembers = data.data || [];
+                return staffMembers;
             }
 
             async function loadAssignedRooms() {
-                try {
-                    const data = await apiCall('/ra/rooms');
-                    assignedRooms = data.data?.rooms || [];
-                    return assignedRooms;
-                } catch (error) {
-                    console.error('Error loading assigned rooms:', error);
-                    assignedRooms = [];
-                    return assignedRooms;
-                }
+                const data = await apiCall('/ra/rooms');
+                assignedRooms = data.data?.rooms || [];
+                return assignedRooms;
             }
 
             async function loadSessionStatus() {
-                try {
-                    const data = await apiCall('/ra/bedcheck/status');
-                    const sessions = data.data?.sessions || [];
-                    
-                    const active = sessions.find(s => s.status === 'started');
-                    if (active) {
-                        isSessionActive = true;
-                        bedCheckSessionId = active.session_id;
-                        sessionStatus = 'active';
+                const data = await apiCall('/ra/bedcheck/status');
+                const sessions = data.data?.sessions || [];
+                
+                const active = sessions.find(s => s.status === 'started');
+                if (active) {
+                    isSessionActive = true;
+                    bedCheckSessionId = active.session_id;
+                    sessionStatus = 'active';
+                } else {
+                    const today = new Date().toISOString().split('T')[0];
+                    const completed = sessions.find(s => 
+                        s.status === 'completed' && 
+                        s.completed_at && 
+                        s.completed_at.startsWith(today)
+                    );
+                    if (completed) {
+                        sessionStatus = 'completed';
+                        isSessionActive = false;
                     } else {
-                        const today = new Date().toISOString().split('T')[0];
-                        const completed = sessions.find(s => 
-                            s.status === 'completed' && 
-                            s.completed_at && 
-                            s.completed_at.startsWith(today)
-                        );
-                        if (completed) {
-                            sessionStatus = 'completed';
-                            isSessionActive = false;
-                        } else {
-                            sessionStatus = 'inactive';
-                            isSessionActive = false;
-                        }
+                        sessionStatus = 'inactive';
+                        isSessionActive = false;
                     }
-                    
-                    return { sessionStatus, isSessionActive, bedCheckSessionId };
-                } catch (error) {
-                    console.error('Error loading session status:', error);
-                    sessionStatus = 'inactive';
-                    isSessionActive = false;
-                    return { sessionStatus: 'inactive', isSessionActive: false, bedCheckSessionId: null };
                 }
+                
+                return { sessionStatus, isSessionActive, bedCheckSessionId };
             }
 
             // =============================================
@@ -590,15 +573,21 @@
                 }
 
                 try {
-                    const sessionData = await apiCall('/sessions/active');
-                    let sessionId = sessionData.data?.id;
+                    let sessionId = null;
+                    try {
+                        const sessionData = await apiCall('/sessions/active');
+                        sessionId = sessionData.data?.id;
+                    } catch (e) {
+                        // No active session, create one
+                    }
                     
                     if (!sessionId) {
                         const newSession = await apiCall('/sessions', {
                             method: 'POST',
                             body: JSON.stringify({
                                 date: new Date().toISOString().split('T')[0],
-                                status: 'active'
+                                status: 'active',
+                                name: 'Night BedCheck'
                             })
                         });
                         sessionId = newSession.data?.id;
@@ -659,6 +648,23 @@
             }
 
             // =============================================
+            // SHOW ERROR STATE
+            // =============================================
+            function showError(message) {
+                const container = document.getElementById('screenContent');
+                container.innerHTML = `
+                    <div class="error-container">
+                        <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <h2>Unable to Load Dashboard</h2>
+                        <p>${message}</p>
+                        <button class="btn-primary" onclick="location.reload()">
+                            <i class="fas fa-refresh"></i> Retry
+                        </button>
+                    </div>
+                `;
+            }
+
+            // =============================================
             // RENDER DASHBOARD
             // =============================================
             function renderDashboard() {
@@ -702,7 +708,7 @@
                             </p>
                         </div>
                         <div class="action-group">
-                            ${!isSessionActive && sessionStatus !== 'completed' ? `
+                            ${!isSessionActive && sessionStatus !== 'completed' && assignedRooms.length > 0 ? `
                                 <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
                             ` : ''}
                             ${isSessionActive ? `
@@ -710,6 +716,9 @@
                             ` : ''}
                             ${sessionStatus === 'completed' ? `
                                 <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed</button>
+                            ` : ''}
+                            ${assignedRooms.length === 0 ? `
+                                <button class="btn-outline" disabled><i class="fas fa-exclamation-triangle"></i> No rooms assigned</button>
                             ` : ''}
                         </div>
                     </div>
@@ -1037,7 +1046,7 @@
             window.changePage = changePage;
 
             // =============================================
-            // INIT
+            // INIT - NO FALLBACKS!
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1052,10 +1061,12 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
+                    // Load all required data - if any fails, show error
                     await loadAssignedRooms();
                     await loadHostels();
                     await loadStaff();
 
+                    // Get hostel info from assigned rooms
                     if (assignedRooms.length > 0 && !assignedHostelId) {
                         const firstRoom = assignedRooms[0];
                         if (firstRoom.hostel_id) {
@@ -1065,19 +1076,17 @@
                         }
                     }
 
+                    // If still no hostel, try user data
                     if (!assignedHostelId && currentUser) {
-                        try {
-                            const userData = await apiCall(`/staff/${currentUser.id}`);
-                            if (userData.data && userData.data.hostel_id) {
-                                assignedHostelId = userData.data.hostel_id;
-                                const hostel = hostels.find(h => h.id === assignedHostelId);
-                                if (hostel) assignedHostelName = hostel.name;
-                            }
-                        } catch (e) {
-                            console.warn('Could not fetch user details:', e);
+                        const userData = await apiCall(`/staff/${currentUser.id}`);
+                        if (userData.data && userData.data.hostel_id) {
+                            assignedHostelId = userData.data.hostel_id;
+                            const hostel = hostels.find(h => h.id === assignedHostelId);
+                            if (hostel) assignedHostelName = hostel.name;
                         }
                     }
 
+                    // Load students and session status
                     await loadStudents();
                     await loadSessionStatus();
 
@@ -1092,10 +1101,11 @@
 
                 } catch (error) {
                     console.error('Init error:', error);
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                        showToast('Error loading data: ' + error.message, 'error');
-                    }
+                    // Show error - no fallback data
+                    const errorMessage = error.message || 'Failed to load dashboard data.';
+                    document.getElementById('noticeText').textContent = 'Error loading dashboard';
+                    showError(errorMessage);
+                    showToast('Error: ' + errorMessage, 'error');
                 }
             }
 
