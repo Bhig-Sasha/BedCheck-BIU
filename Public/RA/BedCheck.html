@@ -1361,8 +1361,7 @@
                         confidence: confidencePercent
                     };
 
-                    addTimeline(`${student.name} verified ✓`,
-                        `Room ${currentRoom}`);
+                    timeline.push({ time: now(), event: `${student.name} verified ✓`, details: `Room ${currentRoom}` });
                     showToast(`✅ ${student.name} verified`, 'success');
                     addDebugLog(`✅ ${student.name} verified successfully!`, 'success');
 
@@ -1390,8 +1389,7 @@
                         if (!completedRooms.includes(currentRoom)) {
                             completedRooms.push(currentRoom);
                         }
-                        addTimeline(`Room ${currentRoom} complete ✓`,
-                            `${currentRoomStudents.length}/${currentRoomStudents.length} verified`);
+                        timeline.push({ time: now(), event: `Room ${currentRoom} complete ✓`, details: `${currentRoomStudents.length}/${currentRoomStudents.length} verified` });
                         showToast(`🎉 Room ${currentRoom} complete!`, 'success');
                         renderBedCheck();
                     }
@@ -1594,41 +1592,92 @@
             return { total, verified, present, absent, pending, totalRooms, completedRoomsCount };
         }
 
-        function addTimeline(event, details = '') {
-            timeline.unshift({ time: now(), event: event, details: details });
-            if (timeline.length > 50) timeline.pop();
-        }
-
         // =============================================
-        // SESSION FUNCTIONS
+        // LOAD SESSION DATA - FIXED
         // =============================================
-        async function loadAttendance() {
+        async function loadSessionData() {
             try {
-                const data = await apiCall('/attendance/today');
-                attendanceData = data.data;
-                
-                if (attendanceData) {
-                    currentSession = attendanceData.session;
-                    sessionStatus = currentSession?.status || 'draft';
-                    isSessionActive = sessionStatus === 'active';
-                    
-                    // Update student statuses from attendance data
-                    if (attendanceData.verified_students) {
-                        attendanceData.verified_students.forEach(v => {
-                            bedScanStatus[v.id] = {
-                                verified: true,
-                                status: 'Verified',
-                                time: v.verified_at,
-                                confidence: v.confidence
-                            };
-                        });
-                    }
+                if (!assignedHostelId) {
+                    console.log('No hostel assigned to this RA');
+                    return;
                 }
                 
-                return attendanceData;
+                // Use the existing ra/bedcheck/status endpoint
+                const statusData = await apiCall('/ra/bedcheck/status');
+                
+                if (statusData && statusData.data) {
+                    const sessions = statusData.data.sessions || [];
+                    const active = sessions.find(s => s.status === 'started');
+                    
+                    if (active) {
+                        isSessionActive = true;
+                        sessionStatus = 'active';
+                        currentSession = active;
+                        console.log(`📋 Session status: active`);
+                        console.log(`📋 Session active: true`);
+                    } else {
+                        const today = new Date().toISOString().split('T')[0];
+                        const completed = sessions.find(s => 
+                            s.status === 'completed' && 
+                            s.completed_at && 
+                            s.completed_at.startsWith(today)
+                        );
+                        
+                        if (completed) {
+                            sessionStatus = 'completed';
+                            isSessionActive = false;
+                            currentSession = completed;
+                            console.log(`📋 Session status: completed`);
+                            console.log(`📋 Session active: false`);
+                        } else {
+                            const draft = sessions.find(s => s.status === 'draft');
+                            if (draft) {
+                                sessionStatus = 'draft';
+                                isSessionActive = false;
+                                currentSession = draft;
+                            } else {
+                                sessionStatus = 'draft';
+                                isSessionActive = false;
+                                currentSession = null;
+                            }
+                            console.log(`📋 Session status: draft`);
+                            console.log(`📋 Session active: false`);
+                        }
+                    }
+                    
+                    // Get scans for the session
+                    if (currentSession && currentSession.id) {
+                        try {
+                            const scansData = await apiCall(`/bedcheck/scans?session_id=${currentSession.id}`);
+                            if (scansData && scansData.data) {
+                                scansData.data.forEach(scan => {
+                                    if (scan.status === 'Verified' || scan.status === 'Present') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: true,
+                                            status: 'Verified',
+                                            time: scan.created_at,
+                                            confidence: scan.metadata?.confidence || null
+                                        };
+                                    } else if (scan.status === 'Absent') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: false,
+                                            status: 'Absent',
+                                            time: scan.created_at
+                                        };
+                                    }
+                                });
+                            }
+                        } catch (scanError) {
+                            console.warn('Could not fetch scans:', scanError);
+                        }
+                    }
+                }
             } catch (error) {
-                console.error('Error loading attendance:', error);
-                return null;
+                console.error('Error loading session:', error);
+                // Set defaults
+                sessionStatus = 'draft';
+                isSessionActive = false;
+                currentSession = null;
             }
         }
 
@@ -1902,7 +1951,7 @@
                                 time: now(),
                                 status: 'auto-absent'
                             });
-                            addTimeline(`${s.name} moved to Auto-Absent Queue`, `Room ${currentRoom}`);
+                            timeline.push({ time: now(), event: `${s.name} moved to Auto-Absent Queue`, details: `Room ${currentRoom}` });
                         }
                     }
                 });
@@ -1910,7 +1959,7 @@
 
             currentRoom = room;
             currentRoomStudents = getStudentsForRoom(room);
-            addTimeline(`Room ${room} selected`, `${currentRoomStudents.length} students expected`);
+            timeline.push({ time: now(), event: `Room ${room} selected`, details: `${currentRoomStudents.length} students expected` });
             showToast(`📋 Room ${room} selected. Click "Verify" for each student.`, 'info');
             renderBedCheck();
         }
@@ -2002,25 +2051,6 @@
             document.getElementById('drawerOverlay').classList.remove('show');
         }
 
-        async function loadSessionData() {
-            try {
-                if (!assignedHostelId) {
-                    console.log('No hostel assigned to this RA');
-                    return;
-                }
-                
-                // Load attendance data which includes session status
-                await loadAttendance();
-                
-                if (attendanceData) {
-                    console.log(`📋 Session status: ${sessionStatus}`);
-                    console.log(`📋 Session active: ${isSessionActive}`);
-                }
-            } catch (error) {
-                console.error('Error loading session:', error);
-            }
-        }
-
         // =============================================
         // EXPOSE GLOBALLY
         // =============================================
@@ -2098,6 +2128,7 @@
                 updateHeader();
                 buildRoomStructure();
 
+                // Load session data using existing endpoints
                 await loadSessionData();
 
                 if (availableRooms.length > 0 && !currentRoom) {
