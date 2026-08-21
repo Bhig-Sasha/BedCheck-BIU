@@ -9,7 +9,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
-        /* ... (keep all your existing styles) ... */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
 
@@ -104,6 +103,7 @@
         @media (min-width: 1024px) { .menu-toggle { display: none; } }
         .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
         .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
         .header-right { display: flex; align-items: center; gap: 0.5rem; }
         @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
         .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
@@ -143,6 +143,7 @@
         .badge-assigned { background: #d6ad4b; color: #10233f; }
         .badge-active { background: #d6ad4b; color: #10233f; }
         .badge-inactive { background: #e8edf2; color: #536274; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -248,11 +249,32 @@
 
         .session-status-banner { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; background: #f5f1e8; border: 1px solid #ded6c9; }
         .session-status-banner.active { background: #e1f0e5; border-color: #2d6545; color: #1a4a2a; }
+        .session-status-banner.draft { background: #f5f1e8; border-color: #d4af37; color: #8a6413; }
+        .session-status-banner.completed { background: #e8edf2; border-color: #536274; color: #536274; }
 
         .error-container { text-align: center; padding: 3rem 1rem; }
         .error-container .error-icon { font-size: 3rem; color: #a84134; margin-bottom: 1rem; }
         .error-container h2 { margin-bottom: 0.5rem; }
         .error-container p { color: #68768a; max-width: 400px; margin: 0 auto 1.5rem; }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            background: #10233f;
+            color: white;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+            justify-content: center;
+        }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -371,9 +393,11 @@
             let assignedFloor = '';
             let assignedFloorName = '';
             let assignedArea = '';
-            let sessionStatus = 'inactive';
+            let currentSession = null;
+            let sessionStatus = 'draft';
             let isSessionActive = false;
             let hasLoadedRooms = false;
+            let attendanceData = null;
 
             // =============================================
             // API HELPER
@@ -443,16 +467,13 @@
             }
 
             function attBadge(status) {
-                // Default to Pending if status is not set or is 'Present' but not verified
-                if (!status || status === 'Present' || status === '') {
+                if (!status || status === 'Pending' || status === '') {
                     return `<span class="badge badge-pending">Pending</span>`;
                 }
                 const map = {
-                    'Absent': 'badge-absent',
-                    'Late': 'badge-late',
-                    'Excused': 'badge-approved',
-                    'Verified': 'badge-present',
-                    'Completed': 'badge-approved'
+                    'Verified': 'badge-verified',
+                    'Present': 'badge-present',
+                    'Absent': 'badge-absent'
                 };
                 return `<span class="badge ${map[status] || 'badge-pending'}">${status || 'Pending'}</span>`;
             }
@@ -521,6 +542,44 @@
                 }
             }
 
+            async function loadAttendance() {
+                try {
+                    const data = await apiCall('/attendance/today');
+                    attendanceData = data.data;
+                    
+                    if (attendanceData) {
+                        currentSession = attendanceData.session;
+                        sessionStatus = currentSession?.status || 'draft';
+                        isSessionActive = sessionStatus === 'active';
+                        
+                        // Update student statuses from attendance data
+                        if (attendanceData.verified_students) {
+                            attendanceData.verified_students.forEach(v => {
+                                const student = filteredStudents.find(s => s.id === v.id);
+                                if (student) {
+                                    student.status = 'Verified';
+                                    student.verified_at = v.verified_at;
+                                }
+                            });
+                        }
+                        
+                        if (attendanceData.pending_students) {
+                            attendanceData.pending_students.forEach(p => {
+                                const student = filteredStudents.find(s => s.id === p.id);
+                                if (student && !student.status) {
+                                    student.status = 'Pending';
+                                }
+                            });
+                        }
+                    }
+                    
+                    return attendanceData;
+                } catch (error) {
+                    console.error('Error loading attendance:', error);
+                    return null;
+                }
+            }
+
             // =============================================
             // LOAD USER PROFILE
             // =============================================
@@ -531,7 +590,6 @@
                 
                 try {
                     console.log('Loading user profile for ID:', currentUser.id);
-                    console.log('Current user data:', currentUser);
                     
                     const data = await apiCall(`/staff/${currentUser.id}`);
                     
@@ -626,8 +684,9 @@
                 const hostelDisplay = assignedHostelName || 'No Hostel';
                 const areaDisplay = assignedArea || 'No Floor';
                 const roomCount = assignedRooms.length;
-                roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
+                const statusEmoji = isSessionActive ? '🟢' : sessionStatus === 'completed' ? '✅' : '⏳';
+                roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
             }
 
             // =============================================
@@ -657,25 +716,48 @@
                     return;
                 }
 
+                if (sessionStatus === 'completed') {
+                    showToast('Today\'s BedCheck is already completed.', 'info');
+                    return;
+                }
+
                 try {
-                    let sessionId = null;
-                    try {
-                        const sessionData = await apiCall('/sessions/active');
-                        sessionId = sessionData.data?.id;
-                    } catch (e) {
-                        // No active session, create one
+                    let sessionId = currentSession?.id || null;
+                    
+                    if (!sessionId) {
+                        // Try to get active session
+                        try {
+                            const sessionData = await apiCall(`/sessions/active?hostel_id=${assignedHostelId}`);
+                            if (sessionData.data) {
+                                sessionId = sessionData.data.id;
+                                currentSession = sessionData.data;
+                            }
+                        } catch (e) {
+                            // No active session
+                        }
                     }
                     
                     if (!sessionId) {
-                        const newSession = await apiCall('/sessions', {
+                        // Create a new session for today
+                        const newSession = await apiCall('/sessions/manage', {
                             method: 'POST',
                             body: JSON.stringify({
-                                date: new Date().toISOString().split('T')[0],
-                                status: 'active',
-                                name: 'Night BedCheck'
+                                action: 'create',
+                                hostel_id: assignedHostelId,
+                                date: new Date().toISOString().split('T')[0]
                             })
                         });
-                        sessionId = newSession.data?.id;
+                        sessionId = newSession.data.id;
+                        currentSession = newSession.data;
+                        
+                        // Activate it
+                        await apiCall('/sessions/manage', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                action: 'activate',
+                                session_id: sessionId
+                            })
+                        });
                     }
                     
                     if (!sessionId) {
@@ -683,6 +765,7 @@
                         return;
                     }
 
+                    // Start the RA session
                     await apiCall('/ra/bedcheck/start', {
                         method: 'POST',
                         body: JSON.stringify({ session_id: sessionId })
@@ -690,6 +773,9 @@
 
                     isSessionActive = true;
                     sessionStatus = 'active';
+                    
+                    // Refresh attendance data
+                    await loadAttendance();
                     
                     showToast('BedCheck session started successfully!', 'success');
                     renderDashboard();
@@ -714,13 +800,33 @@
                 }
 
                 try {
+                    const sessionId = currentSession?.id;
+                    
+                    if (!sessionId) {
+                        showToast('No session found to complete.', 'error');
+                        return;
+                    }
+
+                    // Complete the session
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'complete',
+                            session_id: sessionId
+                        })
+                    });
+
+                    // Complete the RA session
                     await apiCall('/ra/bedcheck/complete', {
                         method: 'POST',
-                        body: JSON.stringify({ session_id: 1 })
+                        body: JSON.stringify({ session_id: sessionId })
                     });
 
                     isSessionActive = false;
                     sessionStatus = 'completed';
+                    
+                    // Refresh attendance data
+                    await loadAttendance();
                     
                     showToast('BedCheck completed successfully!', 'success');
                     renderDashboard();
@@ -758,12 +864,11 @@
                 const displayArea = assignedArea || 'No Floor';
                 const totalStudents = filteredStudents.length;
                 
-                // Count students by status - default to Pending if no status or 'Present'
-                const present = filteredStudents.filter(s => s.status === 'Verified' || s.status === 'Completed').length || 0;
+                // Count students by status
+                const verified = filteredStudents.filter(s => s.status === 'Verified' || s.status === 'Present').length || 0;
                 const absent = filteredStudents.filter(s => s.status === 'Absent').length || 0;
-                // No Late count since you said there's no Late
-                const pending = filteredStudents.filter(s => !s.status || s.status === 'Present' || s.status === '').length || 0;
-                const attendanceRate = totalStudents > 0 ? Math.round(((present + absent) / totalStudents) * 100) : 0;
+                const pending = filteredStudents.filter(s => !s.status || s.status === 'Pending' || s.status === '' || s.status === 'Present').length || 0;
+                const completionRate = totalStudents > 0 ? Math.round(((verified + absent) / totalStudents) * 100) : 0;
 
                 const hostelInfo = hostels.find(h => h.id === assignedHostelId);
 
@@ -775,19 +880,31 @@
                     if (hraStaff) hraName = hraStaff.name;
                 }
 
-                // Determine session display
+                // Session status display
                 let sessionStatusDisplay = 'Inactive';
                 let statusClass = '';
                 let statusIcon = 'fa-pause-circle';
+                let statusBadge = 'inactive';
+                let statusMessage = 'Awaiting start';
                 
                 if (sessionStatus === 'active') {
                     sessionStatusDisplay = 'Active';
                     statusClass = 'active';
                     statusIcon = 'fa-play-circle';
+                    statusBadge = 'active';
+                    statusMessage = '🟢 Recording enabled';
                 } else if (sessionStatus === 'completed') {
                     sessionStatusDisplay = 'Completed';
-                    statusClass = '';
+                    statusClass = 'completed';
                     statusIcon = 'fa-check-circle';
+                    statusBadge = 'approved';
+                    statusMessage = '✅ Finalized';
+                } else if (sessionStatus === 'draft') {
+                    sessionStatusDisplay = 'Draft';
+                    statusClass = 'draft';
+                    statusIcon = 'fa-clock';
+                    statusBadge = 'inactive';
+                    statusMessage = '⏳ Awaiting activation';
                 }
 
                 container.innerHTML = `
@@ -809,7 +926,7 @@
                             </p>
                         </div>
                         <div class="action-group">
-                            ${sessionStatus === 'inactive' && assignedRooms.length > 0 ? `
+                            ${sessionStatus === 'draft' && assignedRooms.length > 0 ? `
                                 <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
                             ` : ''}
                             ${sessionStatus === 'active' ? `
@@ -830,8 +947,9 @@
                         <span><strong>Session:</strong> ${sessionStatusDisplay}</span>
                         ${sessionStatus === 'active' ? `<span class="badge badge-active">LIVE</span>` : ''}
                         ${sessionStatus === 'completed' ? `<span class="badge badge-approved">DONE</span>` : ''}
+                        ${sessionStatus === 'draft' ? `<span class="badge badge-draft">DRAFT</span>` : ''}
                         <span style="margin-left:auto;font-size:0.75rem;opacity:0.7;">
-                            ${sessionStatus === 'active' ? '🟢 Recording enabled' : sessionStatus === 'completed' ? '✅ Finalized' : '⏳ Awaiting start'}
+                            ${statusMessage}
                         </span>
                     </div>
 
@@ -845,7 +963,7 @@
                         </div>
                         <div class="metric-card" style="border-left:3px solid #2d6545;">
                             <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value" style="color:#2d6545;">${present}</div>
+                            <div class="metric-value" style="color:#2d6545;">${verified}</div>
                             <div class="metric-title">Verified</div>
                             <div class="metric-detail">Students verified present</div>
                         </div>
@@ -893,10 +1011,10 @@
                                     <span class="font-bold">${hraName}</span>
                                 </div>
                                 <div class="mt-3 pt-3 border-t">
-                                    <div class="progress-bar"><div class="fill" style="width:${attendanceRate}%;"></div></div>
+                                    <div class="progress-bar"><div class="fill" style="width:${completionRate}%;"></div></div>
                                     <div class="flex-between mt-1">
-                                        <span class="text-xs text-muted">${attendanceRate}% completion</span>
-                                        <span class="text-xs text-gold">${present + absent} / ${totalStudents} processed</span>
+                                        <span class="text-xs text-muted">${completionRate}% completion</span>
+                                        <span class="text-xs text-gold">${verified + absent} / ${totalStudents} processed</span>
                                     </div>
                                 </div>
                             </div>
@@ -969,6 +1087,7 @@
                             <span class="ml-4"><span class="status-dot green"></span> Online</span>
                             <span class="ml-4"><i class="fas fa-layer-group"></i> ${displayArea}</span>
                             <span class="ml-4"><i class="fas fa-door-open"></i> ${assignedRooms.length} rooms</span>
+                            <span class="ml-4"><i class="fas fa-${sessionStatus === 'active' ? 'play-circle' : sessionStatus === 'completed' ? 'check-circle' : 'clock'}"></i> ${sessionStatus}</span>
                         </p>
                     </div>
                 `;
@@ -991,7 +1110,7 @@
                 let displayStudents = filteredStudents;
                 if (statusFilter !== 'all') {
                     if (statusFilter === 'Pending') {
-                        displayStudents = filteredStudents.filter(s => !s.status || s.status === 'Present' || s.status === '');
+                        displayStudents = filteredStudents.filter(s => !s.status || s.status === 'Pending' || s.status === '' || s.status === 'Present');
                     } else {
                         displayStudents = filteredStudents.filter(s => s.status === statusFilter);
                     }
@@ -1010,20 +1129,23 @@
                     return;
                 }
 
-                tbody.innerHTML = pageStudents.map(s => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;align-items:center;gap:0.5rem;">
-                                <span class="avatar">${getInitials(s.name)}</span>
-                                <span class="font-bold">${s.name || 'Unknown'}</span>
-                            </div>
-                        </td>
-                        <td>${s.matric || '—'}</td>
-                        <td>${s.room_code || s.room || '—'}</td>
-                        <td>${attBadge(s.status)}</td>
-                        <td style="font-size:0.8rem;color:#6b778b;">${s.updated_at ? formatTime(s.updated_at) : '—'}</td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = pageStudents.map(s => {
+                    const status = s.status || 'Pending';
+                    return `
+                        <tr>
+                            <td>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span class="avatar">${getInitials(s.name)}</span>
+                                    <span class="font-bold">${s.name || 'Unknown'}</span>
+                                </div>
+                            </td>
+                            <td>${s.matric || '—'}</td>
+                            <td>${s.room_code || s.room || '—'}</td>
+                            <td>${attBadge(status)}</td>
+                            <td style="font-size:0.8rem;color:#6b778b;">${s.updated_at ? formatTime(s.updated_at) : '—'}</td>
+                        </tr>
+                    `;
+                }).join('');
 
                 updatePagination(displayStudents.length);
             }
@@ -1189,38 +1311,18 @@
 
                     await loadStaff();
                     await loadStudents();
-
-                    // Try to get session status
-                    try {
-                        const statusData = await apiCall('/ra/bedcheck/status');
-                        const sessions = statusData.data?.sessions || [];
-                        const active = sessions.find(s => s.status === 'started');
-                        if (active) {
-                            isSessionActive = true;
-                            sessionStatus = 'active';
-                        } else {
-                            const today = new Date().toISOString().split('T')[0];
-                            const completed = sessions.find(s => 
-                                s.status === 'completed' && 
-                                s.completed_at && 
-                                s.completed_at.startsWith(today)
-                            );
-                            sessionStatus = completed ? 'completed' : 'inactive';
-                            isSessionActive = false;
-                        }
-                    } catch (e) {
-                        console.warn('Session status unavailable:', e.message);
-                        sessionStatus = 'inactive';
-                        isSessionActive = false;
-                    }
+                    
+                    // Load attendance data (includes session status)
+                    await loadAttendance();
 
                     updateHeader();
 
                     const hostelDisplay = assignedHostelName || 'No Hostel';
                     const areaDisplay = assignedArea || 'No Floor';
                     const roomDisplay = assignedRooms.length > 0 ? `${assignedRooms.length} rooms` : 'no rooms assigned';
+                    const statusText = sessionStatus === 'active' ? '🟢 Active' : sessionStatus === 'completed' ? '✅ Completed' : '⏳ Draft';
                     document.getElementById('noticeText').textContent =
-                        `${filteredStudents.length} students in ${hostelDisplay} · ${areaDisplay} · ${roomDisplay}`;
+                        `${filteredStudents.length} students in ${hostelDisplay} · ${areaDisplay} · ${roomDisplay} · ${statusText}`;
 
                     renderDashboard();
 

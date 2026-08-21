@@ -444,22 +444,43 @@
                     if (data.data) {
                         userData = data.data;
                         const sessionUser = JSON.parse(sessionStorage.getItem('bedcheck_user') || '{}');
-                        sessionUser.name = userData.name;
-                        sessionUser.initials = getInitials(userData.name);
-                        sessionUser.role = userData.role || 'RA';
-                        sessionUser.email = userData.email;
-                        sessionUser.phone = userData.phone;
-                        sessionUser.department = userData.department;
-                        sessionUser.staff_id = userData.staff_id;
-                        sessionUser.hostel = userData.hostel || userData.hostel_name || 'Not assigned';
-                        sessionUser.hostel_id = userData.hostel_id;
+                        
+                        // Update session user with fresh data
+                        sessionUser.name = userData.name || sessionUser.name;
+                        sessionUser.initials = userData.initials || getInitials(userData.name || sessionUser.name);
+                        sessionUser.role = userData.role || sessionUser.role || 'RA';
+                        sessionUser.email = userData.email || sessionUser.email;
+                        sessionUser.phone = userData.phone || sessionUser.phone;
+                        sessionUser.department = userData.department || sessionUser.department;
+                        sessionUser.staff_id = userData.staff_id || userData.id || sessionUser.id;
+                        
+                        // Get hostel name from nested data or direct
+                        assignedHostelName = userData.hostel_name || userData.hostel || sessionUser.hostel || 'Not assigned';
+                        assignedHostelId = userData.hostel_id || sessionUser.hostel_id || null;
+                        
+                        sessionUser.hostel = assignedHostelName;
+                        sessionUser.hostel_id = assignedHostelId;
                         sessionUser.joined = userData.joined || userData.created_at ? new Date(userData.created_at).toLocaleDateString() : 'Not set';
                         sessionUser.lastLogin = userData.last_login ? new Date(userData.last_login).toLocaleString() : new Date().toLocaleString();
                         sessionUser.scope = userData.scope || 'Assigned hostel · BedCheck';
+                        
+                        // If we have a hostel_id but no name, try to fetch it from hostels list
+                        if (assignedHostelId && !assignedHostelName) {
+                            try {
+                                const hostelsData = await apiCall('/hostels');
+                                const hostels = hostelsData.data || [];
+                                const found = hostels.find(h => h.id === assignedHostelId);
+                                if (found) {
+                                    assignedHostelName = found.name;
+                                    sessionUser.hostel = found.name;
+                                }
+                            } catch (e) {
+                                console.warn('Could not fetch hostels for name lookup');
+                            }
+                        }
+                        
                         sessionStorage.setItem('bedcheck_user', JSON.stringify(sessionUser));
-                        sessionStorage.setItem('bedcheck_role', userData.role || 'RA');
-                        assignedHostelName = userData.hostel || userData.hostel_name || 'Not assigned';
-                        assignedHostelId = userData.hostel_id;
+                        sessionStorage.setItem('bedcheck_role', userData.role || sessionUser.role || 'RA');
                     }
                 } catch (error) {
                     showToast('Error loading profile: ' + error.message, 'error');
@@ -474,7 +495,7 @@
                             department: currentUser.department || 'Not set',
                             staff_id: currentUser.staff_id || currentUser.id || 'Not set',
                             joined: currentUser.joined || 'Not set',
-                            hostel: currentUser.hostel || 'Not assigned',
+                            hostel: currentUser.hostel || assignedHostelName || 'Not assigned',
                             lastLogin: currentUser.lastLogin || new Date().toLocaleString()
                         };
                     }
@@ -518,8 +539,9 @@
                 
                 const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
                 const roomCount = assignedRooms.length;
-                roleScope.textContent = `${hostelDisplay} · ${roomCount} assigned rooms`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · ${roomCount} rooms`;
+                const roomText = roomCount === 1 ? 'room' : 'rooms';
+                roleScope.textContent = `${hostelDisplay} · ${roomCount} ${roomText} assigned`;
+                mobileRole.textContent = `RA · ${hostelDisplay} · ${roomCount} ${roomText}`;
             }
 
             // =============================================
@@ -653,6 +675,7 @@
                 const displayHostel = userData.hostel || currentUser?.hostel || assignedHostelName || 'Not assigned';
                 const displayLastLogin = userData.lastLogin || currentUser?.lastLogin || new Date().toLocaleString();
                 const roomCount = assignedRooms.length;
+                const roomText = roomCount === 1 ? 'room' : 'rooms';
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -665,7 +688,7 @@
                                 </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${displayRole}</span>
                                 <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
-                                    <i class="fas fa-door-open"></i> ${roomCount} rooms assigned
+                                    <i class="fas fa-door-open"></i> ${roomCount} ${roomText} assigned
                                 </span>
                             </p>
                         </div>
@@ -709,7 +732,7 @@
                                         <i class="fas fa-calendar-plus"></i> Joined ${displayJoined}
                                     </span>
                                     <span style="font-size:0.7rem;color:#68768a;">
-                                        <i class="fas fa-door-open"></i> ${roomCount} rooms
+                                        <i class="fas fa-door-open"></i> ${roomCount} ${roomText}
                                     </span>
                                 </div>
                             </div>
@@ -793,7 +816,7 @@
                         <p class="text-xs text-muted">
                             BIU BedCheck System · © Benson Idahosa University
                             <span class="ml-4"><span class="status-dot green"></span> Online</span>
-                            <span class="ml-4"><i class="fas fa-door-open" style="color:#a77915;"></i> ${roomCount} rooms</span>
+                            <span class="ml-4"><i class="fas fa-door-open" style="color:#a77915;"></i> ${roomCount} ${roomText}</span>
                         </p>
                     </div>
                 `;
@@ -886,15 +909,21 @@
                     // Load assigned rooms first
                     await loadAssignedRooms();
                     
-                    // Load user profile
+                    // Load user profile (this will fetch hostel info)
                     await loadUserProfile();
                     
                     // Update header with room info
                     updateHeader();
                     
                     renderProfile();
-                    document.getElementById('noticeText').textContent = `Profile · ${userData.name || currentUser?.name || 'User'} · ${assignedRooms.length} assigned rooms`;
+                    
+                    const roomCount = assignedRooms.length;
+                    const roomText = roomCount === 1 ? 'room' : 'rooms';
+                    document.getElementById('noticeText').textContent = 
+                        `Profile · ${userData.name || currentUser?.name || 'User'} · ${roomCount} ${roomText} assigned · ${assignedHostelName}`;
+                        
                 } catch (error) {
+                    console.error('Init error:', error);
                     document.getElementById('noticeText').textContent = 'Error loading profile.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
                         showToast('Error loading profile: ' + error.message, 'error');
