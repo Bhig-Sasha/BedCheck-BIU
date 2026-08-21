@@ -1890,7 +1890,6 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
             });
         }
 
-        // Get staff with hostel details - REMOVED floors_flats join
         const { data, error } = await supabase
             .from('staff')
             .select(`
@@ -1915,8 +1914,8 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
                 campus_code,
                 hostels!hostel_id (
                     id,
-                    name as hostel_name,
-                    type as hostel_type
+                    name,
+                    type
                 )
             `)
             .eq('username', username)
@@ -1988,12 +1987,11 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
-        // Format user data with hostel info only (no floors_flats join)
-        const formattedUser = {
+         const formattedUser = {
             ...userWithoutPassword,
-            hostel: user.hostels?.hostel_name || null,
-            hostel_name: user.hostels?.hostel_name || null,
-            hostel_type: user.hostels?.hostel_type || null,
+            hostel: user.hostels?.name || null,
+            hostel_name: user.hostels?.name || null,
+            hostel_type: user.hostels?.type || null,
             assigned_floor: user.assigned_floor,
             assigned_room: user.assigned_room,
             hostels: undefined
@@ -4101,9 +4099,9 @@ app.get('/api/staff/:id',
                     campus_code,
                     hostels!hostel_id (
                         id,
-                        name as hostel_name,
-                        type as hostel_type,
-                        gender as hostel_gender
+                        name,
+                        type,
+                        gender
                     )
                 `)
                 .eq('id', id)
