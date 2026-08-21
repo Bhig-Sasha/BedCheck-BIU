@@ -1,5 +1,5 @@
 // server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.6.0 - RA ASSIGNMENT FIX
+// SECURE PRODUCTION VERSION v4.6.1 - FIXED FLOORS_FLATS JOIN
 // ============================================================
 
 const express = require('express');
@@ -1843,7 +1843,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         name: 'BIU BedCheck API',
-        version: '4.6.0',
+        version: '4.6.1',
         status: 'running',
         environment: process.env.NODE_ENV || 'production',
         security: {
@@ -1890,7 +1890,7 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
             });
         }
 
-        // Get staff with hostel and floor details
+        // Get staff with hostel details - REMOVED floors_flats join
         const { data, error } = await supabase
             .from('staff')
             .select(`
@@ -1917,11 +1917,6 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
                     id,
                     name as hostel_name,
                     type as hostel_type
-                ),
-                floors_flats!assigned_floor (
-                    id,
-                    name as floor_name,
-                    type as floor_type
                 )
             `)
             .eq('username', username)
@@ -1993,19 +1988,15 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 
         const { password: _, ...userWithoutPassword } = user;
 
-        // Format user data with hostel and floor info
+        // Format user data with hostel info only (no floors_flats join)
         const formattedUser = {
             ...userWithoutPassword,
             hostel: user.hostels?.hostel_name || null,
             hostel_name: user.hostels?.hostel_name || null,
             hostel_type: user.hostels?.hostel_type || null,
             assigned_floor: user.assigned_floor,
-            assigned_floor_name: user.floors_flats?.floor_name || null,
-            assigned_floor_type: user.floors_flats?.floor_type || null,
             assigned_room: user.assigned_room,
-            // Remove nested objects
-            hostels: undefined,
-            floors_flats: undefined
+            hostels: undefined
         };
 
         const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
@@ -4079,100 +4070,7 @@ app.delete('/api/students/:id',
 );
 
 // =====================================================
-// STAFF CRUD
-// =====================================================
-
-app.get('/api/staff/:id', 
-    validate(validators.staffId),
-    async (req, res) => {
-        const id = parseInt(req.params.id);
-        try {
-            // Get staff data - don't filter by campus
-            const { data, error } = await supabase
-                .from('staff')
-                .select(`
-                    id, 
-                    name, 
-                    username, 
-                    role, 
-                    hostel_id,
-                    assigned_floor, 
-                    assigned_room, 
-                    status, 
-                    email, 
-                    phone, 
-                    department, 
-                    initials, 
-                    joined, 
-                    last_login, 
-                    campus, 
-                    campus_code,
-                    hostels!hostel_id (
-                        id,
-                        name as hostel_name,
-                        type as hostel_type,
-                        gender as hostel_gender
-                    ),
-                    floors_flats!assigned_floor (
-                        id,
-                        name as floor_name,
-                        type as floor_type
-                    )
-                `)
-                .eq('id', id)
-                .maybeSingle();
-
-            if (error || !data) {
-                return res.status(404).json({ 
-                    success: false, 
-                    message: 'Staff not found',
-                    code: 'STAFF_NOT_FOUND'
-                });
-            }
-
-            // Check if staff is Developer and user is not Developer
-            if (data.role === 'Developer' && req.user?.role !== 'Developer') {
-                return res.status(404).json({ 
-                    success: false, 
-                    message: 'Staff not found',
-                    code: 'STAFF_NOT_FOUND'
-                });
-            }
-
-            // Format the response
-            const formattedData = {
-                ...data,
-                hostel_id: data.hostel_id,
-                hostel: data.hostels?.hostel_name || null,
-                hostel_name: data.hostels?.hostel_name || null,
-                hostel_type: data.hostels?.hostel_type || null,
-                hostel_gender: data.hostels?.hostel_gender || null,
-                assigned_floor: data.assigned_floor,
-                assigned_floor_name: data.floors_flats?.floor_name || null,
-                assigned_floor_type: data.floors_flats?.floor_type || null,
-                assigned_room: data.assigned_room,
-                hostels: undefined,
-                floors_flats: undefined
-            };
-
-            res.json({ 
-                success: true, 
-                data: { ...formattedData, staff_id: formattedData.id },
-                campus: data.campus || req.campus || 'Legacy'
-            });
-        } catch (error) {
-            console.error('Error fetching staff:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-// =====================================================
-// GET STAFF BY ID - WITH HOSTEL AND ASSIGNMENT DETAILS
+// STAFF CRUD - SINGLE STAFF ENDPOINT (FIXED)
 // =====================================================
 
 app.get('/api/staff/:id', 
@@ -4181,7 +4079,7 @@ app.get('/api/staff/:id',
     async (req, res) => {
         const id = parseInt(req.params.id);
         try {
-            // Get staff data with hostel and floor/flat details
+            // Get staff data with hostel details only (no floors_flats join)
             const { data, error } = await supabase
                 .from('staff')
                 .select(`
@@ -4206,11 +4104,6 @@ app.get('/api/staff/:id',
                         name as hostel_name,
                         type as hostel_type,
                         gender as hostel_gender
-                    ),
-                    floors_flats!assigned_floor (
-                        id,
-                        name as floor_name,
-                        type as floor_type
                     )
                 `)
                 .eq('id', id)
@@ -4252,12 +4145,8 @@ app.get('/api/staff/:id',
                 hostel_type: data.hostels?.hostel_type || null,
                 hostel_gender: data.hostels?.hostel_gender || null,
                 assigned_floor: data.assigned_floor,
-                assigned_floor_name: data.floors_flats?.floor_name || null,
-                assigned_floor_type: data.floors_flats?.floor_type || null,
                 assigned_room: data.assigned_room,
-                // Remove nested objects from response
-                hostels: undefined,
-                floors_flats: undefined
+                hostels: undefined
             };
 
             res.json({ 
@@ -4275,6 +4164,62 @@ app.get('/api/staff/:id',
         }
     }
 );
+
+// =====================================================
+// STAFF LIST ENDPOINT
+// =====================================================
+
+app.get('/api/staff', 
+    campusIsolation,
+    validate(validators.pagination),
+    async (req, res) => {
+        try {
+            const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+            const offset = parseInt(req.query.offset) || 0;
+            
+            let query = supabase
+                .from('staff')
+                .select('id, name, username, role, hostel_id, assigned_floor, assigned_room, status, email, phone, department, initials, joined, last_login, campus, campus_code')
+                .eq('campus', req.campus)
+                .order('name', { ascending: true })
+                .range(offset, offset + limit - 1);
+
+            if (req.user.role !== 'Developer') {
+                query = query.neq('role', 'Developer');
+            }
+
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+                query = query.eq('hostel_id', req.user.hostel_id);
+            }
+
+            const { data, error, count } = await query;
+            if (error) throw error;
+
+            const sanitizedData = data.map(item => ({
+                ...item,
+                staff_id: item.id
+            }));
+
+            res.json({ 
+                success: true, 
+                data: sanitizedData,
+                pagination: { limit, offset, total: count || data.length },
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching staff:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
+// STAFF CREATE
+// =====================================================
 
 app.post('/api/staff', 
     campusIsolation,
@@ -4362,6 +4307,10 @@ app.post('/api/staff',
         }
     }
 );
+
+// =====================================================
+// STAFF UPDATE
+// =====================================================
 
 app.put('/api/staff/:id', 
     campusIsolation,
@@ -4471,6 +4420,10 @@ app.put('/api/staff/:id',
         }
     }
 );
+
+// =====================================================
+// STAFF DELETE
+// =====================================================
 
 app.delete('/api/staff/:id', 
     campusIsolation,
@@ -10373,7 +10326,7 @@ app.use((err, req, res, next) => {
 // =====================================================
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 BIU BedCheck API v4.6.0`);
+    console.log(`\n🚀 BIU BedCheck API v4.6.1`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
     console.log(`🏢 RA Assignment System: ENABLED`);
