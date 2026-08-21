@@ -397,7 +397,9 @@
             let sessionStatus = 'draft';
             let isSessionActive = false;
             let hasLoadedRooms = false;
-            let attendanceData = null;
+            let bedScanStatus = {};
+            let autoAbsentQueue = [];
+            let timeline = [];
 
             // =============================================
             // API HELPER
@@ -467,7 +469,7 @@
             }
 
             function attBadge(status) {
-                if (!status || status === 'Pending' || status === '') {
+                if (!status || status === 'Pending' || status === '' || status === 'Present') {
                     return `<span class="badge badge-pending">Pending</span>`;
                 }
                 const map = {
@@ -476,6 +478,11 @@
                     'Absent': 'badge-absent'
                 };
                 return `<span class="badge ${map[status] || 'badge-pending'}">${status || 'Pending'}</span>`;
+            }
+
+            function addTimeline(event, details = '') {
+                timeline.unshift({ time: new Date().toISOString(), event: event, details: details });
+                if (timeline.length > 50) timeline.pop();
             }
 
             // =============================================
@@ -542,40 +549,101 @@
                 }
             }
 
-            async function loadAttendance() {
+            // =============================================
+            // LOAD SESSION STATUS - USING EXISTING ENDPOINTS
+            // =============================================
+            async function loadSessionStatus() {
                 try {
-                    const data = await apiCall('/attendance/today');
-                    attendanceData = data.data;
+                    // Use the existing ra/bedcheck/status endpoint
+                    const statusData = await apiCall('/ra/bedcheck/status');
                     
-                    if (attendanceData) {
-                        currentSession = attendanceData.session;
-                        sessionStatus = currentSession?.status || 'draft';
-                        isSessionActive = sessionStatus === 'active';
+                    if (statusData && statusData.data) {
+                        const sessions = statusData.data.sessions || [];
+                        const active = sessions.find(s => s.status === 'started');
                         
-                        // Update student statuses from attendance data
-                        if (attendanceData.verified_students) {
-                            attendanceData.verified_students.forEach(v => {
-                                const student = filteredStudents.find(s => s.id === v.id);
-                                if (student) {
-                                    student.status = 'Verified';
-                                    student.verified_at = v.verified_at;
+                        if (active) {
+                            isSessionActive = true;
+                            sessionStatus = 'active';
+                            currentSession = active;
+                            addTimeline('Session active', 'BedCheck session is live');
+                        } else {
+                            const today = new Date().toISOString().split('T')[0];
+                            const completed = sessions.find(s => 
+                                s.status === 'completed' && 
+                                s.completed_at && 
+                                s.completed_at.startsWith(today)
+                            );
+                            
+                            if (completed) {
+                                sessionStatus = 'completed';
+                                isSessionActive = false;
+                                currentSession = completed;
+                                addTimeline('Session completed', 'Today\'s BedCheck is finalized');
+                            } else {
+                                // Check for draft session
+                                const draft = sessions.find(s => s.status === 'draft');
+                                if (draft) {
+                                    sessionStatus = 'draft';
+                                    isSessionActive = false;
+                                    currentSession = draft;
+                                } else {
+                                    // No session found, create a draft
+                                    sessionStatus = 'draft';
+                                    isSessionActive = false;
+                                    currentSession = null;
                                 }
-                            });
+                            }
                         }
                         
-                        if (attendanceData.pending_students) {
-                            attendanceData.pending_students.forEach(p => {
-                                const student = filteredStudents.find(s => s.id === p.id);
-                                if (student && !student.status) {
-                                    student.status = 'Pending';
+                        // Update bedScanStatus from the status data
+                        if (sessions.length > 0) {
+                            // Get the most recent session
+                            const latestSession = sessions[0];
+                            if (latestSession && latestSession.id) {
+                                try {
+                                    // Get scans for this session
+                                    const scansData = await apiCall(`/bedcheck/scans?session_id=${latestSession.id}`);
+                                    if (scansData && scansData.data) {
+                                        scansData.data.forEach(scan => {
+                                            if (scan.status === 'Verified' || scan.status === 'Present') {
+                                                bedScanStatus[scan.student_id] = {
+                                                    verified: true,
+                                                    status: 'Verified',
+                                                    time: scan.created_at,
+                                                    confidence: scan.metadata?.confidence || null
+                                                };
+                                            } else if (scan.status === 'Absent') {
+                                                bedScanStatus[scan.student_id] = {
+                                                    verified: false,
+                                                    status: 'Absent',
+                                                    time: scan.created_at
+                                                };
+                                            }
+                                        });
+                                    }
+                                } catch (scanError) {
+                                    console.warn('Could not fetch scans:', scanError);
                                 }
-                            });
+                            }
                         }
+                        
+                        console.log(`📋 Session status: ${sessionStatus}`);
+                        console.log(`📋 Session active: ${isSessionActive}`);
+                        return statusData.data;
                     }
                     
-                    return attendanceData;
+                    // If no data, set defaults
+                    sessionStatus = 'draft';
+                    isSessionActive = false;
+                    currentSession = null;
+                    return null;
+                    
                 } catch (error) {
-                    console.error('Error loading attendance:', error);
+                    console.warn('Session status unavailable:', error.message);
+                    // Set default values
+                    sessionStatus = 'draft';
+                    isSessionActive = false;
+                    currentSession = null;
                     return null;
                 }
             }
@@ -690,24 +758,6 @@
             }
 
             // =============================================
-            // GET HOSTEL NAME
-            // =============================================
-            function getHostelName(hostelId) {
-                if (!hostelId) return null;
-                const hostel = hostels.find(h => h.id === hostelId);
-                return hostel ? hostel.name : null;
-            }
-
-            // =============================================
-            // GET FLOOR NAME
-            // =============================================
-            function getFloorName(floorId) {
-                if (!floorId) return null;
-                const floor = floorsFlats.find(f => f.id === floorId);
-                return floor ? floor.name : null;
-            }
-
-            // =============================================
             // START BEDCHECK SESSION
             // =============================================
             async function startBedCheck() {
@@ -774,8 +824,8 @@
                     isSessionActive = true;
                     sessionStatus = 'active';
                     
-                    // Refresh attendance data
-                    await loadAttendance();
+                    // Refresh session status
+                    await loadSessionStatus();
                     
                     showToast('BedCheck session started successfully!', 'success');
                     renderDashboard();
@@ -825,8 +875,8 @@
                     isSessionActive = false;
                     sessionStatus = 'completed';
                     
-                    // Refresh attendance data
-                    await loadAttendance();
+                    // Refresh session status
+                    await loadSessionStatus();
                     
                     showToast('BedCheck completed successfully!', 'success');
                     renderDashboard();
@@ -865,9 +915,9 @@
                 const totalStudents = filteredStudents.length;
                 
                 // Count students by status
-                const verified = filteredStudents.filter(s => s.status === 'Verified' || s.status === 'Present').length || 0;
-                const absent = filteredStudents.filter(s => s.status === 'Absent').length || 0;
-                const pending = filteredStudents.filter(s => !s.status || s.status === 'Pending' || s.status === '' || s.status === 'Present').length || 0;
+                const verified = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present').length || 0;
+                const absent = filteredStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent' || s.status === 'Absent').length || 0;
+                const pending = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status).length || 0;
                 const completionRate = totalStudents > 0 ? Math.round(((verified + absent) / totalStudents) * 100) : 0;
 
                 const hostelInfo = hostels.find(h => h.id === assignedHostelId);
@@ -1080,6 +1130,24 @@
                         </div>
                     </div>
 
+                    <!-- Timeline -->
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-list"></i></span> Activity Log</div>
+                        <div>
+                            ${timeline.length > 0 ? timeline.slice(0, 8).map(t => `
+                                <div class="timeline-item">
+                                    <span class="time">${formatTime(t.time)}</span>
+                                    <div class="content">
+                                        ${t.event}
+                                        ${t.details ? `<span style="color:#6b778b;font-size:0.75rem;"> · ${t.details}</span>` : ''}
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <p class="text-muted text-sm">No activity yet. Start verifying students.</p>
+                            `}
+                        </div>
+                    </div>
+
                     <!-- Footer -->
                     <div class="mt-6 pt-4 border-t text-center">
                         <p class="text-xs text-muted">
@@ -1110,9 +1178,11 @@
                 let displayStudents = filteredStudents;
                 if (statusFilter !== 'all') {
                     if (statusFilter === 'Pending') {
-                        displayStudents = filteredStudents.filter(s => !s.status || s.status === 'Pending' || s.status === '' || s.status === 'Present');
+                        displayStudents = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status);
+                    } else if (statusFilter === 'Verified') {
+                        displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present');
                     } else {
-                        displayStudents = filteredStudents.filter(s => s.status === statusFilter);
+                        displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.status === statusFilter || s.status === statusFilter);
                     }
                 }
 
@@ -1130,7 +1200,16 @@
                 }
 
                 tbody.innerHTML = pageStudents.map(s => {
-                    const status = s.status || 'Pending';
+                    const scan = bedScanStatus[s.id];
+                    let status = 'Pending';
+                    if (scan?.verified || s.status === 'Verified' || s.status === 'Present') {
+                        status = 'Verified';
+                    } else if (scan?.status === 'Absent' || s.status === 'Absent') {
+                        status = 'Absent';
+                    }
+                    const verifiedTime = scan?.time ? formatTime(scan.time) : '';
+                    const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
+
                     return `
                         <tr>
                             <td>
@@ -1142,7 +1221,7 @@
                             <td>${s.matric || '—'}</td>
                             <td>${s.room_code || s.room || '—'}</td>
                             <td>${attBadge(status)}</td>
-                            <td style="font-size:0.8rem;color:#6b778b;">${s.updated_at ? formatTime(s.updated_at) : '—'}</td>
+                            <td style="font-size:0.8rem;color:#6b778b;">${verifiedTime || (s.updated_at ? formatTime(s.updated_at) : '—')}</td>
                         </tr>
                     `;
                 }).join('');
@@ -1294,10 +1373,16 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
+                    // Load hostels first
                     await loadHostels();
+                    
+                    // Load user profile
                     await loadUserProfile();
+                    
+                    // Load assigned rooms
                     await loadAssignedRooms();
 
+                    // Load floors/flats for the hostel
                     if (assignedHostelId) {
                         await loadFloorsFlats();
                         if (assignedFloor && !assignedFloorName && !isNaN(assignedFloor)) {
@@ -1309,11 +1394,14 @@
                         }
                     }
 
+                    // Load staff for HRA info
                     await loadStaff();
+
+                    // Load students
                     await loadStudents();
-                    
-                    // Load attendance data (includes session status)
-                    await loadAttendance();
+
+                    // Load session status using existing endpoints
+                    await loadSessionStatus();
 
                     updateHeader();
 
