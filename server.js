@@ -1,5 +1,5 @@
-// server.js - BIU BedCheck with InsightFace Face Recognition
-// SECURE PRODUCTION VERSION v4.7.0 - FACE-ONLY VERIFICATION
+// server.js - BIU BedCheck with Face Recognition
+// SECURE PRODUCTION VERSION v4.7.0
 // ============================================================
 
 const express = require('express');
@@ -21,6 +21,8 @@ require('dotenv').config();
 
 const DASHBOARD_ROUTES = {
     'Administrator': '/admin/index.html',
+    'Admin': '/admin/index.html',
+    'Administration': '/admin/index.html',
     'RASD': '/RASD/rasd-index.html',
     'HRA': '/HRA/hra-index.html',
     'RA': '/RA/ra-index.html',
@@ -97,7 +99,7 @@ const getCampusContext = (req) => {
 };
 
 // =====================================================
-// INSIGHTFACE CONFIGURATION
+// FACE RECOGNITION CONFIGURATION
 // =====================================================
 
 const FACE_API_URL = process.env.FACE_API_URL || 'http://localhost:8000';
@@ -108,7 +110,7 @@ console.log('🔐 Environment:', process.env.NODE_ENV || 'production');
 console.log('🔐 Face API URL:', FACE_API_URL);
 
 // =====================================================
-// INSIGHTFACE SERVICE - WITH CIRCUIT BREAKER
+// FACE RECOGNITION SERVICE
 // =====================================================
 
 class InsightFaceService {
@@ -1097,6 +1099,32 @@ app.use((req, res, next) => {
 });
 
 // =====================================================
+// ROLE MANAGEMENT & AUTHORIZATION
+// =====================================================
+
+// Role hierarchy and aliases
+const roleMap = {
+    'Administrator': ['Admin', 'Administrator', 'Administration'],
+    'Admin': ['Admin', 'Administrator', 'Administration'],
+    'Administration': ['Admin', 'Administrator', 'Administration'],
+    'RASD': ['RASD'],
+    'HRA': ['HRA'],
+    'RA': ['RA'],
+    'Developer': ['Developer']
+};
+
+// Role hierarchy levels (higher = more access)
+const roleHierarchy = {
+    'RA': 1,
+    'HRA': 2,
+    'RASD': 3,
+    'Administrator': 4,
+    'Admin': 4,
+    'Administration': 4,
+    'Developer': 5
+};
+
+// =====================================================
 // JWT AUTHENTICATION MIDDLEWARE
 // =====================================================
 
@@ -1179,16 +1207,87 @@ const authMiddleware = async (req, res, next) => {
     next();
 };
 
+// =====================================================
+// AUTHORIZATION MIDDLEWARE - UPDATED WITH ROLE MAP & HIERARCHY
+// =====================================================
+
 const requireRole = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({ success: false, message: 'Authentication required', code: 'AUTH_REQUIRED' });
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Authentication required', 
+                code: 'AUTH_REQUIRED' 
+            });
         }
-        if (!roles.includes(req.user.role)) {
+        
+        const userRole = req.user.role;
+        const userLevel = roleHierarchy[userRole] || 0;
+        
+        // Check if user has the required role OR higher level access
+        const isAuthorized = roles.some(requiredRole => {
+            // 1. Check direct role match (with aliases)
+            const allowedRoles = roleMap[requiredRole] || [requiredRole];
+            if (allowedRoles.includes(userRole)) {
+                return true;
+            }
+            
+            // 2. Check hierarchy - users with higher level can access lower level endpoints
+            const requiredLevel = roleHierarchy[requiredRole] || 0;
+            
+            // Developer has access to everything
+            if (userRole === 'Developer') {
+                return true;
+            }
+            
+            // Admin/Administrator has access to Admin, RASD, HRA, RA
+            if (['Administrator', 'Admin', 'Administration'].includes(userRole) && 
+                ['RASD', 'HRA', 'RA'].includes(requiredRole)) {
+                return true;
+            }
+            
+            // RASD has access to HRA and RA
+            if (userRole === 'RASD' && ['HRA', 'RA'].includes(requiredRole)) {
+                return true;
+            }
+            
+            // HRA has access to RA
+            if (userRole === 'HRA' && requiredRole === 'RA') {
+                return true;
+            }
+            
+            // Check by level (if both have levels defined)
+            if (requiredLevel > 0 && userLevel >= requiredLevel) {
+                return true;
+            }
+            
+            return false;
+        });
+        
+        if (!isAuthorized) {
+            // Log the unauthorized access attempt
+            auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'Unauthorized Access Attempt',
+                module: 'security',
+                details: `User ${req.user.username} (${req.user.role}) attempted to access ${req.method} ${req.path}`,
+                context: `Required roles: ${roles.join(', ')}`,
+                result: 'failed',
+                category: 'security',
+                tone: 'red',
+                campus: req.campus || 'Legacy',
+                ip_address: req.clientIp || req.ip,
+                user_agent: req.userAgent || req.headers['user-agent']
+            }).catch(() => {});
+            
             return res.status(403).json({ 
                 success: false, 
                 message: `Access denied. Required role: ${roles.join(' or ')}`,
-                code: 'ROLE_REQUIRED'
+                code: 'ROLE_REQUIRED',
+                user_role: userRole,
+                required_roles: roles
             });
         }
         next();
@@ -1245,13 +1344,13 @@ const validators = {
         body('name').trim().notEmpty().withMessage('Name is required'),
         body('username').trim().notEmpty().withMessage('Username is required')
             .isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
-        body('role').isIn(['RA', 'HRA', 'Admin', 'RASD', 'Developer']).withMessage('Invalid role'),
+        body('role').isIn(['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
         body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     updateStaff: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
-        body('role').optional().isIn(['RA', 'HRA', 'Admin', 'RASD', 'Developer']).withMessage('Invalid role'),
+        body('role').optional().isIn(['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
         body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
@@ -1386,7 +1485,7 @@ const validators = {
         body('description').optional().isString().withMessage('Description must be a string')
     ],
     developerRoleChange: [
-        body('role').isIn(['RA', 'HRA', 'Admin', 'RASD', 'Developer']).withMessage('Invalid role'),
+        body('role').isIn(['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer']).withMessage('Invalid role'),
         body('reason').optional().isString().withMessage('Reason must be a string')
     ],
     developerMaintenance: [
@@ -2258,7 +2357,7 @@ app.put('/api/staff/:id/change-password',
             const staffId = parseInt(req.params.id);
             const { currentPassword, newPassword } = req.body;
 
-            if (req.user.id !== staffId && req.user.role !== 'Admin' && req.user.role !== 'Developer') {
+            if (req.user.id !== staffId && req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator') {
                 return res.status(403).json({
                     success: false,
                     message: 'You can only change your own password',
@@ -2589,7 +2688,7 @@ app.post('/api/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only enroll students in your hostel.',
@@ -2741,7 +2840,7 @@ app.post('/api/face/enroll-bulk',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only enroll students in your hostel.',
@@ -2892,7 +2991,7 @@ app.post('/api/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied.',
@@ -3004,7 +3103,7 @@ app.post('/api/face/verify-room',
                 query = query.eq('hostel_id', hostel_id);
             }
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -3193,7 +3292,7 @@ app.get('/api/face/status/:studentId',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -3319,7 +3418,7 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -3399,7 +3498,7 @@ app.post('/api/students/:id/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -3526,7 +3625,7 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -3608,7 +3707,7 @@ app.get('/api/students/face-status/all',
                 .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, campus')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -3679,7 +3778,7 @@ app.get('/api/students',
         try {
             let query = supabase.from('students').select('*').eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -3746,7 +3845,7 @@ app.post('/api/students',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only add students to your hostel.',
@@ -3832,7 +3931,7 @@ app.get('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -3881,7 +3980,7 @@ app.put('/api/students/:id',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== existingStudent.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== existingStudent.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -3967,7 +4066,7 @@ app.patch('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== existingStudent.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== existingStudent.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4077,7 +4176,7 @@ app.put('/api/students/:id/status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4146,7 +4245,7 @@ app.delete('/api/students/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4269,7 +4368,7 @@ app.get('/api/staff/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4328,7 +4427,7 @@ app.get('/api/staff',
                 query = query.neq('role', 'Developer');
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
 
@@ -4971,7 +5070,7 @@ app.delete('/api/developer/staff/:id',
 // Verify a student with face recognition
 app.post('/api/attendance/verify',
     campusIsolation,
-    requireRole('RA', 'HRA', 'Admin'),
+    requireRole('RA', 'HRA'),
     validate(validators.attendanceVerify),
     async (req, res) => {
         try {
@@ -5223,7 +5322,7 @@ app.get('/api/attendance/today',
             const campus = req.campus;
             const hostelId = req.user.hostel_id;
             
-            if (!hostelId && req.user.role !== 'Admin' && req.user.role !== 'Developer') {
+            if (!hostelId && req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator') {
                 return res.status(400).json({
                     success: false,
                     message: 'No hostel assigned',
@@ -6264,7 +6363,7 @@ app.get('/api/hra/ras',
         try {
             let hostelId = req.user.hostel_id;
             
-            if ((req.user.role === 'Admin' || req.user.role === 'Developer') && req.query.hostel_id) {
+            if ((req.user.role === 'Admin' || req.user.role === 'Developer' || req.user.role === 'Administrator') && req.query.hostel_id) {
                 hostelId = parseInt(req.query.hostel_id);
             }
 
@@ -6393,7 +6492,7 @@ app.post('/api/hra/assign-rooms',
             const { ra_id, room_ids } = req.body;
             const hraId = req.user.id;
 
-            if (!req.user.hostel_id && req.user.role !== 'Admin' && req.user.role !== 'Developer') {
+            if (!req.user.hostel_id && req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator') {
                 return res.status(400).json({
                     success: false,
                     message: 'You are not assigned to a hostel.',
@@ -6602,7 +6701,7 @@ app.get('/api/hra/hostel-overview',
         try {
             let hostelId = req.user.hostel_id;
             
-            if ((req.user.role === 'Admin' || req.user.role === 'Developer') && req.query.hostel_id) {
+            if ((req.user.role === 'Admin' || req.user.role === 'Developer' || req.user.role === 'Administrator') && req.query.hostel_id) {
                 hostelId = parseInt(req.query.hostel_id);
             }
 
@@ -7438,7 +7537,7 @@ app.get('/api/hostels',
                 .eq('campus', req.campus)
                 .order('name', { ascending: true });
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('id', req.user.hostel_id);
             }
 
@@ -7518,7 +7617,7 @@ app.get('/api/hostels/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -7787,7 +7886,7 @@ app.get('/api/hostels/:id/alerts',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -7902,7 +8001,7 @@ app.get('/api/hostels/:id/occupancy',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -7970,7 +8069,7 @@ app.get('/api/hostels/:id/summary',
             });
         }
         
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -8050,7 +8149,7 @@ app.get('/api/floors-flats',
                 hostelQuery = hostelQuery.eq('id', parseInt(hostel_id));
             }
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -8119,7 +8218,7 @@ app.get('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8161,7 +8260,7 @@ app.post('/api/floors-flats',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -8244,7 +8343,7 @@ app.put('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== existing.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8337,7 +8436,7 @@ app.delete('/api/floors-flats/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== existing.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== existing.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8397,7 +8496,7 @@ app.get('/api/rooms',
                 .select('id')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -8540,7 +8639,7 @@ app.get('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8600,7 +8699,7 @@ app.post('/api/rooms',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8684,7 +8783,7 @@ app.put('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8780,7 +8879,7 @@ app.delete('/api/rooms/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -8845,7 +8944,7 @@ app.get('/api/bed-spaces',
                 .select('id')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
             
@@ -9025,7 +9124,7 @@ app.post('/api/bed-spaces',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9116,7 +9215,7 @@ app.put('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9197,7 +9296,7 @@ app.patch('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9274,7 +9373,7 @@ app.delete('/api/bed-spaces/:id',
             .eq('id', roomData?.floor_flat_id)
             .single();
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== floorData?.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9336,7 +9435,7 @@ app.get('/api/bedcheck/sessions',
             if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
             if (date) query = query.eq('date', date);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -9376,7 +9475,7 @@ app.post('/api/bedcheck/sessions',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9452,7 +9551,7 @@ app.put('/api/bedcheck/sessions/:id',
             });
         }
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== session.hostel_id) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== session.hostel_id) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied',
@@ -9519,7 +9618,7 @@ app.get('/api/bedcheck/scans',
             if (room) query = query.eq('room', room);
             if (student_id) query = query.eq('student_id', parseInt(student_id));
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 const { data: hostelStudents } = await supabase
                     .from('students')
                     .select('id')
@@ -9570,7 +9669,7 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== student.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -9672,7 +9771,7 @@ app.post('/api/bedcheck/scan-with-face',
                 .eq('face_enrolled', true)
                 .eq('room_id', room_id);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -9924,14 +10023,14 @@ app.get('/api/dashboard/stats',
             const stats = {};
             
             let studentsQuery = supabase.from('students').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 studentsQuery = studentsQuery.eq('hostel_id', req.user.hostel_id);
             }
             const { count: studentsCount, error: studentsError } = await studentsQuery;
             stats.totalStudents = studentsCount || 0;
             
             let hostelsQuery = supabase.from('hostels').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
             }
             const { count: hostelsCount, error: hostelsError } = await hostelsQuery;
@@ -9945,7 +10044,7 @@ app.get('/api/dashboard/stats',
             stats.totalStaff = totalStaff || 0;
             
             let statusQuery = supabase.from('students').select('status, face_enrolled').eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 statusQuery = statusQuery.eq('hostel_id', req.user.hostel_id);
             }
             const { data: statusData, error: statusError } = await statusQuery;
@@ -9994,7 +10093,7 @@ app.get('/api/dashboard/activity',
         const { hostel_id, limit } = req.query;
         try {
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
             
@@ -10027,7 +10126,7 @@ app.get('/api/registration/stats',
                 .select('id, room_id, name, matric, hostel_id, hostel_name, room_code, status, created_at, face_enrolled, campus')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -10041,7 +10140,7 @@ app.get('/api/registration/stats',
             if (bedError) throw bedError;
 
             let hostelsQuery = supabase.from('hostels').select('id, name, type, total_floors, rooms_per_floor, total_flats, rooms_per_flat').eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
             }
             const { data: hostels, error: hostelsError } = await hostelsQuery;
@@ -10270,7 +10369,7 @@ app.get('/api/audit',
             } = req.query;
 
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 if (hostel_id && parseInt(hostel_id) !== req.user.hostel_id) {
                     return res.status(403).json({
                         success: false,
@@ -10319,7 +10418,7 @@ app.get('/api/audit/stats',
             const { hostel_id, from_date, to_date } = req.query;
             
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
 
@@ -10350,7 +10449,7 @@ app.get('/api/audit/recent',
             const { hostel_id, limit = 10 } = req.query;
             
             let effectiveHostelId = hostel_id;
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 effectiveHostelId = req.user.hostel_id;
             }
             
@@ -10392,7 +10491,7 @@ app.get('/api/audit/:id',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.hostel_id !== data.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
