@@ -589,7 +589,7 @@
             }
 
             // =============================================
-            // SESSION CRUD OPERATIONS - USING MANAGE ENDPOINT
+            // SESSION CRUD OPERATIONS - USING EXISTING ENDPOINTS
             // =============================================
 
             async function createSession() {
@@ -617,15 +617,23 @@
                 }
 
                 try {
-                    const result = await apiCall('/sessions/manage', {
+                    const payload = {
+                        name: name,
+                        date: date,
+                        start_time: startTime,
+                        end_time: endTime,
+                        status: status || 'scheduled',
+                        hostels_completed: 0,
+                        total_hostels: selectedHostels.length,
+                        completion: 0,
+                        academic_session: academicSession,
+                        grace_period: gracePeriod,
+                        hostel_ids: selectedHostels
+                    };
+
+                    const result = await apiCall('/sessions', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            action: 'create',
-                            hostel_id: selectedHostels[0],
-                            date: date,
-                            start_time: startTime,
-                            end_time: endTime
-                        })
+                        body: JSON.stringify(payload)
                     });
 
                     showToast(`Session "${name}" created successfully!`, 'success');
@@ -634,12 +642,9 @@
                     renderScreen();
 
                     if (status === 'active' && result.data) {
-                        await apiCall('/sessions/manage', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                action: 'activate',
-                                session_id: result.data.id
-                            })
+                        await apiCall(`/sessions/${result.data.id}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ status: 'active' })
                         });
                         await loadSessions();
                         renderScreen();
@@ -651,11 +656,11 @@
 
             async function startSession(sessionId) {
                 try {
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'activate',
-                            session_id: sessionId
+                    await apiCall(`/sessions/${sessionId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ 
+                            status: 'active',
+                            started_at: new Date().toISOString()
                         })
                     });
                     showToast('✅ Session started! RAs can now verify students.', 'success');
@@ -668,11 +673,11 @@
 
             async function endSession(sessionId) {
                 try {
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'complete',
-                            session_id: sessionId
+                    await apiCall(`/sessions/${sessionId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ 
+                            status: 'completed',
+                            completed_at: new Date().toISOString()
                         })
                     });
                     showToast('✅ Session ended and completed.', 'info');
@@ -685,12 +690,9 @@
 
             async function archiveSession(sessionId) {
                 try {
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'archive',
-                            session_id: sessionId
-                        })
+                    await apiCall(`/sessions/${sessionId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: 'archived' })
                     });
                     showToast('📦 Session archived.', 'info');
                     await loadSessions();
