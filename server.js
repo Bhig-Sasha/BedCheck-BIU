@@ -1337,8 +1337,16 @@ const validators = {
         body('status').optional().isIn(['Active', 'Submitted', 'Approved', 'Rejected']).withMessage('Invalid status')
     ],
     sessionCreate: [
+        body('name').optional().isString().withMessage('Session name must be a string'),
         body('date').optional().isISO8601().withMessage('Invalid date format'),
-        body('status').optional().isIn(['active', 'archived']).withMessage('Invalid status'),
+        body('start_time').optional().isString().withMessage('Start time must be a string'),
+        body('end_time').optional().isString().withMessage('End time must be a string'),
+        body('status').optional().isIn(['scheduled', 'active', 'completed', 'archived']).withMessage('Invalid status'),
+        body('total_hostels').optional().isInt({ min: 1 }).withMessage('Total hostels must be at least 1'),
+        body('hostels_completed').optional().isInt({ min: 0 }).withMessage('Hostels completed must be 0 or greater'),
+        body('completion').optional().isInt({ min: 0, max: 100 }).withMessage('Completion must be between 0 and 100'),
+        body('academic_session').optional().isString().withMessage('Academic session must be a string'),
+        body('grace_period').optional().isInt({ min: 0, max: 60 }).withMessage('Grace period must be between 0 and 60'),
         body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     submissionState: [
@@ -5470,7 +5478,404 @@ app.get('/api/attendance/session/:sessionId',
 );
 
 // =====================================================
-// SESSION MANAGEMENT (RASD/Admin Only)
+// SESSIONS (Global BedCheck Sessions)
+// =====================================================
+
+app.get('/api/sessions',
+    campusIsolation,
+    validate(validators.pagination),
+    async (req, res) => {
+        try {
+            const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+            const offset = parseInt(req.query.offset) || 0;
+            
+            const { data, error, count } = await supabase
+                .from('sessions')
+                .select('*', { count: 'exact' })
+                .eq('campus', req.campus)
+                .order('date', { ascending: false })
+                .range(offset, offset + limit - 1);
+            
+            if (error) throw error;
+            
+            res.json({ 
+                success: true, 
+                data: data,
+                pagination: { limit, offset, total: count || data.length },
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching sessions:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/sessions/:id',
+    campusIsolation,
+    validate(validators.sessionId),
+    async (req, res) => {
+        try {
+            const id = parseInt(req.params.id);
+            const { data, error } = await supabase
+                .from('sessions')
+                .select('*')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+            
+            if (error || !data) {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
+                });
+            }
+            
+            res.json({ success: true, data: data, campus: req.campus });
+        } catch (error) {
+            console.error('Error fetching session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.post('/api/sessions',
+    campusIsolation,
+    requireRole('Admin', 'RASD', 'Developer'),
+    validate(validators.sessionCreate),
+    async (req, res) => {
+        try {
+            const { 
+                name, date, start_time, end_time, status, 
+                hostels_completed, total_hostels, completion,
+                academic_session, grace_period, campus
+            } = req.body;
+
+            const sessionCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
+
+            let sessionName = name;
+            if (!sessionName && date) {
+                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const d = new Date(date);
+                const dayName = dayNames[d.getDay()] || 'Night';
+                sessionName = `${dayName} Night BedCheck`;
+            }
+
+            const newSession = {
+                name: sessionName || 'Night BedCheck',
+                date: date || new Date().toISOString().split('T')[0],
+                start_time: start_time || '22:00:00',
+                end_time: end_time || '23:30:00',
+                status: status || 'scheduled',
+                hostels_completed: hostels_completed || 0,
+                total_hostels: total_hostels || 11,
+                completion: completion || 0,
+                academic_session: academic_session || '2026/2027',
+                grace_period: grace_period || 15,
+                created_by: req.user.id,
+                campus: sessionCampus,
+                campus_code: sessionCampus === 'Legacy' ? 'LEG' : 'HER',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { data, error } = await supabase
+                .from('sessions')
+                .insert(newSession)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'Created BedCheck Session',
+                module: 'sessions',
+                details: `Created session: ${data.name} for ${data.date} in ${sessionCampus} campus`,
+                result: 'success',
+                category: 'bedcheck',
+                session_id: data.id,
+                campus: sessionCampus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({ success: true, data: data, campus: sessionCampus });
+        } catch (error) {
+            console.error('Error creating session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.put('/api/sessions/:id',
+    campusIsolation,
+    requireRole('Admin', 'RASD', 'Developer'),
+    validate(validators.sessionId),
+    async (req, res) => {
+        try {
+            const id = parseInt(req.params.id);
+            const { 
+                name, date, start_time, end_time, status, 
+                hostels_completed, total_hostels, completion,
+                academic_session, grace_period, campus
+            } = req.body;
+
+            const { data: existing } = await supabase
+                .from('sessions')
+                .select('id, campus')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+
+            if (!existing) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
+                });
+            }
+
+            const updateData = {};
+            const changes = [];
+
+            if (name !== undefined) { updateData.name = name; changes.push('name'); }
+            if (date !== undefined) { updateData.date = date; changes.push('date'); }
+            if (start_time !== undefined) { updateData.start_time = start_time; changes.push('start_time'); }
+            if (end_time !== undefined) { updateData.end_time = end_time; changes.push('end_time'); }
+            if (status !== undefined) { 
+                updateData.status = status.toLowerCase(); 
+                changes.push('status'); 
+                if (status.toLowerCase() === 'active') {
+                    updateData.started_at = new Date().toISOString();
+                }
+                if (status.toLowerCase() === 'completed') {
+                    updateData.completed_at = new Date().toISOString();
+                }
+            }
+            if (hostels_completed !== undefined) { updateData.hostels_completed = hostels_completed; changes.push('hostels_completed'); }
+            if (total_hostels !== undefined) { updateData.total_hostels = total_hostels; changes.push('total_hostels'); }
+            if (completion !== undefined) { updateData.completion = completion; changes.push('completion'); }
+            if (academic_session !== undefined) { updateData.academic_session = academic_session; changes.push('academic_session'); }
+            if (grace_period !== undefined) { updateData.grace_period = grace_period; changes.push('grace_period'); }
+            if (campus !== undefined) { 
+                updateData.campus = campus;
+                updateData.campus_code = campus === 'Legacy' ? 'LEG' : 'HER';
+                changes.push('campus'); 
+            }
+
+            updateData.updated_at = new Date().toISOString();
+
+            if (Object.keys(updateData).length === 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'No fields to update',
+                    code: 'NO_FIELDS_TO_UPDATE'
+                });
+            }
+
+            const { data, error } = await supabase
+                .from('sessions')
+                .update(updateData)
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'Updated BedCheck Session',
+                module: 'sessions',
+                details: `Updated session #${id}: ${changes.join(', ')}`,
+                result: 'success',
+                category: 'bedcheck',
+                session_id: id,
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({ success: true, data: data, campus: req.campus });
+        } catch (error) {
+            console.error('Error updating session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.delete('/api/sessions/:id',
+    campusIsolation,
+    requireRole('Admin', 'RASD', 'Developer'),
+    validate(validators.sessionId),
+    async (req, res) => {
+        try {
+            const id = parseInt(req.params.id);
+            
+            const { data: session, error: fetchError } = await supabase
+                .from('sessions')
+                .select('name, date, status, campus')
+                .eq('id', id)
+                .eq('campus', req.campus)
+                .single();
+            
+            if (fetchError || !session) {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Session not found in this campus',
+                    code: 'SESSION_NOT_FOUND'
+                });
+            }
+
+            const { error: deleteError } = await supabase
+                .from('sessions')
+                .delete()
+                .eq('id', id)
+                .eq('campus', req.campus);
+
+            if (deleteError) throw deleteError;
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: 'Deleted BedCheck Session',
+                module: 'sessions',
+                details: `Deleted session: ${session.name} (${session.date})`,
+                result: 'success',
+                category: 'bedcheck',
+                session_id: id,
+                campus: req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+
+            res.json({ 
+                success: true, 
+                message: 'Session deleted successfully',
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error deleting session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/sessions/active',
+    campusIsolation,
+    async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('sessions')
+                .select('*')
+                .eq('status', 'active')
+                .eq('campus', req.campus)
+                .order('date', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (error) throw error;
+            res.json({ success: true, data: data, campus: req.campus });
+        } catch (error) {
+            console.error('Error fetching active session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/sessions/latest',
+    campusIsolation,
+    async (req, res) => {
+        try {
+            const { data, error } = await supabase
+                .from('sessions')
+                .select('*')
+                .eq('campus', req.campus)
+                .order('date', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (error) throw error;
+            res.json({ success: true, data: data, campus: req.campus });
+        } catch (error) {
+            console.error('Error fetching latest session:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/sessions/stats',
+    campusIsolation,
+    async (req, res) => {
+        try {
+            const { data: sessions, error } = await supabase
+                .from('sessions')
+                .select('status, hostels_completed, total_hostels, completion')
+                .eq('campus', req.campus);
+
+            if (error) throw error;
+
+            const stats = {
+                total: sessions.length,
+                scheduled: sessions.filter(s => s.status === 'scheduled').length,
+                active: sessions.filter(s => s.status === 'active').length,
+                completed: sessions.filter(s => s.status === 'completed').length,
+                archived: sessions.filter(s => s.status === 'archived').length,
+                totalHostels: sessions.length > 0 ? sessions[0]?.total_hostels || 11 : 11,
+                averageCompletion: sessions.length > 0 
+                    ? Math.round(sessions.reduce((sum, s) => sum + (s.completion || 0), 0) / sessions.length) 
+                    : 0
+            };
+
+            res.json({ success: true, data: stats, campus: req.campus });
+        } catch (error) {
+            console.error('Error fetching session stats:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
+// SESSION MANAGEMENT (RASD/Admin Only) - Global
 // =====================================================
 
 app.post('/api/sessions/manage',
@@ -5478,36 +5883,26 @@ app.post('/api/sessions/manage',
     requireRole('Admin', 'RASD', 'Developer'),
     validate([
         body('action').isIn(['create', 'activate', 'complete', 'archive']).withMessage('Invalid action'),
-        body('hostel_id').optional().isInt().withMessage('Invalid hostel ID'),
         body('session_id').optional().isInt().withMessage('Invalid session ID'),
         body('date').optional().isISO8601().withMessage('Invalid date'),
         body('start_time').optional().isString().withMessage('Invalid start time'),
-        body('end_time').optional().isString().withMessage('Invalid end time')
+        body('end_time').optional().isString().withMessage('Invalid end time'),
+        body('total_hostels').optional().isInt({ min: 1 }).withMessage('Total hostels must be at least 1')
     ]),
     async (req, res) => {
         try {
-            const { action, hostel_id, session_id, date, start_time, end_time } = req.body;
+            const { action, session_id, date, start_time, end_time, total_hostels } = req.body;
             const campus = req.campus;
             let result = null;
             
             switch (action) {
                 case 'create':
-                    const targetHostel = hostel_id || req.user.hostel_id;
-                    if (!targetHostel) {
-                        return res.status(400).json({
-                            success: false,
-                            message: 'Hostel ID required',
-                            code: 'HOSTEL_REQUIRED'
-                        });
-                    }
-                    
                     const sessionDate = date || new Date().toISOString().split('T')[0];
                     
-                    // Check if session already exists
+                    // Check if session already exists for this date
                     const { data: existing } = await supabase
                         .from('sessions')
                         .select('id')
-                        .eq('hostel_id', targetHostel)
                         .eq('date', sessionDate)
                         .eq('campus', campus)
                         .maybeSingle();
@@ -5526,15 +5921,19 @@ app.post('/api/sessions/manage',
                     const { data: newSession, error: createError } = await supabase
                         .from('sessions')
                         .insert({
-                            hostel_id: targetHostel,
                             date: sessionDate,
                             name: `${dayName} Night BedCheck`,
-                            status: 'draft',
+                            status: 'scheduled',
                             start_time: start_time || '22:00:00',
                             end_time: end_time || '23:30:00',
+                            total_hostels: total_hostels || 11,
+                            hostels_completed: 0,
+                            completion: 0,
+                            academic_session: '2026/2027',
+                            grace_period: 15,
+                            created_by: req.user.id,
                             campus: campus,
                             campus_code: campus === 'Legacy' ? 'LEG' : 'HER',
-                            created_by: req.user.id,
                             created_at: new Date().toISOString(),
                             updated_at: new Date().toISOString()
                         })
@@ -5558,7 +5957,7 @@ app.post('/api/sessions/manage',
                         .from('sessions')
                         .update({ 
                             status: 'active', 
-                            activated_at: new Date().toISOString(),
+                            started_at: new Date().toISOString(),
                             updated_at: new Date().toISOString()
                         })
                         .eq('id', session_id)
@@ -5578,9 +5977,6 @@ app.post('/api/sessions/manage',
                             code: 'SESSION_ID_REQUIRED'
                         });
                     }
-                    
-                    // Mark unverified as absent
-                    await markUnverifiedAsAbsent(session_id);
                     
                     const { data: completed, error: completeError } = await supabase
                         .from('sessions')
@@ -5636,14 +6032,13 @@ app.post('/api/sessions/manage',
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
-                action: `Session ${action}`,
+                action: `Global Session ${action}`,
                 module: 'sessions',
-                details: `Session ${action}ed: ${result?.name || 'N/A'}`,
+                details: `Session ${action}ed: ${result?.name || 'N/A'} (${result?.date || 'N/A'})`,
                 context: `Session ID: ${result?.id || 'N/A'}`,
                 result: 'success',
                 category: 'sessions',
                 tone: 'blue',
-                hostel_id: result?.hostel_id,
                 session_id: result?.id,
                 campus: campus,
                 ip_address: req.clientIp,
@@ -5659,155 +6054,6 @@ app.post('/api/sessions/manage',
             
         } catch (error) {
             console.error(`Session management error:`, error);
-            res.status(500).json({
-                success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-// Get all sessions for a hostel
-app.get('/api/sessions',
-    campusIsolation,
-    validate(validators.pagination),
-    async (req, res) => {
-        try {
-            const { hostel_id, status, from_date, to_date } = req.query;
-            const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-            const offset = parseInt(req.query.offset) || 0;
-            
-            let query = supabase
-                .from('sessions')
-                .select('*, hostels!hostel_id (id, name, type)', { count: 'exact' })
-                .eq('campus', req.campus);
-            
-            if (hostel_id) {
-                query = query.eq('hostel_id', parseInt(hostel_id));
-            } else if (req.user.role === 'RA' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
-            }
-            
-            if (status) {
-                query = query.eq('status', status);
-            }
-            
-            if (from_date) {
-                query = query.gte('date', from_date);
-            }
-            
-            if (to_date) {
-                query = query.lte('date', to_date);
-            }
-            
-            query = query.order('date', { ascending: false })
-                .range(offset, offset + limit - 1);
-            
-            const { data, error, count } = await query;
-            
-            if (error) throw error;
-            
-            res.json({
-                success: true,
-                data: data,
-                pagination: { limit, offset, total: count || data.length },
-                campus: req.campus
-            });
-        } catch (error) {
-            console.error('Error fetching sessions:', error);
-            res.status(500).json({
-                success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-// Get a single session
-app.get('/api/sessions/:id',
-    campusIsolation,
-    validate(validators.sessionId),
-    async (req, res) => {
-        try {
-            const id = parseInt(req.params.id);
-            
-            const { data, error } = await supabase
-                .from('sessions')
-                .select('*, hostels!hostel_id (id, name, type)')
-                .eq('id', id)
-                .eq('campus', req.campus)
-                .single();
-            
-            if (error || !data) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Session not found',
-                    code: 'SESSION_NOT_FOUND'
-                });
-            }
-            
-            // Check access
-            if (req.user.role === 'RA' && req.user.hostel_id !== data.hostel_id) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Access denied',
-                    code: 'ACCESS_DENIED'
-                });
-            }
-            
-            res.json({
-                success: true,
-                data: data,
-                campus: req.campus
-            });
-        } catch (error) {
-            console.error('Error fetching session:', error);
-            res.status(500).json({
-                success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-// Get active session for a hostel
-app.get('/api/sessions/active',
-    campusIsolation,
-    async (req, res) => {
-        try {
-            const hostelId = req.user.hostel_id || req.query.hostel_id;
-            
-            if (!hostelId) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Hostel ID required',
-                    code: 'HOSTEL_REQUIRED'
-                });
-            }
-            
-            const today = new Date().toISOString().split('T')[0];
-            
-            const { data, error } = await supabase
-                .from('sessions')
-                .select('*')
-                .eq('hostel_id', parseInt(hostelId))
-                .eq('date', today)
-                .eq('status', 'active')
-                .eq('campus', req.campus)
-                .maybeSingle();
-            
-            if (error) throw error;
-            
-            res.json({
-                success: true,
-                data: data || null,
-                campus: req.campus
-            });
-        } catch (error) {
-            console.error('Error fetching active session:', error);
             res.status(500).json({
                 success: false,
                 message: 'An error occurred. Please try again.',
