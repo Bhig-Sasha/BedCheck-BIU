@@ -11161,77 +11161,190 @@ app.post('/api/developer/maintenance',
 // SCHEDULED TASKS - Auto Session Management
 // =====================================================
 
-// Check every minute for session activation/completion
+// Check every 30 seconds for session activation/completion
 setInterval(async () => {
     try {
         const now = new Date();
         const currentTime = now.toTimeString().slice(0, 8);
         const today = now.toISOString().split('T')[0];
         
-        // Activate sessions that should be active
-        const { data: draftSessions } = await supabase
+        // 1. ACTIVATE SCHEDULED SESSIONS that should be active
+        const { data: scheduledSessions } = await supabase
             .from('sessions')
             .select('*')
-            .eq('date', today)
-            .eq('status', 'draft')
+            .eq('status', 'scheduled')
             .lte('start_time', currentTime);
         
-        if (draftSessions && draftSessions.length > 0) {
-            for (const session of draftSessions) {
-                await supabase
-                    .from('sessions')
-                    .update({ 
-                        status: 'active', 
-                        activated_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', session.id);
-                console.log(`✅ Session ${session.id} auto-activated at ${currentTime}`);
+        if (scheduledSessions && scheduledSessions.length > 0) {
+            for (const session of scheduledSessions) {
+                // Check if session date is today or in the past
+                if (session.date <= today) {
+                    const { error: updateError } = await supabase
+                        .from('sessions')
+                        .update({ 
+                            status: 'active', 
+                            started_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', session.id);
+                    
+                    if (!updateError) {
+                        console.log(`✅ Session ${session.id} (${session.name}) auto-activated at ${currentTime}`);
+                        
+                        await supabase
+                            .from('notifications')
+                            .insert({
+                                title: '🔔 BedCheck Session Started',
+                                detail: `${session.name} has started`,
+                                body: `The BedCheck session for ${session.date} is now active. RAs can begin verification.`,
+                                type: 'system',
+                                priority: 'high',
+                                campus: session.campus,
+                                recipient_role: 'RA',
+                                actor: 'System',
+                                action: 'Session Auto-Started',
+                                tone: 'green',
+                                read: false,
+                                created_at: new Date().toISOString()
+                            }).catch(() => {});
+                    }
+                }
             }
         }
         
-        // Complete sessions that should be completed
+        // 2. COMPLETE ACTIVE SESSIONS that should be completed
         const { data: activeSessions } = await supabase
             .from('sessions')
             .select('*')
-            .eq('date', today)
             .eq('status', 'active')
             .lte('end_time', currentTime);
         
         if (activeSessions && activeSessions.length > 0) {
             for (const session of activeSessions) {
-                await markUnverifiedAsAbsent(session.id);
-                await supabase
-                    .from('sessions')
-                    .update({ 
-                        status: 'completed', 
-                        completed_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', session.id);
-                console.log(`✅ Session ${session.id} auto-completed at ${currentTime}`);
+                if (session.date <= today) {
+                    await markUnverifiedAsAbsent(session.id);
+                    
+                    const { error: updateError } = await supabase
+                        .from('sessions')
+                        .update({ 
+                            status: 'completed', 
+                            completed_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', session.id);
+                    
+                    if (!updateError) {
+                        console.log(`✅ Session ${session.id} (${session.name}) auto-completed at ${currentTime}`);
+                        
+                        await supabase
+                            .from('notifications')
+                            .insert({
+                                title: '✅ BedCheck Session Completed',
+                                detail: `${session.name} has ended`,
+                                body: `The BedCheck session for ${session.date} is now completed. All unverified students have been marked absent.`,
+                                type: 'system',
+                                priority: 'medium',
+                                campus: session.campus,
+                                recipient_role: 'HRA',
+                                actor: 'System',
+                                action: 'Session Auto-Completed',
+                                tone: 'blue',
+                                read: false,
+                                created_at: new Date().toISOString()
+                            }).catch(() => {});
+                    }
+                }
             }
         }
         
-        // Create next day's sessions at midnight
+        // 3. AUTO-CREATE NEXT DAY'S SESSION at midnight (if less than 5 scheduled)
         if (currentTime === '00:00:00') {
-            const { data: hostels } = await supabase
-                .from('hostels')
-                .select('id, campus')
-                .eq('status', 'Active');
+            // Check how many scheduled sessions exist
+            const { count, error: countError } = await supabase
+                .from('sessions')
+                .select('id', { count: 'exact', head: true })
+                .eq('status', 'scheduled');
             
-            if (hostels) {
-                for (const hostel of hostels) {
-                    await getOrCreateTodaySession(hostel.id, hostel.campus);
+            if (!countError) {
+                const scheduledCount = count || 0;
+                
+                if (scheduledCount < 5) {
+                    // Get active hostels count
+                    const { data: hostels, error: hostelsError } = await supabase
+                        .from('hostels')
+                        .select('id, campus')
+                        .eq('status', 'Active');
+                    
+                    if (!hostelsError && hostels && hostels.length > 0) {
+                        const nextDate = new Date();
+                        nextDate.setDate(nextDate.getDate() + 1);
+                        const dateStr = nextDate.toISOString().split('T')[0];
+                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        const dayName = dayNames[nextDate.getDay()] || 'Night';
+                        const campus = hostels[0]?.campus || 'Legacy';
+                        
+                        const { data: existing, error: existingError } = await supabase
+                            .from('sessions')
+                            .select('id')
+                            .eq('date', dateStr)
+                            .eq('campus', campus)
+                            .maybeSingle();
+                        
+                        if (!existingError && !existing) {
+                            const newSession = {
+                                name: `${dayName} Night BedCheck`,
+                                date: dateStr,
+                                start_time: '22:00:00',
+                                end_time: '23:30:00',
+                                status: 'scheduled',
+                                hostels_completed: 0,
+                                total_hostels: hostels.length || 11,
+                                completion: 0,
+                                academic_session: '2026/2027',
+                                grace_period: 15,
+                                created_by: 'system',
+                                campus: campus,
+                                campus_code: campus === 'Legacy' ? 'LEG' : 'HER',
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                            };
+                            
+                            const { error: insertError } = await supabase
+                                .from('sessions')
+                                .insert(newSession);
+                            
+                            if (!insertError) {
+                                console.log(`📋 Auto-created scheduled session for ${dateStr} (${scheduledCount + 1}/5)`);
+                                
+                                await supabase
+                                    .from('notifications')
+                                    .insert({
+                                        title: '📋 New BedCheck Session Scheduled',
+                                        detail: `${dayName} Night BedCheck for ${dateStr}`,
+                                        body: `A new BedCheck session has been auto-scheduled for ${dateStr}. It will start at 10:00 PM.`,
+                                        type: 'system',
+                                        priority: 'low',
+                                        campus: campus,
+                                        recipient_role: 'RASD',
+                                        actor: 'System',
+                                        action: 'Session Auto-Scheduled',
+                                        tone: 'blue',
+                                        read: false,
+                                        created_at: new Date().toISOString()
+                                    }).catch(() => {});
+                            }
+                        }
+                    }
+                } else {
+                    console.log(`📋 Max scheduled sessions reached (${scheduledCount}/5). No new session created.`);
                 }
-                console.log(`📋 Created sessions for new day`);
             }
         }
         
     } catch (error) {
         console.error('❌ Scheduler error:', error);
     }
-}, 60000); // Check every minute
+}, 30000);
 
 // =====================================================
 // CATCH-ALL 404 HANDLER
