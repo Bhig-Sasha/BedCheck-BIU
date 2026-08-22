@@ -91,6 +91,15 @@
         .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
         .btn-outline:hover { background: #f5f1e8; }
 
+        .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
+        .btn-success:hover { background: #1f4a32; }
+
+        .btn-danger { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #a84134; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
+        .btn-danger:hover { background: #8a3328; }
+
+        .btn-gold { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #d6ad4b; color: #10233f; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; text-decoration: none; justify-content: center; }
+        .btn-gold:hover { background: #c49a2a; }
+
         /* Metric Grid */
         .metric-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, 1fr); }
         @media (min-width: 480px) { .metric-grid { grid-template-columns: repeat(3, 1fr); } }
@@ -120,6 +129,8 @@
         .badge-danger { background: #f8e1dc; color: #9b3c31; }
         .badge-info { background: #e7edf5; color: #24466f; }
         .badge-live { background: #d6ad4b; color: #10233f; animation: pulse-badge 2s infinite; }
+        .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-completed { background: #2d6545; color: white; }
         @keyframes pulse-badge { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 
         .grid-2 { display: grid; gap: 0.75rem; grid-template-columns: 1fr; }
@@ -170,6 +181,9 @@
         .live-banner .banner-right .timer { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
         .live-banner .banner-right .timer-label { font-size: 0.6rem; color: #b9c7db; text-transform: uppercase; }
 
+        /* Session Control Buttons */
+        .session-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
         /* Activity Timeline */
         .activity-timeline { position: relative; padding-left: 1.25rem; }
         .activity-timeline::before { content: ''; position: absolute; left: 0.2rem; top: 0; bottom: 0; width: 0.125rem; background: #ded6c9; }
@@ -201,15 +215,14 @@
         .hostel-progress-item .hostel-status.partial { background: #fff0cb; color: #8a6413; }
         .hostel-progress-item .hostel-status.inactive { background: #f3f4f6; color: #6b7280; }
 
-        /* Attention Required */
-        .attention-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid #eee8de; }
-        .attention-item:last-child { border-bottom: none; }
-        .attention-item .attention-icon { font-size: 0.9rem; width: 1.5rem; text-align: center; }
-        .attention-item .attention-detail { flex: 1; }
-        .attention-item .attention-detail .title { font-weight: 600; font-size: 0.8rem; }
-        .attention-item .attention-detail .sub { font-size: 0.65rem; color: #68768a; }
+        /* Session List */
+        .session-list { display: flex; flex-direction: column; gap: 0.3rem; }
+        .session-item { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.6rem; border-radius: 0.5rem; background: #fbf7ef; border: 1px solid #f0ebe2; }
+        .session-item .session-name { font-weight: 600; font-size: 0.8rem; }
+        .session-item .session-date { font-size: 0.65rem; color: #6b778b; }
+        .session-item .session-status { font-size: 0.55rem; }
 
-        /* Attendance Ring - Compact */
+        /* Attendance Ring */
         .attendance-ring { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
         @media (max-width: 480px) { .attendance-ring { flex-direction: column; align-items: center; } }
         .attendance-ring .ring { position: relative; width: 80px; height: 80px; border-radius: 50%; background: conic-gradient(#2d6545 0% 88.7%, #e6e2da 88.7% 100%); display: flex; align-items: center; justify-content: center; }
@@ -237,6 +250,12 @@
         .live-monitor-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
         @media (max-width: 480px) { .live-monitor-header { flex-direction: column; align-items: stretch; } }
         .live-monitor-header .badge-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+        /* Session Status Badges */
+        .status-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .status-badge.active { background: #d6ad4b; color: #10233f; }
+        .status-badge.draft { background: #e8edf2; color: #536274; }
+        .status-badge.completed { background: #2d6545; color: white; }
     </style>
 </head>
 <body>
@@ -362,13 +381,15 @@
             let hostels = [];
             let staffMembers = [];
             let auditLogs = [];
+            let sessions = [];
+            let currentSession = null;
+            let sessionStatus = 'draft';
             let submissionState = 'Open';
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
-                // Get token from session storage
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!token) {
@@ -389,7 +410,6 @@
                         }
                     });
                     
-                    // Handle 401 - token expired or invalid
                     if (response.status === 401) {
                         const errorData = await response.json().catch(() => ({}));
                         showToast('Session expired. Please login again.', 'error');
@@ -437,12 +457,22 @@
                 return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             }
 
+            function getStatusBadge(status) {
+                const map = {
+                    'active': '<span class="status-badge active">Active</span>',
+                    'draft': '<span class="status-badge draft">Draft</span>',
+                    'completed': '<span class="status-badge completed">Completed</span>',
+                    'archived': '<span class="status-badge draft">Archived</span>'
+                };
+                return map[status] || `<span class="status-badge draft">${status || 'Unknown'}</span>`;
+            }
+
             // =============================================
             // DATA LOADING
             // =============================================
             async function loadStudents() {
                 try {
-                    const data = await apiCall('/students');
+                    const data = await apiCall('/students?limit=100');
                     students = data.data || [];
                     return students;
                 } catch (error) {
@@ -484,6 +514,38 @@
                 }
             }
 
+            async function loadSessions() {
+                try {
+                    const data = await apiCall('/sessions?limit=50');
+                    sessions = data.data || [];
+                    
+                    // Find active session
+                    const today = new Date().toISOString().split('T')[0];
+                    currentSession = sessions.find(s => 
+                        s.status === 'active' || 
+                        (s.status === 'draft' && s.date === today)
+                    ) || null;
+                    
+                    if (currentSession) {
+                        sessionStatus = currentSession.status;
+                    } else {
+                        // Check if there's a completed session today
+                        const completed = sessions.find(s => 
+                            s.status === 'completed' && s.date === today
+                        );
+                        sessionStatus = completed ? 'completed' : 'draft';
+                        currentSession = completed || null;
+                    }
+                    
+                    return sessions;
+                } catch (error) {
+                    sessions = [];
+                    currentSession = null;
+                    sessionStatus = 'draft';
+                    return sessions;
+                }
+            }
+
             async function loadSubmissionState() {
                 try {
                     const data = await apiCall('/submission');
@@ -492,6 +554,73 @@
                 } catch (error) {
                     submissionState = 'Open';
                     return submissionState;
+                }
+            }
+
+            // =============================================
+            // SESSION ACTIONS
+            // =============================================
+            async function createSession() {
+                try {
+                    const today = new Date().toISOString().split('T')[0];
+                    const data = await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'create',
+                            hostel_id: hostels.length > 0 ? hostels[0].id : null,
+                            date: today
+                        })
+                    });
+                    showToast('Session created successfully!', 'success');
+                    await loadSessions();
+                    renderDashboard();
+                } catch (error) {
+                    showToast('Failed to create session: ' + error.message, 'error');
+                }
+            }
+
+            async function activateSession() {
+                if (!currentSession) {
+                    showToast('No session to activate', 'error');
+                    return;
+                }
+                try {
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'activate',
+                            session_id: currentSession.id
+                        })
+                    });
+                    showToast('Session activated successfully!', 'success');
+                    await loadSessions();
+                    renderDashboard();
+                } catch (error) {
+                    showToast('Failed to activate session: ' + error.message, 'error');
+                }
+            }
+
+            async function completeSession() {
+                if (!currentSession) {
+                    showToast('No session to complete', 'error');
+                    return;
+                }
+                if (!confirm('Are you sure you want to complete this session? This will mark all unverified students as absent.')) {
+                    return;
+                }
+                try {
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'complete',
+                            session_id: currentSession.id
+                        })
+                    });
+                    showToast('Session completed successfully!', 'success');
+                    await loadSessions();
+                    renderDashboard();
+                } catch (error) {
+                    showToast('Failed to complete session: ' + error.message, 'error');
                 }
             }
 
@@ -558,12 +687,18 @@
 
                 // Calculate stats
                 const totalStudents = students.length || 0;
-                const present = students.filter(s => s.status === 'Present').length || 0;
+                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = students.filter(s => s.status === 'Absent').length || 0;
                 const late = students.filter(s => s.status === 'Late').length || 0;
                 const onlineRegistered = students.filter(s => s.registration_type === 'online' || s.source === 'online').length || 0;
                 const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
                 const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
+
+                // Session stats
+                const sessionName = currentSession?.name || 'No Active Session';
+                const sessionDate = currentSession?.date || new Date().toISOString().split('T')[0];
+                const sessionStatusDisplay = sessionStatus || 'draft';
+                const isSessionLive = sessionStatusDisplay === 'active';
 
                 // Hostel progress - detailed
                 const hostelProgress = hostels.map(h => {
@@ -587,21 +722,43 @@
                 const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
                 const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
 
+                // Get recent sessions (last 3)
+                const recentSessions = sessions.slice(0, 3);
+
                 container.innerHTML = `
-                    <!-- Live Session Banner -->
+                    <!-- Session Banner -->
                     <div class="live-banner">
                         <div class="banner-left">
-                            <span class="live-badge"><i class="fas fa-circle" style="font-size:0.4rem;margin-right:0.3rem;"></i> LIVE</span>
+                            <span class="live-badge">
+                                <i class="fas fa-${isSessionLive ? 'circle' : sessionStatusDisplay === 'completed' ? 'check-circle' : 'clock'}" style="font-size:0.4rem;margin-right:0.3rem;"></i>
+                                ${isSessionLive ? 'LIVE' : sessionStatusDisplay === 'completed' ? 'COMPLETED' : 'DRAFT'}
+                            </span>
                             <div class="session-info">
-                                <strong>BedCheck Active</strong>
-                                <span class="highlight">10:00 PM – 12:00 AM</span>
+                                <strong>${sessionName}</strong>
+                                <span class="highlight">${sessionDate}</span>
                                 · ${activeHostels + partialHostels} hostels reporting
                             </div>
                         </div>
                         <div class="banner-right">
-                            <div>
-                                <div class="timer-label">Time remaining</div>
-                                <div class="timer" id="sessionTimer">01:24:16</div>
+                            <div class="session-controls">
+                                ${sessionStatusDisplay === 'draft' ? `
+                                    <button class="btn-success" onclick="activateSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
+                                        <i class="fas fa-play"></i> Activate
+                                    </button>
+                                ` : ''}
+                                ${sessionStatusDisplay === 'active' ? `
+                                    <button class="btn-danger" onclick="completeSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
+                                        <i class="fas fa-check-double"></i> Complete
+                                    </button>
+                                ` : ''}
+                                ${!currentSession ? `
+                                    <button class="btn-gold" onclick="createSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
+                                        <i class="fas fa-plus"></i> Create Session
+                                    </button>
+                                ` : ''}
+                                <span class="status-badge ${isSessionLive ? 'active' : sessionStatusDisplay === 'completed' ? 'completed' : 'draft'}" style="font-size:0.65rem;">
+                                    ${sessionStatusDisplay.toUpperCase()}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -646,17 +803,53 @@
                         </div>
                     </div>
 
+                    <!-- Recent Sessions -->
+                    <div class="card mt-4">
+                        <div class="live-monitor-header">
+                            <div class="card-title" style="margin-bottom:0;">
+                                <i class="fas fa-history" style="color:#a77915;font-size:0.9rem;"></i> Recent Sessions
+                            </div>
+                            <div class="badge-group">
+                                <span class="badge badge-live">${sessions.filter(s => s.status === 'active').length} Active</span>
+                                <span class="badge badge-success">${sessions.filter(s => s.status === 'completed').length} Completed</span>
+                                <span class="badge badge-draft">${sessions.filter(s => s.status === 'draft').length} Draft</span>
+                                <span class="badge badge-info">${sessions.length} Total</span>
+                            </div>
+                        </div>
+                        <div class="session-list mt-2">
+                            ${recentSessions.length === 0 ? '<p class="text-xs text-muted">No sessions created yet</p>' : recentSessions.map(s => `
+                                <div class="session-item">
+                                    <div>
+                                        <div class="session-name">${s.name || 'BedCheck Session'}</div>
+                                        <div class="session-date">${s.date} · ${s.start_time || '22:00'} - ${s.end_time || '23:30'}</div>
+                                    </div>
+                                    <div>
+                                        <span class="session-status">${getStatusBadge(s.status)}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="mt-2 pt-2 border-t">
+                            <div class="flex-between">
+                                <span class="text-xs text-muted">Last updated: ${new Date().toLocaleTimeString()}</span>
+                                <button class="btn-outline" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="window.location.reload()">
+                                    <i class="fas fa-sync"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Main Content - Full Width Live Monitor -->
                     <div class="card mt-4">
                         <div class="live-monitor-header">
                             <div class="card-title" style="margin-bottom:0;">
-                                <i class="fas fa-satellite-dish" style="color:#a77915;font-size:0.9rem;"></i> Live Monitor
+                                <i class="fas fa-satellite-dish" style="color:#a77915;font-size:0.9rem;"></i> Hostel Live Monitor
                             </div>
                             <div class="badge-group">
                                 <span class="badge badge-live">${activeHostels} Active</span>
                                 <span class="badge badge-warning">${partialHostels} In Progress</span>
                                 <span class="badge badge-info">${hostelProgress.filter(h => h.status === 'inactive' && h.totalStudents > 0).length} Idle</span>
-                                <span class="badge" style="background:#e8edf2;color:#536274;">${hostels.length} Total</span>
+                                <span class="badge badge-draft">${hostels.length} Total</span>
                             </div>
                         </div>
                         <div class="hostel-progress-full mt-2">
@@ -678,14 +871,6 @@
                                     </div>
                                 `;
                             }).join('')}
-                        </div>
-                        <div class="mt-2 pt-2 border-t">
-                            <div class="flex-between">
-                                <span class="text-xs text-muted">Last updated: ${new Date().toLocaleTimeString()}</span>
-                                <button class="btn-outline" style="padding:0.2rem 0.8rem;font-size:0.7rem;" onclick="window.location.reload()">
-                                    <i class="fas fa-sync"></i> Refresh
-                                </button>
-                            </div>
                         </div>
                     </div>
 
@@ -742,12 +927,15 @@
                         <p class="text-xs text-muted">
                             BIU BedCheck v1.0 · © Benson Idahosa University
                             <span class="ml-3"><span class="status-dot green"></span> Online</span>
+                            <span class="ml-3"><i class="fas fa-${isSessionLive ? 'play-circle' : sessionStatusDisplay === 'completed' ? 'check-circle' : 'clock'}"></i> ${sessionStatusDisplay.toUpperCase()}</span>
                         </p>
                     </div>
                 `;
 
-                // Start timer
-                startTimer();
+                // Start timer if session is active
+                if (isSessionLive) {
+                    startTimer();
+                }
             }
 
             // =============================================
@@ -775,6 +963,13 @@
             }
 
             // =============================================
+            // EXPOSE GLOBALLY
+            // =============================================
+            window.createSession = createSession;
+            window.activateSession = activateSession;
+            window.completeSession = completeSession;
+
+            // =============================================
             // INIT
             // =============================================
             async function init() {
@@ -791,15 +986,21 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
+                    
+                    // Load all data in parallel
                     await Promise.all([
                         loadStudents(),
                         loadHostels(),
                         loadStaff(),
                         loadAuditLogs(),
+                        loadSessions(),
                         loadSubmissionState()
                     ]);
+                    
                     renderDashboard();
-                    document.getElementById('noticeText').textContent = `Ready · ${students.length} students, ${hostels.length} hostels`;
+                    
+                    const sessionText = currentSession ? ` · Session: ${currentSession.name} (${sessionStatus})` : ' · No active session';
+                    document.getElementById('noticeText').textContent = `Ready · ${students.length} students, ${hostels.length} hostels${sessionText}`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required')) {

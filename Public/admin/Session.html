@@ -404,7 +404,7 @@
         </main>
     </div>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -436,10 +436,6 @@
 
             function isActiveStatus(status) {
                 return ACTIVE_STATUSES.includes(status);
-            }
-
-            function isCompletedStatus(status) {
-                return ['completed', 'archived'].includes(status);
             }
 
             function getRowClass(status) {
@@ -517,10 +513,9 @@
             }
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
-                // Get token from session storage
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!token) {
@@ -539,9 +534,7 @@
                     };
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
                     
-                    // Handle 401 - token expired or invalid
                     if (response.status === 401) {
-                        const errorData = await response.json().catch(() => ({}));
                         showToast('Session expired. Please login again.', 'error');
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
@@ -596,7 +589,7 @@
             }
 
             // =============================================
-            // SESSION CRUD OPERATIONS
+            // SESSION CRUD OPERATIONS - USING MANAGE ENDPOINT
             // =============================================
 
             async function createSession() {
@@ -624,23 +617,15 @@
                 }
 
                 try {
-                    const payload = {
-                        name: name,
-                        date: date,
-                        start_time: startTime,
-                        end_time: endTime,
-                        status: status || 'scheduled',
-                        hostels_completed: 0,
-                        total_hostels: selectedHostels.length,
-                        completion: 0,
-                        academic_session: academicSession,
-                        grace_period: gracePeriod,
-                        hostel_ids: selectedHostels
-                    };
-
-                    const result = await apiCall('/sessions', {
+                    const result = await apiCall('/sessions/manage', {
                         method: 'POST',
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify({
+                            action: 'create',
+                            hostel_id: selectedHostels[0],
+                            date: date,
+                            start_time: startTime,
+                            end_time: endTime
+                        })
                     });
 
                     showToast(`Session "${name}" created successfully!`, 'success');
@@ -648,43 +633,70 @@
                     await loadSessions();
                     renderScreen();
 
-                    // If status is 'active', update global submission state
-                    if (status === 'active') {
-                        await apiCall('/submission', {
-                            method: 'PUT',
-                            body: JSON.stringify({ state: 'active' })
+                    if (status === 'active' && result.data) {
+                        await apiCall('/sessions/manage', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                action: 'activate',
+                                session_id: result.data.id
+                            })
                         });
+                        await loadSessions();
+                        renderScreen();
                     }
                 } catch (error) {
                     showToast('Error creating session: ' + error.message, 'error');
                 }
             }
 
-            async function updateSessionStatus(sessionId, status, startedAt = null, completedAt = null) {
-                if (!['active', 'scheduled', 'completed', 'archived'].includes(status)) {
-                    throw new Error(`Invalid status: "${status}". Allowed: active, scheduled, completed, archived`);
-                }
-
+            async function startSession(sessionId) {
                 try {
-                    const payload = { status };
-                    if (startedAt) payload.started_at = startedAt;
-                    if (completedAt) payload.completed_at = completedAt;
-
-                    const result = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify(payload)
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'activate',
+                            session_id: sessionId
+                        })
                     });
-
-                    // Update global submission state
-                    await apiCall('/submission', {
-                        method: 'PUT',
-                        body: JSON.stringify({ state: status })
-                    });
-
-                    return result;
+                    showToast('✅ Session started! RAs can now verify students.', 'success');
+                    await loadSessions();
+                    renderScreen();
                 } catch (error) {
-                    showToast('Error updating session: ' + error.message, 'error');
-                    throw error;
+                    showToast('Error starting session: ' + error.message, 'error');
+                }
+            }
+
+            async function endSession(sessionId) {
+                try {
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'complete',
+                            session_id: sessionId
+                        })
+                    });
+                    showToast('✅ Session ended and completed.', 'info');
+                    await loadSessions();
+                    renderScreen();
+                } catch (error) {
+                    showToast('Error ending session: ' + error.message, 'error');
+                }
+            }
+
+            async function archiveSession(sessionId) {
+                try {
+                    await apiCall('/sessions/manage', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'archive',
+                            session_id: sessionId
+                        })
+                    });
+                    showToast('📦 Session archived.', 'info');
+                    await loadSessions();
+                    renderScreen();
+                } catch (error) {
+                    showToast('Error archiving session: ' + error.message, 'error');
                 }
             }
 
@@ -706,45 +718,6 @@
                     renderScreen();
                 } catch (error) {
                     showToast('Error deleting session: ' + error.message, 'error');
-                }
-            }
-
-            // =============================================
-            // SESSION CONTROLS
-            // =============================================
-
-            async function startSession(sessionId) {
-                try {
-                    const now = new Date().toISOString();
-                    await updateSessionStatus(sessionId, 'active', now, null);
-                    showToast('✅ Session started! RAs can now verify students.', 'success');
-                    await loadSessions();
-                    renderScreen();
-                } catch (error) {
-                    showToast('Error starting session: ' + error.message, 'error');
-                }
-            }
-
-            async function endSession(sessionId) {
-                try {
-                    const now = new Date().toISOString();
-                    await updateSessionStatus(sessionId, 'completed', null, now);
-                    showToast('✅ Session ended and completed.', 'info');
-                    await loadSessions();
-                    renderScreen();
-                } catch (error) {
-                    showToast('Error ending session: ' + error.message, 'error');
-                }
-            }
-
-            async function archiveSession(sessionId) {
-                try {
-                    await updateSessionStatus(sessionId, 'archived');
-                    showToast('📦 Session archived.', 'info');
-                    await loadSessions();
-                    renderScreen();
-                } catch (error) {
-                    showToast('Error archiving session: ' + error.message, 'error');
                 }
             }
 
@@ -813,7 +786,6 @@
                 const scheduled = sessions.filter(s => s.status === 'scheduled').length;
                 const completed = sessions.filter(s => s.status === 'completed').length;
 
-                // Update status indicator
                 const indicator = document.getElementById('statusIndicator');
                 if (hasActive) {
                     indicator.innerHTML = '🟢 <span style="font-weight:600;">Active</span>';
@@ -866,7 +838,6 @@
                         </div>
                     </div>
 
-                    <!-- Current Active Session Control Panel -->
                     ${hasActive ? `
                     <div class="card mt-4" style="border-color:#d6ad4b;background:#fbf7ef;">
                         <div class="flex-between">
@@ -911,7 +882,6 @@
                     </div>
                     `}
 
-                    <!-- Live Status -->
                     <div class="grid-2 mt-4">
                         <div class="live-status">
                             <p class="label">Current Time</p>
@@ -939,7 +909,6 @@
                         </div>
                     </div>
 
-                    <!-- All Sessions Table -->
                     <div class="card mt-4">
                         <div class="flex-between">
                             <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> All Sessions</div>
@@ -961,8 +930,8 @@
                                         <tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">No sessions created yet. <a href="#" onclick="openCreateSession();return false;" style="color:#a77915;font-weight:600;">Create one</a></td></tr>
                                     ` : sessions.slice().reverse().map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
-                                        const isActive = isActiveStatus(s.status);
                                         const isScheduled = s.status === 'scheduled';
+                                        const isActive = isActiveStatus(s.status);
                                         const isCompleted = s.status === 'completed';
                                         const isArchived = s.status === 'archived';
                                         const startTime = formatTime(s.start_time);
@@ -1038,19 +1007,7 @@
                         const scheduledSessions = sessions.filter(s => s.status === 'scheduled');
                         for (const s of scheduledSessions) {
                             if (s.start_time && s.start_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'active', new Date().toISOString(), null);
-                                showToast(`Session "${s.name}" started automatically!`, 'success');
-                                await loadSessions();
-                                renderScreen();
-                            }
-                        }
-                        const activeSessions = sessions.filter(s => isActiveStatus(s.status));
-                        for (const s of activeSessions) {
-                            if (s.end_time && s.end_time <= currentTime) {
-                                await updateSessionStatus(s.id, 'completed', null, new Date().toISOString());
-                                showToast(`Session "${s.name}" completed automatically.`, 'info');
-                                await loadSessions();
-                                renderScreen();
+                                await startSession(s.id);
                             }
                         }
                     } catch (error) {
@@ -1058,10 +1015,6 @@
                     }
                 }, 60000);
             }
-
-            // =============================================
-            // REFRESH
-            // =============================================
 
             async function refreshData() {
                 try {

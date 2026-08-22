@@ -153,6 +153,7 @@
         .badge-present { background: #e1f0e5; color: #2d6545; }
         .badge-absent { background: #f8e1dc; color: #9b3c31; }
         .badge-late { background: #fff0cb; color: #8a6413; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
 
         .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; animation: fadeIn 0.6s ease; }
         .table-wrap table { width: 100%; min-width: 500px; border-collapse: collapse; font-size: 0.75rem; text-align: left; }
@@ -421,6 +422,7 @@
                     <div style="display:flex;gap:1rem;padding-top:0.2rem;">
                         <label><input type="radio" name="studentStatus" value="Present" checked /> Present</label>
                         <label><input type="radio" name="studentStatus" value="Absent" /> Absent</label>
+                        <label><input type="radio" name="studentStatus" value="Verified" /> Verified</label>
                     </div>
                 </div>
                 <div class="field">
@@ -547,10 +549,9 @@
             let selectedStudent = null;
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
-                // Get token from session storage
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!token) {
@@ -571,9 +572,7 @@
                         }
                     });
                     
-                    // Handle 401 - token expired or invalid
                     if (response.status === 401) {
-                        const errorData = await response.json().catch(() => ({}));
                         showToast('Session expired. Please login again.', 'error');
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
@@ -612,7 +611,8 @@
                     'Present': 'badge-present',
                     'Absent': 'badge-absent',
                     'Late': 'badge-late',
-                    'Excused': 'badge-approved'
+                    'Excused': 'badge-approved',
+                    'Verified': 'badge-verified'
                 };
                 return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
             }
@@ -631,7 +631,6 @@
                 try {
                     const data = await apiCall('/students');
                     students = data.data || [];
-                    // Ensure each student has hostel and room fields
                     students = students.map(s => ({
                         ...s,
                         hostel: s.hostel || s.hostel_name || '—',
@@ -668,13 +667,11 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
-                // Check file size (max 2MB)
                 if (file.size > 2 * 1024 * 1024) {
                     showToast('Image size must be less than 2MB', 'error');
                     return;
                 }
 
-                // Check file type
                 if (!file.type.startsWith('image/')) {
                     showToast('Please upload an image file', 'error');
                     return;
@@ -683,7 +680,6 @@
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     currentProfileImage = e.target.result;
-                    // Update the profile image in the drawer
                     const img = document.getElementById('profileImage');
                     if (img) {
                         img.src = currentProfileImage;
@@ -694,7 +690,6 @@
                     showToast('Profile picture uploaded successfully!', 'success');
                 };
                 reader.readAsDataURL(file);
-                // Reset the input
                 event.target.value = '';
             }
 
@@ -707,7 +702,7 @@
                     const placeholder = document.getElementById('profilePlaceholder');
                     if (placeholder) placeholder.style.display = 'flex';
                 }
-                showToast('Profile picture removed', 'warning');
+                showToast('Profile picture removed', 'info');
             }
 
             function openStudentDrawer(student) {
@@ -1069,7 +1064,7 @@
                 const container = document.getElementById('screenContent');
                 
                 const total = students.length;
-                const present = students.filter(s => s.status === 'Present').length || 0;
+                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = students.filter(s => s.status === 'Absent').length || 0;
                 const late = students.filter(s => s.status === 'Late').length || 0;
                 const onlineRegistered = students.filter(s => s.registration_type === 'online' || s.source === 'online').length || 0;
@@ -1080,7 +1075,7 @@
                         <div>
                             <p class="eyebrow"><i class="fas fa-users"></i> Student Status</p>
                             <h1>Student Status</h1>
-                            <p class="desc">Overall student presence, hostel assignment, and QR management across the university.</p>
+                            <p class="desc">Overall student presence and hostel assignment across the university.</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-outline" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Refresh</button>
@@ -1259,7 +1254,7 @@
                     document.getElementById('noticeText').textContent = 'Loading students...';
                     await Promise.all([loadStudents(), loadHostels()]);
                     renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. Live · Overall student presence, hostel assignment, and QR management across the university.`;
+                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. Live · Overall student presence and hostel assignment across the university.`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
