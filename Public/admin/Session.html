@@ -601,18 +601,8 @@
                 const gracePeriod = parseInt(document.getElementById('gracePeriod').value) || 15;
                 const status = document.getElementById('sessionStatus').value;
 
-                const selectedHostels = [];
-                document.querySelectorAll('#hostelCheckboxes input[type="checkbox"]:checked').forEach(cb => {
-                    selectedHostels.push(parseInt(cb.value));
-                });
-
                 if (!name || !date || !startTime || !endTime) {
                     showToast('Please fill in all required fields', 'error');
-                    return;
-                }
-
-                if (selectedHostels.length === 0) {
-                    showToast('Please select at least one hostel', 'error');
                     return;
                 }
 
@@ -624,11 +614,10 @@
                         end_time: endTime,
                         status: status || 'scheduled',
                         hostels_completed: 0,
-                        total_hostels: selectedHostels.length,
+                        total_hostels: hostels.length, // Use total hostels count
                         completion: 0,
                         academic_session: academicSession,
-                        grace_period: gracePeriod,
-                        hostel_ids: selectedHostels
+                        grace_period: gracePeriod
                     };
 
                     const result = await apiCall('/sessions', {
@@ -651,23 +640,6 @@
                     }
                 } catch (error) {
                     showToast('Error creating session: ' + error.message, 'error');
-                }
-            }
-
-            async function startSession(sessionId) {
-                try {
-                    await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ 
-                            status: 'active',
-                            started_at: new Date().toISOString()
-                        })
-                    });
-                    showToast('✅ Session started! RAs can now verify students.', 'success');
-                    await loadSessions();
-                    renderScreen();
-                } catch (error) {
-                    showToast('Error starting session: ' + error.message, 'error');
                 }
             }
 
@@ -729,13 +701,6 @@
 
             function openCreateSession() {
                 const modal = document.getElementById('createSessionModal');
-                const checkboxes = document.getElementById('hostelCheckboxes');
-                checkboxes.innerHTML = hostels.map(h => `
-                    <label>
-                        <input type="checkbox" checked value="${h.id}" />
-                        ${h.name}
-                    </label>
-                `).join('');
                 document.getElementById('sessionDate').value = new Date().toISOString().split('T')[0];
                 document.getElementById('sessionName').value = '';
                 document.getElementById('sessionName').placeholder = `${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()]} Night BedCheck`;
