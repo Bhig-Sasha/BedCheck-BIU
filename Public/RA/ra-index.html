@@ -356,7 +356,7 @@
         </main>
     </div>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -397,6 +397,8 @@
             let sessionStatus = 'draft';
             let isSessionActive = false;
             let isRASessionActive = false;
+            let globalSessionActive = false;
+            let hasCompletedToday = false;
             let hasLoadedRooms = false;
             let bedScanStatus = {};
             let timeline = [];
@@ -439,6 +441,16 @@
                         throw new Error('Authentication required');
                     }
                     
+                    if (response.status === 400) {
+                        const errorData = await response.json();
+                        console.warn('API Warning (400):', errorData);
+                        // Don't throw for 400 on session endpoints - it might just mean no session exists
+                        if (endpoint.includes('/sessions/') || endpoint.includes('/ra/bedcheck/')) {
+                            return { success: false, data: null };
+                        }
+                        throw new Error(errorData.message || 'Bad request');
+                    }
+                    
                     if (!response.ok) {
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -448,7 +460,10 @@
                     return data;
                 } catch (error) {
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        showToast('Error: ' + error.message, 'error');
+                        // Don't show toast for session errors
+                        if (!endpoint.includes('/sessions/') && !endpoint.includes('/ra/bedcheck/')) {
+                            showToast('Error: ' + error.message, 'error');
+                        }
                     }
                     throw error;
                 }
@@ -550,106 +565,137 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS - COMPLETELY FIXED
+            // LOAD SESSION STATUS - PROPERLY HANDLES BOTH GLOBAL AND RA SESSIONS
             // =============================================
             async function loadSessionStatus() {
                 try {
-                    // Skip the global session check since it's causing errors
-                    // Just use the RA session status endpoint
-                    console.log('📋 Checking RA session status...');
+                    // 1. First check if there's a GLOBAL active session
+                    globalSessionActive = false;
+                    let globalSessionData = null;
+                    
+                    try {
+                        // Try to get the global active session
+                        const response = await apiCall('/sessions/active');
+                        if (response && response.data && response.data.id) {
+                            globalSessionActive = true;
+                            globalSessionData = response.data;
+                            console.log('📋 Global session is ACTIVE:', globalSessionData.id);
+                        }
+                    } catch (e) {
+                        // Global session not active - this is fine
+                        console.log('📋 No global active session found');
+                    }
+
+                    // 2. Check if the RA has started their session
+                    let raSessionData = null;
+                    hasCompletedToday = false;
+                    isRASessionActive = false;
                     
                     try {
                         const statusData = await apiCall('/ra/bedcheck/status');
                         
                         if (statusData && statusData.data) {
                             const sessions = statusData.data.sessions || [];
-                            const active = sessions.find(s => s.status === 'started');
                             
+                            // Check for active RA session
+                            const active = sessions.find(s => s.status === 'started');
                             if (active) {
                                 isRASessionActive = true;
-                                isSessionActive = true;
-                                sessionStatus = 'active';
-                                currentSession = active;
-                                addTimeline('RA session active', 'BedCheck session is live');
-                                console.log('📋 RA session active:', active.id);
-                            } else {
-                                const today = new Date().toISOString().split('T')[0];
-                                const completed = sessions.find(s => 
-                                    s.status === 'completed' && 
-                                    s.completed_at && 
-                                    s.completed_at.startsWith(today)
-                                );
-                                
-                                if (completed) {
-                                    sessionStatus = 'completed';
-                                    isSessionActive = false;
-                                    currentSession = completed;
-                                    addTimeline('Session completed', 'Today\'s BedCheck is finalized');
-                                    console.log('📋 Session completed:', completed.id);
-                                } else {
-                                    // No active or completed session
-                                    sessionStatus = 'draft';
-                                    isSessionActive = false;
-                                    currentSession = null;
-                                    console.log('📋 Session: draft');
-                                }
+                                raSessionData = active;
+                                console.log('📋 RA session is ACTIVE:', active.id);
                             }
                             
-                            // Update bedScanStatus from the status data
-                            if (sessions.length > 0) {
-                                const latestSession = sessions[0];
-                                if (latestSession && latestSession.id) {
-                                    try {
-                                        const scansData = await apiCall(`/bedcheck/scans?session_id=${latestSession.id}`);
-                                        if (scansData && scansData.data) {
-                                            scansData.data.forEach(scan => {
-                                                if (scan.status === 'Verified' || scan.status === 'Present') {
-                                                    bedScanStatus[scan.student_id] = {
-                                                        verified: true,
-                                                        status: 'Verified',
-                                                        time: scan.created_at,
-                                                        confidence: scan.metadata?.confidence || null
-                                                    };
-                                                } else if (scan.status === 'Absent') {
-                                                    bedScanStatus[scan.student_id] = {
-                                                        verified: false,
-                                                        status: 'Absent',
-                                                        time: scan.created_at
-                                                    };
-                                                }
-                                            });
-                                        }
-                                    } catch (scanError) {
-                                        console.warn('Could not fetch scans:', scanError);
-                                    }
-                                }
+                            // Check if RA completed today
+                            const today = new Date().toISOString().split('T')[0];
+                            const completed = sessions.find(s => 
+                                s.status === 'completed' && 
+                                s.completed_at && 
+                                s.completed_at.startsWith(today)
+                            );
+                            if (completed) {
+                                hasCompletedToday = true;
+                                console.log('📋 RA has completed today\'s session');
                             }
-                        } else {
-                            // No sessions found - set default
-                            sessionStatus = 'draft';
-                            isSessionActive = false;
-                            currentSession = null;
-                            console.log('📋 No sessions found - draft');
                         }
                     } catch (e) {
                         console.warn('RA session status unavailable:', e.message);
-                        // Set default values on error
-                        sessionStatus = 'draft';
-                        isSessionActive = false;
-                        currentSession = null;
                     }
+
+                    // 3. Determine the overall session state
+                    if (isRASessionActive) {
+                        // RA has an active session
+                        isSessionActive = true;
+                        sessionStatus = 'active';
+                        currentSession = raSessionData;
+                        addTimeline('RA session active', 'BedCheck session is live');
+                    } else if (globalSessionActive && !hasCompletedToday) {
+                        // Global session is active but RA hasn't started yet
+                        isSessionActive = true;
+                        sessionStatus = 'active';
+                        currentSession = globalSessionData;
+                        console.log('📋 Global session active - RA can start their session');
+                    } else if (hasCompletedToday) {
+                        // RA has completed their session
+                        isSessionActive = false;
+                        sessionStatus = 'completed';
+                        currentSession = { id: 'completed', status: 'completed' };
+                        addTimeline('Session completed', 'Today\'s BedCheck is finalized');
+                    } else if (globalSessionActive) {
+                        // Global session active but RA hasn't started
+                        isSessionActive = true;
+                        sessionStatus = 'active';
+                        currentSession = globalSessionData;
+                    } else {
+                        // No session active
+                        isSessionActive = false;
+                        sessionStatus = 'draft';
+                        currentSession = null;
+                        console.log('📋 No session active - draft');
+                    }
+
+                    // 4. Load scans if there's a session
+                    const sessionId = currentSession?.id;
+                    if (sessionId && sessionId !== 'completed') {
+                        try {
+                            const scansData = await apiCall(`/bedcheck/scans?session_id=${sessionId}`);
+                            if (scansData && scansData.data) {
+                                scansData.data.forEach(scan => {
+                                    if (scan.status === 'Verified' || scan.status === 'Present') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: true,
+                                            status: 'Verified',
+                                            time: scan.created_at,
+                                            confidence: scan.metadata?.confidence || null
+                                        };
+                                    } else if (scan.status === 'Absent') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: false,
+                                            status: 'Absent',
+                                            time: scan.created_at
+                                        };
+                                    }
+                                });
+                            }
+                        } catch (scanError) {
+                            console.warn('Could not fetch scans:', scanError);
+                        }
+                    }
+
+                    console.log(`📋 Final - Global: ${globalSessionActive}, RA: ${isRASessionActive}, Status: ${sessionStatus}, Active: ${isSessionActive}`);
                     
-                    console.log(`📋 Final session status: ${sessionStatus}`);
-                    console.log(`📋 Session active: ${isSessionActive}`);
-                    console.log(`📋 RA session active: ${isRASessionActive}`);
-                    
-                    return { sessionStatus, isSessionActive, isRASessionActive };
+                    return { 
+                        sessionStatus, 
+                        isSessionActive, 
+                        isRASessionActive,
+                        globalSessionActive,
+                        hasCompletedToday
+                    };
                     
                 } catch (error) {
                     console.warn('Session status error:', error.message);
                     sessionStatus = 'draft';
                     isSessionActive = false;
-                    return { sessionStatus, isSessionActive, isRASessionActive };
+                    return { sessionStatus, isSessionActive, isRASessionActive: false };
                 }
             }
 
@@ -763,10 +809,10 @@
             }
 
             // =============================================
-            // START BEDCHECK SESSION - FIXED
+            // START BEDCHECK SESSION
             // =============================================
             async function startBedCheck() {
-                if (isSessionActive) {
+                if (isRASessionActive) {
                     showToast('You already have an active BedCheck session.', 'info');
                     return;
                 }
@@ -776,50 +822,44 @@
                     return;
                 }
 
+                // Check if there's a global active session
+                let globalSessionId = null;
                 try {
-                    let sessionId = currentSession?.id || null;
-                    
-                    // Create a new session for today
-                    const newSession = await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'create',
-                            hostel_id: assignedHostelId,
-                            date: new Date().toISOString().split('T')[0]
-                        })
-                    });
-                    sessionId = newSession.data.id;
-                    currentSession = newSession.data;
-                    
-                    // Activate it
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'activate',
-                            session_id: sessionId
-                        })
-                    });
-                    
-                    if (!sessionId) {
-                        showToast('Could not create or find a BedCheck session.', 'error');
-                        return;
+                    const globalSession = await apiCall('/sessions/active');
+                    if (globalSession && globalSession.data && globalSession.data.id) {
+                        globalSessionId = globalSession.data.id;
+                        console.log('Found global session:', globalSessionId);
                     }
+                } catch (e) {
+                    console.log('No global active session found');
+                }
 
-                    // Start the RA session
-                    await apiCall('/ra/bedcheck/start', {
+                if (!globalSessionId) {
+                    showToast('No active BedCheck session. Please wait for the session to start.', 'error');
+                    return;
+                }
+
+                try {
+                    // Start the RA session with the global session ID
+                    const result = await apiCall('/ra/bedcheck/start', {
                         method: 'POST',
-                        body: JSON.stringify({ session_id: sessionId })
+                        body: JSON.stringify({ session_id: globalSessionId })
                     });
 
-                    isSessionActive = true;
-                    isRASessionActive = true;
-                    sessionStatus = 'active';
-                    
-                    // Refresh session status
-                    await loadSessionStatus();
-                    
-                    showToast('BedCheck session started successfully!', 'success');
-                    renderDashboard();
+                    if (result && result.success) {
+                        isSessionActive = true;
+                        isRASessionActive = true;
+                        sessionStatus = 'active';
+                        currentSession = result.data?.session || { id: globalSessionId };
+                        
+                        // Refresh session status
+                        await loadSessionStatus();
+                        
+                        showToast('BedCheck session started successfully!', 'success');
+                        renderDashboard();
+                    } else {
+                        showToast('Failed to start BedCheck session.', 'error');
+                    }
                     
                 } catch (error) {
                     console.error('Start BedCheck error:', error);
@@ -831,7 +871,7 @@
             // COMPLETE BEDCHECK SESSION
             // =============================================
             async function completeBedCheck() {
-                if (!isSessionActive) {
+                if (!isRASessionActive) {
                     showToast('No active BedCheck session to complete.', 'error');
                     return;
                 }
@@ -843,19 +883,10 @@
                 try {
                     const sessionId = currentSession?.id;
                     
-                    if (!sessionId) {
+                    if (!sessionId || sessionId === 'completed') {
                         showToast('No session found to complete.', 'error');
                         return;
                     }
-
-                    // Complete the session
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'complete',
-                            session_id: sessionId
-                        })
-                    });
 
                     // Complete the RA session
                     await apiCall('/ra/bedcheck/complete', {
@@ -866,6 +897,7 @@
                     isSessionActive = false;
                     isRASessionActive = false;
                     sessionStatus = 'completed';
+                    hasCompletedToday = true;
                     
                     // Refresh session status
                     await loadSessionStatus();
@@ -928,25 +960,36 @@
                 let statusIcon = 'fa-pause-circle';
                 let statusBadge = 'inactive';
                 let statusMessage = 'Awaiting start';
+                let showStartButton = false;
                 
-                if (sessionStatus === 'active') {
+                if (isRASessionActive) {
                     sessionStatusDisplay = 'Active';
                     statusClass = 'active';
                     statusIcon = 'fa-play-circle';
                     statusBadge = 'active';
                     statusMessage = '🟢 Recording enabled';
-                } else if (sessionStatus === 'completed') {
+                    showStartButton = false;
+                } else if (hasCompletedToday) {
                     sessionStatusDisplay = 'Completed';
                     statusClass = 'completed';
                     statusIcon = 'fa-check-circle';
                     statusBadge = 'approved';
                     statusMessage = '✅ Finalized';
-                } else if (sessionStatus === 'draft') {
+                    showStartButton = false;
+                } else if (globalSessionActive) {
+                    sessionStatusDisplay = 'Active (Ready)';
+                    statusClass = 'active';
+                    statusIcon = 'fa-play-circle';
+                    statusBadge = 'active';
+                    statusMessage = '🟢 Session is live - Click Start to begin';
+                    showStartButton = true;
+                } else {
                     sessionStatusDisplay = 'Draft';
                     statusClass = 'draft';
                     statusIcon = 'fa-clock';
                     statusBadge = 'inactive';
-                    statusMessage = '⏳ Awaiting activation';
+                    statusMessage = '⏳ Awaiting session activation';
+                    showStartButton = false;
                 }
 
                 container.innerHTML = `
@@ -968,14 +1011,14 @@
                             </p>
                         </div>
                         <div class="action-group">
-                            ${sessionStatus === 'draft' && assignedRooms.length > 0 ? `
+                            ${showStartButton && assignedRooms.length > 0 ? `
                                 <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
                             ` : ''}
-                            ${sessionStatus === 'active' ? `
+                            ${isRASessionActive ? `
                                 <button class="btn-danger" id="completeBedCheckBtn"><i class="fas fa-check-double"></i> Complete</button>
                             ` : ''}
-                            ${sessionStatus === 'completed' ? `
-                                <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed</button>
+                            ${hasCompletedToday ? `
+                                <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed ✓</button>
                             ` : ''}
                             ${assignedRooms.length === 0 ? `
                                 <button class="btn-outline" disabled><i class="fas fa-exclamation-triangle"></i> No rooms assigned</button>
@@ -987,9 +1030,10 @@
                     <div class="session-status-banner ${statusClass}">
                         <i class="fas ${statusIcon}"></i>
                         <span><strong>Session:</strong> ${sessionStatusDisplay}</span>
-                        ${sessionStatus === 'active' ? `<span class="badge badge-active">LIVE</span>` : ''}
-                        ${sessionStatus === 'completed' ? `<span class="badge badge-approved">DONE</span>` : ''}
-                        ${sessionStatus === 'draft' ? `<span class="badge badge-draft">DRAFT</span>` : ''}
+                        ${isRASessionActive ? `<span class="badge badge-active">LIVE</span>` : ''}
+                        ${hasCompletedToday ? `<span class="badge badge-approved">DONE</span>` : ''}
+                        ${globalSessionActive && !isRASessionActive && !hasCompletedToday ? `<span class="badge badge-active">READY</span>` : ''}
+                        ${!globalSessionActive && !isRASessionActive && !hasCompletedToday ? `<span class="badge badge-draft">DRAFT</span>` : ''}
                         <span style="margin-left:auto;font-size:0.75rem;opacity:0.7;">
                             ${statusMessage}
                         </span>
@@ -1396,7 +1440,16 @@
                     const hostelDisplay = assignedHostelName || 'No Hostel';
                     const areaDisplay = assignedArea || 'No Floor';
                     const roomDisplay = assignedRooms.length > 0 ? `${assignedRooms.length} rooms` : 'no rooms assigned';
-                    const statusText = sessionStatus === 'active' ? '🟢 Active' : sessionStatus === 'completed' ? '✅ Completed' : '⏳ Draft';
+                    let statusText = '';
+                    if (isRASessionActive) {
+                        statusText = '🟢 Active (Your session)';
+                    } else if (hasCompletedToday) {
+                        statusText = '✅ Completed';
+                    } else if (globalSessionActive) {
+                        statusText = '🟡 Ready - Click Start';
+                    } else {
+                        statusText = '⏳ Draft';
+                    }
                     document.getElementById('noticeText').textContent =
                         `${filteredStudents.length} students in ${hostelDisplay} · ${areaDisplay} · ${roomDisplay} · ${statusText}`;
 
