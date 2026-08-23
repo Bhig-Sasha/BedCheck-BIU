@@ -549,7 +549,6 @@
             let students = [];
             let hostels = [];
             let selectedStudent = null;
-            let isSessionActive = false;
             let currentPage = 1;
             const pageSize = 20;
 
@@ -568,7 +567,6 @@
                 }
 
                 try {
-                    // Log the request for debugging
                     console.log(`📤 API Request: ${options.method || 'GET'} ${endpoint}`);
                     if (options.body) {
                         try {
@@ -588,16 +586,11 @@
                         }
                     });
                     
-                    // Log response status
                     console.log(`📥 API Response: ${response.status} ${response.statusText}`);
                     
-                    // Handle 400 errors specifically
                     if (response.status === 400) {
                         const errorData = await response.json();
                         console.error('❌ API Error Details:', errorData);
-                        
-                        // Don't show toast for session endpoint errors - they're not critical
-                        const isSessionEndpoint = endpoint.includes('/sessions/');
                         
                         if (errorData.errors && Array.isArray(errorData.errors)) {
                             const errorMessages = errorData.errors.map(e => {
@@ -606,12 +599,8 @@
                                 }
                                 return e.message;
                             }).join(', ');
-                            
-                            // Only show toast for non-session endpoints
-                            if (!isSessionEndpoint) {
-                                showToast(`Validation error: ${errorMessages}`, 'error');
-                            }
-                        } else if (errorData.message && !isSessionEndpoint) {
+                            showToast(`Validation error: ${errorMessages}`, 'error');
+                        } else if (errorData.message) {
                             showToast(errorData.message, 'error');
                         }
                         throw new Error(errorData.message || 'Bad request');
@@ -639,12 +628,8 @@
                     }
                     return data;
                 } catch (error) {
-                    // Only show toast for non-session errors
-                    const isSessionEndpoint = endpoint.includes('/sessions/');
-                    if (!isSessionEndpoint && 
-                        !error.message.includes('Authentication required') && 
+                    if (!error.message.includes('Authentication required') && 
                         !error.message.includes('No authentication token')) {
-                        // Don't show duplicate toast if we already showed one
                         if (!error.message.includes('Validation error')) {
                             showToast('Error: ' + error.message, 'error');
                         }
@@ -666,54 +651,6 @@
                     'Verified': 'badge-verified'
                 };
                 return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Pending'}</span>`;
-            }
-
-            function getStudentStatus(student) {
-                if (isSessionActive) {
-                    return student.status || 'Pending';
-                }
-                return 'Pending';
-            }
-
-            // =============================================
-            // CHECK ACTIVE SESSION - FINAL FIX
-            // =============================================
-            async function checkActiveSession() {
-                try {
-                    // Try to get the user's hostel ID
-                    let hostelId = null;
-                    try {
-                        const userData = sessionStorage.getItem('bedcheck_user');
-                        if (userData) {
-                            const user = JSON.parse(userData);
-                            hostelId = user.hostel_id || user.hostelId || null;
-                        }
-                    } catch (e) {
-                        // Ignore parsing errors
-                    }
-                    
-                    // Build the URL
-                    let url = '/sessions/active';
-                    if (hostelId) {
-                        url += `?hostel_id=${hostelId}`;
-                    }
-                    
-                    const data = await apiCall(url);
-                    if (data && data.data && data.data.id) {
-                        isSessionActive = true;
-                        sessionStorage.setItem('active_session_id', data.data.id);
-                    } else {
-                        isSessionActive = false;
-                        sessionStorage.removeItem('active_session_id');
-                    }
-                    return isSessionActive;
-                } catch (error) {
-                    // Silently fail - session might not exist yet or endpoint might be unavailable
-                    console.warn('⚠️ No active session found or session check failed:', error.message);
-                    isSessionActive = false;
-                    sessionStorage.removeItem('active_session_id');
-                    return false;
-                }
             }
 
             function getHostelType(h) {
@@ -813,7 +750,7 @@
                 const hostelName = student.hostel || hostel?.name || '—';
                 const room = student.room || student.room_code || '—';
                 const bed = student.bed || student.bed_code || '—';
-                const displayStatus = getStudentStatus(student);
+                const displayStatus = student.status || 'Pending';
                 
                 body.innerHTML = `
                     <div class="profile-card">
@@ -831,7 +768,6 @@
                         <div class="student-name">${student.name || 'Unknown'}</div>
                         <div class="student-matric">${student.matric || 'No matric number'}</div>
                         <div class="status-badge">${attBadge(displayStatus)}</div>
-                        ${!isSessionActive ? '<p class="text-xs text-muted mt-1">⏳ Pending until BedCheck starts</p>' : ''}
                     </div>
 
                     <div class="info-section">
@@ -1081,7 +1017,6 @@
             // SAVE STUDENT
             // =============================================
             function saveStudent() {
-                // Get all form values
                 const name = document.getElementById('studentName').value.trim();
                 const matric = document.getElementById('studentMatric').value.trim();
                 const gender = document.getElementById('studentGender').value;
@@ -1097,7 +1032,6 @@
                 const notes = document.getElementById('studentNotes').value.trim();
                 const status = document.querySelector('input[name="studentStatus"]:checked').value;
                 
-                // Validation
                 if (!name) { showToast('Please enter student name', 'error'); return; }
                 if (!matric) { showToast('Please enter matric number', 'error'); return; }
                 if (!gender) { showToast('Please select gender', 'error'); return; }
@@ -1110,7 +1044,6 @@
                 if (!roomValue) { showToast('Please select a room', 'error'); return; }
                 if (!bedValue) { showToast('Please select a bed space', 'error'); return; }
 
-                // Check for duplicate matric number
                 if (students.some(s => s.matric === matric)) {
                     showToast('Matric number already exists!', 'error');
                     return;
@@ -1119,7 +1052,6 @@
                 const hostel = hostels.find(h => h.id == hostelId);
                 if (!hostel) { showToast('Hostel not found', 'error'); return; }
 
-                // Build floor label
                 let floorLabel = '';
                 const type = getHostelType(hostel);
                 if (type === 'flat') {
@@ -1131,7 +1063,6 @@
                     floorLabel = `Floor ${letters[floorNum - 1] || floorNum}`;
                 }
 
-                // Build student object with ALL required fields
                 const newStudent = {
                     name: name,
                     matric: matric,
@@ -1154,10 +1085,8 @@
                     campus: 'Legacy'
                 };
 
-                // Log what we're sending for debugging
                 console.log('📤 Sending student data:', newStudent);
 
-                // Send to API
                 apiCall('/students', {
                     method: 'POST',
                     body: JSON.stringify(newStudent)
@@ -1169,7 +1098,6 @@
                         renderScreen();
                     });
                 }).catch(error => {
-                    // Error is already handled in apiCall
                     console.error('❌ Save student error:', error);
                 });
             }
@@ -1178,17 +1106,14 @@
                 const container = document.getElementById('screenContent');
                 
                 const total = students.length;
-                const pending = students.filter(s => s.status === 'Pending' || !s.status).length || 0;
-                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
-                const absent = students.filter(s => s.status === 'Absent').length || 0;
                 const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
 
                 container.innerHTML = `
                     <div class="page-heading">
                         <div>
-                            <p class="eyebrow"><i class="fas fa-users"></i> Student Status</p>
-                            <h1>Student Status</h1>
-                            <p class="desc">Overall student presence and hostel assignment across the university. ${!isSessionActive ? '⏳ Statuses show as Pending until BedCheck starts.' : '✅ BedCheck is active - showing real-time statuses.'}</p>
+                            <p class="eyebrow"><i class="fas fa-users"></i> Student Management</p>
+                            <h1>Student Details</h1>
+                            <p class="desc">View and manage all registered students</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-outline" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Refresh</button>
@@ -1206,27 +1131,9 @@
                             <div class="metric-detail">Registered students</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
-                            <div class="metric-value">${pending}</div>
-                            <div class="metric-title">Pending</div>
-                            <div class="metric-detail">${isSessionActive ? 'Awaiting verification' : '⏳ Waiting for BedCheck'}</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value">${present}</div>
-                            <div class="metric-title">Present</div>
-                            <div class="metric-detail">Currently present</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
-                            <div class="metric-value">${absent}</div>
-                            <div class="metric-title">Absent</div>
-                            <div class="metric-detail">Currently absent</div>
-                        </div>
-                        <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-building"></i></div>
                             <div class="metric-value">${assignedHostel}</div>
-                            <div class="metric-title">Assigned Hostel</div>
+                            <div class="metric-title">Assigned to Hostel</div>
                             <div class="metric-detail">Students with hostel assignment</div>
                         </div>
                     </div>
@@ -1239,13 +1146,16 @@
                             </div>
                             <div style="display:flex;gap:0.4rem;align-items:end;">
                                 <div class="field" style="flex:1;">
-                                    <label>Filter</label>
+                                    <label>Filter by Faculty</label>
                                     <select id="filterFaculty" onchange="filterStudents()">
                                         <option value="">All faculties</option>
                                         <option value="Engineering">Engineering</option>
                                         <option value="Science">Science</option>
                                         <option value="Law">Law</option>
                                         <option value="Allied Health">Allied Health</option>
+                                        <option value="Medicine">Medicine</option>
+                                        <option value="Education">Education</option>
+                                        <option value="Arts">Arts</option>
                                     </select>
                                 </div>
                                 <div class="field" style="flex:1;">
@@ -1266,6 +1176,7 @@
                                 <th>Gender</th>
                                 <th>Hostel</th>
                                 <th>Room</th>
+                                <th>Status</th>
                                 <th>Action</th>
                             </tr></thead>
                             <tbody id="studentTableBody"></tbody>
@@ -1358,9 +1269,9 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading students...';
-                    await Promise.all([loadStudents(), loadHostels(), checkActiveSession()]);
+                    await Promise.all([loadStudents(), loadHostels()]);
                     renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. ${!isSessionActive ? '⏳ Statuses pending until BedCheck starts.' : '✅ BedCheck active - showing real-time statuses.'}`;
+                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students.`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
@@ -1374,12 +1285,6 @@
                         closeAddStudent();
                     }
                 });
-
-                // Check session status every 30 seconds
-                setInterval(async () => {
-                    await checkActiveSession();
-                    renderScreen();
-                }, 30000);
             }
 
             if (document.readyState === 'loading') {
