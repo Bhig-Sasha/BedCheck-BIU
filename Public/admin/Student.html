@@ -596,7 +596,9 @@
                         const errorData = await response.json();
                         console.error('❌ API Error Details:', errorData);
                         
-                        // Show detailed error messages
+                        // Don't show toast for session endpoint errors - they're not critical
+                        const isSessionEndpoint = endpoint.includes('/sessions/');
+                        
                         if (errorData.errors && Array.isArray(errorData.errors)) {
                             const errorMessages = errorData.errors.map(e => {
                                 if (e.field) {
@@ -604,11 +606,13 @@
                                 }
                                 return e.message;
                             }).join(', ');
-                            showToast(`Validation error: ${errorMessages}`, 'error');
-                        } else if (errorData.message) {
+                            
+                            // Only show toast for non-session endpoints
+                            if (!isSessionEndpoint) {
+                                showToast(`Validation error: ${errorMessages}`, 'error');
+                            }
+                        } else if (errorData.message && !isSessionEndpoint) {
                             showToast(errorData.message, 'error');
-                        } else {
-                            showToast('Validation error. Please check your input.', 'error');
                         }
                         throw new Error(errorData.message || 'Bad request');
                     }
@@ -635,7 +639,11 @@
                     }
                     return data;
                 } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    // Only show toast for non-session errors
+                    const isSessionEndpoint = endpoint.includes('/sessions/');
+                    if (!isSessionEndpoint && 
+                        !error.message.includes('Authentication required') && 
+                        !error.message.includes('No authentication token')) {
                         // Don't show duplicate toast if we already showed one
                         if (!error.message.includes('Validation error')) {
                             showToast('Error: ' + error.message, 'error');
@@ -679,7 +687,8 @@
                     }
                     return isSessionActive;
                 } catch (error) {
-                    console.error('Error checking active session:', error);
+                    // Silently fail - session might not exist yet
+                    console.warn('No active session found:', error.message);
                     isSessionActive = false;
                     sessionStorage.removeItem('active_session_id');
                     return false;
@@ -1089,7 +1098,19 @@
                 const hostel = hostels.find(h => h.id == hostelId);
                 if (!hostel) { showToast('Hostel not found', 'error'); return; }
 
-                // Build student object - EXACTLY what the server expects
+                // Build floor label
+                let floorLabel = '';
+                const type = getHostelType(hostel);
+                if (type === 'flat') {
+                    const flatNum = parseInt(floorValue.split('_')[1]);
+                    floorLabel = `Flat ${flatNum}`;
+                } else {
+                    const floorNum = parseInt(floorValue.split('_')[1]);
+                    const letters = ['A', 'B', 'C'];
+                    floorLabel = `Floor ${letters[floorNum - 1] || floorNum}`;
+                }
+
+                // Build student object with ALL required fields
                 const newStudent = {
                     name: name,
                     matric: matric,
@@ -1102,14 +1123,14 @@
                     hostel_id: parseInt(hostelId),
                     hostel_name: hostel.name,
                     floor_flat_id: null,
-                    floor_name: floorValue,
+                    floor_name: floorLabel,
                     room_id: null,
                     room_code: roomValue,
                     bed_space_id: null,
                     bed_code: bedValue,
                     status: status || 'Pending',
                     notes: notes || null,
-                    campus: 'Legacy'  // Add campus
+                    campus: 'Legacy'
                 };
 
                 // Log what we're sending for debugging
