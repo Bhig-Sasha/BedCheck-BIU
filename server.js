@@ -1376,7 +1376,7 @@ const validators = {
         body('gender').optional().isIn(['Male', 'Female']).withMessage('Invalid gender'),
         body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('status').optional().isIn(['Present', 'Absent', 'Late', 'Completed']).withMessage('Invalid status'),
+        body('status').optional().isIn(['Present', 'Absent', 'Verified']).withMessage('Invalid status'),
         body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
     ],
     faceImage: [
@@ -4154,7 +4154,7 @@ app.patch('/api/students/:id',
 app.put('/api/students/:id/status', 
     campusIsolation,
     validate([
-        body('status').isIn(['Present', 'Absent', 'Late', 'Verified', 'Completed']).withMessage('Invalid status')
+        body('status').isIn(['Present', 'Absent', 'Verified']).withMessage('Invalid status')
     ]),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -10052,12 +10052,10 @@ app.get('/api/dashboard/stats',
             if (!statusError && statusData) {
                 stats.present = statusData.filter(s => s.status === 'Present').length;
                 stats.absent = statusData.filter(s => s.status === 'Absent').length;
-                stats.late = statusData.filter(s => s.status === 'Late').length;
                 stats.faceEnrolled = statusData.filter(s => s.face_enrolled === true).length;
             } else {
                 stats.present = 0;
                 stats.absent = 0;
-                stats.late = 0;
                 stats.faceEnrolled = 0;
             }
             
@@ -10274,11 +10272,10 @@ app.get('/api/hra/hostel',
                 .eq('hostel_id', hostelData.id)
                 .eq('campus', req.campus);
             
-            let presentCount = 0, absentCount = 0, lateCount = 0, faceEnrolledCount = 0;
+            let presentCount = 0, absentCount = 0, faceEnrolledCount = 0;
             if (!statusError && studentStatuses) {
                 presentCount = studentStatuses.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                 absentCount = studentStatuses.filter(s => s.status === 'Absent').length;
-                lateCount = studentStatuses.filter(s => s.status === 'Late').length;
                 faceEnrolledCount = studentStatuses.filter(s => s.face_enrolled === true).length;
             }
             
@@ -10326,7 +10323,6 @@ app.get('/api/hra/hostel',
                     total_students: totalStudents || 0,
                     present_count: presentCount,
                     absent_count: absentCount,
-                    late_count: lateCount,
                     face_enrolled_count: faceEnrolledCount,
                     current_session: currentSession
                 },
@@ -10515,10 +10511,6 @@ app.get('/api/audit/:id',
 // ⚡ DEVELOPER POWER ENDPOINTS
 // =====================================================
 
-// ============================================
-// DEVELOPER: System Overview & Stats
-// ============================================
-
 app.get('/api/developer/system/stats',
     campusIsolation,
     requireRole('Developer'),
@@ -10582,10 +10574,6 @@ app.get('/api/developer/system/stats',
     }
 );
 
-// ============================================
-// DEVELOPER: All Students with Full Details
-// ============================================
-
 app.get('/api/developer/students/all',
     campusIsolation,
     requireRole('Developer'),
@@ -10615,10 +10603,6 @@ app.get('/api/developer/students/all',
         }
     }
 );
-
-// ============================================
-// DEVELOPER: Full Database Backup
-// ============================================
 
 app.get('/api/developer/backup/full',
     campusIsolation,
@@ -10724,10 +10708,6 @@ app.get('/api/developer/backup/full',
     }
 );
 
-// ============================================
-// DEVELOPER: Execute Raw Query (Super Admin)
-// ============================================
-
 app.post('/api/developer/query',
     campusIsolation,
     requireRole('Developer'),
@@ -10812,10 +10792,6 @@ app.post('/api/developer/query',
     }
 );
 
-// ============================================
-// DEVELOPER: System Health Check (Full)
-// ============================================
-
 app.get('/api/developer/health/full',
     campusIsolation,
     requireRole('Developer'),
@@ -10888,10 +10864,6 @@ app.get('/api/developer/health/full',
         }
     }
 );
-
-// ============================================
-// DEVELOPER: System Settings Management
-// ============================================
 
 app.get('/api/developer/settings/all',
     campusIsolation,
@@ -10981,10 +10953,6 @@ app.put('/api/developer/settings/:key',
         }
     }
 );
-
-// ============================================
-// DEVELOPER: User Management (All Users)
-// ============================================
 
 app.get('/api/developer/users/all',
     campusIsolation,
@@ -11096,10 +11064,6 @@ app.put('/api/developer/users/:id/role',
     }
 );
 
-// ============================================
-// DEVELOPER: System Maintenance Mode
-// ============================================
-
 app.post('/api/developer/maintenance',
     campusIsolation,
     requireRole('Developer'),
@@ -11151,6 +11115,286 @@ app.post('/api/developer/maintenance',
             res.status(500).json({
                 success: false,
                 message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
+// REPORTS ENDPOINTS
+// =====================================================
+
+// Get attendance report data
+app.get('/api/reports/attendance',
+    campusIsolation,
+    async (req, res) => {
+        try {
+            const campus = req.campus;
+            
+            // Get all students for this campus
+            let query = supabase
+                .from('students')
+                .select('id, name, matric, status, hostel_id, hostel_name, room_id, room_code, gender, level, faculty, department, campus')
+                .eq('campus', campus);
+            
+            // If user is not admin/developer, filter by their hostel
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+                query = query.eq('hostel_id', req.user.hostel_id);
+            }
+            
+            const { data: students, error: studentsError } = await query;
+            
+            if (studentsError) {
+                console.error('Error fetching students for report:', studentsError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch student data',
+                    code: 'STUDENT_FETCH_ERROR'
+                });
+            }
+            
+            // Calculate attendance statistics
+            const total = students?.length || 0;
+            const present = students?.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
+            const absent = students?.filter(s => s.status === 'Absent').length || 0;
+            const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
+            const absenceRate = total > 0 ? Math.round((absent / total) * 100) : 0;
+            
+            // Get hostel breakdown
+            const hostelMap = {};
+            students?.forEach(s => {
+                const hostel = s.hostel_name || s.hostel || 'Unassigned';
+                if (!hostelMap[hostel]) {
+                    hostelMap[hostel] = { total: 0, present: 0, absent: 0 };
+                }
+                hostelMap[hostel].total++;
+                if (s.status === 'Present' || s.status === 'Verified') hostelMap[hostel].present++;
+                if (s.status === 'Absent') hostelMap[hostel].absent++;
+            });
+            
+            const hostelBreakdown = Object.keys(hostelMap).map(hostel => {
+                const data = hostelMap[hostel];
+                return {
+                    hostel: hostel,
+                    total: data.total,
+                    present: data.present,
+                    absent: data.absent,
+                    attendance_rate: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0
+                };
+            }).sort((a, b) => b.attendance_rate - a.attendance_rate);
+            
+            // Get submission state
+            const { data: submissionData, error: submissionError } = await supabase
+                .from('submission_state')
+                .select('state')
+                .eq('campus', campus)
+                .order('id', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            
+            const submissionState = submissionData?.state || 'In progress';
+            
+            res.json({
+                success: true,
+                data: {
+                    total: total,
+                    present: present,
+                    absent: absent,
+                    attendance_rate: attendanceRate,
+                    absence_rate: absenceRate,
+                    submission_state: submissionState,
+                    hostel_breakdown: hostelBreakdown,
+                    students: students?.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        matric: s.matric,
+                        status: s.status,
+                        hostel: s.hostel_name || s.hostel || 'Unassigned',
+                        room: s.room_code || s.room || 'N/A',
+                        gender: s.gender || 'N/A',
+                        level: s.level || 'N/A',
+                        faculty: s.faculty || 'N/A',
+                        department: s.department || 'N/A'
+                    })) || []
+                },
+                campus: campus
+            });
+            
+        } catch (error) {
+            console.error('Error generating attendance report:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred while generating the report.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// Get hostel-specific report
+app.get('/api/reports/hostel/:hostelId',
+    campusIsolation,
+    validate(validators.hostelId),
+    async (req, res) => {
+        try {
+            const hostelId = parseInt(req.params.hostelId);
+            const campus = req.campus;
+            
+            // Check access
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== hostelId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+            
+            // Get hostel details
+            const { data: hostel, error: hostelError } = await supabase
+                .from('hostels')
+                .select('id, name, type, gender')
+                .eq('id', hostelId)
+                .eq('campus', campus)
+                .single();
+            
+            if (hostelError || !hostel) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Hostel not found',
+                    code: 'HOSTEL_NOT_FOUND'
+                });
+            }
+            
+            // Get students in this hostel
+            const { data: students, error: studentsError } = await supabase
+                .from('students')
+                .select('id, name, matric, status, room_code, gender, level, faculty, department')
+                .eq('hostel_id', hostelId)
+                .eq('campus', campus);
+            
+            if (studentsError) {
+                console.error('Error fetching hostel students:', studentsError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch student data',
+                    code: 'STUDENT_FETCH_ERROR'
+                });
+            }
+            
+            const total = students?.length || 0;
+            const present = students?.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
+            const absent = students?.filter(s => s.status === 'Absent').length || 0;
+            const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
+            
+            // Group by room
+            const roomMap = {};
+            students?.forEach(s => {
+                const room = s.room_code || 'Unknown';
+                if (!roomMap[room]) {
+                    roomMap[room] = { total: 0, present: 0, absent: 0 };
+                }
+                roomMap[room].total++;
+                if (s.status === 'Present' || s.status === 'Verified') roomMap[room].present++;
+                if (s.status === 'Absent') roomMap[room].absent++;
+            });
+            
+            const roomBreakdown = Object.keys(roomMap).map(room => {
+                const data = roomMap[room];
+                return {
+                    room: room,
+                    total: data.total,
+                    present: data.present,
+                    absent: data.absent,
+                    attendance_rate: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0
+                };
+            }).sort((a, b) => b.attendance_rate - a.attendance_rate);
+            
+            res.json({
+                success: true,
+                data: {
+                    hostel: hostel,
+                    summary: {
+                        total: total,
+                        present: present,
+                        absent: absent,
+                        attendance_rate: attendanceRate
+                    },
+                    room_breakdown: roomBreakdown,
+                    students: students || []
+                },
+                campus: campus
+            });
+            
+        } catch (error) {
+            console.error('Error generating hostel report:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred while generating the report.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// Get report statistics (for dashboard cards)
+app.get('/api/reports/stats',
+    campusIsolation,
+    async (req, res) => {
+        try {
+            const campus = req.campus;
+            
+            // Get all students
+            let query = supabase
+                .from('students')
+                .select('status')
+                .eq('campus', campus);
+            
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+                query = query.eq('hostel_id', req.user.hostel_id);
+            }
+            
+            const { data: students, error: studentsError } = await query;
+            
+            if (studentsError) {
+                console.error('Error fetching stats:', studentsError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch statistics',
+                    code: 'STATS_FETCH_ERROR'
+                });
+            }
+            
+            const total = students?.length || 0;
+            const present = students?.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
+            const absent = students?.filter(s => s.status === 'Absent').length || 0;
+            
+            // Get submission state
+            const { data: submissionData } = await supabase
+                .from('submission_state')
+                .select('state')
+                .eq('campus', campus)
+                .order('id', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            
+            res.json({
+                success: true,
+                data: {
+                    total: total,
+                    present: present,
+                    absent: absent,
+                    attendance_rate: total > 0 ? Math.round((present / total) * 100) : 0,
+                    submission_state: submissionData?.state || 'In progress'
+                },
+                campus: campus
+            });
+            
+        } catch (error) {
+            console.error('Error fetching report stats:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred while fetching statistics.',
                 code: 'SERVER_ERROR'
             });
         }
@@ -11344,7 +11588,7 @@ setInterval(async () => {
     } catch (error) {
         console.error('❌ Scheduler error:', error);
     }
-}, 30000);
+}, 30000); // Check every 30 seconds
 
 // =====================================================
 // CATCH-ALL 404 HANDLER
