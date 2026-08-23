@@ -568,6 +568,16 @@
                 }
 
                 try {
+                    // Log the request for debugging
+                    console.log(`📤 API Request: ${options.method || 'GET'} ${endpoint}`);
+                    if (options.body) {
+                        try {
+                            console.log('📤 Request Body:', JSON.parse(options.body));
+                        } catch (e) {
+                            console.log('📤 Request Body:', options.body);
+                        }
+                    }
+
                     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
                         ...options,
                         headers: {
@@ -577,10 +587,13 @@
                         }
                     });
                     
+                    // Log response status
+                    console.log(`📥 API Response: ${response.status} ${response.statusText}`);
+                    
                     // Handle 400 errors specifically
                     if (response.status === 400) {
                         const errorData = await response.json();
-                        console.error('API Error:', errorData);
+                        console.error('❌ API Error Details:', errorData);
                         if (errorData.errors) {
                             const errorMessages = errorData.errors.map(e => e.message).join(', ');
                             showToast(`Validation error: ${errorMessages}`, 'error');
@@ -1021,6 +1034,9 @@
                 }
             }
 
+            // =============================================
+            // SAVE STUDENT - UPDATED (Option 1)
+            // =============================================
             function saveStudent() {
                 // Get all form values
                 const name = document.getElementById('studentName').value.trim();
@@ -1037,9 +1053,6 @@
                 const bedValue = document.getElementById('studentBed').value;
                 const notes = document.getElementById('studentNotes').value.trim();
                 const status = document.querySelector('input[name="studentStatus"]:checked').value;
-                
-                // Get the active session ID from storage (if any)
-                const sessionId = sessionStorage.getItem('active_session_id');
                 
                 // Validation
                 if (!name) { showToast('Please enter student name', 'error'); return; }
@@ -1075,7 +1088,7 @@
                     floorLabel = `Floor ${letters[floorNum - 1] || floorNum}`;
                 }
 
-                // Build student object
+                // Build student object - NO session_id here
                 const newStudent = {
                     name,
                     matric,
@@ -1092,15 +1105,11 @@
                     bed: bedValue,
                     status: status || 'Pending',
                     notes: notes || null
+                    // session_id is NOT included here - it's not needed for student creation
                 };
 
-                // Only add session_id if we have a valid one
-                if (sessionId && !isNaN(parseInt(sessionId))) {
-                    newStudent.session_id = parseInt(sessionId);
-                }
-
                 // Log what we're sending for debugging
-                console.log('Sending student data:', newStudent);
+                console.log('📤 Sending student data:', newStudent);
 
                 // Send to API
                 apiCall('/students', {
