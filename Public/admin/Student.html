@@ -572,7 +572,8 @@
                     console.log(`📤 API Request: ${options.method || 'GET'} ${endpoint}`);
                     if (options.body) {
                         try {
-                            console.log('📤 Request Body:', JSON.parse(options.body));
+                            const parsedBody = JSON.parse(options.body);
+                            console.log('📤 Request Body:', parsedBody);
                         } catch (e) {
                             console.log('📤 Request Body:', options.body);
                         }
@@ -594,11 +595,20 @@
                     if (response.status === 400) {
                         const errorData = await response.json();
                         console.error('❌ API Error Details:', errorData);
-                        if (errorData.errors) {
-                            const errorMessages = errorData.errors.map(e => e.message).join(', ');
+                        
+                        // Show detailed error messages
+                        if (errorData.errors && Array.isArray(errorData.errors)) {
+                            const errorMessages = errorData.errors.map(e => {
+                                if (e.field) {
+                                    return `${e.field}: ${e.message}`;
+                                }
+                                return e.message;
+                            }).join(', ');
                             showToast(`Validation error: ${errorMessages}`, 'error');
+                        } else if (errorData.message) {
+                            showToast(errorData.message, 'error');
                         } else {
-                            showToast(errorData.message || 'Bad request', 'error');
+                            showToast('Validation error. Please check your input.', 'error');
                         }
                         throw new Error(errorData.message || 'Bad request');
                     }
@@ -626,7 +636,10 @@
                     return data;
                 } catch (error) {
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        showToast('Error: ' + error.message, 'error');
+                        // Don't show duplicate toast if we already showed one
+                        if (!error.message.includes('Validation error')) {
+                            showToast('Error: ' + error.message, 'error');
+                        }
                     }
                     throw error;
                 }
@@ -1035,7 +1048,7 @@
             }
 
             // =============================================
-            // SAVE STUDENT - UPDATED (Option 1)
+            // SAVE STUDENT - FIXED VERSION
             // =============================================
             function saveStudent() {
                 // Get all form values
@@ -1076,36 +1089,27 @@
                 const hostel = hostels.find(h => h.id == hostelId);
                 if (!hostel) { showToast('Hostel not found', 'error'); return; }
 
-                // Build floor label
-                let floorLabel = '';
-                const type = getHostelType(hostel);
-                if (type === 'flat') {
-                    const flatNum = parseInt(floorValue.split('_')[1]);
-                    floorLabel = `Flat ${flatNum}`;
-                } else {
-                    const floorNum = parseInt(floorValue.split('_')[1]);
-                    const letters = ['A', 'B', 'C'];
-                    floorLabel = `Floor ${letters[floorNum - 1] || floorNum}`;
-                }
-
-                // Build student object - NO session_id here
+                // Build student object - EXACTLY what the server expects
                 const newStudent = {
-                    name,
-                    matric,
-                    gender,
+                    name: name,
+                    matric: matric,
+                    gender: gender,
                     phone: phone || null,
-                    faculty,
-                    department,
-                    level,
-                    session,
+                    faculty: faculty,
+                    department: department,
+                    level: level,
+                    session: session,
                     hostel_id: parseInt(hostelId),
-                    hostel: hostel.name,
-                    floor: floorLabel,
-                    room: roomValue,
-                    bed: bedValue,
+                    hostel_name: hostel.name,
+                    floor_flat_id: null,
+                    floor_name: floorValue,
+                    room_id: null,
+                    room_code: roomValue,
+                    bed_space_id: null,
+                    bed_code: bedValue,
                     status: status || 'Pending',
-                    notes: notes || null
-                    // session_id is NOT included here - it's not needed for student creation
+                    notes: notes || null,
+                    campus: 'Legacy'  // Add campus
                 };
 
                 // Log what we're sending for debugging
@@ -1123,7 +1127,8 @@
                         renderScreen();
                     });
                 }).catch(error => {
-                    showToast('Error saving student: ' + error.message, 'error');
+                    // Error is already handled in apiCall
+                    console.error('❌ Save student error:', error);
                 });
             }
 
