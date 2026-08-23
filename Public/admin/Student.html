@@ -550,6 +550,8 @@
             let hostels = [];
             let selectedStudent = null;
             let isSessionActive = false;
+            let currentPage = 1;
+            const pageSize = 20;
 
             // =============================================
             // AUTHENTICATED API HELPER
@@ -574,6 +576,19 @@
                             ...(options.headers || {})
                         }
                     });
+                    
+                    // Handle 400 errors specifically
+                    if (response.status === 400) {
+                        const errorData = await response.json();
+                        console.error('API Error:', errorData);
+                        if (errorData.errors) {
+                            const errorMessages = errorData.errors.map(e => e.message).join(', ');
+                            showToast(`Validation error: ${errorMessages}`, 'error');
+                        } else {
+                            showToast(errorData.message || 'Bad request', 'error');
+                        }
+                        throw new Error(errorData.message || 'Bad request');
+                    }
                     
                     if (response.status === 401) {
                         showToast('Session expired. Please login again.', 'error');
@@ -629,10 +644,18 @@
             async function checkActiveSession() {
                 try {
                     const data = await apiCall('/sessions/active');
-                    isSessionActive = !!data.data;
+                    if (data && data.data && data.data.id) {
+                        isSessionActive = true;
+                        sessionStorage.setItem('active_session_id', data.data.id);
+                    } else {
+                        isSessionActive = false;
+                        sessionStorage.removeItem('active_session_id');
+                    }
                     return isSessionActive;
                 } catch (error) {
+                    console.error('Error checking active session:', error);
                     isSessionActive = false;
+                    sessionStorage.removeItem('active_session_id');
                     return false;
                 }
             }
@@ -795,9 +818,6 @@
             function reassignRoom() {
                 showToast('Reassign room functionality coming soon!', 'success');
             }
-
-            let currentPage = 1;
-            const pageSize = 20;
 
             function filterStudents() {
                 const input = document.getElementById('studentSearch');
@@ -1002,6 +1022,7 @@
             }
 
             function saveStudent() {
+                // Get all form values
                 const name = document.getElementById('studentName').value.trim();
                 const matric = document.getElementById('studentMatric').value.trim();
                 const gender = document.getElementById('studentGender').value;
@@ -1016,7 +1037,11 @@
                 const bedValue = document.getElementById('studentBed').value;
                 const notes = document.getElementById('studentNotes').value.trim();
                 const status = document.querySelector('input[name="studentStatus"]:checked').value;
-
+                
+                // Get the active session ID from storage (if any)
+                const sessionId = sessionStorage.getItem('active_session_id');
+                
+                // Validation
                 if (!name) { showToast('Please enter student name', 'error'); return; }
                 if (!matric) { showToast('Please enter matric number', 'error'); return; }
                 if (!gender) { showToast('Please select gender', 'error'); return; }
@@ -1029,6 +1054,7 @@
                 if (!roomValue) { showToast('Please select a room', 'error'); return; }
                 if (!bedValue) { showToast('Please select a bed space', 'error'); return; }
 
+                // Check for duplicate matric number
                 if (students.some(s => s.matric === matric)) {
                     showToast('Matric number already exists!', 'error');
                     return;
@@ -1037,6 +1063,7 @@
                 const hostel = hostels.find(h => h.id == hostelId);
                 if (!hostel) { showToast('Hostel not found', 'error'); return; }
 
+                // Build floor label
                 let floorLabel = '';
                 const type = getHostelType(hostel);
                 if (type === 'flat') {
@@ -1048,6 +1075,7 @@
                     floorLabel = `Floor ${letters[floorNum - 1] || floorNum}`;
                 }
 
+                // Build student object
                 const newStudent = {
                     name,
                     matric,
@@ -1066,6 +1094,15 @@
                     notes: notes || null
                 };
 
+                // Only add session_id if we have a valid one
+                if (sessionId && !isNaN(parseInt(sessionId))) {
+                    newStudent.session_id = parseInt(sessionId);
+                }
+
+                // Log what we're sending for debugging
+                console.log('Sending student data:', newStudent);
+
+                // Send to API
                 apiCall('/students', {
                     method: 'POST',
                     body: JSON.stringify(newStudent)
