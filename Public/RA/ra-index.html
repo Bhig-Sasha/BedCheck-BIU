@@ -550,22 +550,23 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS
+            // LOAD SESSION STATUS - FIXED
             // =============================================
             async function loadSessionStatus() {
                 try {
-                    // Check global active session
+                    // Check global active session - REMOVE the hostel_id parameter
                     try {
-                        const globalSession = await apiCall(`/sessions/active?hostel_id=${assignedHostelId || ''}`);
+                        const globalSession = await apiCall('/sessions/active');
                         if (globalSession && globalSession.data && globalSession.data.id) {
                             isSessionActive = true;
                             sessionStatus = 'active';
                             currentSession = globalSession.data;
                             addTimeline('Global session active', 'BedCheck is live');
+                            console.log('📋 Global session active:', globalSession.data.id);
                         }
                     } catch (e) {
                         // No global active session
-                        console.log('No global active session');
+                        console.log('No global active session:', e.message);
                     }
 
                     // Check RA session status
@@ -584,6 +585,7 @@
                                 }
                                 currentSession = active;
                                 addTimeline('RA session active', 'BedCheck session is live');
+                                console.log('📋 RA session active:', active.id);
                             } else {
                                 const today = new Date().toISOString().split('T')[0];
                                 const completed = sessions.find(s => 
@@ -599,11 +601,13 @@
                                     }
                                     currentSession = completed;
                                     addTimeline('Session completed', 'Today\'s BedCheck is finalized');
+                                    console.log('📋 Session completed:', completed.id);
                                 } else if (!isSessionActive) {
                                     // No active or completed session
                                     sessionStatus = 'draft';
                                     isSessionActive = false;
                                     currentSession = null;
+                                    console.log('📋 Session: draft');
                                 }
                             }
                             
@@ -641,7 +645,7 @@
                         console.warn('RA session status unavailable:', e.message);
                     }
                     
-                    console.log(`📋 Session status: ${sessionStatus}`);
+                    console.log(`📋 Final session status: ${sessionStatus}`);
                     console.log(`📋 Session active: ${isSessionActive}`);
                     console.log(`📋 RA session active: ${isRASessionActive}`);
                     
@@ -767,7 +771,7 @@
             }
 
             // =============================================
-            // START BEDCHECK SESSION
+            // START BEDCHECK SESSION - FIXED
             // =============================================
             async function startBedCheck() {
                 if (isSessionActive) {
@@ -784,15 +788,16 @@
                     let sessionId = currentSession?.id || null;
                     
                     if (!sessionId) {
-                        // Try to get active session
+                        // Try to get active session - REMOVE the hostel_id parameter
                         try {
-                            const sessionData = await apiCall(`/sessions/active?hostel_id=${assignedHostelId}`);
+                            const sessionData = await apiCall('/sessions/active');
                             if (sessionData.data) {
                                 sessionId = sessionData.data.id;
                                 currentSession = sessionData.data;
                             }
                         } catch (e) {
                             // No active session
+                            console.log('No active session found:', e.message);
                         }
                     }
                     
