@@ -7034,6 +7034,9 @@ app.get('/api/ra/rooms',
 // =====================================================
 // RA BEDCHECK START - CHECKS GLOBAL SESSION
 // =====================================================
+// =====================================================
+// RA BEDCHECK START - USES GLOBAL SESSION
+// =====================================================
 app.post('/api/ra/bedcheck/start',
     campusIsolation,
     requireRole('RA'),
@@ -7043,15 +7046,16 @@ app.post('/api/ra/bedcheck/start',
             const { session_id } = req.body;
             const raId = req.user.id;
             const campus = req.campus;
+            const hostelId = req.user.hostel_id;
 
-            // First check if there's a global active session
+            // If no session_id provided, try to find a global active session
             let globalSessionId = session_id;
             
             if (!globalSessionId) {
                 const { data: globalSessions, error: globalError } = await supabase
                     .from('sessions')
                     .select('id')
-                    .eq('hostel_id', req.user.hostel_id)
+                    .eq('hostel_id', hostelId)
                     .eq('campus', campus)
                     .eq('status', 'active')
                     .order('created_at', { ascending: false })
@@ -7087,7 +7091,7 @@ app.post('/api/ra/bedcheck/start',
                 });
             }
 
-            // Check if RA already has a session
+            // Check if RA already has a session for this global session
             const { data: existing, error: checkError } = await supabase
                 .from('ra_bedcheck_sessions')
                 .select('id, status, started_at, completed_at, is_suspicious, suspicious_reason, flagged_at')
@@ -7143,7 +7147,7 @@ app.post('/api/ra/bedcheck/start',
                 .insert({
                     ra_id: raId,
                     session_id: globalSessionId,
-                    hostel_id: req.user.hostel_id,
+                    hostel_id: hostelId,
                     status: 'started',
                     started_at: new Date().toISOString(),
                     campus: campus,
@@ -7258,6 +7262,9 @@ app.post('/api/ra/bedcheck/complete',
 // =====================================================
 // RA BEDCHECK STATUS - NOW REFLECTS GLOBAL SESSION
 // =====================================================
+// =====================================================
+// RA BEDCHECK STATUS - NOW CHECKS GLOBAL SESSION FIRST
+// =====================================================
 app.get('/api/ra/bedcheck/status',
     campusIsolation,
     requireRole('RA'),
@@ -7266,8 +7273,11 @@ app.get('/api/ra/bedcheck/status',
             const raId = req.user.id;
             const { session_id } = req.query;
             const campus = req.campus;
+            const hostelId = req.user.hostel_id;
 
-            // 1. Check if there's a GLOBAL active session
+            // =============================================
+            // 1. FIRST CHECK GLOBAL ACTIVE SESSION
+            // =============================================
             let globalSession = null;
             let globalSessionActive = false;
             
@@ -7275,7 +7285,7 @@ app.get('/api/ra/bedcheck/status',
                 const { data: globalSessions, error: globalError } = await supabase
                     .from('sessions')
                     .select('*')
-                    .eq('hostel_id', req.user.hostel_id)
+                    .eq('hostel_id', hostelId)
                     .eq('campus', campus)
                     .eq('status', 'active')
                     .order('created_at', { ascending: false })
@@ -7284,13 +7294,17 @@ app.get('/api/ra/bedcheck/status',
                 if (!globalError && globalSessions && globalSessions.length > 0) {
                     globalSession = globalSessions[0];
                     globalSessionActive = true;
-                    console.log(`📋 Global session active for RA ${raId}:`, globalSession.id);
+                    console.log(`📋 Global session ACTIVE for RA ${raId}:`, globalSession.id);
+                } else {
+                    console.log(`📋 No global active session found for hostel ${hostelId}`);
                 }
             } catch (e) {
                 console.warn('Error checking global session:', e.message);
             }
 
-            // 2. Get RA's session status
+            // =============================================
+            // 2. CHECK RA'S SESSIONS
+            // =============================================
             let query = supabase
                 .from('ra_bedcheck_sessions')
                 .select(`
@@ -7319,18 +7333,24 @@ app.get('/api/ra/bedcheck/status',
                 });
             }
 
-            // 3. Check if RA has an active session
+            // =============================================
+            // 3. ANALYZE RA SESSION STATUS
+            // =============================================
             let activeRASession = null;
             let hasCompletedToday = false;
             let raSessionExists = false;
 
             if (raSessions && raSessions.length > 0) {
                 raSessionExists = true;
+                
+                // Check for active RA session
                 const active = raSessions.find(s => s.status === 'started');
                 if (active) {
                     activeRASession = active;
+                    console.log(`📋 RA has active session:`, active.id);
                 }
 
+                // Check if RA completed today
                 const today = new Date().toISOString().split('T')[0];
                 const completed = raSessions.find(s => 
                     s.status === 'completed' && 
@@ -7339,37 +7359,51 @@ app.get('/api/ra/bedcheck/status',
                 );
                 if (completed) {
                     hasCompletedToday = true;
+                    console.log(`📋 RA completed today's session`);
                 }
             }
 
-            // 4. Determine the effective session status for the RA
+            // =============================================
+            // 4. DETERMINE EFFECTIVE STATUS
+            // =============================================
             let effectiveStatus = 'draft';
             let effectiveSession = null;
             let isSessionActive = false;
+            let isGlobalSession = false;
 
             if (activeRASession) {
-                // RA already has an active session
+                // RA already has an active session - PRIORITY 1
                 effectiveStatus = 'started';
                 effectiveSession = activeRASession;
                 isSessionActive = true;
+                isGlobalSession = false;
+                console.log('📋 Effective status: started (RA session active)');
             } else if (hasCompletedToday) {
-                // RA completed today
+                // RA completed today - PRIORITY 2
                 effectiveStatus = 'completed';
                 effectiveSession = raSessions.find(s => s.status === 'completed');
                 isSessionActive = false;
+                isGlobalSession = false;
+                console.log('📋 Effective status: completed (RA completed today)');
             } else if (globalSessionActive) {
-                // Global session is active, RA can start
+                // Global session is active, RA can start - PRIORITY 3
                 effectiveStatus = 'ready';
                 effectiveSession = globalSession;
                 isSessionActive = true;
+                isGlobalSession = true;
+                console.log('📋 Effective status: ready (Global session active, RA can start)');
             } else {
-                // No session
+                // No session at all - PRIORITY 4
                 effectiveStatus = 'draft';
                 effectiveSession = null;
                 isSessionActive = false;
+                isGlobalSession = false;
+                console.log('📋 Effective status: draft (No session)');
             }
 
-            // 5. Get assigned rooms count
+            // =============================================
+            // 5. GET ASSIGNED ROOMS COUNT
+            // =============================================
             const { data: roomsData, error: roomsError } = await supabase
                 .from('ra_room_assignments')
                 .select('room_id', { count: 'exact' })
@@ -7381,26 +7415,31 @@ app.get('/api/ra/bedcheck/status',
                 console.error('Error fetching rooms:', roomsError);
             }
 
-            // 6. Get active session details
+            // =============================================
+            // 6. BUILD ACTIVE SESSION DATA
+            // =============================================
             let activeSessionData = null;
-            if (isSessionActive && effectiveSession) {
+            if (effectiveSession) {
                 activeSessionData = {
                     id: effectiveSession.id,
                     status: effectiveStatus,
                     session_id: effectiveSession.session_id || effectiveSession.id,
                     started_at: effectiveSession.started_at || effectiveSession.created_at,
-                    is_global: effectiveStatus === 'ready'
+                    is_global: isGlobalSession,
+                    hostel_id: effectiveSession.hostel_id
                 };
             }
 
-            // 7. Format the response
+            // =============================================
+            // 7. FORMAT SESSIONS LIST
+            // =============================================
             const formattedSessions = (raSessions || []).map(session => ({
                 ...session,
                 staff: session.staff || { name: 'Unknown' },
                 is_global: false
             }));
 
-            // If global session is active and RA hasn't started, add it to the list
+            // Add global session to the list if active and RA hasn't started
             if (globalSessionActive && !activeRASession && !hasCompletedToday) {
                 formattedSessions.unshift({
                     id: globalSession.id,
@@ -7411,10 +7450,27 @@ app.get('/api/ra/bedcheck/status',
                     is_global: true,
                     hostel_id: globalSession.hostel_id,
                     created_at: globalSession.created_at,
-                    message: 'Global session active - Click "Start BedCheck" to begin'
+                    message: '🟡 Global session active - Click "Start BedCheck" to begin'
                 });
             }
 
+            // =============================================
+            // 8. DETERMINE STATUS MESSAGE
+            // =============================================
+            let statusMessage = '';
+            if (effectiveStatus === 'started') {
+                statusMessage = '🟢 Your BedCheck session is active - Recording enabled';
+            } else if (effectiveStatus === 'ready') {
+                statusMessage = '🟡 A BedCheck session is active - Click "Start BedCheck" to begin';
+            } else if (effectiveStatus === 'completed') {
+                statusMessage = '✅ You have completed today\'s BedCheck';
+            } else {
+                statusMessage = '⏳ No active session available - Please wait for the session to start';
+            }
+
+            // =============================================
+            // 9. RESPONSE
+            // =============================================
             res.json({
                 success: true,
                 data: {
@@ -7423,17 +7479,19 @@ app.get('/api/ra/bedcheck/status',
                     active_session: activeSessionData,
                     has_active_session: isSessionActive,
                     has_completed_today: hasCompletedToday,
-                    is_global_session: effectiveStatus === 'ready',
+                    is_global_session: isGlobalSession,
                     global_session_active: globalSessionActive,
                     ra_session_active: !!activeRASession,
+                    ra_session_exists: raSessionExists,
                     effective_status: effectiveStatus,
-                    message: effectiveStatus === 'ready' 
-                        ? '🟢 Session is active - Click "Start BedCheck" to begin' 
-                        : effectiveStatus === 'started' 
-                            ? '🟢 Your BedCheck session is active' 
-                            : effectiveStatus === 'completed' 
-                                ? '✅ You have completed today\'s BedCheck' 
-                                : '⏳ No active session available'
+                    message: statusMessage,
+                    // Additional info for debugging
+                    debug: {
+                        global_session_found: !!globalSession,
+                        ra_session_found: raSessionExists,
+                        ra_session_active: !!activeRASession,
+                        has_completed_today: hasCompletedToday
+                    }
                 },
                 campus: req.campus
             });
