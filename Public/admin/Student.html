@@ -120,7 +120,7 @@
 
         .metric-grid { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr; animation: fadeIn 0.7s ease; }
         @media (min-width: 640px) { .metric-grid { gap: 1rem; grid-template-columns: repeat(3, 1fr); } }
-        @media (min-width: 1024px) { .metric-grid { grid-template-columns: repeat(6, 1fr); } }
+        @media (min-width: 1024px) { .metric-grid { grid-template-columns: repeat(5, 1fr); } }
         .metric-card { padding: 0.6rem 0.75rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.3s ease; }
         .metric-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
         @media (max-width: 480px) { .metric-card { padding: 0.4rem 0.5rem; } }
@@ -130,6 +130,7 @@
         .metric-icon.gold { background: #fff1c9; color: #8b6513; }
         .metric-icon.red { background: #f9e2de; color: #9c3e32; }
         .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
         .metric-value { margin-top: 0.3rem; font-size: 1.2rem; font-weight: 700; transition: color 0.3s ease; }
         @media (max-width: 480px) { .metric-value { font-size: 1rem; } }
         .metric-card:hover .metric-value { color: #a77915; }
@@ -152,7 +153,7 @@
         .badge-approved { background: #e1f0e5; color: #2d6545; }
         .badge-present { background: #e1f0e5; color: #2d6545; }
         .badge-absent { background: #f8e1dc; color: #9b3c31; }
-        .badge-late { background: #fff0cb; color: #8a6413; }
+        .badge-pending { background: #fff0cb; color: #8a6413; }
         .badge-verified { background: #e1f0e5; color: #2d6545; }
 
         .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; animation: fadeIn 0.6s ease; }
@@ -420,7 +421,8 @@
                 <div class="field">
                     <label>Status</label>
                     <div style="display:flex;gap:1rem;padding-top:0.2rem;">
-                        <label><input type="radio" name="studentStatus" value="Present" checked /> Present</label>
+                        <label><input type="radio" name="studentStatus" value="Pending" checked /> Pending</label>
+                        <label><input type="radio" name="studentStatus" value="Present" /> Present</label>
                         <label><input type="radio" name="studentStatus" value="Absent" /> Absent</label>
                         <label><input type="radio" name="studentStatus" value="Verified" /> Verified</label>
                     </div>
@@ -547,6 +549,7 @@
             let students = [];
             let hostels = [];
             let selectedStudent = null;
+            let isSessionActive = false;
 
             // =============================================
             // AUTHENTICATED API HELPER
@@ -610,11 +613,28 @@
                 const map = {
                     'Present': 'badge-present',
                     'Absent': 'badge-absent',
-                    'Late': 'badge-late',
-                    'Excused': 'badge-approved',
+                    'Pending': 'badge-pending',
                     'Verified': 'badge-verified'
                 };
-                return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
+                return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Pending'}</span>`;
+            }
+
+            function getStudentStatus(student) {
+                if (isSessionActive) {
+                    return student.status || 'Pending';
+                }
+                return 'Pending';
+            }
+
+            async function checkActiveSession() {
+                try {
+                    const data = await apiCall('/sessions/active');
+                    isSessionActive = !!data.data;
+                    return isSessionActive;
+                } catch (error) {
+                    isSessionActive = false;
+                    return false;
+                }
             }
 
             function getHostelType(h) {
@@ -714,6 +734,7 @@
                 const hostelName = student.hostel || hostel?.name || '—';
                 const room = student.room || student.room_code || '—';
                 const bed = student.bed || student.bed_code || '—';
+                const displayStatus = getStudentStatus(student);
                 
                 body.innerHTML = `
                     <div class="profile-card">
@@ -730,7 +751,8 @@
                         </div>
                         <div class="student-name">${student.name || 'Unknown'}</div>
                         <div class="student-matric">${student.matric || 'No matric number'}</div>
-                        <div class="status-badge">${attBadge(student.status || 'Unknown')}</div>
+                        <div class="status-badge">${attBadge(displayStatus)}</div>
+                        ${!isSessionActive ? '<p class="text-xs text-muted mt-1">⏳ Pending until BedCheck starts</p>' : ''}
                     </div>
 
                     <div class="info-section">
@@ -806,10 +828,9 @@
                         <td>${s.gender || '—'}</td>
                         <td>${s.hostel || '—'}</td>
                         <td>${s.room || '—'}</td>
-                        <td>${attBadge(s.status)}</td>
                         <td><button class="btn-ghost" onclick="openStudentDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})"><i class="fas fa-eye"></i> View</button></td>
                     </tr>
-                `).join('') || '<tr><td colspan="9" class="text-center text-muted">No students found</td></tr>';
+                `).join('') || '<tr><td colspan="8" class="text-center text-muted">No students found</td></tr>';
 
                 if (paginationInfo) {
                     paginationInfo.textContent = `Showing ${start + 1}–${Math.min(end, total)} of ${total} students`;
@@ -865,7 +886,7 @@
                 document.getElementById('studentLevel').value = '';
                 document.getElementById('studentSession').value = '2025/2026';
                 document.getElementById('studentNotes').value = '';
-                document.querySelector('input[name="studentStatus"][value="Present"]').checked = true;
+                document.querySelector('input[name="studentStatus"][value="Pending"]').checked = true;
 
                 document.getElementById('addStudentDialog').classList.add('show');
             }
@@ -1041,7 +1062,7 @@
                     floor: floorLabel,
                     room: roomValue,
                     bed: bedValue,
-                    status: status || 'Present',
+                    status: status || 'Pending',
                     notes: notes || null
                 };
 
@@ -1064,10 +1085,9 @@
                 const container = document.getElementById('screenContent');
                 
                 const total = students.length;
+                const pending = students.filter(s => s.status === 'Pending' || !s.status).length || 0;
                 const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = students.filter(s => s.status === 'Absent').length || 0;
-                const late = students.filter(s => s.status === 'Late').length || 0;
-                const onlineRegistered = students.filter(s => s.registration_type === 'online' || s.source === 'online').length || 0;
                 const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
 
                 container.innerHTML = `
@@ -1075,7 +1095,7 @@
                         <div>
                             <p class="eyebrow"><i class="fas fa-users"></i> Student Status</p>
                             <h1>Student Status</h1>
-                            <p class="desc">Overall student presence and hostel assignment across the university.</p>
+                            <p class="desc">Overall student presence and hostel assignment across the university. ${!isSessionActive ? '⏳ Statuses show as Pending until BedCheck starts.' : '✅ BedCheck is active - showing real-time statuses.'}</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-outline" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Refresh</button>
@@ -1093,7 +1113,13 @@
                             <div class="metric-detail">Registered students</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon gold"><i class="fas fa-check-circle"></i></div>
+                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
+                            <div class="metric-value">${pending}</div>
+                            <div class="metric-title">Pending</div>
+                            <div class="metric-detail">${isSessionActive ? 'Awaiting verification' : '⏳ Waiting for BedCheck'}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
                             <div class="metric-value">${present}</div>
                             <div class="metric-title">Present</div>
                             <div class="metric-detail">Currently present</div>
@@ -1103,18 +1129,6 @@
                             <div class="metric-value">${absent}</div>
                             <div class="metric-title">Absent</div>
                             <div class="metric-detail">Currently absent</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
-                            <div class="metric-value">${late}</div>
-                            <div class="metric-title">Late</div>
-                            <div class="metric-detail">Late arrivals</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon gold"><i class="fas fa-globe"></i></div>
-                            <div class="metric-value">${onlineRegistered}</div>
-                            <div class="metric-title">Online Registered</div>
-                            <div class="metric-detail">Total online registrations</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-building"></i></div>
@@ -1159,7 +1173,6 @@
                                 <th>Gender</th>
                                 <th>Hostel</th>
                                 <th>Room</th>
-                                <th>Status</th>
                                 <th>Action</th>
                             </tr></thead>
                             <tbody id="studentTableBody"></tbody>
@@ -1252,9 +1265,9 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading students...';
-                    await Promise.all([loadStudents(), loadHostels()]);
+                    await Promise.all([loadStudents(), loadHostels(), checkActiveSession()]);
                     renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. Live · Overall student presence and hostel assignment across the university.`;
+                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. ${!isSessionActive ? '⏳ Statuses pending until BedCheck starts.' : '✅ BedCheck active - showing real-time statuses.'}`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
@@ -1268,6 +1281,12 @@
                         closeAddStudent();
                     }
                 });
+
+                // Check session status every 30 seconds
+                setInterval(async () => {
+                    await checkActiveSession();
+                    renderScreen();
+                }, 30000);
             }
 
             if (document.readyState === 'loading') {

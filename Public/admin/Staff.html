@@ -166,9 +166,11 @@
         .status-badge-inactive { background: #f8e1dc; color: #9b3c31; }
         .status-badge-offline { background: #e8edf2; color: #536274; }
 
+        .campus-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.45rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: #d6ad4b20; color: #10233f; border: 1px solid #d6ad4b40; }
+
         .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; animation: fadeIn 0.6s ease; }
-        .table-wrap table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.75rem; text-align: left; }
-        @media (max-width: 480px) { .table-wrap table { font-size: 0.6rem; min-width: 450px; } }
+        .table-wrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.75rem; text-align: left; }
+        @media (max-width: 480px) { .table-wrap table { font-size: 0.6rem; min-width: 500px; } }
         .table-wrap thead { background: #fbf7ef; font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
         .table-wrap th { padding: 0.4rem 0.6rem; }
         .table-wrap td { padding: 0.4rem 0.6rem; border-top: 1px solid #eee8de; transition: background 0.3s ease; }
@@ -487,6 +489,11 @@
                 return hostel ? hostel.name : '—';
             }
 
+            function getCampusName(campus) {
+                if (!campus) return '—';
+                return campus;
+            }
+
             function sortHostelsByOrder(hostelList) {
                 return hostelList.sort((a, b) => {
                     const indexA = HOSTEL_ORDER.indexOf(a.name);
@@ -583,6 +590,7 @@
                                 <th>Role</th>
                                 <th>Hostel</th>
                                 <th>Room</th>
+                                <th>Campus</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr></thead>
@@ -637,6 +645,7 @@
                 tbody.innerHTML = sortedStaff.map(member => {
                     const hostelName = getHostelName(member.hostel_id);
                     const assignedRoom = member.assigned_room || '—';
+                    const campusName = getCampusName(member.campus);
                     const roleClass = getRoleBadgeClass(member.role);
                     const statusClass = getStatusBadgeClass(member.status);
                     const initials = member.initials || getInitials(member.name);
@@ -652,6 +661,7 @@
                             <td><span class="role-badge ${roleClass}">${member.role || '—'}</span></td>
                             <td>${hostelName}</td>
                             <td>${assignedRoom}</td>
+                            <td><span class="campus-badge">${campusName}</span></td>
                             <td><span class="status-badge ${statusClass}">${member.status || 'Active'}</span></td>
                             <td>
                                 <button class="btn-ghost" onclick="openManageStaff(${member.id})" style="font-size:0.65rem;">
@@ -660,7 +670,7 @@
                             </td>
                         </tr>
                     `;
-                }).join('') || '<tr><td colspan="7" class="text-center text-muted" style="padding:1rem;">No staff members found</td></tr>';
+                }).join('') || '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff members found</td></tr>';
             }
 
             // =============================================
@@ -677,7 +687,7 @@
                         formOpen = !formOpen;
                         if (formOpen) {
                             const hostelOptions = hostels.map(h => 
-                                `<option value="${h.id}">${h.name}</option>`
+                                `<option value="${h.id}">${h.name} (${h.campus || 'Legacy'})</option>`
                             ).join('');
                             
                             container.innerHTML = `
@@ -724,6 +734,13 @@
                                             <label>Assigned Room</label>
                                             <input id="staffRoom" placeholder="e.g. B12 or F3R2" />
                                         </div>
+                                        <div class="field">
+                                            <label>Campus</label>
+                                            <select id="staffCampus">
+                                                <option value="Legacy">Legacy</option>
+                                                <option value="Heritage">Heritage</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <button class="btn-primary mt-3" id="saveStaffBtn"><i class="fas fa-save"></i> Save Staff Account</button>
                                     <p class="text-xs text-gold mt-2">RA and HRA must be assigned to a hostel. RASD and Administrator have no hostel assignment.</p>
@@ -760,6 +777,7 @@
                                 const role = document.getElementById('staffRoleSelect').value;
                                 const hostelId = document.getElementById('staffHostel').value;
                                 const assignedRoom = document.getElementById('staffRoom').value;
+                                const campus = document.getElementById('staffCampus').value;
                                 
                                 if (!name || !username) {
                                     showToast('Please fill in name and username', 'error');
@@ -781,10 +799,11 @@
                                             role, 
                                             hostel_id: hostelId || null,
                                             assigned_room: assignedRoom || null,
-                                            status: 'Active'
+                                            status: 'Active',
+                                            campus: campus || 'Legacy'
                                         })
                                     });
-                                    showToast(`${name} created as ${role}.`);
+                                    showToast(`${name} created as ${role} in ${campus} campus.`);
                                     formOpen = false;
                                     container.innerHTML = '';
                                     await loadStaff();
@@ -814,7 +833,7 @@
                 const content = document.getElementById('manageStaffContent');
                 
                 const hostelOptions = hostels.map(h => 
-                    `<option value="${h.id}" ${staff.hostel_id == h.id ? 'selected' : ''}>${h.name}</option>`
+                    `<option value="${h.id}" ${staff.hostel_id == h.id ? 'selected' : ''}>${h.name} (${h.campus || 'Legacy'})</option>`
                 ).join('');
 
                 content.innerHTML = `
@@ -847,6 +866,13 @@
                         <input id="editStaffRoom" value="${staff.assigned_room || ''}" placeholder="e.g. B12 or F3R2" />
                     </div>
                     <div class="field mt-3">
+                        <label>Campus</label>
+                        <select id="editStaffCampus">
+                            <option value="Legacy" ${staff.campus === 'Legacy' ? 'selected' : ''}>Legacy</option>
+                            <option value="Heritage" ${staff.campus === 'Heritage' ? 'selected' : ''}>Heritage</option>
+                        </select>
+                    </div>
+                    <div class="field mt-3">
                         <label>Status</label>
                         <select id="editStaffStatus">
                             <option value="Active" ${staff.status === 'Active' ? 'selected' : ''}>Active</option>
@@ -873,6 +899,7 @@
                 const role = document.getElementById('editStaffRole').value;
                 const hostelId = document.getElementById('editStaffHostel').value;
                 const assignedRoom = document.getElementById('editStaffRoom').value;
+                const campus = document.getElementById('editStaffCampus').value;
                 const status = document.getElementById('editStaffStatus').value;
 
                 if (!name || !username) {
@@ -887,6 +914,7 @@
                         role,
                         hostel_id: hostelId || null,
                         assigned_room: assignedRoom || null,
+                        campus: campus || 'Legacy',
                         status
                     };
 
