@@ -675,9 +675,30 @@
                 return 'Pending';
             }
 
+            // =============================================
+            // CHECK ACTIVE SESSION - FINAL FIX
+            // =============================================
             async function checkActiveSession() {
                 try {
-                    const data = await apiCall('/sessions/active');
+                    // Try to get the user's hostel ID
+                    let hostelId = null;
+                    try {
+                        const userData = sessionStorage.getItem('bedcheck_user');
+                        if (userData) {
+                            const user = JSON.parse(userData);
+                            hostelId = user.hostel_id || user.hostelId || null;
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors
+                    }
+                    
+                    // Build the URL
+                    let url = '/sessions/active';
+                    if (hostelId) {
+                        url += `?hostel_id=${hostelId}`;
+                    }
+                    
+                    const data = await apiCall(url);
                     if (data && data.data && data.data.id) {
                         isSessionActive = true;
                         sessionStorage.setItem('active_session_id', data.data.id);
@@ -687,8 +708,8 @@
                     }
                     return isSessionActive;
                 } catch (error) {
-                    // Silently fail - session might not exist yet
-                    console.warn('No active session found:', error.message);
+                    // Silently fail - session might not exist yet or endpoint might be unavailable
+                    console.warn('⚠️ No active session found or session check failed:', error.message);
                     isSessionActive = false;
                     sessionStorage.removeItem('active_session_id');
                     return false;
@@ -1057,7 +1078,7 @@
             }
 
             // =============================================
-            // SAVE STUDENT - FIXED VERSION
+            // SAVE STUDENT
             // =============================================
             function saveStudent() {
                 // Get all form values
