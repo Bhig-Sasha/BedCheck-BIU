@@ -245,6 +245,9 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        .fill { height: 100%; background: #d6ad4b; border-radius: 9999px; }
+        .progress-bar { height: 0.4rem; overflow: hidden; border-radius: 9999px; background: #e6e2da; }
     </style>
 </head>
 <body>
@@ -271,11 +274,10 @@
                         <input id="sessionDate" type="date" />
                     </div>
                     <div class="form-group">
-                        <label>Academic Session</label>
-                        <select id="academicSession">
-                            <option value="2026/2027">2026/2027</option>
-                            <option value="2025/2026">2025/2026</option>
-                            <option value="2024/2025">2024/2025</option>
+                        <label>Campus</label>
+                        <select id="sessionCampus">
+                            <option value="Legacy">Legacy</option>
+                            <option value="Heritage">Heritage</option>
                         </select>
                     </div>
                 </div>
@@ -295,18 +297,22 @@
                         <input id="gracePeriod" type="number" value="15" min="0" max="60" />
                     </div>
                     <div class="form-group">
-                        <label>Status</label>
-                        <select id="sessionStatus">
-                            <option value="scheduled">Scheduled</option>
-                            <option value="active">Active</option>
-                            <option value="completed">Completed</option>
-                            <option value="archived">Archived</option>
+                        <label>Academic Session</label>
+                        <select id="academicSession">
+                            <option value="2026/2027">2026/2027</option>
+                            <option value="2025/2026">2025/2026</option>
+                            <option value="2024/2025">2024/2025</option>
                         </select>
                     </div>
                 </div>
                 <div class="form-group mt-3">
-                    <label>Hostels <span style="color:#a84134;">*</span></label>
-                    <div class="checkbox-grid" id="hostelCheckboxes"></div>
+                    <label>Status</label>
+                    <select id="sessionStatus">
+                        <option value="scheduled">Scheduled</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="archived">Archived</option>
+                    </select>
                 </div>
             </div>
             <div class="modal-footer">
@@ -452,7 +458,7 @@
             let selectedSessionId = null;
 
             // =============================================
-            // DATABASE STATUS VALUES
+            // STATUS VALUES
             // =============================================
 
             const STATUS_DISPLAY = {
@@ -657,6 +663,7 @@
                             <div>
                                 <p class="text-sm text-muted">${formatFullDate(session.date)}</p>
                                 <p class="text-sm text-muted">${formatTime(session.start_time)} — ${formatTime(session.end_time)}</p>
+                                <p class="text-xs text-muted"><i class="fas fa-map-marker-alt"></i> ${session.campus || 'Legacy'}</p>
                             </div>
                             <span class="badge ${getStatusDisplay(session.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">
                                 ${getStatusDisplay(session.status).icon} ${getStatusDisplay(session.status).label}
@@ -669,7 +676,7 @@
                                 <p class="font-bold" style="font-size:1.2rem;">${totalStudents}</p>
                             </div>
                             <div class="card" style="padding:0.5rem 0.75rem;">
-                                <p class="text-xs text-muted">Present</p>
+                                <p class="text-xs text-muted">Verified</p>
                                 <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${presentStudents}</p>
                             </div>
                             <div class="card" style="padding:0.5rem 0.75rem;">
@@ -726,7 +733,7 @@
             }
 
             // =============================================
-            // SESSION CRUD OPERATIONS
+            // SESSION CRUD OPERATIONS - DUAL CAMPUS SUPPORT
             // =============================================
 
             async function createSession() {
@@ -737,6 +744,7 @@
                 const academicSession = document.getElementById('academicSession').value;
                 const gracePeriod = parseInt(document.getElementById('gracePeriod').value) || 15;
                 const status = document.getElementById('sessionStatus').value;
+                const campus = document.getElementById('sessionCampus').value;
 
                 if (!name || !date || !startTime || !endTime) {
                     showToast('Please fill in all required fields', 'error');
@@ -755,7 +763,7 @@
                         completion: 0,
                         academic_session: academicSession,
                         grace_period: gracePeriod,
-                        campus: 'Legacy'
+                        campus: campus || 'Legacy'
                     };
 
                     const result = await apiCall('/sessions', {
@@ -763,7 +771,7 @@
                         body: JSON.stringify(payload)
                     });
 
-                    showToast(`Session "${name}" created successfully!`, 'success');
+                    showToast(`Session "${name}" created successfully in ${campus}!`, 'success');
                     closeCreateSession();
                     await loadSessions();
                     renderScreen();
@@ -771,7 +779,10 @@
                     if (status === 'active' && result.data) {
                         await apiCall(`/sessions/${result.data.id}`, {
                             method: 'PUT',
-                            body: JSON.stringify({ status: 'active' })
+                            body: JSON.stringify({ 
+                                status: 'active',
+                                started_at: new Date().toISOString()
+                            })
                         });
                         await loadSessions();
                         renderScreen();
@@ -920,6 +931,10 @@
                     indicator.style.color = '#68768a';
                 }
 
+                // Group sessions by campus for display
+                const legacySessions = sessions.filter(s => s.campus === 'Legacy' || !s.campus);
+                const heritageSessions = sessions.filter(s => s.campus === 'Heritage');
+
                 container.innerHTML = `
                     <div class="page-heading">
                         <div>
@@ -973,6 +988,7 @@
                                 <div class="font-bold" style="color:#10233f;font-size:1.1rem;">🟢 ${currentActive.name}</div>
                                 <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label}</p>
                                 <p class="text-xs text-muted">Started: ${formatTime(currentActive.started_at) || formatTime(currentActive.created_at) || 'Just now'}</p>
+                                <p class="text-xs text-muted"><i class="fas fa-map-marker-alt"></i> ${currentActive.campus || 'Legacy'}</p>
                             </div>
                             <div>
                                 <span class="badge ${getStatusDisplay(currentActive.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDisplay(currentActive.status).icon} ${getStatusDisplay(currentActive.status).label}</span>
@@ -1034,14 +1050,16 @@
                                 <div class="flex-between mt-1"><span class="text-muted">Scheduled</span><span class="font-bold">${scheduled}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Completed</span><span class="font-bold">${completed}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Archived</span><span class="font-bold">${archived}</span></div>
+                                <div class="flex-between mt-1"><span class="text-muted">Campuses</span><span class="font-bold">Legacy: ${legacySessions.length} · Heritage: ${heritageSessions.length}</span></div>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Legacy Campus Sessions -->
                     <div class="card mt-4">
                         <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> All Sessions</div>
-                            <span class="text-xs text-muted">${totalSessions} sessions</span>
+                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> Legacy Campus</div>
+                            <span class="text-xs text-muted">${legacySessions.length} sessions</span>
                         </div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -1050,14 +1068,13 @@
                                     <th>Session</th>
                                     <th>Start</th>
                                     <th>End</th>
-                                    <th>Campus</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr></thead>
                                 <tbody>
-                                    ${sessions.length === 0 ? `
-                                        <tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">No sessions created yet. <a href="#" onclick="openCreateSession();return false;" style="color:#a77915;font-weight:600;">Create one</a></td></tr>
-                                    ` : sessions.slice().reverse().map(s => {
+                                    ${legacySessions.length === 0 ? `
+                                        <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No Legacy campus sessions.</td></tr>
+                                    ` : legacySessions.slice().reverse().map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
                                         const isScheduled = s.status === 'scheduled';
                                         const isActive = isActiveStatus(s.status);
@@ -1072,7 +1089,72 @@
                                                 <td>${s.name || 'Night BedCheck'}</td>
                                                 <td>${startTime}</td>
                                                 <td>${endTime}</td>
-                                                <td>${s.campus || 'Legacy'}</td>
+                                                <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
+                                                <td>
+                                                    <div class="action-buttons">
+                                                        <button class="btn-sm view" onclick="viewSessionDetails(${s.id})" title="View Details"><i class="fas fa-eye"></i></button>
+                                                        ${isScheduled ? `
+                                                            <button class="btn-sm start" onclick="startSession(${s.id})" title="Start Session"><i class="fas fa-play"></i></button>
+                                                        ` : isActive ? `
+                                                            <button class="btn-sm end" onclick="endSession(${s.id})" title="End Session"><i class="fas fa-stop"></i></button>
+                                                            <button class="btn-sm archive" onclick="archiveSession(${s.id})" title="Archive"><i class="fas fa-archive"></i></button>
+                                                        ` : isCompleted ? `
+                                                            <button class="btn-sm start" onclick="startSession(${s.id})" title="Reopen"><i class="fas fa-play"></i></button>
+                                                            <button class="btn-sm archive" onclick="archiveSession(${s.id})" title="Archive"><i class="fas fa-archive"></i></button>
+                                                        ` : isArchived ? `
+                                                            <span class="text-xs text-muted">Archived</span>
+                                                        ` : `
+                                                            <span class="text-xs text-muted">${s.status}</span>
+                                                        `}
+                                                        ${!isArchived ? `
+                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
+                                                        ` : `
+                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
+                                                        `}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Heritage Campus Sessions -->
+                    <div class="card mt-4">
+                        <div class="flex-between">
+                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> Heritage Campus</div>
+                            <span class="text-xs text-muted">${heritageSessions.length} sessions</span>
+                        </div>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr>
+                                    <th>Date</th>
+                                    <th>Session</th>
+                                    <th>Start</th>
+                                    <th>End</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${heritageSessions.length === 0 ? `
+                                        <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No Heritage campus sessions.</td></tr>
+                                    ` : heritageSessions.slice().reverse().map(s => {
+                                        const statusDisplay = getStatusDisplay(s.status);
+                                        const isScheduled = s.status === 'scheduled';
+                                        const isActive = isActiveStatus(s.status);
+                                        const isCompleted = s.status === 'completed';
+                                        const isArchived = s.status === 'archived';
+                                        const startTime = formatTime(s.start_time);
+                                        const endTime = formatTime(s.end_time);
+                                        const displayDate = formatFullDate(s.date);
+                                        return `
+                                            <tr class="${getRowClass(s.status)}">
+                                                <td style="font-weight:600;">${displayDate}</td>
+                                                <td>${s.name || 'Night BedCheck'}</td>
+                                                <td>${startTime}</td>
+                                                <td>${endTime}</td>
                                                 <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
                                                 <td>
                                                     <div class="action-buttons">
@@ -1106,7 +1188,7 @@
                     </div>
 
                     <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">BedCheck System v1.0 · © Benson Idahosa University</p>
+                        <p class="text-xs text-muted">BedCheck System v1.0 · © Benson Idahosa University · ${legacySessions.length + heritageSessions.length} total sessions</p>
                     </div>
                 `;
 
@@ -1213,10 +1295,9 @@
             }
 
             // =============================================
-            // GLOBAL EXPOSURE - Make ALL functions available to HTML onclick
+            // GLOBAL EXPOSURE
             // =============================================
 
-            // These functions are called from HTML onclick attributes
             window.showToast = showToast;
             window.openCreateSession = openCreateSession;
             window.closeCreateSession = closeCreateSession;
