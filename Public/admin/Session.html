@@ -265,6 +265,19 @@
         .hostel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem; }
         @media (max-width: 480px) { .hostel-grid { grid-template-columns: 1fr; } }
         .hostel-item { font-size: 0.8rem; padding: 0.3rem 0.5rem; background: white; border-radius: 0.3rem; border: 1px solid #eee8de; }
+
+        .existing-session-banner {
+            background: #e7edf5;
+            border: 1px solid #1e3a5f;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin-top: 0.75rem;
+            display: none;
+        }
+        .existing-session-banner.show { display: block; }
+        .existing-session-banner .title { font-weight: 700; color: #1e3a5f; }
+        .existing-session-banner .details { font-size: 0.85rem; color: #24466f; margin-top: 0.25rem; }
+        .existing-session-banner .actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
     </style>
 </head>
 <body>
@@ -281,6 +294,15 @@
                 <button class="close-btn" onclick="closeCreateSession()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
+                <div id="existingSessionBanner" class="existing-session-banner">
+                    <div class="title"><i class="fas fa-info-circle"></i> Session Already Exists</div>
+                    <div class="details" id="existingSessionDetails">Loading...</div>
+                    <div class="actions">
+                        <button class="btn-primary btn-sm" onclick="viewExistingSession()"><i class="fas fa-eye"></i> View Session</button>
+                        <button class="btn-outline btn-sm" onclick="dismissExistingSession()"><i class="fas fa-times"></i> Dismiss</button>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label>Session Name <span style="color:#a84134;">*</span></label>
                     <input id="sessionName" placeholder="e.g., Monday Night BedCheck" />
@@ -289,7 +311,7 @@
                 <div class="form-row mt-3">
                     <div class="form-group">
                         <label>Date <span style="color:#a84134;">*</span></label>
-                        <input id="sessionDate" type="date" />
+                        <input id="sessionDate" type="date" onchange="checkExistingForDate()" />
                     </div>
                     <div class="form-group">
                         <label style="color:#d6ad4b;">
@@ -340,7 +362,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-outline" onclick="closeCreateSession()">Cancel</button>
-                <button class="btn-success" onclick="createSession()"><i class="fas fa-save"></i> Create Session</button>
+                <button class="btn-success" id="createSessionBtn" onclick="createSession()"><i class="fas fa-save"></i> Create Session</button>
             </div>
         </div>
     </div>
@@ -479,6 +501,8 @@
             let sessionCheckerInterval = null;
             let deleteTargetId = null;
             let selectedSessionId = null;
+            let existingSessionData = null;
+            let existingSessionId = null;
 
             // =============================================
             // STATUS VALUES
@@ -622,6 +646,61 @@
                     throw error;
                 }
             }
+
+            // =============================================
+            // CHECK EXISTING SESSION
+            // =============================================
+
+            async function checkExistingForDate() {
+                const date = document.getElementById('sessionDate').value;
+                const banner = document.getElementById('existingSessionBanner');
+                const details = document.getElementById('existingSessionDetails');
+                
+                if (!date) {
+                    banner.classList.remove('show');
+                    existingSessionData = null;
+                    existingSessionId = null;
+                    return;
+                }
+
+                try {
+                    // Check if any session exists for this date by filtering loaded sessions
+                    const existing = sessions.find(s => s.date === date);
+                    
+                    if (existing) {
+                        existingSessionData = existing;
+                        existingSessionId = existing.id;
+                        details.innerHTML = `
+                            <strong>${existing.name}</strong><br>
+                            Status: ${existing.status} · ${formatTime(existing.start_time)} — ${formatTime(existing.end_time)}
+                            ${existing.campus === null || existing.campus === 'General' ? ' · 🌍 All Campuses' : ''}
+                        `;
+                        banner.classList.add('show');
+                    } else {
+                        banner.classList.remove('show');
+                        existingSessionData = null;
+                        existingSessionId = null;
+                    }
+                } catch (error) {
+                    console.error('Error checking existing session:', error);
+                    banner.classList.remove('show');
+                    existingSessionData = null;
+                    existingSessionId = null;
+                }
+            }
+
+            window.viewExistingSession = function() {
+                if (existingSessionId) {
+                    closeCreateSession();
+                    viewSessionDetails(existingSessionId);
+                }
+            };
+
+            window.dismissExistingSession = function() {
+                document.getElementById('existingSessionBanner').classList.remove('show');
+                existingSessionData = null;
+                existingSessionId = null;
+            };
 
             // =============================================
             // DATA LOADING
@@ -823,8 +902,29 @@
                     return;
                 }
 
+                // If there's an existing session for this date, ask user what to do
+                if (existingSessionData) {
+                    const confirmAction = confirm(
+                        `⚠️ A session already exists for ${date}:\n\n` +
+                        `Name: ${existingSessionData.name}\n` +
+                        `Status: ${existingSessionData.status}\n` +
+                        `Time: ${existingSessionData.start_time} - ${existingSessionData.end_time}\n\n` +
+                        `Click "OK" to view this existing session\n` +
+                        `Click "Cancel" to close the modal and choose a different date`
+                    );
+
+                    if (confirmAction) {
+                        closeCreateSession();
+                        viewSessionDetails(existingSessionData.id);
+                        showToast(`📋 Viewing existing session: ${existingSessionData.name}`, 'info');
+                    } else {
+                        showToast('Please select a different date for the new session.', 'info');
+                    }
+                    return;
+                }
+
                 try {
-                    // UNIVERSITY-WIDE SESSION - NO CAMPUS SPECIFIED
+                    // No existing session - create new one
                     const payload = {
                         name: name,
                         date: date,
@@ -833,7 +933,6 @@
                         status: status || 'scheduled',
                         academic_session: academicSession,
                         grace_period: gracePeriod
-                        // NO campus field - this is a UNIVERSITY-WIDE session
                     };
 
                     const result = await apiCall('/sessions', {
@@ -858,7 +957,14 @@
                         renderScreen();
                     }
                 } catch (error) {
-                    showToast('Error creating session: ' + error.message, 'error');
+                    if (error.message.includes('SESSION_EXISTS')) {
+                        showToast('⚠️ A session already exists for this date. Please check the sessions list.', 'error');
+                        // Refresh to update the existing session check
+                        await loadSessions();
+                        checkExistingForDate();
+                    } else {
+                        showToast('Error creating session: ' + error.message, 'error');
+                    }
                 }
             }
 
@@ -946,11 +1052,17 @@
                 const dayName = dayNames[d.getDay()] || 'Night';
                 document.getElementById('sessionName').value = `${dayName} Night BedCheck (University-Wide)`;
                 
+                // Check for existing session
+                setTimeout(checkExistingForDate, 100);
+                
                 modal.classList.add('show');
             }
 
             function closeCreateSession() {
                 document.getElementById('createSessionModal').classList.remove('show');
+                document.getElementById('existingSessionBanner').classList.remove('show');
+                existingSessionData = null;
+                existingSessionId = null;
             }
 
             function openDeleteModal(sessionId) {
@@ -1350,6 +1462,9 @@
             window.refreshData = refreshData;
             window.viewSessionDetails = viewSessionDetails;
             window.closeSessionDetails = closeSessionDetails;
+            window.checkExistingForDate = checkExistingForDate;
+            window.viewExistingSession = viewExistingSession;
+            window.dismissExistingSession = dismissExistingSession;
 
             // =============================================
             // INIT
