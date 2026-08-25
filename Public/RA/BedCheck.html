@@ -1708,7 +1708,7 @@
         }
 
         // =============================================
-        // RENDER BEDCHECK
+        // RENDER BEDCHECK - No "University-Wide", No "Invalid Date"
         // =============================================
         function renderBedCheck() {
             const container = document.getElementById('screenContent');
@@ -1772,22 +1772,42 @@
             const hostelDisplay = assignedHostelName || 'Your Hostel';
             const raName = currentUser?.name || 'RA';
 
-            // Session info - format properly
+            // Session info - ONLY show when valid data exists
             const sessionName = currentSession?.name || 'Night BedCheck';
-            let sessionDate = '—';
-            let sessionStart = '—';
-            let sessionEnd = '—';
             
-            if (currentSession?.date) {
-                sessionDate = formatDate(currentSession.date);
-            }
-            if (currentSession?.start_time) {
-                sessionStart = formatTime(currentSession.start_time);
-            }
-            if (currentSession?.end_time) {
-                sessionEnd = formatTime(currentSession.end_time);
+            // Only set date/time if they are valid (not null, not "Invalid Date")
+            let sessionDate = '';
+            let sessionStart = '';
+            let sessionEnd = '';
+            let gracePeriod = '';
+            
+            if (currentSession?.date && currentSession.date !== 'Invalid Date') {
+                const formatted = formatDate(currentSession.date);
+                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
+                    sessionDate = formatted;
+                }
             }
             
+            if (currentSession?.start_time && currentSession.start_time !== 'Invalid Date') {
+                const formatted = formatTime(currentSession.start_time);
+                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
+                    sessionStart = formatted;
+                }
+            }
+            
+            if (currentSession?.end_time && currentSession.end_time !== 'Invalid Date') {
+                const formatted = formatTime(currentSession.end_time);
+                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
+                    sessionEnd = formatted;
+                }
+            }
+            
+            if (currentSession?.grace_period && currentSession.grace_period !== 'Invalid Date') {
+                gracePeriod = currentSession.grace_period;
+            }
+            
+            // Only show session info if we have at least one valid piece of data
+            const hasValidSessionData = sessionDate || sessionStart || sessionEnd || gracePeriod;
             const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
             // Build room list HTML
@@ -1886,16 +1906,16 @@
             }
 
             container.innerHTML = `
-                <!-- Night Session Banner -->
+                <!-- Night Session Banner - NO "University-Wide" -->
                 <div class="session-banner ${effectiveStatus === 'started' ? 'active' : effectiveStatus === 'completed' || hasCompletedToday ? 'completed' : 'draft'}">
                     <div class="session-icon">🌙</div>
                     <div class="session-info">
                         <div class="session-title">${sessionName}</div>
                         <div class="session-sub">${sessionDisplay.statusText}</div>
-                        ${hasSession ? `
+                        ${hasValidSessionData && hasSession ? `
                             <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
-                                ${sessionDate} · ${sessionStart} — ${sessionEnd}
-                                <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${currentSession?.grace_period || 15}min</span>
+                                ${sessionDate ? sessionDate : ''}${sessionDate && (sessionStart || sessionEnd) ? ' · ' : ''}${sessionStart ? sessionStart : ''}${sessionStart && sessionEnd ? ' — ' : ''}${sessionEnd ? sessionEnd : ''}
+                                ${gracePeriod ? `<span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${gracePeriod}min</span>` : ''}
                             </div>
                         ` : ''}
                     </div>
@@ -1930,13 +1950,8 @@
                                     ⏳ Session will start at 10:00 PM
                                 </div>
                             ` : ''}
-                            ${isSessionActive && effectiveStatus === 'started' ? `
+                            ${isSessionActive && (effectiveStatus === 'started' || effectiveStatus === 'ready') ? `
                                 <div style="margin-top:0.5rem;font-size:0.7rem;color:#2d6545;border-top:1px solid #f0ebe2;padding-top:0.5rem;text-align:center;">
-                                    🔴 Session LIVE
-                                </div>
-                            ` : ''}
-                            ${isSessionActive && effectiveStatus === 'ready' ? `
-                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#d6ad4b;border-top:1px solid #f0ebe2;padding-top:0.5rem;text-align:center;">
                                     🔴 Session LIVE
                                 </div>
                             ` : ''}
