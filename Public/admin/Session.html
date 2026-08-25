@@ -198,6 +198,7 @@
         .form-group label { font-weight: 700; font-size: 0.8rem; color: #17233c; }
         .form-group input, .form-group select { padding: 0.5rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; font-size: 0.9rem; outline: none; font-family: inherit; background: white; width: 100%; }
         .form-group input:focus, .form-group select:focus { border-color: #a77915; }
+        .form-group input:disabled { background: #f5f1e8; cursor: not-allowed; }
 
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
         @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
@@ -242,6 +243,16 @@
         .stats-badge.verified { background: #e1f0e5; color: #2d6545; }
         .stats-badge.total { background: #e7edf5; color: #24466f; }
         .stats-badge.completion { background: #fff1c9; color: #8b6513; }
+
+        /* Campus selector in modal */
+        .campus-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem; }
+        .campus-option { padding: 0.4rem 1rem; border: 2px solid #cbd2db; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; background: white; }
+        .campus-option:hover { border-color: #a77915; }
+        .campus-option.selected { border-color: #10233f; background: #10233f; color: white; }
+        .campus-option.selected.heritage-selected { border-color: #7a4a1a; background: #7a4a1a; color: white; }
+        .campus-option .campus-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-right: 0.3rem; }
+        .campus-option .campus-dot.legacy-dot { background: #10233f; }
+        .campus-option .campus-dot.heritage-dot { background: #7a4a1a; }
     </style>
 </head>
 <body>
@@ -261,6 +272,7 @@
                 <div class="form-group">
                     <label>Session Name <span style="color:#a84134;">*</span></label>
                     <input id="sessionName" placeholder="e.g., Monday Night BedCheck" />
+                    <span style="font-size:0.7rem;color:#68768a;margin-top:0.15rem;"><i class="fas fa-info-circle"></i> Auto-generated based on date</span>
                 </div>
                 <div class="form-row mt-3">
                     <div class="form-group">
@@ -268,11 +280,16 @@
                         <input id="sessionDate" type="date" />
                     </div>
                     <div class="form-group">
-                        <label>Campus</label>
-                        <select id="sessionCampus">
-                            <option value="Legacy">Legacy</option>
-                            <option value="Heritage">Heritage</option>
-                        </select>
+                        <label>Campus <span style="color:#a84134;">*</span></label>
+                        <div class="campus-selector" id="campusSelector">
+                            <div class="campus-option selected" data-campus="Legacy" onclick="selectCampus('Legacy')">
+                                <span class="campus-dot legacy-dot"></span> Legacy
+                            </div>
+                            <div class="campus-option" data-campus="Heritage" onclick="selectCampus('Heritage')">
+                                <span class="campus-dot heritage-dot"></span> Heritage
+                            </div>
+                        </div>
+                        <input type="hidden" id="sessionCampus" value="Legacy" />
                     </div>
                 </div>
                 <div class="form-row mt-3">
@@ -450,6 +467,7 @@
             let sessionCheckerInterval = null;
             let deleteTargetId = null;
             let selectedSessionId = null;
+            let selectedCampus = 'Legacy';
 
             // =============================================
             // STATUS VALUES
@@ -544,6 +562,42 @@
             function getInitials(name) {
                 if (!name) return 'U';
                 return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            // =============================================
+            // CAMPUS SELECTOR
+            // =============================================
+
+            window.selectCampus = function(campus) {
+                selectedCampus = campus;
+                document.getElementById('sessionCampus').value = campus;
+                
+                // Update UI
+                document.querySelectorAll('.campus-option').forEach(el => {
+                    el.classList.remove('selected', 'heritage-selected');
+                    if (el.dataset.campus === campus) {
+                        el.classList.add('selected');
+                        if (campus === 'Heritage') {
+                            el.classList.add('heritage-selected');
+                        }
+                    }
+                });
+                
+                // Update session name with campus
+                updateSessionName();
+            };
+
+            function updateSessionName() {
+                const dateInput = document.getElementById('sessionDate');
+                const nameInput = document.getElementById('sessionName');
+                const campus = document.getElementById('sessionCampus').value;
+                
+                if (dateInput.value) {
+                    const d = new Date(dateInput.value);
+                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    const dayName = dayNames[d.getDay()] || 'Night';
+                    nameInput.value = `${dayName} Night BedCheck - ${campus}`;
+                }
             }
 
             // =============================================
@@ -865,9 +919,15 @@
 
             function openCreateSession() {
                 const modal = document.getElementById('createSessionModal');
-                document.getElementById('sessionDate').value = new Date().toISOString().split('T')[0];
-                document.getElementById('sessionName').value = '';
-                document.getElementById('sessionName').placeholder = `${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()]} Night BedCheck`;
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('sessionDate').value = today;
+                
+                // Auto-generate name
+                const d = new Date(today);
+                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const dayName = dayNames[d.getDay()] || 'Night';
+                document.getElementById('sessionName').value = `${dayName} Night BedCheck - ${selectedCampus}`;
+                
                 modal.classList.add('show');
             }
 
@@ -1257,6 +1317,7 @@
             window.refreshData = refreshData;
             window.viewSessionDetails = viewSessionDetails;
             window.closeSessionDetails = closeSessionDetails;
+            window.selectCampus = selectCampus;
 
             // =============================================
             // INIT
@@ -1266,10 +1327,18 @@
                 if (!checkAuth()) return;
                 setDate();
 
+                // Set default campus selector
+                document.querySelector('.campus-option.selected')?.classList.remove('selected');
+                document.querySelector('.campus-option[data-campus="Legacy"]')?.classList.add('selected');
+                document.getElementById('sessionCampus').value = 'Legacy';
+
                 document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
                 document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+                // Auto-generate name when date changes
+                document.getElementById('sessionDate').addEventListener('change', updateSessionName);
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading sessions...';
