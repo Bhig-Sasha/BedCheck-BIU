@@ -763,12 +763,18 @@
             let hostelData = null;
             let students = [];
             let staff = [];
+            let floors = [];
+            let rooms = [];
+            let scans = [];
             let sessions = [];
             let recentActivities = [];
             let selectedRoom = null;
             let selectedStudent = null;
             let hostelStructure = null;
             let roomStructure = {};
+            let sessionCheckerInterval = null;
+            let isSessionActive = false;
+            let currentSession = null;
 
             // ---------- DOM REFS ----------
             const screenContent = document.getElementById('screenContent');
@@ -805,7 +811,7 @@
             }
 
             // =============================================
-            // AUTHENTICATED API HELPER - FIXED!
+            // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -865,18 +871,15 @@
             // =============================================
             async function getHRAHostel() {
                 try {
-                    // Use the user's hostel_id from the session
                     const userData = sessionStorage.getItem('bedcheck_user');
                     if (userData) {
                         const user = JSON.parse(userData);
                         if (user.hostel_id) {
-                            // Fetch the hostel details
                             const result = await apiCall(`/hostels/${user.hostel_id}`);
                             return result.data;
                         }
                     }
                     
-                    // Fallback: try to find hostel by staff ID
                     const staffId = getStaffId();
                     if (staffId) {
                         const staffResult = await apiCall(`/staff/${staffId}`);
@@ -891,6 +894,74 @@
                     console.error('Error fetching HRA hostel:', error);
                     return null;
                 }
+            }
+
+            // =============================================
+            // LOAD SESSION STATUS
+            // =============================================
+            async function loadSessionStatus() {
+                try {
+                    const sessionResult = await apiCall('/sessions/active');
+                    
+                    if (sessionResult && sessionResult.data && sessionResult.is_active) {
+                        currentSession = sessionResult.data;
+                        isSessionActive = true;
+                    } else {
+                        if (hostelData && hostelData.id) {
+                            const hostelSessionResult = await apiCall(`/sessions?hostel_id=${hostelData.id}`);
+                            if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
+                                const latest = hostelSessionResult.data[0];
+                                currentSession = latest;
+                                const status = latest.status || 'Closed';
+                                isSessionActive = status === 'Active' || status === 'Running' || status === 'Open' || status === 'started';
+                            } else {
+                                currentSession = null;
+                                isSessionActive = false;
+                            }
+                        } else {
+                            currentSession = null;
+                            isSessionActive = false;
+                        }
+                    }
+
+                    if (isSessionActive && currentSession) {
+                        try {
+                            const statusResult = await apiCall('/ra/bedcheck/status');
+                            if (statusResult && statusResult.data) {
+                                if (statusResult.data.effective_status === 'started') {
+                                    isSessionActive = true;
+                                } else if (statusResult.data.effective_status === 'completed') {
+                                    isSessionActive = false;
+                                }
+                            }
+                        } catch (e) {
+                            // Silent fail
+                        }
+                    }
+
+                    return { isSessionActive, session: currentSession };
+                } catch (error) {
+                    console.error('Error loading session status:', error);
+                    return { isSessionActive: false, session: null };
+                }
+            }
+
+            // =============================================
+            // START SESSION CHECKER
+            // =============================================
+            function startSessionChecker() {
+                if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
+                sessionCheckerInterval = setInterval(async () => {
+                    try {
+                        const oldStatus = isSessionActive;
+                        await loadSessionStatus();
+                        if (oldStatus !== isSessionActive) {
+                            renderMyHostel();
+                        }
+                    } catch (error) {
+                        // Silent fail
+                    }
+                }, 30000);
             }
 
             // ---------- UPDATE USER DISPLAY ----------
@@ -922,7 +993,47 @@
 
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
 
-                if (hostelData?.type === 'flat') {
+                // Use floors and rooms data from API
+                if (floors.length > 0 && rooms.length > 0) {
+                    // Build from floors data
+                    floors.forEach(floor => {
+                        const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
+                        const roomCodes = floorRooms.map(r => r.room_code).filter(Boolean);
+                        
+                        if (roomCodes.length > 0) {
+                            // Group rooms by prefix (A, B, C, etc.)
+                            const roomsByPrefix = {};
+                            roomCodes.forEach(code => {
+                                const prefix = code.match(/^[A-Z]/)?.[0] || '';
+                                if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
+                                roomsByPrefix[prefix].push(code);
+                            });
+                            
+                            Object.keys(roomsByPrefix).forEach(prefix => {
+                                const sorted = roomsByPrefix[prefix].sort((a, b) => {
+                                    const numA = parseInt(a.replace(/^[A-Z]/, ''));
+                                    const numB = parseInt(b.replace(/^[A-Z]/, ''));
+                                    return numA - numB;
+                                });
+                                
+                                if (sorted.length > 0) {
+                                    const firstNum = parseInt(sorted[0].replace(/^[A-Z]/, ''));
+                                    const lastNum = parseInt(sorted[sorted.length-1].replace(/^[A-Z]/, ''));
+                                    const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
+                                    roomStructure.areas.push({
+                                        name: rangeName,
+                                        key: rangeName,
+                                        rooms: sorted,
+                                        floor: floor.name || `Floor ${prefix}`,
+                                        prefix: prefix,
+                                        start: firstNum,
+                                        end: lastNum
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } else if (hostelData?.type === 'flat') {
                     // Flats: Each flat is an area with all its rooms
                     const flatNumbers = [];
                     students.forEach(s => {
@@ -939,7 +1050,7 @@
                         rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
                     }));
                 } else {
-                    // Boys/Girls Hostel: Floors with room ranges
+                    // Boys/Girls Hostel: Floors with room ranges from students
                     const floorLetters = [];
                     students.forEach(s => {
                         if (s.floor) {
@@ -969,7 +1080,6 @@
 
                         if (isGirlsHostel) {
                             // Girls Hostel: 3 RAs per floor
-                            // RA1: A1-A8, RA2: A9-A14, RA3: A15-A18
                             const range1 = floorRooms.filter(r => {
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 1 && num <= 8;
@@ -1046,7 +1156,6 @@
                             }
                         }
 
-                        // If no rooms found, create default ranges
                         if (roomRanges.length === 0) {
                             if (isGirlsHostel) {
                                 const defaultRooms1 = Array.from({ length: 8 }, (_, i) => `${letter}${i+1}`);
@@ -1087,11 +1196,11 @@
                     if (hostelData?.type === 'flat') {
                         const totalFlats = hostelData.total_flats || 9;
                         for (let i = 1; i <= totalFlats; i++) {
-                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
+                            const roomList = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
                             roomStructure.areas.push({
                                 name: `Flat ${i}`,
                                 key: `Flat ${i}`,
-                                rooms: rooms
+                                rooms: roomList
                             });
                         }
                     } else {
@@ -1127,11 +1236,10 @@
                 const type = hostelData.type || 'floor';
                 if (type === 'floor') {
                     const floorNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-                    const floors = hostelData.total_floors || 3;
+                    const totalFloors = hostelData.total_floors || 3;
                     const floorData = [];
-                    for (let f = 0; f < floors; f++) {
+                    for (let f = 0; f < totalFloors; f++) {
                         const prefix = floorNames[f] || `F${f+1}`;
-                        // Find rooms for this floor from roomStructure
                         const areaRooms = roomStructure.areas
                             .filter(a => a.prefix === prefix)
                             .flatMap(a => a.rooms)
@@ -1157,10 +1265,10 @@
                     const floorData = [];
                     for (let f = 1; f <= flats; f++) {
                         const roomCount = (f === 1 || f === 4 || f === 7) ? 3 : roomsPerFlat;
-                        const rooms = Array.from({ length: roomCount }, (_, r) => `F${f}R${r+1}`);
+                        const roomList = Array.from({ length: roomCount }, (_, r) => `F${f}R${r+1}`);
                         floorData.push({
                             name: `Flat ${f}`,
-                            rooms: rooms
+                            rooms: roomList
                         });
                     }
                     hostelStructure = {
@@ -1179,13 +1287,11 @@
             }
 
             function checkIfGirlsHostel(raStaff, floorLetters) {
-                // Check if there are 3 RAs per floor with the girls pattern
                 let girlsHostelPattern = false;
                 floorLetters.forEach(letter => {
                     const rasOnFloor = raStaff.filter(ra => {
                         const area = ra.assigned_floor || '';
-                        return area.includes(`Floor ${letter}`) || area.includes(`${letter}1-${letter}8`) ||
-                            area.includes(`${letter}9-${letter}14`) || area.includes(`${letter}15-${letter}18`);
+                        return area.includes(`Floor ${letter}`);
                     });
                     if (rasOnFloor.length === 3) {
                         const hasRange1 = rasOnFloor.some(ra => {
@@ -1253,14 +1359,28 @@
                     setNotice(`${hostelData.name} · My Hostel`);
                     updateUserDisplay();
 
-                    // Load data using standard endpoints with filtering
-                    const allStudentsData = await apiCall('/students').catch(() => ({ data: [] }));
-                    const allStaffData = await apiCall('/staff').catch(() => ({ data: [] }));
-                    const sessionsRes = await apiCall(`/bedcheck/sessions?hostel_id=${hostelData.id}`).catch(() => ({ data: [] }));
+                    // Load all data
+                    const [studentsData, staffData, floorsData, roomsData, scansData, sessionsRes] = await Promise.all([
+                        apiCall('/students').catch(() => ({ data: [] })),
+                        apiCall('/staff').catch(() => ({ data: [] })),
+                        apiCall('/floors-flats').catch(() => ({ data: [] })),
+                        apiCall('/rooms').catch(() => ({ data: [] })),
+                        apiCall('/bedcheck/scans').catch(() => ({ data: [] })),
+                        apiCall(`/sessions?hostel_id=${hostelData.id}`).catch(() => ({ data: [] }))
+                    ]);
 
                     // Filter by hostel ID
-                    students = (allStudentsData.data || []).filter(s => s.hostel_id === hostelData.id);
-                    staff = (allStaffData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    students = (studentsData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    staff = (staffData.data || []).filter(s => s.hostel_id === hostelData.id);
+                    floors = (floorsData.data || []).filter(f => f.hostel_id === hostelData.id);
+                    rooms = (roomsData.data || []).filter(r => {
+                        const floor = floors.find(f => f.id === r.floor_flat_id);
+                        return floor && floor.hostel_id === hostelData.id;
+                    });
+                    
+                    // Match scans to students in this hostel
+                    const studentIds = students.map(s => s.id);
+                    scans = (scansData.data || []).filter(s => studentIds.includes(s.student_id));
                     sessions = sessionsRes.data || [];
 
                     // Build recent activities from sessions
@@ -1269,7 +1389,7 @@
                         let text = `BedCheck session ${s.status || 'completed'}`;
                         if (s.completed_at) {
                             text = `BedCheck session completed`;
-                        } else if (s.status === 'Active') {
+                        } else if (s.status === 'Active' || s.status === 'started') {
                             text = `BedCheck session started`;
                         }
                         return { time, text, date: s.created_at };
@@ -1291,6 +1411,9 @@
                     recentActivities.sort((a, b) => new Date(b.date) - new Date(a.date));
                     recentActivities = recentActivities.slice(0, 10);
 
+                    // Load session status
+                    await loadSessionStatus();
+
                     buildRoomStructure();
 
                     const now = new Date();
@@ -1299,6 +1422,7 @@
                     if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
 
                     renderMyHostel();
+                    startSessionChecker();
 
                 } catch (error) {
                     console.error('Load error:', error);
@@ -1322,7 +1446,8 @@
                     'Absent': 'badge-absent',
                     'Late': 'badge-late',
                     'Manual': 'badge-draft',
-                    'Excused': 'badge-excused'
+                    'Excused': 'badge-excused',
+                    'Verified': 'badge-present'
                 };
                 return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
             }
@@ -1344,7 +1469,7 @@
 
             function getBedStatus(student) {
                 if (!student) return 'vacant';
-                if (student.status === 'Present') return 'present';
+                if (student.status === 'Present' || student.status === 'Verified') return 'present';
                 if (student.status === 'Absent') return 'absent';
                 if (student.status === 'Manual') return 'manual';
                 return 'vacant';
@@ -1366,18 +1491,18 @@
             // ---------- RENDER "MY HOSTEL" ----------
             function renderMyHostel() {
                 const totalStudents = students.length;
-                const present = students.filter(s => s.status === 'Present').length;
+                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                 const absent = students.filter(s => s.status === 'Absent').length;
                 const capacity = hostelData?.capacity || 0;
                 const occupied = students.length;
                 const vacant = capacity - occupied;
-                const totalRooms = hostelData?.total_rooms || 0;
+                const totalRooms = hostelData?.total_rooms || roomStructure.areas.reduce((sum, a) => sum + a.rooms.length, 0);
 
                 const roomStudents = selectedRoom ? getRoomStudents(selectedRoom) : [];
                 const selectedStudentData = selectedStudent || roomStudents[0] || null;
 
                 // QR Status
-                const hasSession = sessions.length > 0 && sessions[0].status === 'Active';
+                const hasSession = isSessionActive || (sessions.length > 0 && sessions[0].status === 'Active');
                 const qrType = hasSession ? 'Semester' : '—';
                 const qrExpiry = hasSession ? 'Dec 2026' : '—';
 
@@ -1392,7 +1517,6 @@
                 if (hostelStructure && hostelStructure.floors) {
                     treeHtml = hostelStructure.floors.map((floor, index) => {
                         const isOpen = index === 0;
-                        // Get room counts for this floor
                         const floorRooms = floor.rooms || [];
                         const roomCounts = floorRooms.map(room => {
                             const count = getRoomStudents(room).length;
@@ -1422,7 +1546,6 @@
                 // Build occupancy map from roomStructure
                 let occupancyMapHtml = '';
                 if (roomStructure.areas && roomStructure.areas.length > 0) {
-                    // Group by floor
                     const floorGroups = {};
                     roomStructure.areas.forEach(area => {
                         const floorKey = area.floor || area.name;
@@ -1463,6 +1586,17 @@
                 const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
                     isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
 
+                // Session status display
+                let sessionBadge = 'badge-draft';
+                let sessionText = 'Inactive';
+                if (isSessionActive) {
+                    sessionBadge = 'badge-approved';
+                    sessionText = 'Active';
+                } else if (sessions.length > 0 && sessions[0].status === 'Completed') {
+                    sessionBadge = 'badge-approved';
+                    sessionText = 'Completed';
+                }
+
                 const html = `
                     <div class="page-heading">
                         <div>
@@ -1471,6 +1605,7 @@
                             <p class="desc">
                                 ${hostelTypeLabel} · ${hostelData?.total_floors || 3} Floors · ${totalRooms} Rooms · ${capacity} Students
                                 <span class="badge badge-floor" style="font-size:0.55rem;margin-left:0.5rem;">${roomStructure.areas.length} room ranges</span>
+                                <span class="badge ${sessionBadge}" style="font-size:0.55rem;margin-left:0.5rem;">Session: ${sessionText}</span>
                             </p>
                         </div>
                         <div class="badge-group">
@@ -1575,7 +1710,7 @@
                         </div>
                     </div>
 
-                    <!-- Occupancy Map (replacing the old one with room structure) -->
+                    <!-- Occupancy Map -->
                     <div class="card mt-6">
                         <div class="card-title">🏠 Occupancy Map</div>
                         <div class="mt-2">
@@ -1589,7 +1724,7 @@
                         </div>
                     </div>
 
-                    <!-- Recent Activities (from DB) -->
+                    <!-- Recent Activities -->
                     <div class="card mt-6">
                         <div class="card-title">📋 Recent Hostel Activities</div>
                         <div class="mt-3">
