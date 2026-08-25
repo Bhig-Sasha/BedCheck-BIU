@@ -256,7 +256,16 @@
         .status-badge.completed { background: #2d6545; color: white; }
         .status-badge.archived { background: #e8edf2; color: #536274; }
         
-        .campus-tag { font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 999px; }
+        .campus-tag { font-size: 0.6rem; padding: 0.1rem 0.5rem; border-radius: 999px; }
+        .campus-tag.legacy { background: #e7edf5; color: #10233f; }
+        .campus-tag.heritage { background: #f5ede4; color: #7a4a1a; }
+
+        .session-stats { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.65rem; }
+        .session-stats span { display: flex; align-items: center; gap: 0.25rem; }
+        .session-stats .stat-icon { width: 1rem; text-align: center; }
+        .session-stats .stat-icon.users { color: #24466f; }
+        .session-stats .stat-icon.verified { color: #2d6545; }
+        .session-stats .stat-icon.completion { color: #8b6513; }
     </style>
 </head>
 <body>
@@ -428,6 +437,11 @@
                             console.warn('Submission endpoint returned 500, using defaults');
                             return { success: true, data: { state: 'Open', notice: 'Default notice' } };
                         }
+                        // For 404 errors on audit/recent, return empty data
+                        if (response.status === 404 && endpoint.includes('/audit/recent')) {
+                            console.warn('Audit endpoint returned 404, using empty data');
+                            return { success: true, data: [] };
+                        }
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
@@ -526,6 +540,7 @@
                     auditLogs = data.data || [];
                     return auditLogs;
                 } catch (error) {
+                    console.warn('Failed to load audit logs:', error.message);
                     auditLogs = [];
                     return auditLogs;
                 }
@@ -556,6 +571,7 @@
                     
                     return sessions;
                 } catch (error) {
+                    console.warn('Failed to load sessions:', error.message);
                     sessions = [];
                     currentSession = null;
                     sessionStatus = 'draft';
@@ -590,11 +606,7 @@
                         start_time: '22:00:00',
                         end_time: '23:30:00',
                         status: 'scheduled',
-                        total_hostels: hostels.length || 1,
-                        hostels_completed: 0,
-                        completion: 0,
                         academic_session: '2026/2027',
-                        grace_period: 15,
                         campus: 'Legacy'
                     };
 
@@ -772,19 +784,14 @@
                                 <strong>${sessionName}</strong>
                                 <span class="highlight">${sessionDate}</span>
                                 · ${activeHostels + partialHostels} hostels reporting
-                                ${currentSession?.campus ? `· <span class="campus-tag" style="background:${currentSession.campus === 'Legacy' ? '#e7edf5' : '#f5ede4'};color:${currentSession.campus === 'Legacy' ? '#10233f' : '#7a4a1a'};">${currentSession.campus}</span>` : ''}
+                                ${currentSession?.campus ? `· <span class="campus-tag ${currentSession.campus === 'Legacy' ? 'legacy' : 'heritage'}">${currentSession.campus}</span>` : ''}
                             </div>
                         </div>
                         <div class="banner-right">
                             <div class="session-controls">
-                                ${sessionStatusDisplay === 'draft' ? `
+                                ${sessionStatusDisplay === 'draft' || sessionStatusDisplay === 'scheduled' ? `
                                     <button class="btn-success" onclick="activateSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
-                                        <i class="fas fa-play"></i> Activate
-                                    </button>
-                                ` : ''}
-                                ${sessionStatusDisplay === 'scheduled' ? `
-                                    <button class="btn-success" onclick="activateSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
-                                        <i class="fas fa-play"></i> Start Now
+                                        <i class="fas fa-play"></i> ${sessionStatusDisplay === 'scheduled' ? 'Start Now' : 'Activate'}
                                     </button>
                                 ` : ''}
                                 ${isSessionLive ? `
@@ -860,14 +867,25 @@
                         <div class="session-list mt-2">
                             ${recentSessions.length === 0 ? '<p class="text-xs text-muted">No sessions created yet</p>' : recentSessions.map(s => {
                                 const sDisplay = getStatusDisplay(s.status);
+                                const campusClass = s.campus === 'Legacy' ? 'legacy' : 'heritage';
+                                const students = s.total_students || 0;
+                                const present = s.present_students || 0;
+                                const completion = s.completion || 0;
                                 return `
                                     <div class="session-item">
                                         <div>
                                             <div class="session-name">${s.name || 'BedCheck Session'}</div>
-                                            <div class="session-date">${s.date} · ${s.start_time || '22:00'} - ${s.end_time || '23:30'} · ${s.campus || 'Legacy'}</div>
+                                            <div class="session-date">${s.date} · ${s.start_time || '22:00'} - ${s.end_time || '23:30'} · <span class="campus-tag ${campusClass}">${s.campus || 'Legacy'}</span></div>
                                         </div>
-                                        <div>
-                                            <span class="session-status">${getStatusBadge(s.status)}</span>
+                                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                                            <div class="session-stats">
+                                                <span><span class="stat-icon users"><i class="fas fa-users"></i></span> ${students}</span>
+                                                <span><span class="stat-icon verified"><i class="fas fa-check-circle"></i></span> ${present}</span>
+                                                <span><span class="stat-icon completion"><i class="fas fa-percentage"></i></span> ${completion}%</span>
+                                            </div>
+                                            <div>
+                                                <span class="session-status">${getStatusBadge(s.status)}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 `;
