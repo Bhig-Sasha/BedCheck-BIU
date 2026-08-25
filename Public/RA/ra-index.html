@@ -541,41 +541,81 @@
             }
 
             // =============================================
-            // FIXED: formatDate - Handles missing/invalid data
+            // IMPROVED: formatDate - Handles all date formats
             // =============================================
             function formatDate(dateStr) {
                 if (!dateStr) return '—';
+                
                 try {
-                    // If it's already a valid date string
-                    const d = new Date(dateStr);
-                    if (!isNaN(d.getTime())) {
-                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                    }
-                    // If it's in YYYY-MM-DD format
-                    if (typeof dateStr === 'string' && dateStr.includes('-')) {
-                        const parts = dateStr.split('-');
-                        if (parts.length === 3) {
-                            const d = new Date(parts[0], parts[1] - 1, parts[2]);
-                            if (!isNaN(d.getTime())) {
-                                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    // Handle MySQL/PostgreSQL datetime format: YYYY-MM-DD HH:MM:SS
+                    if (typeof dateStr === 'string' && dateStr.includes(' ')) {
+                        const parts = dateStr.split(' ');
+                        if (parts.length === 2) {
+                            const datePart = parts[0];
+                            const dateObj = new Date(datePart);
+                            if (!isNaN(dateObj.getTime())) {
+                                return dateObj.toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                });
                             }
                         }
                     }
-                    return dateStr; // Return as-is if can't parse
+                    
+                    // Handle date-only format: YYYY-MM-DD
+                    if (typeof dateStr === 'string' && dateStr.includes('-') && !dateStr.includes(':')) {
+                        const dateObj = new Date(dateStr);
+                        if (!isNaN(dateObj.getTime())) {
+                            return dateObj.toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                year: 'numeric' 
+                            });
+                        }
+                    }
+                    
+                    // Handle timestamp with timezone
+                    const dateObj = new Date(dateStr);
+                    if (!isNaN(dateObj.getTime())) {
+                        return dateObj.toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                        });
+                    }
+                    
+                    // If all parsing fails, return the original
+                    return dateStr;
                 } catch (e) {
                     return dateStr || '—';
                 }
             }
 
             // =============================================
-            // FIXED: formatTime - Handles missing/invalid data
+            // IMPROVED: formatTimeStr - Handles all time formats
             // =============================================
             function formatTimeStr(timeStr) {
                 if (!timeStr) return '—';
+                
                 try {
-                    // If it's already a time string like "22:00:00"
+                    // Handle MySQL/PostgreSQL time format: HH:MM:SS or HH:MM:SS.mmm
                     if (typeof timeStr === 'string' && timeStr.includes(':')) {
-                        const parts = timeStr.split(':');
+                        // Extract HH:MM:SS from full datetime
+                        let timePart = timeStr;
+                        if (timeStr.includes(' ')) {
+                            timePart = timeStr.split(' ')[1];
+                        }
+                        if (timeStr.includes('T')) {
+                            timePart = timeStr.split('T')[1];
+                        }
+                        
+                        // Remove milliseconds and timezone
+                        timePart = timePart.replace(/\.\d+/, '');
+                        timePart = timePart.replace(/[+-]\d{2}:\d{2}$/, '');
+                        timePart = timePart.replace(/Z$/, '');
+                        
+                        const parts = timePart.split(':');
                         if (parts.length >= 2) {
                             const hour = parseInt(parts[0]);
                             const minute = parseInt(parts[1]);
@@ -586,10 +626,59 @@
                             }
                         }
                     }
-                    // Try parsing as Date
-                    const d = new Date(timeStr);
-                    if (!isNaN(d.getTime())) {
-                        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    
+                    // Try parsing as Date object
+                    const dateObj = new Date(timeStr);
+                    if (!isNaN(dateObj.getTime())) {
+                        return dateObj.toLocaleTimeString('en-US', { 
+                            hour: '2-digit', 
+                            minute: '2-digit', 
+                            hour12: true 
+                        });
+                    }
+                    
+                    return timeStr;
+                } catch (e) {
+                    return timeStr || '—';
+                }
+            }
+
+            // =============================================
+            // NEW: formatSessionDate - Specifically for session display
+            // =============================================
+            function formatSessionDate(dateStr) {
+                if (!dateStr) return '—';
+                
+                try {
+                    const dateObj = new Date(dateStr);
+                    if (!isNaN(dateObj.getTime())) {
+                        return dateObj.toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                        });
+                    }
+                    return dateStr;
+                } catch (e) {
+                    return dateStr || '—';
+                }
+            }
+
+            // =============================================
+            // NEW: formatSessionTime - Specifically for session display
+            // =============================================
+            function formatSessionTime(timeStr) {
+                if (!timeStr) return '—';
+                
+                try {
+                    const dateObj = new Date(timeStr);
+                    if (!isNaN(dateObj.getTime())) {
+                        return dateObj.toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
+                        });
                     }
                     return timeStr;
                 } catch (e) {
@@ -1139,25 +1228,37 @@
                 const sessionName = currentSession?.name || 'Night BedCheck';
                 
                 // =============================================
-                // FIXED: Use the new format functions with fallbacks
+                // IMPROVED: Use the new format functions with better handling
                 // =============================================
                 let sessionDate = '—';
                 let sessionStart = '—';
                 let sessionEnd = '—';
+                let sessionGrace = '15';
                 
-                if (currentSession?.date) {
-                    sessionDate = formatDate(currentSession.date);
-                } else if (currentSession?.created_at) {
-                    // Fallback to created_at if date is missing
-                    sessionDate = formatDate(currentSession.created_at);
-                }
-                
-                if (currentSession?.start_time) {
-                    sessionStart = formatTimeStr(currentSession.start_time);
-                }
-                
-                if (currentSession?.end_time) {
-                    sessionEnd = formatTimeStr(currentSession.end_time);
+                if (currentSession) {
+                    // Format date - try multiple possible fields
+                    if (currentSession.date) {
+                        sessionDate = formatSessionDate(currentSession.date);
+                    } else if (currentSession.created_at) {
+                        sessionDate = formatSessionDate(currentSession.created_at);
+                    }
+                    
+                    // Format start time
+                    if (currentSession.start_time) {
+                        sessionStart = formatSessionTime(currentSession.start_time);
+                    } else if (currentSession.created_at) {
+                        sessionStart = formatSessionTime(currentSession.created_at);
+                    }
+                    
+                    // Format end time
+                    if (currentSession.end_time) {
+                        sessionEnd = formatSessionTime(currentSession.end_time);
+                    }
+                    
+                    // Get grace period
+                    if (currentSession.grace_period) {
+                        sessionGrace = currentSession.grace_period;
+                    }
                 }
                 
                 const hasSession = globalSessionActive || effectiveStatus !== 'closed';
@@ -1204,8 +1305,8 @@
                             <div class="session-sub">${sessionDisplay.statusText}</div>
                             ${hasSession ? `
                                 <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
-                                    ${sessionDate} · ${sessionStart} — ${sessionEnd}
-                                    <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${currentSession?.grace_period || 15}min</span>
+                                    ${sessionDate} · ${sessionStart} ${sessionEnd !== '—' ? `— ${sessionEnd}` : ''}
+                                    <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${sessionGrace}min</span>
                                 </div>
                             ` : ''}
                         </div>
