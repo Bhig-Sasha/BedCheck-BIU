@@ -1556,7 +1556,7 @@
         }
 
         // =============================================
-        // LOAD SESSION DATA - FIXED
+        // LOAD SESSION DATA - UNIFIED
         // =============================================
         async function loadSessionData() {
             try {
@@ -1565,7 +1565,7 @@
                     return;
                 }
                 
-                // Check global active session first
+                // Check global active session first (UNIFIED)
                 try {
                     const globalSession = await apiCall(`/sessions/active?hostel_id=${assignedHostelId}`);
                     if (globalSession && globalSession.data && globalSession.data.id) {
@@ -1573,9 +1573,18 @@
                         sessionStatus = 'active';
                         currentSession = globalSession.data;
                         console.log(`📋 Global session: active (${currentSession.id})`);
+                    } else {
+                        // No global active session
+                        isSessionActive = false;
+                        sessionStatus = 'draft';
+                        currentSession = null;
+                        console.log('📋 No global active session');
                     }
                 } catch (e) {
                     console.log('No global active session found');
+                    isSessionActive = false;
+                    sessionStatus = 'draft';
+                    currentSession = null;
                 }
                 
                 // Then check RA session status
@@ -1583,71 +1592,61 @@
                     const statusData = await apiCall('/ra/bedcheck/status');
                     
                     if (statusData && statusData.data) {
-                        const sessions = statusData.data.sessions || [];
-                        const active = sessions.find(s => s.status === 'started');
+                        const data = statusData.data;
                         
-                        if (active) {
+                        // Update based on RA status
+                        if (data.effective_status === 'started') {
                             isSessionActive = true;
                             sessionStatus = 'active';
-                            currentSession = active;
-                            console.log(`📋 RA session: active (${active.id})`);
-                        } else if (!isSessionActive) {
-                            const today = new Date().toISOString().split('T')[0];
-                            const completed = sessions.find(s => 
-                                s.status === 'completed' && 
-                                s.completed_at && 
-                                s.completed_at.startsWith(today)
-                            );
-                            
-                            if (completed) {
-                                sessionStatus = 'completed';
-                                isSessionActive = false;
-                                currentSession = completed;
-                                console.log(`📋 Session: completed`);
+                            // Find the active session
+                            const active = data.sessions?.find(s => s.status === 'started');
+                            if (active) currentSession = active;
+                        } else if (data.effective_status === 'completed') {
+                            isSessionActive = false;
+                            sessionStatus = 'completed';
+                        } else if (data.effective_status === 'ready') {
+                            isSessionActive = true;
+                            sessionStatus = 'active';
+                        } else {
+                            // If no RA session but global is active
+                            if (isSessionActive && sessionStatus === 'active') {
+                                // Keep global active status
                             } else {
-                                const draft = sessions.find(s => s.status === 'draft');
-                                if (draft) {
-                                    sessionStatus = 'draft';
-                                    isSessionActive = false;
-                                    currentSession = draft;
-                                } else {
-                                    sessionStatus = 'draft';
-                                    isSessionActive = false;
-                                    currentSession = null;
+                                isSessionActive = false;
+                                sessionStatus = 'draft';
+                            }
+                        }
+                        
+                        // Get scans if there's a session
+                        if (currentSession && currentSession.id) {
+                            try {
+                                const scansData = await apiCall(`/bedcheck/scans?session_id=${currentSession.id}`);
+                                if (scansData && scansData.data) {
+                                    scansData.data.forEach(scan => {
+                                        if (scan.status === 'Verified' || scan.status === 'Present') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: true,
+                                                status: 'Verified',
+                                                time: scan.created_at,
+                                                confidence: scan.metadata?.confidence || null
+                                            };
+                                        } else if (scan.status === 'Absent') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: false,
+                                                status: 'Absent',
+                                                time: scan.created_at
+                                            };
+                                        }
+                                    });
                                 }
-                                console.log(`📋 Session: draft`);
+                            } catch (scanError) {
+                                console.warn('Could not fetch scans:', scanError);
                             }
                         }
                     }
                 } catch (e) {
                     console.warn('RA session status unavailable:', e.message);
-                }
-                
-                // Get scans for the session
-                if (currentSession && currentSession.id) {
-                    try {
-                        const scansData = await apiCall(`/bedcheck/scans?session_id=${currentSession.id}`);
-                        if (scansData && scansData.data) {
-                            scansData.data.forEach(scan => {
-                                if (scan.status === 'Verified' || scan.status === 'Present') {
-                                    bedScanStatus[scan.student_id] = {
-                                        verified: true,
-                                        status: 'Verified',
-                                        time: scan.created_at,
-                                        confidence: scan.metadata?.confidence || null
-                                    };
-                                } else if (scan.status === 'Absent') {
-                                    bedScanStatus[scan.student_id] = {
-                                        verified: false,
-                                        status: 'Absent',
-                                        time: scan.created_at
-                                    };
-                                }
-                            });
-                        }
-                    } catch (scanError) {
-                        console.warn('Could not fetch scans:', scanError);
-                    }
+                    // Keep global session status if active
                 }
                 
                 console.log(`📋 Final session status: ${sessionStatus}, active: ${isSessionActive}`);
@@ -2075,7 +2074,7 @@
                 updateHeader();
                 buildRoomStructure();
 
-                // Load session data using existing endpoints
+                // Load session data using unified endpoints
                 await loadSessionData();
 
                 if (availableRooms.length > 0 && !currentRoom) {

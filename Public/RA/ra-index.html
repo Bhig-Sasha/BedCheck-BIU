@@ -418,6 +418,7 @@
             let hasLoadedRooms = false;
             let bedScanStatus = {};
             let timeline = [];
+            let globalSessionData = null;
 
             // =============================================
             // API HELPER
@@ -568,17 +569,58 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS - USING SERVER RESPONSE
+            // LOAD GLOBAL SESSION (Unified)
+            // =============================================
+            async function loadGlobalSession() {
+                try {
+                    const data = await apiCall('/sessions/active');
+                    if (data && data.data) {
+                        globalSessionData = data.data;
+                        globalSessionActive = true;
+                        currentSession = data.data;
+                        console.log('📋 Global session active:', data.data.id, data.data.name);
+                        return data.data;
+                    } else {
+                        globalSessionData = null;
+                        globalSessionActive = false;
+                        currentSession = null;
+                        return null;
+                    }
+                } catch (error) {
+                    console.warn('No active global session:', error.message);
+                    globalSessionData = null;
+                    globalSessionActive = false;
+                    currentSession = null;
+                    return null;
+                }
+            }
+
+            // =============================================
+            // LOAD SESSION STATUS - UNIFIED
             // =============================================
             async function loadSessionStatus() {
                 try {
+                    // First check global session
+                    const global = await loadGlobalSession();
+                    
+                    if (!global) {
+                        // No global session active
+                        sessionStatus = 'draft';
+                        isSessionActive = false;
+                        isRASessionActive = false;
+                        globalSessionActive = false;
+                        hasCompletedToday = false;
+                        effectiveStatus = 'draft';
+                        return null;
+                    }
+
+                    // Check RA's session status
                     const statusData = await apiCall('/ra/bedcheck/status');
                     
                     if (statusData && statusData.data) {
                         const data = statusData.data;
                         
                         // Set state from the server response
-                        globalSessionActive = data.global_session_active || false;
                         isRASessionActive = data.ra_session_active || false;
                         isSessionActive = data.has_active_session || false;
                         hasCompletedToday = data.has_completed_today || false;
@@ -606,6 +648,8 @@
                         // Store the session data
                         if (data.active_session) {
                             currentSession = data.active_session;
+                        } else if (global) {
+                            currentSession = global;
                         }
                         
                         // Update bedScanStatus from sessions
@@ -642,7 +686,19 @@
                         return data;
                     }
                     
-                    // Fallback - no data
+                    // Fallback - if global session active but no RA status
+                    if (global) {
+                        sessionStatus = 'active';
+                        isSessionActive = true;
+                        globalSessionActive = true;
+                        isRASessionActive = false;
+                        hasCompletedToday = false;
+                        effectiveStatus = 'ready';
+                        currentSession = global;
+                        return { effective_status: 'ready' };
+                    }
+                    
+                    // No data
                     sessionStatus = 'draft';
                     isSessionActive = false;
                     return null;
@@ -768,7 +824,7 @@
             }
 
             // =============================================
-            // START BEDCHECK SESSION
+            // START BEDCHECK SESSION - UNIFIED
             // =============================================
             async function startBedCheck() {
                 if (isRASessionActive) {
@@ -824,7 +880,7 @@
             }
 
             // =============================================
-            // COMPLETE BEDCHECK SESSION
+            // COMPLETE BEDCHECK SESSION - UNIFIED
             // =============================================
             async function completeBedCheck() {
                 if (!isRASessionActive) {
@@ -911,7 +967,7 @@
                     if (hraStaff) hraName = hraStaff.name;
                 }
 
-                // Session status display
+                // Session status display - UNIFIED
                 let sessionStatusDisplay = 'Inactive';
                 let statusClass = '';
                 let statusIcon = 'fa-pause-circle';
@@ -964,6 +1020,9 @@
                                 <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
                                     <i class="fas fa-door-open"></i> ${assignedRooms.length} rooms
                                 </span>
+                                ${globalSessionActive ? `<span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b;color:#10233f;">
+                                    <i class="fas fa-globe"></i> Session Active
+                                </span>` : ''}
                             </p>
                         </div>
                         <div class="action-group">
@@ -1388,7 +1447,7 @@
                     // Load students
                     await loadStudents();
 
-                    // Load session status using existing endpoints
+                    // Load session status (unified)
                     await loadSessionStatus();
 
                     updateHeader();
