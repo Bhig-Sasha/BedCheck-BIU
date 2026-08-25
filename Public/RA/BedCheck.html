@@ -835,7 +835,7 @@
 
     <canvas id="captureCanvas"></canvas>
 
-    <script>
+<script>
     (function() {
         'use strict';
 
@@ -907,24 +907,81 @@
             return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         }
 
-        function formatTime(date) {
-            if (!date) return '—';
-            const d = new Date(date);
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-        }
+        function now() { return new Date().toISOString(); }
 
-        function formatDate(dateStr) {
-            if (!dateStr) return '—';
+        // =============================================
+        // PROPER DATE FORMATTING FOR YOUR TABLE
+        // =============================================
+        function formatDateFromDB(dateStr) {
+            if (!dateStr) return '';
             try {
+                // If it's already a string in YYYY-MM-DD format
+                if (typeof dateStr === 'string' && dateStr.includes('-')) {
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                        const year = parseInt(parts[0]);
+                        const month = parseInt(parts[1]) - 1;
+                        const day = parseInt(parts[2]);
+                        if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+                            const d = new Date(year, month, day);
+                            if (!isNaN(d.getTime())) {
+                                return d.toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                });
+                            }
+                        }
+                    }
+                }
+                // Try parsing as Date object
                 const d = new Date(dateStr);
-                if (isNaN(d.getTime())) return dateStr;
-                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                if (!isNaN(d.getTime())) {
+                    return d.toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                    });
+                }
+                return '';
             } catch (e) {
-                return dateStr;
+                return '';
             }
         }
 
-        function now() { return new Date().toISOString(); }
+        function formatTimeFromDB(timeStr) {
+            if (!timeStr) return '';
+            try {
+                if (typeof timeStr === 'string' && timeStr.includes(':')) {
+                    const parts = timeStr.split(':');
+                    if (parts.length >= 2) {
+                        const hour = parseInt(parts[0]);
+                        const minute = parseInt(parts[1]);
+                        if (!isNaN(hour) && !isNaN(minute)) {
+                            const ampm = hour >= 12 ? 'PM' : 'AM';
+                            const hour12 = hour % 12 || 12;
+                            return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+                        }
+                    }
+                }
+                return '';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function formatTimestampForDisplay(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const d = new Date(timestamp);
+                if (!isNaN(d.getTime())) {
+                    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                }
+                return '';
+            } catch (e) {
+                return '';
+            }
+        }
 
         // =============================================
         // AUTHENTICATED API HELPER
@@ -988,7 +1045,6 @@
                 });
                 
                 if (!response.ok) {
-                    console.warn('Face API health check failed:', response.status);
                     isApiHealthy = false;
                 } else {
                     const data = await response.json();
@@ -998,10 +1054,8 @@
                         data.circuit_breaker !== 'open' &&
                         (status === 'running' || status === 'healthy')
                     );
-                    console.log(`📡 Face API: ${isApiHealthy ? '✅ Healthy' : '⚠️ Unhealthy'}`);
                 }
             } catch (error) {
-                console.warn('Face API health check error:', error.message);
                 isApiHealthy = false;
             }
             apiHealthChecked = true;
@@ -1010,7 +1064,6 @@
 
         // Verify face through backend - embedding stays on server
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
-            // Send the FULL data URL. Backend validateImage() requires data:image/jpeg;base64,...
             const result = await apiCall('/face/verify', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -1065,11 +1118,10 @@
                 }
             } catch (e) {
                 // FaceDetector not supported or error - silently fall through
-                console.debug('Native FaceDetector not available:', e.message);
             }
 
             // Fallback: no face detection from browser, just show ready state
-            modalFaceDetected = true; // Allow verification to proceed
+            modalFaceDetected = true;
             document.getElementById('modalFaceGuide').className = 'face-guide';
             document.getElementById('modalCameraStatus').textContent = 'Camera ready — tap Start Verification';
             document.getElementById('statusDot').className = 'status-dot-live';
@@ -1708,7 +1760,7 @@
         }
 
         // =============================================
-        // RENDER BEDCHECK - No "University-Wide", No "Invalid Date"
+        // RENDER BEDCHECK - PROPER DATE/TIME FORMATTING
         // =============================================
         function renderBedCheck() {
             const container = document.getElementById('screenContent');
@@ -1772,42 +1824,41 @@
             const hostelDisplay = assignedHostelName || 'Your Hostel';
             const raName = currentUser?.name || 'RA';
 
-            // Session info - ONLY show when valid data exists
+            // =============================================
+            // PROPER DATE/TIME FORMATTING FOR YOUR TABLE
+            // =============================================
             const sessionName = currentSession?.name || 'Night BedCheck';
             
-            // Only set date/time if they are valid (not null, not "Invalid Date")
-            let sessionDate = '';
-            let sessionStart = '';
-            let sessionEnd = '';
-            let gracePeriod = '';
+            // Format date from your DATE column (YYYY-MM-DD)
+            const sessionDate = currentSession?.date ? formatDateFromDB(currentSession.date) : '';
             
-            if (currentSession?.date && currentSession.date !== 'Invalid Date') {
-                const formatted = formatDate(currentSession.date);
-                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
-                    sessionDate = formatted;
-                }
+            // Format time from your TIME columns (HH:MM:SS)
+            const sessionStart = currentSession?.start_time ? formatTimeFromDB(currentSession.start_time) : '';
+            const sessionEnd = currentSession?.end_time ? formatTimeFromDB(currentSession.end_time) : '';
+            
+            // Get grace period from your INT4 column
+            const gracePeriod = currentSession?.grace_period || '';
+            
+            // Build session info parts - ONLY if valid
+            let sessionInfoParts = [];
+            if (sessionDate) sessionInfoParts.push(sessionDate);
+            
+            let timePart = '';
+            if (sessionStart && sessionEnd) {
+                timePart = `${sessionStart} — ${sessionEnd}`;
+            } else if (sessionStart) {
+                timePart = sessionStart;
+            } else if (sessionEnd) {
+                timePart = sessionEnd;
+            }
+            if (timePart) sessionInfoParts.push(timePart);
+            
+            if (gracePeriod) {
+                sessionInfoParts.push(`<i class="fas fa-clock"></i> Grace: ${gracePeriod}min`);
             }
             
-            if (currentSession?.start_time && currentSession.start_time !== 'Invalid Date') {
-                const formatted = formatTime(currentSession.start_time);
-                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
-                    sessionStart = formatted;
-                }
-            }
-            
-            if (currentSession?.end_time && currentSession.end_time !== 'Invalid Date') {
-                const formatted = formatTime(currentSession.end_time);
-                if (formatted && formatted !== 'Invalid Date' && formatted !== '—') {
-                    sessionEnd = formatted;
-                }
-            }
-            
-            if (currentSession?.grace_period && currentSession.grace_period !== 'Invalid Date') {
-                gracePeriod = currentSession.grace_period;
-            }
-            
-            // Only show session info if we have at least one valid piece of data
-            const hasValidSessionData = sessionDate || sessionStart || sessionEnd || gracePeriod;
+            const sessionInfoHtml = sessionInfoParts.length > 0 ? sessionInfoParts.join(' · ') : '';
+            const hasValidSessionData = sessionInfoParts.length > 0;
             const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
             // Build room list HTML
@@ -1874,7 +1925,7 @@
                     const statusLabel = isVerified ? '✓ Verified' : 'Pending';
                     const bedLabel = getStudentBed(s.id) || '—';
                     const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
-                    const verifiedTime = scan?.time ? formatTime(scan.time) : '';
+                    const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                     const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
 
                     return `
@@ -1906,7 +1957,7 @@
             }
 
             container.innerHTML = `
-                <!-- Night Session Banner - NO "University-Wide" -->
+                <!-- Night Session Banner -->
                 <div class="session-banner ${effectiveStatus === 'started' ? 'active' : effectiveStatus === 'completed' || hasCompletedToday ? 'completed' : 'draft'}">
                     <div class="session-icon">🌙</div>
                     <div class="session-info">
@@ -1914,8 +1965,7 @@
                         <div class="session-sub">${sessionDisplay.statusText}</div>
                         ${hasValidSessionData && hasSession ? `
                             <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
-                                ${sessionDate ? sessionDate : ''}${sessionDate && (sessionStart || sessionEnd) ? ' · ' : ''}${sessionStart ? sessionStart : ''}${sessionStart && sessionEnd ? ' — ' : ''}${sessionEnd ? sessionEnd : ''}
-                                ${gracePeriod ? `<span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${gracePeriod}min</span>` : ''}
+                                ${sessionInfoHtml}
                             </div>
                         ` : ''}
                     </div>
@@ -2237,7 +2287,7 @@
         }
 
     })();
-    </script>
+</script>
 
 </body>
 </html>
