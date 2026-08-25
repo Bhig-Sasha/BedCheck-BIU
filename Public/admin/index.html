@@ -423,6 +423,11 @@
                     }
                     
                     if (!response.ok) {
+                        // For 500 errors on submission, return a default instead of throwing
+                        if (response.status === 500 && endpoint === '/submission') {
+                            console.warn('Submission endpoint returned 500, using defaults');
+                            return { success: true, data: { state: 'Open', notice: 'Default notice' } };
+                        }
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
                     }
@@ -564,6 +569,7 @@
                     submissionState = data.data?.state || 'Open';
                     return submissionState;
                 } catch (error) {
+                    console.warn('Failed to load submission state:', error.message);
                     submissionState = 'Open';
                     return submissionState;
                 }
