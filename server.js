@@ -5848,11 +5848,9 @@ app.get('/api/sessions',
             const limit = Math.min(parseInt(req.query.limit) || 50, 100);
             const offset = parseInt(req.query.offset) || 0;
             
-            // ✅ FIX: No campus filter on sessions
             const { data: sessions, error, count } = await supabase
                 .from('sessions')
                 .select('*', { count: 'exact' })
-                // REMOVED: .eq('campus', req.campus || 'Legacy')
                 .order('date', { ascending: false })
                 .range(offset, offset + limit - 1);
             
@@ -5945,7 +5943,6 @@ app.get('/api/sessions/:id',
                 .from('sessions')
                 .select('*')
                 .eq('id', id)
-                // REMOVED: .eq('campus', campusContext)
                 .single();
             
             if (sessionError || !session) {
@@ -6456,12 +6453,10 @@ app.get('/api/sessions/active',
         try {
             const campusContext = req.campus || 'Legacy';
 
-            // ✅ FIX: Get active session WITHOUT campus filter
             const { data: session, error } = await supabase
                 .from('sessions')
                 .select('*')
                 .eq('status', 'active')
-                // REMOVED: .eq('campus', req.campus || 'Legacy')
                 .order('date', { ascending: false })
                 .limit(1)
                 .maybeSingle();
@@ -6571,11 +6566,9 @@ app.get('/api/sessions/stats',
         try {
             const campusContext = req.campus || 'Legacy';
 
-            // ✅ FIX: Get ALL sessions WITHOUT campus filter
             const { data: sessions, error } = await supabase
                 .from('sessions')
                 .select('status, date')
-                // REMOVED: .eq('campus', req.campus || 'Legacy')
                 .order('date', { ascending: false });
 
             if (error) throw error;
@@ -6630,11 +6623,9 @@ app.get('/api/sessions/hostel/:hostelId',
                 });
             }
 
-            // ✅ Get ALL sessions (no campus filter)
             const { data: sessions, error: sessionsError } = await supabase
                 .from('sessions')
                 .select('*')
-                // REMOVED: .eq('campus', campusContext)
                 .order('date', { ascending: false });
 
             if (sessionsError) throw sessionsError;
@@ -6774,7 +6765,6 @@ app.get('/api/sessions/latest',
             const { data: session, error } = await supabase
                 .from('sessions')
                 .select('*')
-                // REMOVED: .eq('campus', req.campus || 'Legacy')
                 .order('date', { ascending: false })
                 .order('created_at', { ascending: false })
                 .limit(1)
