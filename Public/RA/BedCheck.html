@@ -840,10 +840,10 @@
         'use strict';
 
         // =============================================
-        // API CONFIGURATION
+        // API CONFIGURATION - ALL FACE API CALLS GO THROUGH BACKEND
         // =============================================
         const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-        const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
+        // DO NOT call Face API directly from browser - use backend proxy
 
         // =============================================
         // STATE
@@ -884,10 +884,12 @@
         let modalFaceDetected = false;
         let captureInterval = null;
         let isFaceDetectionRunning = false;
-        let studentEmbeddingCache = {};
         let cameraFacingMode = 'user';
         let isApiHealthy = false;
         let apiHealthChecked = false;
+
+        // Browser FaceDetector (Chrome/Edge only, falls back gracefully)
+        let faceDetector = null;
 
         // =============================================
         // HELPERS
@@ -974,146 +976,105 @@
         }
 
         // =============================================
-        // FACE API FUNCTIONS
+        // FACE API FUNCTIONS - ALL THROUGH BACKEND
         // =============================================
+
         async function checkFaceApiHealth() {
             try {
-                const response = await fetch(`${FACE_API_URL}/health`, {
-                    signal: AbortSignal.timeout(5000)
+                const token = sessionStorage.getItem('bedcheck_token');
+                const response = await fetch(`${API_BASE_URL}/face/health`, {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                    signal: AbortSignal.timeout(15000)
                 });
-                if (response.ok) {
-                    const data = await response.json();
-                    isApiHealthy = data.status === 'running' || data.status === 'healthy';
-                } else {
+                
+                if (!response.ok) {
+                    console.warn('Face API health check failed:', response.status);
                     isApiHealthy = false;
+                } else {
+                    const data = await response.json();
+                    const status = data.data?.status || data.status;
+                    isApiHealthy = !!(
+                        data.success &&
+                        data.circuit_breaker !== 'open' &&
+                        (status === 'running' || status === 'healthy')
+                    );
+                    console.log(`📡 Face API: ${isApiHealthy ? '✅ Healthy' : '⚠️ Unhealthy'}`);
                 }
             } catch (error) {
+                console.warn('Face API health check error:', error.message);
                 isApiHealthy = false;
             }
             apiHealthChecked = true;
             return isApiHealthy;
         }
 
-        async function getStudentEmbedding(studentId) {
-            if (studentEmbeddingCache[studentId]) {
-                return studentEmbeddingCache[studentId];
-            }
-
-            try {
-                const result = await apiCall(`/students/${studentId}/face-status`);
-                
-                let embedding = null;
-                if (result && result.data && result.data.face_embedding) {
-                    embedding = result.data.face_embedding;
-                }
-                
-                if (embedding && Array.isArray(embedding) && embedding.length > 0) {
-                    studentEmbeddingCache[studentId] = embedding;
-                    return embedding;
-                } else {
-                    throw new Error(`No face embedding found for student ${studentId}`);
-                }
-            } catch (error) {
-                console.error('Error fetching student embedding:', error);
-                throw error;
-            }
-        }
-
+        // Verify face through backend - embedding stays on server
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
-            try {
-                const base64Image = imageDataUrl.split(',')[1];
-                
-                const storedEmbedding = await getStudentEmbedding(studentId);
+            // Send the FULL data URL. Backend validateImage() requires data:image/jpeg;base64,...
+            const result = await apiCall('/face/verify', {
+                method: 'POST',
+                body: JSON.stringify({
+                    image: imageDataUrl,
+                    student_id: studentId,
+                    threshold: 0.55
+                })
+            });
 
-                const response = await fetch(`${FACE_API_URL}/verify-face`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        image: base64Image,
-                        stored_embedding: storedEmbedding,
-                        threshold: 0.55
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API Error ${response.status}: ${errorText}`);
-                }
-
-                const result = await response.json();
-                
-                return {
-                    success: result.success || result.verified || false,
-                    verified: result.verified || result.success || false,
-                    confidence: result.confidence || result.score || 0,
-                    reason: result.reason || result.message || null,
-                    threshold: result.threshold || 0.55
-                };
-            } catch (error) {
-                console.error('❌ Face verification API error:', error);
-                throw error;
-            }
+            const verified = !!(result.data && result.data.verified);
+            return {
+                success: verified,
+                verified,
+                confidence: result.data?.confidence || 0,
+                reason: result.data?.message || null,
+                threshold: result.data?.threshold || 0.55
+            };
         }
 
+        // Detect face using browser's built-in FaceDetector (Chrome/Edge)
+        // This is ONLY for the live preview overlay - verification still goes through backend
         async function detectFaceWithAPI(video) {
             try {
-                const imageDataUrl = captureFrame(video);
-                const base64Image = imageDataUrl.split(',')[1];
-
-                const response = await fetch(`${FACE_API_URL}/detect-face`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        image: base64Image
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Face detection API error: ${response.status} - ${errorText}`);
-                }
-
-                const result = await response.json();
-                
-                if (result.detected || (result.faces && result.faces.length > 0)) {
-                    modalFaceDetected = true;
-                    document.getElementById('modalFaceGuide').className = 'face-guide detected';
-                    document.getElementById('modalCameraStatus').textContent = '✅ Face detected';
-                    document.getElementById('statusDot').className = 'status-dot-live';
-                    document.getElementById('faceInstruction').classList.add('hidden');
-                    
-                    if (result.bbox || (result.faces && result.faces[0] && result.faces[0].bbox)) {
-                        const bbox = result.bbox || result.faces[0].bbox;
+                // Try native FaceDetector API (Chrome 70+, Edge 79+)
+                if ('FaceDetector' in window) {
+                    if (!faceDetector) {
+                        faceDetector = new FaceDetector({
+                            fastMode: true,
+                            maxDetectedFaces: 1
+                        });
+                    }
+                    const faces = await faceDetector.detect(video);
+                    if (faces && faces.length > 0) {
+                        modalFaceDetected = true;
+                        document.getElementById('modalFaceGuide').className = 'face-guide detected';
+                        document.getElementById('modalCameraStatus').textContent = '✅ Face detected';
+                        document.getElementById('statusDot').className = 'status-dot-live';
+                        document.getElementById('faceInstruction').classList.add('hidden');
+                        
+                        // Show a simple bounding box approximation
                         const faceBox = document.getElementById('modalFaceBox');
                         faceBox.style.display = 'block';
                         faceBox.className = 'face-box scanning';
-                        faceBox.style.left = (bbox[0] * 100) + '%';
-                        faceBox.style.top = (bbox[1] * 100) + '%';
-                        faceBox.style.width = (bbox[2] * 100) + '%';
-                        faceBox.style.height = (bbox[3] * 100) + '%';
+                        faceBox.style.left = '25%';
+                        faceBox.style.top = '20%';
+                        faceBox.style.width = '50%';
+                        faceBox.style.height = '55%';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `🔍 Scanning...`;
+                        if (label) label.textContent = '🔍 Face detected';
+                        return;
                     }
-                } else {
-                    modalFaceDetected = false;
-                    document.getElementById('modalFaceGuide').className = 'face-guide';
-                    document.getElementById('modalCameraStatus').textContent = '😊 No face detected';
-                    document.getElementById('statusDot').className = 'status-dot-live inactive';
-                    document.getElementById('faceInstruction').classList.remove('hidden');
-                    document.getElementById('modalFaceBox').style.display = 'none';
                 }
-            } catch (error) {
-                console.error('Face detection error:', error);
-                modalFaceDetected = false;
-                document.getElementById('modalFaceGuide').className = 'face-guide';
-                document.getElementById('modalCameraStatus').textContent = '⚠️ Detection error';
-                document.getElementById('statusDot').className = 'status-dot-live error';
-                document.getElementById('modalFaceBox').style.display = 'none';
+            } catch (e) {
+                // FaceDetector not supported or error - silently fall through
+                console.debug('Native FaceDetector not available:', e.message);
             }
+
+            // Fallback: no face detection from browser, just show ready state
+            modalFaceDetected = true; // Allow verification to proceed
+            document.getElementById('modalFaceGuide').className = 'face-guide';
+            document.getElementById('modalCameraStatus').textContent = 'Camera ready — tap Start Verification';
+            document.getElementById('statusDot').className = 'status-dot-live';
+            document.getElementById('faceInstruction').classList.remove('hidden');
+            document.getElementById('modalFaceBox').style.display = 'none';
         }
 
         function captureFrame(video) {
@@ -1178,7 +1139,7 @@
                     video.srcObject = stream;
                     await video.play();
 
-                    document.getElementById('modalCameraStatus').textContent = 'Camera ready - detecting face...';
+                    document.getElementById('modalCameraStatus').textContent = 'Camera ready — detecting face...';
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.remove('hidden');
                     
@@ -1192,7 +1153,7 @@
                                 // Silent fail - retry
                             }
                         }
-                    }, 600);
+                    }, 800);
                 }
             } catch (error) {
                 console.error('Modal camera error:', error);
@@ -1266,9 +1227,10 @@
 
             document.getElementById('verifyModal').classList.add('show');
 
+            // Check Face API health through backend
             checkFaceApiHealth().then(() => {
                 if (!isApiHealthy) {
-                    showToast('⚠️ Verification service is offline. Please try again later.', 'error');
+                    showToast('⚠️ Face verification service is offline. Please try again later.', 'error');
                 }
                 setTimeout(() => {
                     startModalCamera();
@@ -1301,7 +1263,7 @@
             }
 
             if (!isApiHealthy) {
-                showToast('⚠️ Verification service is offline. Please try again.', 'error');
+                showToast('⚠️ Face verification service is offline. Please try again later.', 'error');
                 return;
             }
 
@@ -1344,6 +1306,7 @@
                     if (label) label.textContent = '🔍 Verifying...';
                 }
 
+                // Call backend /face/verify endpoint
                 const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
                 
                 if (!result) {
@@ -1612,7 +1575,7 @@
         }
 
         // =============================================
-        // LOAD SESSION DATA - CLEAN NIGHT SESSION
+        // LOAD SESSION DATA
         // =============================================
         async function loadSessionData() {
             try {
@@ -1745,7 +1708,7 @@
         }
 
         // =============================================
-        // RENDER BEDCHECK - CLEAN UI
+        // RENDER BEDCHECK
         // =============================================
         function renderBedCheck() {
             const container = document.getElementById('screenContent');
@@ -1880,7 +1843,7 @@
                 roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
             }
 
-            // Build student cards - removed the pending warning message
+            // Build student cards
             let studentCardsHtml = '';
             if (currentRoom && roomStudents.length > 0) {
                 studentCardsHtml = roomStudents.map(s => {
@@ -2163,6 +2126,7 @@
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
+            // Check Face API health through backend first
             await checkFaceApiHealth();
 
             try {
@@ -2229,7 +2193,8 @@
                 // Start session checker
                 startSessionChecker();
 
-                setInterval(checkFaceApiHealth, 30000);
+                // Check Face API health periodically
+                setInterval(checkFaceApiHealth, 60000);
 
             } catch (error) {
                 console.error('Init error:', error);
