@@ -138,6 +138,8 @@
         .badge-assigned { background: #d6ad4b; color: #10233f; }
         .badge-floor { background: #e7edf5; color: #24466f; }
         .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-global { background: #10233f; color: white; }
+        .badge-university { background: #d6ad4b; color: #10233f; border: 1px solid #c49a2a; }
 
         .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
         @media (max-width: 480px) { .toast { bottom: 1rem; right: 1rem; left: 1rem; max-width: none; padding: 0.75rem 1rem; font-size: 0.85rem; } }
@@ -200,6 +202,21 @@
         .session-banner .status-badge.inactive { background: #e8edf2; color: #536274; }
         .session-banner .status-badge.draft { background: #fff0cb; color: #8a6413; }
         .session-banner .status-badge.completed { background: #2d6545; color: white; }
+        .session-banner .status-badge.global { background: #10233f; color: white; }
+
+        .general-session-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.15rem 0.6rem;
+            background: #d6ad4b20;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #10233f;
+            border: 1px solid #d6ad4b;
+        }
+        .general-session-badge i { color: #d6ad4b; font-size: 0.5rem; }
 
         /* ----- PROGRESS CARDS ----- */
         .progress-grid {
@@ -642,6 +659,34 @@
         .mt-4 { margin-top: 1.25rem; }
         .p-2 { padding: 0.5rem; }
         .p-4 { padding: 1rem; }
+
+        .session-info-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+            border: 1px solid #ded6c9;
+            font-size: 0.8rem;
+            align-items: center;
+        }
+        .session-info-bar .label { color: #6b778b; }
+        .session-info-bar .value { font-weight: 600; }
+        .session-info-bar .general-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.1rem 0.5rem;
+            background: #d6ad4b20;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #10233f;
+            border: 1px solid #d6ad4b;
+        }
+        .session-info-bar .general-badge i { color: #d6ad4b; font-size: 0.5rem; }
     </style>
 </head>
 <body>
@@ -821,6 +866,10 @@
         let availableRooms = [];
         let sessionData = null;
         let isSessionActive = false;
+        let isRASessionActive = false;
+        let globalSessionActive = false;
+        let hasCompletedToday = false;
+        let effectiveStatus = 'draft';
         let sessionStatus = 'draft';
         let currentSession = null;
         let currentRoom = null;
@@ -828,6 +877,7 @@
         let bedScanStatus = {};
         let completedRooms = [];
         let roomStructure = {};
+        let sessionCheckerInterval = null;
 
         // Face verification modal state
         let selectedStudent = null;
@@ -863,10 +913,33 @@
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
         }
 
+        function formatDate(dateStr) {
+            if (!dateStr) return '—';
+            try {
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return dateStr;
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
         function now() { return new Date().toISOString(); }
 
         function addDebugLog(message) {
             console.log('[DEBUG]', message);
+        }
+
+        function getStatusDisplay(status) {
+            const map = {
+                'active': { label: 'Active', icon: '🟢', badge: 'badge-active' },
+                'scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-draft' },
+                'completed': { label: 'Completed', icon: '✅', badge: 'badge-verified' },
+                'draft': { label: 'Draft', icon: '⏳', badge: 'badge-draft' },
+                'ready': { label: 'Ready', icon: '🟡', badge: 'badge-active' },
+                'started': { label: 'Started', icon: '🟢', badge: 'badge-active' }
+            };
+            return map[status] || map['draft'];
         }
 
         // =============================================
@@ -1200,6 +1273,21 @@
                 return;
             }
 
+            if (!isSessionActive) {
+                showToast('⚠️ No active session. Please wait for session to start.', 'error');
+                return;
+            }
+
+            if (isVerifying) {
+                showToast('Verification in progress...', 'info');
+                return;
+            }
+
+            if (bedScanStatus[student.id]?.verified) {
+                showToast(`${student.name} is already verified!`, 'info');
+                return;
+            }
+
             selectedStudent = student;
             document.getElementById('modalStudentName').textContent = student.name;
             document.getElementById('modalStudentDetails').textContent =
@@ -1241,6 +1329,7 @@
                 captureInterval = null;
             }
             isFaceDetectionRunning = false;
+            isVerifying = false;
         };
 
         window.startVerification = function() {
@@ -1325,6 +1414,27 @@
                         method: 'face-recognition',
                         confidence: confidencePercent
                     };
+
+                    // Record the scan
+                    try {
+                        await apiCall('/bedcheck/scans', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                session_id: currentSession?.id || null,
+                                student_id: student.id,
+                                room: currentRoom || student.room_code,
+                                status: 'Verified',
+                                scanner_id: 'Face-001',
+                                metadata: {
+                                    method: 'face-recognition',
+                                    confidence: confidencePercent,
+                                    ra_id: currentUser?.id
+                                }
+                            })
+                        });
+                    } catch (scanError) {
+                        console.warn('Could not record scan:', scanError);
+                    }
 
                     showToast(`✅ ${student.name} verified`, 'success');
                     addDebugLog(`✅ ${student.name} verified successfully!`);
@@ -1556,7 +1666,7 @@
         }
 
         // =============================================
-        // LOAD SESSION DATA - UNIFIED
+        // LOAD SESSION DATA - UNIVERSITY-WIDE
         // =============================================
         async function loadSessionData() {
             try {
@@ -1565,100 +1675,135 @@
                     return;
                 }
                 
-                // Check global active session first (UNIFIED)
+                // 1. Check global active session (UNIVERSITY-WIDE - NO CAMPUS FILTER)
                 try {
-                    // Don't pass any parameters - server uses campus from token
                     const globalSession = await apiCall('/sessions/active');
                     if (globalSession && globalSession.data && globalSession.is_active) {
-                        isSessionActive = true;
-                        sessionStatus = 'active';
+                        globalSessionActive = true;
                         currentSession = globalSession.data;
                         console.log(`📋 Global session: active (${currentSession.id})`);
                     } else {
-                        // No global active session
-                        isSessionActive = false;
-                        sessionStatus = 'draft';
+                        globalSessionActive = false;
                         currentSession = null;
                         console.log('📋 No global active session');
                     }
                 } catch (e) {
                     console.log('No global active session found');
-                    isSessionActive = false;
-                    sessionStatus = 'draft';
+                    globalSessionActive = false;
                     currentSession = null;
                 }
                 
-                // Then check RA session status
+                // 2. Check RA session status
                 try {
                     const statusData = await apiCall('/ra/bedcheck/status');
                     
                     if (statusData && statusData.data) {
                         const data = statusData.data;
                         
-                        // Update based on RA status
-                        if (data.effective_status === 'started') {
-                            isSessionActive = true;
+                        effectiveStatus = data.effective_status || 'draft';
+                        isRASessionActive = data.ra_session_active || false;
+                        hasCompletedToday = data.has_completed_today || false;
+                        
+                        // Determine session status
+                        if (effectiveStatus === 'started') {
                             sessionStatus = 'active';
-                            // Find the active session
-                            const active = data.sessions?.find(s => s.status === 'started');
-                            if (active) currentSession = active;
-                        } else if (data.effective_status === 'completed') {
-                            isSessionActive = false;
+                            isSessionActive = true;
+                            isRASessionActive = true;
+                        } else if (effectiveStatus === 'ready') {
+                            sessionStatus = 'active';
+                            isSessionActive = true;
+                            isRASessionActive = false;
+                            globalSessionActive = true;
+                        } else if (effectiveStatus === 'completed') {
                             sessionStatus = 'completed';
-                        } else if (data.effective_status === 'ready') {
-                            isSessionActive = true;
+                            isSessionActive = false;
+                            hasCompletedToday = true;
+                        } else if (globalSessionActive) {
                             sessionStatus = 'active';
+                            isSessionActive = true;
+                            globalSessionActive = true;
                         } else {
-                            // If no RA session but global is active
-                            if (isSessionActive && sessionStatus === 'active') {
-                                // Keep global active status
-                            } else {
-                                isSessionActive = false;
-                                sessionStatus = 'draft';
-                            }
+                            sessionStatus = 'draft';
+                            isSessionActive = false;
                         }
                         
                         // Get scans if there's a session
-                        if (currentSession && currentSession.id) {
-                            try {
-                                const scansData = await apiCall(`/bedcheck/scans?session_id=${currentSession.id}`);
-                                if (scansData && scansData.data) {
-                                    scansData.data.forEach(scan => {
-                                        if (scan.status === 'Verified' || scan.status === 'Present') {
-                                            bedScanStatus[scan.student_id] = {
-                                                verified: true,
-                                                status: 'Verified',
-                                                time: scan.created_at,
-                                                confidence: scan.metadata?.confidence || null
-                                            };
-                                        } else if (scan.status === 'Absent') {
-                                            bedScanStatus[scan.student_id] = {
-                                                verified: false,
-                                                status: 'Absent',
-                                                time: scan.created_at
-                                            };
-                                        }
-                                    });
+                        if (data.active_session || currentSession) {
+                            const sessionId = data.active_session?.session_id || currentSession?.id;
+                            if (sessionId) {
+                                try {
+                                    const scansData = await apiCall(`/bedcheck/scans?session_id=${sessionId}`);
+                                    if (scansData && scansData.data) {
+                                        scansData.data.forEach(scan => {
+                                            if (scan.status === 'Verified' || scan.status === 'Present') {
+                                                bedScanStatus[scan.student_id] = {
+                                                    verified: true,
+                                                    status: 'Verified',
+                                                    time: scan.created_at,
+                                                    confidence: scan.metadata?.confidence || null
+                                                };
+                                            } else if (scan.status === 'Absent') {
+                                                bedScanStatus[scan.student_id] = {
+                                                    verified: false,
+                                                    status: 'Absent',
+                                                    time: scan.created_at
+                                                };
+                                            }
+                                        });
+                                    }
+                                } catch (scanError) {
+                                    console.warn('Could not fetch scans:', scanError);
                                 }
-                            } catch (scanError) {
-                                console.warn('Could not fetch scans:', scanError);
                             }
+                        }
+                        
+                        // Update completed rooms based on verified students
+                        if (availableRooms.length > 0) {
+                            completedRooms = [];
+                            availableRooms.forEach(room => {
+                                const students = getStudentsForRoom(room);
+                                if (students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified)) {
+                                    completedRooms.push(room);
+                                }
+                            });
                         }
                     }
                 } catch (e) {
                     console.warn('RA session status unavailable:', e.message);
-                    // Keep global session status if active
+                    // If global is active but RA status failed, use global status
+                    if (globalSessionActive) {
+                        sessionStatus = 'active';
+                        isSessionActive = true;
+                        effectiveStatus = 'ready';
+                    }
                 }
                 
-                console.log(`📋 Final session status: ${sessionStatus}, active: ${isSessionActive}`);
+                console.log(`📋 Final status: ${sessionStatus}, effective: ${effectiveStatus}, active: ${isSessionActive}, global: ${globalSessionActive}`);
                 
             } catch (error) {
                 console.error('Error loading session:', error);
-                // Set defaults
                 sessionStatus = 'draft';
                 isSessionActive = false;
                 currentSession = null;
             }
+        }
+
+        // =============================================
+        // START SESSION CHECKER
+        // =============================================
+        function startSessionChecker() {
+            if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
+            sessionCheckerInterval = setInterval(async () => {
+                try {
+                    const oldEffectiveStatus = effectiveStatus;
+                    await loadSessionData();
+                    if (oldEffectiveStatus !== effectiveStatus) {
+                        renderBedCheck();
+                    }
+                } catch (error) {
+                    console.error('Session checker error:', error);
+                }
+            }, 30000);
         }
 
         // =============================================
@@ -1675,25 +1820,42 @@
             let statusText = 'Inactive';
             let statusMessage = 'Awaiting activation';
             let statusIcon = 'fa-pause-circle';
+            let showGlobalBadge = false;
 
-            if (sessionStatus === 'draft') {
-                bannerClass = 'draft';
-                statusBadgeClass = 'draft';
-                statusText = 'Draft';
-                statusMessage = 'Waiting for session to start';
-                statusIcon = 'fa-clock';
-            } else if (sessionStatus === 'active') {
+            if (effectiveStatus === 'started') {
                 bannerClass = 'active';
                 statusBadgeClass = 'active';
-                statusText = 'Active';
+                statusText = 'Started';
                 statusMessage = '🟢 Recording enabled';
                 statusIcon = 'fa-play-circle';
-            } else if (sessionStatus === 'completed') {
+                showGlobalBadge = true;
+            } else if (effectiveStatus === 'ready') {
+                bannerClass = 'active';
+                statusBadgeClass = 'active';
+                statusText = 'Ready';
+                statusMessage = '🟡 University session ready - Click Verify';
+                statusIcon = 'fa-play-circle';
+                showGlobalBadge = true;
+            } else if (effectiveStatus === 'completed' || hasCompletedToday) {
                 bannerClass = 'completed';
                 statusBadgeClass = 'completed';
                 statusText = 'Completed';
-                statusMessage = '✅ Finalized';
+                statusMessage = '✅ Session finalized';
                 statusIcon = 'fa-check-circle';
+                showGlobalBadge = true;
+            } else if (globalSessionActive) {
+                bannerClass = 'active';
+                statusBadgeClass = 'active';
+                statusText = 'Active';
+                statusMessage = '🟡 University session active';
+                statusIcon = 'fa-play-circle';
+                showGlobalBadge = true;
+            } else {
+                bannerClass = 'draft';
+                statusBadgeClass = 'draft';
+                statusText = 'Draft';
+                statusMessage = '⏳ Waiting for session to start';
+                statusIcon = 'fa-clock';
             }
 
             const roomStudents = currentRoom ? getStudentsForRoom(currentRoom) : [];
@@ -1711,6 +1873,12 @@
             const areaTypeLabel = assignedAreaType === 'floor' ? 'Floor' : 'Flat';
             const hostelDisplay = assignedHostelName || 'Your Hostel';
             const raName = currentUser?.name || 'RA';
+
+            // Session info
+            const sessionName = currentSession?.name || 'No Session';
+            const sessionDate = currentSession?.date ? formatDate(currentSession.date) : '—';
+            const sessionStart = currentSession?.start_time ? formatTime(currentSession.start_time) : '—';
+            const sessionEnd = currentSession?.end_time ? formatTime(currentSession.end_time) : '—';
 
             // Build room list HTML
             let roomListHtml = '';
@@ -1777,6 +1945,7 @@
                     const bedLabel = getStudentBed(s.id) || '—';
                     const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
                     const verifiedTime = scan?.time ? formatTime(scan.time) : '';
+                    const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
 
                     return `
                         <div class="student-card ${isVerified ? 'verified' : ''}">
@@ -1786,10 +1955,16 @@
                                 ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
                             </div>
                             <span class="status-tag ${statusClass}">${statusLabel}</span>
-                            ${!isVerified && isSessionActive ? `
+                            ${canVerify ? `
                                 <button class="verify-btn" onclick="openVerifyModal('${s.id}')">
                                     <i class="fas fa-camera"></i> Verify
                                 </button>
+                            ` : ''}
+                            ${!isVerified && !isSessionActive ? `
+                                <span class="text-xs text-muted">⏳ Wait</span>
+                            ` : ''}
+                            ${!isVerified && effectiveStatus === 'completed' ? `
+                                <span class="text-xs text-muted">✅ Done</span>
                             ` : ''}
                         </div>
                     `;
@@ -1809,8 +1984,16 @@
                         <div class="sub"><span class="label">Hostel:</span> <strong>${hostelDisplay}</strong></div>
                         <div class="sub"><span class="label">Assigned:</span> ${areaTypeLabel} ${areaDisplay}</div>
                         <div class="sub"><span class="label">RA:</span> <strong>${raName}</strong></div>
+                        ${showGlobalBadge ? `
+                            <div class="sub" style="margin-top:0.2rem;">
+                                <span class="general-session-badge" style="font-size:0.6rem;padding:0.1rem 0.6rem;">
+                                    <i class="fas fa-globe"></i> University-Wide Session
+                                </span>
+                            </div>
+                        ` : ''}
                         ${sessionStatus === 'draft' ? `<div class="sub" style="color:#8a6413;">⏳ Session will auto-start at 10:00 PM</div>` : ''}
-                        ${sessionStatus === 'active' ? `<div class="sub" style="color:#d6ad4b;">🔴 Session is LIVE</div>` : ''}
+                        ${sessionStatus === 'active' && isRASessionActive ? `<div class="sub" style="color:#d6ad4b;">🔴 Your session is LIVE</div>` : ''}
+                        ${sessionStatus === 'active' && !isRASessionActive && globalSessionActive ? `<div class="sub" style="color:#d6ad4b;">🟡 University session active - Click Verify</div>` : ''}
                         ${sessionStatus === 'completed' ? `<div class="sub" style="color:#2d6545;">✅ Session completed</div>` : ''}
                     </div>
                     <div class="right">
@@ -1818,6 +2001,17 @@
                         <div><span class="status-badge ${statusBadgeClass}">${statusText}</span></div>
                     </div>
                 </div>
+
+                <!-- Session Info Bar -->
+                ${globalSessionActive || effectiveStatus !== 'draft' ? `
+                <div class="session-info-bar">
+                    <span><span class="label">Session:</span> <span class="value">${sessionName}</span></span>
+                    <span><span class="label">Date:</span> <span class="value">${sessionDate}</span></span>
+                    <span><span class="label">Time:</span> <span class="value">${sessionStart} — ${sessionEnd}</span></span>
+                    <span><span class="label">Grace:</span> <span class="value">${currentSession?.grace_period || 15} min</span></span>
+                    <span class="general-badge"><i class="fas fa-globe"></i> All Campuses</span>
+                </div>
+                ` : ''}
 
                 <!-- Progress Cards -->
                 <div class="progress-grid">
@@ -1840,6 +2034,16 @@
                             <div class="room-list">
                                 ${roomListHtml}
                             </div>
+                            ${!isSessionActive && !globalSessionActive ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#8a6413;border-top:1px solid #f0ebe2;padding-top:0.5rem;text-align:center;">
+                                    ⏳ Session will start at 10:00 PM
+                                </div>
+                            ` : ''}
+                            ${isSessionActive && effectiveStatus === 'started' ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#2d6545;border-top:1px solid #f0ebe2;padding-top:0.5rem;text-align:center;">
+                                    🔴 Session LIVE - Click Verify on each student
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -1855,9 +2059,14 @@
                             <div>
                                 ${studentCardsHtml}
                             </div>
-                            ${currentRoom && roomPending > 0 && isSessionActive ? `
+                            ${currentRoom && roomPending > 0 && isSessionActive && effectiveStatus === 'started' ? `
                                 <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
                                     ⚠️ ${roomPending} student(s) pending. Click "Verify" to verify each student.
+                                </div>
+                            ` : ''}
+                            ${currentRoom && roomPending > 0 && isSessionActive && effectiveStatus === 'ready' ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#d6ad4b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                    🟡 Session ready - Click "Verify" to start verification
                                 </div>
                             ` : ''}
                             ${currentRoom && roomPending > 0 && !isSessionActive ? `
@@ -1870,13 +2079,20 @@
                                     ✅ All students verified in this room!
                                 </div>
                             ` : ''}
+                            ${currentRoom && roomTotal === 0 ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                    📋 No students assigned to this room.
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
 
                 <!-- Footer -->
                 <div class="text-center text-xs text-muted mt-4 pt-3 border-t">
-                    ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · ${sessionStatus === 'active' ? '🟢 Active' : sessionStatus === 'completed' ? '✅ Completed' : '⏳ Draft'}
+                    ${hostelDisplay} · ${areaTypeLabel} ${areaDisplay} · RA: ${currentUser?.name || '—'} · 
+                    ${effectiveStatus === 'started' ? '🟢 Active' : effectiveStatus === 'ready' ? '🟡 Ready' : effectiveStatus === 'completed' || hasCompletedToday ? '✅ Completed' : '⏳ Draft'}
+                    ${globalSessionActive ? ' · 🌍 University-Wide' : ''}
                 </div>
             `;
         }
@@ -1885,7 +2101,7 @@
         // ROOM SELECTION
         // =============================================
         window.selectRoom = function(room) {
-            if (!isSessionActive) {
+            if (!isSessionActive && !globalSessionActive) {
                 showToast('No active session. Please wait for session to start.', 'error');
                 return;
             }
@@ -1893,7 +2109,7 @@
             if (currentRoom && currentRoom !== room) {
                 const prevRoomStudents = getStudentsForRoom(currentRoom);
                 prevRoomStudents.forEach(s => {
-                    if (!bedScanStatus[s.id]?.verified) {
+                    if (!bedScanStatus[s.id]?.verified && isSessionActive && effectiveStatus === 'started') {
                         bedScanStatus[s.id] = {
                             verified: false,
                             status: 'Absent',
@@ -2084,6 +2300,9 @@
                 }
 
                 renderBedCheck();
+
+                // Start session checker
+                startSessionChecker();
 
                 setInterval(checkFaceApiHealth, 30000);
 
