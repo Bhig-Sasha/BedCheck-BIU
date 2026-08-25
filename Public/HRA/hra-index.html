@@ -545,13 +545,16 @@
             let floors = [];
             let rooms = [];
             let scans = [];
-            let sessions = [];
+            let sessionData = null;
+            let clockInterval = null;
+            let roomStructure = { type: 'floor', areas: [] };
             let sessionCheckerInterval = null;
+
+            // Session state
             let isSessionActive = false;
             let sessionStatus = 'Closed';
             let currentSession = null;
 
-            // ---------- DOM REFS ----------
             const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
             const roleLabel = document.getElementById('roleLabel');
@@ -570,6 +573,7 @@
                 setTimeout(() => toast.classList.add('show'), 10);
                 setTimeout(() => { toast.classList.remove('show'); }, 4000);
             }
+            window.showToast = showToast;
 
             // ---------- AUTH HELPERS ----------
             function getStaffId() {
@@ -578,9 +582,7 @@
                     try {
                         const user = JSON.parse(userData);
                         return user.id;
-                    } catch (e) {
-                        return null;
-                    }
+                    } catch (e) { return null; }
                 }
                 return null;
             }
@@ -605,8 +607,7 @@
                         'Authorization': `Bearer ${token}`,
                         ...(options.headers || {})
                     };
-                    let url = `${API_BASE}${endpoint}`;
-                    const response = await fetch(url, { ...options, headers });
+                    const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
                     
                     if (response.status === 401) {
                         showToast('Session expired. Please login again.', 'error');
@@ -635,18 +636,16 @@
             }
 
             // =============================================
-            // GET HRA'S HOSTEL DATA
+            // GET HRA'S HOSTEL
             // =============================================
             async function loadHostelData() {
                 try {
-                    // First get the staff profile to get hostel_id
                     const staffId = getStaffId();
                     if (!staffId) {
                         console.error('No staff ID found');
                         return null;
                     }
 
-                    // Get staff profile with hostel info
                     const staffResult = await apiCall(`/staff/${staffId}`);
                     if (!staffResult.success || !staffResult.data) {
                         console.error('Failed to get staff profile');
@@ -655,23 +654,10 @@
 
                     const staffData = staffResult.data;
                     
-                    // If staff has a hostel_id, fetch the hostel details
                     if (staffData.hostel_id) {
                         const hostelResult = await apiCall(`/hostels/${staffData.hostel_id}`);
                         if (hostelResult.success && hostelResult.data) {
                             return hostelResult.data;
-                        }
-                    }
-                    
-                    // If staff has hostel name in the data, use that
-                    if (staffData.hostel) {
-                        // Try to find hostel by name
-                        const hostelsResult = await apiCall('/hostels');
-                        if (hostelsResult.success && hostelsResult.data) {
-                            const found = hostelsResult.data.find(h => 
-                                h.name.toLowerCase() === staffData.hostel.toLowerCase()
-                            );
-                            if (found) return found;
                         }
                     }
                     
@@ -729,7 +715,7 @@
                                 }
                             }
                         } catch (e) {
-                            // Silent fail
+                            // Silent fail - use session data
                         }
                     }
 
@@ -803,10 +789,47 @@
                 }
             }
 
+            function updateUserDisplay() {
+                if (currentUser) {
+                    const name = currentUser.name || 'User';
+                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    profileAvatar.textContent = initials;
+                    profileName.textContent = name;
+                    profileRoleLabel.textContent = currentUser.role || 'HRA';
+                    roleLabel.textContent = currentUser.role || 'HRA';
+                    if (hostelData) {
+                        roleScope.textContent = hostelData.name + ' · Hostel Representative Admin';
+                    }
+                }
+            }
+
+            function setNotice(msg) { noticeText.textContent = msg; }
+
+            function startClock() {
+                if (clockInterval) clearInterval(clockInterval);
+                clockInterval = setInterval(() => {
+                    const now = new Date();
+                    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const heroClock = document.getElementById('heroClock');
+                    const heroCountdown = document.getElementById('heroCountdown');
+                    if (heroClock) heroClock.textContent = timeStr;
+
+                    const end = new Date();
+                    end.setHours(23, 59, 59, 0);
+                    const diff = Math.max(0, Math.floor((end - now) / 1000));
+                    const hrs = Math.floor(diff / 3600);
+                    const mins = Math.floor((diff % 3600) / 60);
+                    const secs = diff % 60;
+                    const countdownStr = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                    if (heroCountdown) heroCountdown.textContent = isSessionActive ? `⏱ ${countdownStr}` : '⏸ Session Closed';
+                }, 1000);
+            }
+
             // =============================================
             // BUILD ROOM STRUCTURE
             // =============================================
             function buildRoomStructure() {
+                // Initialize roomStructure
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
 
                 // Use floors and rooms data from API
@@ -847,8 +870,22 @@
                             });
                         }
                     });
+                } else if (hostelData?.type === 'flat') {
+                    const flatNumbers = [];
+                    students.forEach(s => {
+                        if (s.flat) {
+                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
+                            if (num) flatNumbers.push(num);
+                        }
+                    });
+                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
+                    roomStructure.type = 'flat';
+                    roomStructure.areas = sortedFlats.map(num => ({
+                        name: `Flat ${num}`,
+                        key: `Flat ${num}`,
+                        rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
+                    }));
                 } else {
-                    // Fallback: Build from students data
                     const floorLetters = [];
                     students.forEach(s => {
                         if (s.floor) {
@@ -857,7 +894,11 @@
                         }
                     });
                     const sortedLetters = [...new Set(floorLetters)].sort();
-                    
+                    roomStructure.type = 'floor';
+
+                    const raStaff = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor');
+                    const isGirlsHostel = checkIfGirlsHostel(raStaff, sortedLetters);
+
                     sortedLetters.forEach(letter => {
                         const floorRooms = students
                             .filter(s => s.floor === `Floor ${letter}`)
@@ -868,8 +909,33 @@
                                 const numB = parseInt(b.replace(letter, ''));
                                 return numA - numB;
                             });
-                        
-                        if (floorRooms.length > 0) {
+
+                        let roomRanges = [];
+
+                        if (isGirlsHostel) {
+                            const range1 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 1 && num <= 8;
+                            });
+                            const range2 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 9 && num <= 14;
+                            });
+                            const range3 = floorRooms.filter(r => {
+                                const num = parseInt(r.replace(letter, ''));
+                                return num >= 15 && num <= 18;
+                            });
+
+                            if (range1.length > 0) {
+                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`, rooms: range1, prefix: letter, start: 1, end: 8 });
+                            }
+                            if (range2.length > 0) {
+                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`, rooms: range2, prefix: letter, start: 9, end: 14 });
+                            }
+                            if (range3.length > 0) {
+                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`, rooms: range3, prefix: letter, start: 15, end: 18 });
+                            }
+                        } else {
                             const range1 = floorRooms.filter(r => {
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 1 && num <= 9;
@@ -878,61 +944,94 @@
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 10 && num <= 18;
                             });
-                            
+
                             if (range1.length > 0) {
-                                roomStructure.areas.push({
-                                    name: `${letter}1-${letter}9`,
-                                    key: `${letter}1-${letter}9`,
-                                    rooms: range1,
-                                    floor: `Floor ${letter}`,
-                                    prefix: letter,
-                                    start: 1,
-                                    end: 9
-                                });
+                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: range1, prefix: letter, start: 1, end: 9 });
                             }
                             if (range2.length > 0) {
-                                roomStructure.areas.push({
-                                    name: `${letter}10-${letter}18`,
-                                    key: `${letter}10-${letter}18`,
-                                    rooms: range2,
-                                    floor: `Floor ${letter}`,
-                                    prefix: letter,
-                                    start: 10,
-                                    end: 18
-                                });
+                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: range2, prefix: letter, start: 10, end: 18 });
                             }
                         }
+
+                        if (roomRanges.length === 0) {
+                            if (isGirlsHostel) {
+                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`, rooms: Array.from({ length: 8 }, (_, i) => `${letter}${i+1}`), prefix: letter, start: 1, end: 8 });
+                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`, rooms: Array.from({ length: 6 }, (_, i) => `${letter}${i+9}`), prefix: letter, start: 9, end: 14 });
+                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`, rooms: Array.from({ length: 4 }, (_, i) => `${letter}${i+15}`), prefix: letter, start: 15, end: 18 });
+                            } else {
+                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`), prefix: letter, start: 1, end: 9 });
+                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`), prefix: letter, start: 10, end: 18 });
+                            }
+                        }
+
+                        roomRanges.forEach(range => {
+                            roomStructure.areas.push({
+                                name: range.name,
+                                key: range.key,
+                                rooms: range.rooms,
+                                floor: `Floor ${letter}`,
+                                prefix: range.prefix,
+                                start: range.start,
+                                end: range.end
+                            });
+                        });
                     });
                 }
 
                 if (roomStructure.areas.length === 0) {
-                    // Create default structure
-                    const totalFloors = hostelData?.total_floors || 3;
-                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-                    for (let i = 0; i < totalFloors; i++) {
-                        const letter = letters[i];
-                        const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
-                        const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
-                        roomStructure.areas.push({
-                            name: `${letter}1-${letter}9`,
-                            key: `${letter}1-${letter}9`,
-                            rooms: range1,
-                            floor: `Floor ${letter}`,
-                            prefix: letter,
-                            start: 1,
-                            end: 9
-                        });
-                        roomStructure.areas.push({
-                            name: `${letter}10-${letter}18`,
-                            key: `${letter}10-${letter}18`,
-                            rooms: range2,
-                            floor: `Floor ${letter}`,
-                            prefix: letter,
-                            start: 10,
-                            end: 18
-                        });
+                    if (hostelData?.type === 'flat') {
+                        const totalFlats = hostelData.total_flats || 9;
+                        for (let i = 1; i <= totalFlats; i++) {
+                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
+                            roomStructure.areas.push({ name: `Flat ${i}`, key: `Flat ${i}`, rooms: rooms });
+                        }
+                    } else {
+                        const totalFloors = hostelData?.total_floors || 3;
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                        for (let i = 0; i < totalFloors; i++) {
+                            const letter = letters[i];
+                            roomStructure.areas.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`), floor: `Floor ${letter}`, prefix: letter, start: 1, end: 9 });
+                            roomStructure.areas.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`), floor: `Floor ${letter}`, prefix: letter, start: 10, end: 18 });
+                        }
                     }
                 }
+            }
+
+            function checkIfGirlsHostel(raStaff, floorLetters) {
+                let girlsHostelPattern = false;
+                floorLetters.forEach(letter => {
+                    const rasOnFloor = raStaff.filter(ra => {
+                        const area = ra.assigned_floor || '';
+                        return area.includes(`Floor ${letter}`);
+                    });
+                    if (rasOnFloor.length === 3) {
+                        const hasRange1 = rasOnFloor.some(ra => {
+                            const area = ra.assigned_floor || '';
+                            return area.includes(`${letter}1-${letter}8`);
+                        });
+                        const hasRange2 = rasOnFloor.some(ra => {
+                            const area = ra.assigned_floor || '';
+                            return area.includes(`${letter}9-${letter}14`);
+                        });
+                        const hasRange3 = rasOnFloor.some(ra => {
+                            const area = ra.assigned_floor || '';
+                            return area.includes(`${letter}15-${letter}18`);
+                        });
+                        if (hasRange1 && hasRange2 && hasRange3) {
+                            girlsHostelPattern = true;
+                        }
+                    }
+                });
+                return girlsHostelPattern;
+            }
+
+            function getAreaDisplay(areaKey) {
+                const area = roomStructure.areas.find(a => a.key === areaKey);
+                if (!area) return areaKey;
+                if (area.floor) {
+                    return `${area.floor} · ${area.name}`;
+                }
+                return area.name;
             }
 
             // =============================================
@@ -1087,6 +1186,8 @@
                 // RA Activity
                 const raActivity = raStaff.map(ra => {
                     const area = ra.assigned_floor || 'Unassigned';
+                    const displayName = getAreaDisplay(area);
+                    
                     let statusDisplay = '⏳ Waiting';
                     let statusClass = 'badge-pending';
                     
@@ -1113,7 +1214,7 @@
                     
                     return {
                         name: ra.name,
-                        room: area,
+                        room: displayName,
                         status: statusDisplay,
                         statusClass: statusClass,
                         verified: raVerified,
@@ -1148,7 +1249,9 @@
                 if (hour < 12) greeting = 'Good Morning';
                 else if (hour < 17) greeting = 'Good Afternoon';
 
-                const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' : 'Boys/Girls Hostel';
+                const isGirls = roomStructure.areas.some(a => a.start === 15);
+                const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
+                    isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
 
                 const html = `
                     <!-- HERO HEADER -->
@@ -1187,7 +1290,7 @@
                         </div>
                     </div>
 
-                    <!-- STAT CARDS -->
+                    <!-- STAT CARDS - 4 Cards -->
                     <div class="stat-card-grid">
                         <div class="stat-card">
                             <div class="stat-icon"><i class="fas fa-users"></i></div>
@@ -1327,43 +1430,6 @@
                 startClock();
             }
 
-            function startClock() {
-                if (clockInterval) clearInterval(clockInterval);
-                clockInterval = setInterval(() => {
-                    const now = new Date();
-                    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    const heroClock = document.getElementById('heroClock');
-                    const heroCountdown = document.getElementById('heroCountdown');
-                    if (heroClock) heroClock.textContent = timeStr;
-
-                    const end = new Date();
-                    end.setHours(23, 59, 59, 0);
-                    const diff = Math.max(0, Math.floor((end - now) / 1000));
-                    const hrs = Math.floor(diff / 3600);
-                    const mins = Math.floor((diff % 3600) / 60);
-                    const secs = diff % 60;
-                    const countdownStr = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-                    if (heroCountdown) heroCountdown.textContent = isSessionActive ? `⏱ ${countdownStr}` : '⏸ Session Closed';
-                }, 1000);
-            }
-
-            function updateUserDisplay() {
-                if (currentUser) {
-                    const name = currentUser.name || 'User';
-                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
-                    profileAvatar.textContent = initials;
-                    profileName.textContent = name;
-                    profileRoleLabel.textContent = currentUser.role || 'HRA';
-                    roleLabel.textContent = currentUser.role || 'HRA';
-                    if (hostelData) {
-                        roleScope.textContent = hostelData.name + ' · Hostel Representative Admin';
-                        document.getElementById('mobileRoleFooter').textContent = `HRA · ${hostelData.name} Hostel`;
-                    }
-                }
-            }
-
-            function setNotice(msg) { noticeText.textContent = msg; }
-
             // =============================================
             // DATA LOADING
             // =============================================
@@ -1390,7 +1456,7 @@
                     
                     if (!hostelData) {
                         roleScope.textContent = 'No hostel assigned';
-                        showToast('No hostel assigned to this HRA account', 'error');
+                        showToast('No hostel assigned', 'error');
                         renderDashboard();
                         return;
                     }
@@ -1500,7 +1566,6 @@
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             }
 
-            // Expose globals
             window.showToast = showToast;
             window.loadAllData = loadAllData;
 
@@ -1511,5 +1576,6 @@
             }
         })();
     </script>
+
 </body>
 </html>
