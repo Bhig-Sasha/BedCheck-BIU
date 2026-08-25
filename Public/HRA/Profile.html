@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Profile · HRA</title>
+    <title>Profile · HRA · BIU BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -769,32 +769,8 @@
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
             // ---------- STATE ----------
-            let currentUser = {
-                id: 12,
-                name: 'David Odum Chimzy',
-                initials: 'DC',
-                username: 'ENG/EEE/230023',
-                email: 'david.odum@biu.edu.ng',
-                phone: '',
-                gender: 'Male',
-                dob: '1995-06-15',
-                role: 'HRA',
-                department: 'Engineering',
-                staff_id: 'STAFF-012',
-                assigned_floor: 'Floor A',
-                assigned_room: 'A1',
-                status: 'Active',
-                hostel: 'Champions Hostel',
-                joined: '2024-01-15',
-                last_login: new Date().toISOString()
-            };
-            let hostelData = {
-                name: 'Champions Hostel',
-                total_students: 120,
-                ra_count: 8,
-                total_rooms: 36,
-                progress: 78
-            };
+            let currentUser = null;
+            let hostelData = null;
             let isLoading = true;
 
             // ---------- DOM REFS ----------
@@ -889,50 +865,55 @@
             }
 
             // =============================================
-            // GET HRA'S HOSTEL
+            // GET HRA'S HOSTEL - FIXED
             // =============================================
-            async function getHRAHostel() {
+            async function loadHostelData(staffId) {
                 try {
-                    const userData = sessionStorage.getItem('bedcheck_user');
-                    if (userData) {
-                        const user = JSON.parse(userData);
-                        if (user.hostel_id) {
-                            const result = await apiCall(`/hostels/${user.hostel_id}`);
-                            return result.data;
-                        }
+                    if (!staffId) {
+                        return null;
                     }
+
+                    // Get staff profile with hostel info
+                    const staffResult = await apiCall(`/staff/${staffId}`);
+                    if (!staffResult.success || !staffResult.data) {
+                        console.error('Failed to get staff profile');
+                        return null;
+                    }
+
+                    const staffData = staffResult.data;
                     
-                    const staffId = getStaffId();
-                    if (staffId) {
-                        const staffResult = await apiCall(`/staff/${staffId}`);
-                        if (staffResult.data && staffResult.data.hostel_id) {
-                            const hostelResult = await apiCall(`/hostels/${staffResult.data.hostel_id}`);
+                    // If staff has a hostel_id, fetch the hostel details
+                    if (staffData.hostel_id) {
+                        const hostelResult = await apiCall(`/hostels/${staffData.hostel_id}`);
+                        if (hostelResult.success && hostelResult.data) {
                             return hostelResult.data;
                         }
                     }
                     
                     return null;
                 } catch (error) {
-                    console.error('Error fetching HRA hostel:', error);
+                    console.error('Error loading hostel data:', error);
                     return null;
                 }
             }
 
             // ---------- UPDATE USER DISPLAY ----------
             function updateUserDisplay() {
-                const user = currentUser || {};
-                const name = user.name || 'David Odum Chimzy';
-                const initials = user.initials || 'DC';
-                const role = user.role || 'HRA';
+                if (currentUser) {
+                    const name = currentUser.name || 'User';
+                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    const role = currentUser.role || 'HRA';
 
-                profileAvatar.textContent = initials;
-                profileName.textContent = name;
-                profileRoleLabel.textContent = role;
-                roleLabel.textContent = role;
+                    profileAvatar.textContent = initials;
+                    profileName.textContent = name;
+                    profileRoleLabel.textContent = role;
+                    roleLabel.textContent = role;
 
-                const hostelName = hostelData?.name || 'Champions Hostel';
-                roleScope.textContent = hostelName + ' Hostel';
-                mobileRoleFooter.textContent = `HRA · ${hostelName} Hostel`;
+                    if (hostelData) {
+                        roleScope.textContent = hostelData.name + ' Hostel';
+                        mobileRoleFooter.textContent = `HRA · ${hostelData.name} Hostel`;
+                    }
+                }
             }
 
             // ---------- SET NOTICE ----------
@@ -946,25 +927,38 @@
                     isLoading = true;
                     renderLoading();
 
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    const token = sessionStorage.getItem('bedcheck_token');
+                    
+                    if (!userData || !token) {
+                        window.location.replace('../Login.html');
+                        return;
+                    }
+                    
                     try {
-                        const userData = sessionStorage.getItem('bedcheck_user');
-                        if (userData) {
-                            const parsed = JSON.parse(userData);
-                            if (parsed && parsed.id) {
-                                currentUser = { ...currentUser, ...parsed };
-                            }
+                        currentUser = JSON.parse(userData);
+                        if (!sessionStorage.getItem('bedcheck_user')) {
+                            sessionStorage.setItem('bedcheck_user', userData);
                         }
-                    } catch (e) {}
-
-                    try {
-                        const hostel = await getHRAHostel();
-                        if (hostel) {
-                            hostelData = { ...hostelData, ...hostel };
+                        if (!currentUser.id) {
+                            showToast('User data incomplete. Please login again.', 'error');
+                            setTimeout(() => {
+                                window.location.replace('../Login.html');
+                            }, 2000);
+                            return;
                         }
                     } catch (e) {
-                        console.log('Using default hostel data');
+                        window.location.replace('../Login.html');
+                        return;
                     }
 
+                    // Get HRA's hostel
+                    const hostel = await loadHostelData(currentUser.id);
+                    if (hostel) {
+                        hostelData = hostel;
+                    }
+
+                    // Update the date
                     const now = new Date();
                     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                     const dateEl = document.getElementById('currentDate');
@@ -972,8 +966,8 @@
 
                     updateUserDisplay();
 
-                    const hostelName = hostelData?.name || 'Champions Hostel';
-                    setNotice(`Welcome, ${currentUser?.name || 'David'} · ${hostelName} Hostel`);
+                    const hostelName = hostelData?.name || 'No Hostel';
+                    setNotice(`Welcome, ${currentUser?.name || 'User'} · ${hostelName}`);
                     
                     isLoading = false;
                     renderProfile();
@@ -981,7 +975,10 @@
                 } catch (error) {
                     console.error('Load error:', error);
                     isLoading = false;
-                    setNotice('Error loading profile data. Using default values.');
+                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
+                    setNotice('Error loading profile data. Please refresh.');
                     renderProfile();
                 }
             }
@@ -993,27 +990,39 @@
                 `;
             }
 
+            function renderError() {
+                profileContent.innerHTML = `
+                    <div class="card mt-4" style="border-color:#a84134;background:#f9e2de;">
+                        <div class="text-center p-4">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#a84134;"></i>
+                            <h2 class="mt-3">Error Loading Data</h2>
+                            <p class="text-muted">There was an error loading your profile. Please refresh the page.</p>
+                            <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
+                        </div>
+                    </div>
+                `;
+            }
+
             // ---------- RENDER PROFILE ----------
             function renderProfile() {
-                const user = currentUser || {
-                    name: 'David Odum Chimzy',
-                    initials: 'DC',
-                    username: 'ENG/EEE/230023',
-                    email: 'david.odum@biu.edu.ng',
-                    phone: '',
-                    department: 'Engineering',
-                    staff_id: 'STAFF-012',
-                    assigned_floor: 'Floor A',
-                    assigned_room: 'A1',
-                    status: 'Active',
-                    role: 'HRA',
-                    joined: '2024-01-15',
-                    last_login: new Date().toISOString()
-                };
+                if (!currentUser) {
+                    renderError();
+                    return;
+                }
+
+                const user = currentUser;
                 const hostelName = hostelData?.name || 'Champions Hostel';
                 const status = user.status || 'Active';
                 const statusClass = status === 'Active' ? 'active' : 'inactive';
                 const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : new Date().toLocaleString();
+
+                // Get stats from hostel data
+                const stats = {
+                    students: hostelData?.total_students || hostelData?.student_count || '—',
+                    ras: hostelData?.ra_count || hostelData?.total_ras || '—',
+                    rooms: hostelData?.total_rooms || '—',
+                    progress: hostelData?.progress || hostelData?.completion || '0'
+                };
 
                 const html = `
                     <div class="page-heading">
@@ -1034,13 +1043,13 @@
                         <!-- Left Column: Profile Card -->
                         <div class="card" style="max-width:100%;">
                             <div class="flex-center gap-4">
-                                <div class="profile-avatar-large" id="profileAvatarLarge">${user.initials || 'DC'}</div>
+                                <div class="profile-avatar-large" id="profileAvatarLarge">${user.initials || 'U'}</div>
                                 <div>
-                                    <h2 class="font-serif text-2xl font-bold">${user.name || 'David Odum Chimzy'}</h2>
+                                    <h2 class="font-serif text-2xl font-bold">${user.name || 'User'}</h2>
                                     <p class="text-sm text-muted">${user.role || 'HRA'} · ${hostelName}</p>
                                     <div class="flex-center gap-2 mt-2 flex-wrap">
                                         <span class="badge badge-approved" style="padding:0.2rem 0.8rem;font-size:0.6rem;">${user.role || 'HRA'}</span>
-                                        <span class="badge" style="padding:0.2rem 0.8rem;font-size:0.6rem;background:#e7edf5;color:#24466f;">ID: ${user.staff_id || user.id || '12'}</span>
+                                        <span class="badge" style="padding:0.2rem 0.8rem;font-size:0.6rem;background:#e7edf5;color:#24466f;">ID: ${user.staff_id || user.id || '—'}</span>
                                     </div>
                                     <div class="flex-center gap-2 mt-3 flex-wrap">
                                         <button class="btn-outline" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="openEditProfile()">
@@ -1120,19 +1129,19 @@
                                 <h4 class="font-bold text-sm text-gold"><i class="fas fa-chart-simple"></i> Hostel Quick Stats</h4>
                                 <div class="stats-grid">
                                     <div class="stat-box">
-                                        <div class="stat-number">${hostelData?.total_students || '120'}</div>
+                                        <div class="stat-number">${stats.students}</div>
                                         <div class="stat-label">Students</div>
                                     </div>
                                     <div class="stat-box">
-                                        <div class="stat-number">${hostelData?.ra_count || '8'}</div>
+                                        <div class="stat-number">${stats.ras}</div>
                                         <div class="stat-label">RAs</div>
                                     </div>
                                     <div class="stat-box">
-                                        <div class="stat-number">${hostelData?.total_rooms || '36'}</div>
+                                        <div class="stat-number">${stats.rooms}</div>
                                         <div class="stat-label">Rooms</div>
                                     </div>
                                     <div class="stat-box">
-                                        <div class="stat-number">${hostelData?.progress || '78'}%</div>
+                                        <div class="stat-number">${stats.progress}%</div>
                                         <div class="stat-label">Completion</div>
                                     </div>
                                 </div>
@@ -1143,7 +1152,7 @@
                     <!-- Footer -->
                     <div class="mt-7 pt-4 border-t text-center">
                         <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
+                            BIU BedCheck · Benson Idahosa University
                         </p>
                     </div>
                 `;
@@ -1191,7 +1200,7 @@
                 }
 
                 try {
-                    const staffId = currentUser.id || 12;
+                    const staffId = currentUser.id;
                     await apiCall(`/staff/${staffId}/change-password`, {
                         method: 'PUT',
                         body: JSON.stringify({
@@ -1204,12 +1213,7 @@
                     closePasswordModal();
 
                 } catch (error) {
-                    if (error.message.includes('404')) {
-                        showToast('Password changed successfully!', 'success');
-                        closePasswordModal();
-                    } else {
-                        showToast(error.message || 'Failed to change password', 'error');
-                    }
+                    showToast(error.message || 'Failed to change password', 'error');
                 }
             }
 
@@ -1218,18 +1222,18 @@
                 const user = currentUser || {};
                 const modal = document.getElementById('editProfileModal');
                 
-                document.getElementById('editFullName').value = user.name || 'David Odum Chimzy';
-                document.getElementById('editUsername').value = user.username || 'ENG/EEE/230023';
-                document.getElementById('editEmail').value = user.email || 'david.odum@biu.edu.ng';
+                document.getElementById('editFullName').value = user.name || '';
+                document.getElementById('editUsername').value = user.username || '';
+                document.getElementById('editEmail').value = user.email || '';
                 document.getElementById('editPhone').value = user.phone || '';
                 document.getElementById('editGender').value = user.gender || 'Male';
-                document.getElementById('editDob').value = user.dob || '1995-06-15';
+                document.getElementById('editDob').value = user.dob || '';
                 document.getElementById('editRole').value = user.role || 'HRA';
                 document.getElementById('editHostel').value = hostelData?.name || 'Champions';
-                document.getElementById('editDepartment').value = user.department || 'Engineering';
-                document.getElementById('editStaffId').value = user.staff_id || 'STAFF-012';
-                document.getElementById('editFloor').value = user.assigned_floor || 'Floor A';
-                document.getElementById('editRoom').value = user.assigned_room || 'A1';
+                document.getElementById('editDepartment').value = user.department || '';
+                document.getElementById('editStaffId').value = user.staff_id || '';
+                document.getElementById('editFloor').value = user.assigned_floor || '';
+                document.getElementById('editRoom').value = user.assigned_room || '';
                 
                 const preview = document.getElementById('photoPreview');
                 preview.innerHTML = `<i class="fas fa-camera"></i>`;
@@ -1281,7 +1285,7 @@
                     assigned_room: room
                 };
 
-                const staffId = currentUser.id || 12;
+                const staffId = currentUser.id;
                 apiCall(`/staff/${staffId}`, {
                     method: 'PUT',
                     body: JSON.stringify(payload)
@@ -1289,6 +1293,7 @@
                     showToast('Profile updated successfully!', 'success');
                     closeEditProfile();
                     
+                    // Update local user data
                     currentUser.name = name;
                     currentUser.email = email;
                     currentUser.phone = phone;
@@ -1299,39 +1304,46 @@
                     currentUser.assigned_floor = floor;
                     currentUser.assigned_room = room;
                     
+                    // Update session storage
+                    const userData = sessionStorage.getItem('bedcheck_user');
+                    if (userData) {
+                        try {
+                            const parsed = JSON.parse(userData);
+                            parsed.name = name;
+                            parsed.email = email;
+                            parsed.phone = phone;
+                            parsed.gender = gender;
+                            parsed.dob = dob;
+                            parsed.role = role;
+                            parsed.department = department;
+                            parsed.assigned_floor = floor;
+                            parsed.assigned_room = room;
+                            sessionStorage.setItem('bedcheck_user', JSON.stringify(parsed));
+                        } catch (e) {}
+                    }
+                    
                     renderProfile();
+                    updateUserDisplay();
                 }).catch((error) => {
-                    currentUser.name = name;
-                    currentUser.email = email;
-                    currentUser.phone = phone;
-                    currentUser.gender = gender;
-                    currentUser.dob = dob;
-                    currentUser.role = role;
-                    currentUser.department = department;
-                    currentUser.assigned_floor = floor;
-                    currentUser.assigned_room = room;
-                    
-                    showToast('Profile updated successfully!', 'success');
-                    closeEditProfile();
-                    renderProfile();
+                    showToast('Error updating profile: ' + error.message, 'error');
                 });
             }
 
             function resetForm() {
                 if (confirm('Reset all changes?')) {
                     const user = currentUser || {};
-                    document.getElementById('editFullName').value = user.name || 'David Odum Chimzy';
-                    document.getElementById('editUsername').value = user.username || 'ENG/EEE/230023';
-                    document.getElementById('editEmail').value = user.email || 'david.odum@biu.edu.ng';
+                    document.getElementById('editFullName').value = user.name || '';
+                    document.getElementById('editUsername').value = user.username || '';
+                    document.getElementById('editEmail').value = user.email || '';
                     document.getElementById('editPhone').value = user.phone || '';
                     document.getElementById('editGender').value = user.gender || 'Male';
-                    document.getElementById('editDob').value = user.dob || '1995-06-15';
+                    document.getElementById('editDob').value = user.dob || '';
                     document.getElementById('editRole').value = user.role || 'HRA';
                     document.getElementById('editHostel').value = hostelData?.name || 'Champions';
-                    document.getElementById('editDepartment').value = user.department || 'Engineering';
-                    document.getElementById('editStaffId').value = user.staff_id || 'STAFF-012';
-                    document.getElementById('editFloor').value = user.assigned_floor || 'Floor A';
-                    document.getElementById('editRoom').value = user.assigned_room || 'A1';
+                    document.getElementById('editDepartment').value = user.department || '';
+                    document.getElementById('editStaffId').value = user.staff_id || '';
+                    document.getElementById('editFloor').value = user.assigned_floor || '';
+                    document.getElementById('editRoom').value = user.assigned_room || '';
                     showToast('Form reset', 'success');
                 }
             }
@@ -1366,21 +1378,29 @@
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!userData || !token) {
-                    console.log('No token found, using default user');
+                    window.location.replace('../Login.html');
+                    return;
                 }
 
                 try {
-                    if (userData) {
-                        const parsed = JSON.parse(userData);
-                        if (parsed && parsed.id) {
-                            currentUser = { ...currentUser, ...parsed };
-                        }
+                    currentUser = JSON.parse(userData);
+                    if (!sessionStorage.getItem('bedcheck_user')) {
+                        sessionStorage.setItem('bedcheck_user', userData);
                     }
+
+                    if (!currentUser.id) {
+                        showToast('User data incomplete. Please login again.', 'error');
+                        setTimeout(() => {
+                            window.location.replace('../Login.html');
+                        }, 2000);
+                        return;
+                    }
+
                     updateUserDisplay();
                     loadAllData();
                 } catch (e) {
                     console.error('Error parsing user data:', e);
-                    loadAllData();
+                    window.location.replace('../Login.html');
                 }
 
                 logoutBtn.addEventListener('click', handleLogout);

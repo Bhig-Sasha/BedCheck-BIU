@@ -798,31 +798,37 @@
             }
 
             // =============================================
-            // GET HRA'S HOSTEL
+            // GET HRA'S HOSTEL - FIXED
             // =============================================
-            async function getHRAHostel() {
+            async function loadHostelData() {
                 try {
-                    const userData = sessionStorage.getItem('bedcheck_user');
-                    if (userData) {
-                        const user = JSON.parse(userData);
-                        if (user.hostel_id) {
-                            const result = await apiCall(`/hostels/${user.hostel_id}`);
-                            return result.data;
-                        }
-                    }
-                    
+                    // First get the staff profile to get hostel_id
                     const staffId = getStaffId();
-                    if (staffId) {
-                        const staffResult = await apiCall(`/staff/${staffId}`);
-                        if (staffResult.data && staffResult.data.hostel_id) {
-                            const hostelResult = await apiCall(`/hostels/${staffResult.data.hostel_id}`);
+                    if (!staffId) {
+                        console.error('No staff ID found');
+                        return null;
+                    }
+
+                    // Get staff profile with hostel info
+                    const staffResult = await apiCall(`/staff/${staffId}`);
+                    if (!staffResult.success || !staffResult.data) {
+                        console.error('Failed to get staff profile');
+                        return null;
+                    }
+
+                    const staffData = staffResult.data;
+                    
+                    // If staff has a hostel_id, fetch the hostel details
+                    if (staffData.hostel_id) {
+                        const hostelResult = await apiCall(`/hostels/${staffData.hostel_id}`);
+                        if (hostelResult.success && hostelResult.data) {
                             return hostelResult.data;
                         }
                     }
                     
                     return null;
                 } catch (error) {
-                    console.error('Error fetching HRA hostel:', error);
+                    console.error('Error loading hostel data:', error);
                     return null;
                 }
             }
@@ -1276,8 +1282,8 @@
 
                     updateUserDisplay();
 
-                    // Get HRA's hostel
-                    hostelData = await getHRAHostel();
+                    // Get HRA's hostel - FIXED
+                    hostelData = await loadHostelData();
 
                     if (!hostelData) {
                         roleScope.textContent = 'No hostel assigned';
