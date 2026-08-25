@@ -231,6 +231,7 @@
         .action-buttons .btn-sm.delete:hover { background: #a84134; color: white; }
         .action-buttons .btn-sm.view { background: #10233f; color: white; }
         .action-buttons .btn-sm.view:hover { background: #18345a; }
+        .action-buttons .campus-tag { font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 999px; background: #e8edf2; color: #536274; }
 
         .campus-section { border-left: 3px solid #d6ad4b; }
         .campus-section .campus-header { padding: 0.75rem 1rem; background: #fbf7ef; border-bottom: 1px solid #eee8de; }
@@ -905,7 +906,7 @@
             }
 
             // =============================================
-            // RENDER
+            // RENDER - UNIFIED SINGLE TABLE
             // =============================================
 
             function renderScreen() {
@@ -931,9 +932,12 @@
                     indicator.style.color = '#68768a';
                 }
 
-                // Group sessions by campus for display
-                const legacySessions = sessions.filter(s => s.campus === 'Legacy' || !s.campus);
-                const heritageSessions = sessions.filter(s => s.campus === 'Heritage');
+                // Sort sessions by date (newest first)
+                const sortedSessions = [...sessions].sort((a, b) => {
+                    if (a.date > b.date) return -1;
+                    if (a.date < b.date) return 1;
+                    return 0;
+                });
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -1050,31 +1054,31 @@
                                 <div class="flex-between mt-1"><span class="text-muted">Scheduled</span><span class="font-bold">${scheduled}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Completed</span><span class="font-bold">${completed}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Archived</span><span class="font-bold">${archived}</span></div>
-                                <div class="flex-between mt-1"><span class="text-muted">Campuses</span><span class="font-bold">Legacy: ${legacySessions.length} · Heritage: ${heritageSessions.length}</span></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Legacy Campus Sessions -->
+                    <!-- UNIFIED SESSIONS TABLE -->
                     <div class="card mt-4">
                         <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> Legacy Campus</div>
-                            <span class="text-xs text-muted">${legacySessions.length} sessions</span>
+                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> All Sessions</div>
+                            <span class="text-xs text-muted">${totalSessions} sessions</span>
                         </div>
                         <div class="table-wrap mt-2">
                             <table>
                                 <thead><tr>
                                     <th>Date</th>
                                     <th>Session</th>
+                                    <th>Campus</th>
                                     <th>Start</th>
                                     <th>End</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr></thead>
                                 <tbody>
-                                    ${legacySessions.length === 0 ? `
-                                        <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No Legacy campus sessions.</td></tr>
-                                    ` : legacySessions.slice().reverse().map(s => {
+                                    ${sortedSessions.length === 0 ? `
+                                        <tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">No sessions found. Create your first session!</td></tr>
+                                    ` : sortedSessions.map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
                                         const isScheduled = s.status === 'scheduled';
                                         const isActive = isActiveStatus(s.status);
@@ -1083,10 +1087,13 @@
                                         const startTime = formatTime(s.start_time);
                                         const endTime = formatTime(s.end_time);
                                         const displayDate = formatFullDate(s.date);
+                                        const campus = s.campus || 'Legacy';
+                                        const campusColor = campus === 'Legacy' ? '#10233f' : '#7a4a1a';
                                         return `
                                             <tr class="${getRowClass(s.status)}">
                                                 <td style="font-weight:600;">${displayDate}</td>
                                                 <td>${s.name || 'Night BedCheck'}</td>
+                                                <td><span class="campus-tag" style="background:${campus === 'Legacy' ? '#e7edf5' : '#f5ede4'};color:${campusColor};">${campus}</span></td>
                                                 <td>${startTime}</td>
                                                 <td>${endTime}</td>
                                                 <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
@@ -1106,77 +1113,7 @@
                                                         ` : `
                                                             <span class="text-xs text-muted">${s.status}</span>
                                                         `}
-                                                        ${!isArchived ? `
-                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
-                                                        ` : `
-                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
-                                                        `}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Heritage Campus Sessions -->
-                    <div class="card mt-4">
-                        <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> Heritage Campus</div>
-                            <span class="text-xs text-muted">${heritageSessions.length} sessions</span>
-                        </div>
-                        <div class="table-wrap mt-2">
-                            <table>
-                                <thead><tr>
-                                    <th>Date</th>
-                                    <th>Session</th>
-                                    <th>Start</th>
-                                    <th>End</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr></thead>
-                                <tbody>
-                                    ${heritageSessions.length === 0 ? `
-                                        <tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">No Heritage campus sessions.</td></tr>
-                                    ` : heritageSessions.slice().reverse().map(s => {
-                                        const statusDisplay = getStatusDisplay(s.status);
-                                        const isScheduled = s.status === 'scheduled';
-                                        const isActive = isActiveStatus(s.status);
-                                        const isCompleted = s.status === 'completed';
-                                        const isArchived = s.status === 'archived';
-                                        const startTime = formatTime(s.start_time);
-                                        const endTime = formatTime(s.end_time);
-                                        const displayDate = formatFullDate(s.date);
-                                        return `
-                                            <tr class="${getRowClass(s.status)}">
-                                                <td style="font-weight:600;">${displayDate}</td>
-                                                <td>${s.name || 'Night BedCheck'}</td>
-                                                <td>${startTime}</td>
-                                                <td>${endTime}</td>
-                                                <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
-                                                <td>
-                                                    <div class="action-buttons">
-                                                        <button class="btn-sm view" onclick="viewSessionDetails(${s.id})" title="View Details"><i class="fas fa-eye"></i></button>
-                                                        ${isScheduled ? `
-                                                            <button class="btn-sm start" onclick="startSession(${s.id})" title="Start Session"><i class="fas fa-play"></i></button>
-                                                        ` : isActive ? `
-                                                            <button class="btn-sm end" onclick="endSession(${s.id})" title="End Session"><i class="fas fa-stop"></i></button>
-                                                            <button class="btn-sm archive" onclick="archiveSession(${s.id})" title="Archive"><i class="fas fa-archive"></i></button>
-                                                        ` : isCompleted ? `
-                                                            <button class="btn-sm start" onclick="startSession(${s.id})" title="Reopen"><i class="fas fa-play"></i></button>
-                                                            <button class="btn-sm archive" onclick="archiveSession(${s.id})" title="Archive"><i class="fas fa-archive"></i></button>
-                                                        ` : isArchived ? `
-                                                            <span class="text-xs text-muted">Archived</span>
-                                                        ` : `
-                                                            <span class="text-xs text-muted">${s.status}</span>
-                                                        `}
-                                                        ${!isArchived ? `
-                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
-                                                        ` : `
-                                                            <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
-                                                        `}
+                                                        <button class="btn-sm delete" onclick="openDeleteModal(${s.id})" title="Delete Session"><i class="fas fa-trash"></i></button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1188,7 +1125,7 @@
                     </div>
 
                     <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">BedCheck System v1.0 · © Benson Idahosa University · ${legacySessions.length + heritageSessions.length} total sessions</p>
+                        <p class="text-xs text-muted">BedCheck System v1.0 · © Benson Idahosa University · ${totalSessions} total sessions</p>
                     </div>
                 `;
 

@@ -178,8 +178,6 @@
         .live-banner .banner-left .session-info .highlight { color: #d6ad4b; font-weight: 600; }
         .live-banner .banner-right { display: flex; align-items: center; gap: 0.75rem; }
         @media (max-width: 480px) { .live-banner .banner-right { justify-content: center; } }
-        .live-banner .banner-right .timer { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .live-banner .banner-right .timer-label { font-size: 0.6rem; color: #b9c7db; text-transform: uppercase; }
 
         /* Session Control Buttons */
         .session-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
@@ -256,6 +254,9 @@
         .status-badge.active { background: #d6ad4b; color: #10233f; }
         .status-badge.draft { background: #e8edf2; color: #536274; }
         .status-badge.completed { background: #2d6545; color: white; }
+        .status-badge.archived { background: #e8edf2; color: #536274; }
+        
+        .campus-tag { font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 999px; }
     </style>
 </head>
 <body>
@@ -411,7 +412,6 @@
                     });
                     
                     if (response.status === 401) {
-                        const errorData = await response.json().catch(() => ({}));
                         showToast('Session expired. Please login again.', 'error');
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
@@ -460,11 +460,23 @@
             function getStatusBadge(status) {
                 const map = {
                     'active': '<span class="status-badge active">Active</span>',
-                    'draft': '<span class="status-badge draft">Draft</span>',
+                    'scheduled': '<span class="status-badge draft">Scheduled</span>',
                     'completed': '<span class="status-badge completed">Completed</span>',
-                    'archived': '<span class="status-badge draft">Archived</span>'
+                    'archived': '<span class="status-badge archived">Archived</span>',
+                    'draft': '<span class="status-badge draft">Draft</span>'
                 };
                 return map[status] || `<span class="status-badge draft">${status || 'Unknown'}</span>`;
+            }
+
+            function getStatusDisplay(status) {
+                const map = {
+                    'active': { label: 'Active', icon: '🟢', badge: 'badge-live' },
+                    'scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-warning' },
+                    'completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' },
+                    'archived': { label: 'Archived', icon: '📦', badge: 'badge-draft' },
+                    'draft': { label: 'Draft', icon: '⚪', badge: 'badge-draft' }
+                };
+                return map[status] || { label: status || 'Unknown', icon: '⚪', badge: 'badge-draft' };
             }
 
             // =============================================
@@ -520,21 +532,21 @@
                     sessions = data.data || [];
                     
                     // Find active session
-                    const today = new Date().toISOString().split('T')[0];
-                    currentSession = sessions.find(s => 
-                        s.status === 'active' || 
-                        (s.status === 'draft' && s.date === today)
-                    ) || null;
+                    currentSession = sessions.find(s => s.status === 'active') || null;
                     
                     if (currentSession) {
                         sessionStatus = currentSession.status;
                     } else {
-                        // Check if there's a completed session today
-                        const completed = sessions.find(s => 
-                            s.status === 'completed' && s.date === today
-                        );
-                        sessionStatus = completed ? 'completed' : 'draft';
-                        currentSession = completed || null;
+                        // Check for today's session
+                        const today = new Date().toISOString().split('T')[0];
+                        const todaySession = sessions.find(s => s.date === today);
+                        if (todaySession) {
+                            sessionStatus = todaySession.status;
+                            currentSession = todaySession;
+                        } else {
+                            sessionStatus = 'draft';
+                            currentSession = null;
+                        }
                     }
                     
                     return sessions;
@@ -558,19 +570,33 @@
             }
 
             // =============================================
-            // SESSION ACTIONS
+            // SESSION ACTIONS - UPDATED FOR UNIFIED ENDPOINTS
             // =============================================
             async function createSession() {
                 try {
                     const today = new Date().toISOString().split('T')[0];
-                    const data = await apiCall('/sessions/manage', {
+                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    const dayName = dayNames[new Date().getDay()] || 'Night';
+                    
+                    const payload = {
+                        name: `${dayName} Night BedCheck`,
+                        date: today,
+                        start_time: '22:00:00',
+                        end_time: '23:30:00',
+                        status: 'scheduled',
+                        total_hostels: hostels.length || 1,
+                        hostels_completed: 0,
+                        completion: 0,
+                        academic_session: '2026/2027',
+                        grace_period: 15,
+                        campus: 'Legacy'
+                    };
+
+                    const data = await apiCall('/sessions', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            action: 'create',
-                            hostel_id: hostels.length > 0 ? hostels[0].id : null,
-                            date: today
-                        })
+                        body: JSON.stringify(payload)
                     });
+                    
                     showToast('Session created successfully!', 'success');
                     await loadSessions();
                     renderDashboard();
@@ -585,14 +611,14 @@
                     return;
                 }
                 try {
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'activate',
-                            session_id: currentSession.id
+                    await apiCall(`/sessions/${currentSession.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ 
+                            status: 'active',
+                            started_at: new Date().toISOString()
                         })
                     });
-                    showToast('Session activated successfully!', 'success');
+                    showToast('Session activated successfully! RAs can now verify students.', 'success');
                     await loadSessions();
                     renderDashboard();
                 } catch (error) {
@@ -609,11 +635,11 @@
                     return;
                 }
                 try {
-                    await apiCall('/sessions/manage', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'complete',
-                            session_id: currentSession.id
+                    await apiCall(`/sessions/${currentSession.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ 
+                            status: 'completed',
+                            completed_at: new Date().toISOString()
                         })
                     });
                     showToast('Session completed successfully!', 'success');
@@ -690,7 +716,6 @@
                 const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
                 const absent = students.filter(s => s.status === 'Absent').length || 0;
                 const late = students.filter(s => s.status === 'Late').length || 0;
-                const onlineRegistered = students.filter(s => s.registration_type === 'online' || s.source === 'online').length || 0;
                 const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
                 const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
 
@@ -699,6 +724,10 @@
                 const sessionDate = currentSession?.date || new Date().toISOString().split('T')[0];
                 const sessionStatusDisplay = sessionStatus || 'draft';
                 const isSessionLive = sessionStatusDisplay === 'active';
+                const isScheduled = sessionStatusDisplay === 'scheduled';
+                const isCompleted = sessionStatusDisplay === 'completed';
+                
+                const statusDisplay = getStatusDisplay(sessionStatusDisplay);
 
                 // Hostel progress - detailed
                 const hostelProgress = hostels.map(h => {
@@ -722,21 +751,22 @@
                 const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
                 const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
 
-                // Get recent sessions (last 3)
-                const recentSessions = sessions.slice(0, 3);
+                // Get recent sessions (last 5)
+                const recentSessions = sessions.slice(0, 5);
 
                 container.innerHTML = `
                     <!-- Session Banner -->
                     <div class="live-banner">
                         <div class="banner-left">
                             <span class="live-badge">
-                                <i class="fas fa-${isSessionLive ? 'circle' : sessionStatusDisplay === 'completed' ? 'check-circle' : 'clock'}" style="font-size:0.4rem;margin-right:0.3rem;"></i>
-                                ${isSessionLive ? 'LIVE' : sessionStatusDisplay === 'completed' ? 'COMPLETED' : 'DRAFT'}
+                                <i class="fas fa-${isSessionLive ? 'circle' : isCompleted ? 'check-circle' : isScheduled ? 'clock' : 'plus'}" style="font-size:0.4rem;margin-right:0.3rem;"></i>
+                                ${isSessionLive ? 'LIVE' : isCompleted ? 'COMPLETED' : isScheduled ? 'SCHEDULED' : 'DRAFT'}
                             </span>
                             <div class="session-info">
                                 <strong>${sessionName}</strong>
                                 <span class="highlight">${sessionDate}</span>
                                 · ${activeHostels + partialHostels} hostels reporting
+                                ${currentSession?.campus ? `· <span class="campus-tag" style="background:${currentSession.campus === 'Legacy' ? '#e7edf5' : '#f5ede4'};color:${currentSession.campus === 'Legacy' ? '#10233f' : '#7a4a1a'};">${currentSession.campus}</span>` : ''}
                             </div>
                         </div>
                         <div class="banner-right">
@@ -746,18 +776,23 @@
                                         <i class="fas fa-play"></i> Activate
                                     </button>
                                 ` : ''}
-                                ${sessionStatusDisplay === 'active' ? `
+                                ${sessionStatusDisplay === 'scheduled' ? `
+                                    <button class="btn-success" onclick="activateSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
+                                        <i class="fas fa-play"></i> Start Now
+                                    </button>
+                                ` : ''}
+                                ${isSessionLive ? `
                                     <button class="btn-danger" onclick="completeSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
                                         <i class="fas fa-check-double"></i> Complete
                                     </button>
                                 ` : ''}
-                                ${!currentSession ? `
+                                ${!currentSession || sessionStatusDisplay === 'archived' ? `
                                     <button class="btn-gold" onclick="createSession()" style="font-size:0.7rem;padding:0.3rem 0.8rem;">
                                         <i class="fas fa-plus"></i> Create Session
                                     </button>
                                 ` : ''}
-                                <span class="status-badge ${isSessionLive ? 'active' : sessionStatusDisplay === 'completed' ? 'completed' : 'draft'}" style="font-size:0.65rem;">
-                                    ${sessionStatusDisplay.toUpperCase()}
+                                <span class="status-badge ${isSessionLive ? 'active' : isCompleted ? 'completed' : isScheduled ? 'draft' : 'draft'}" style="font-size:0.65rem;">
+                                    ${statusDisplay.icon} ${statusDisplay.label.toUpperCase()}
                                 </span>
                             </div>
                         </div>
@@ -790,16 +825,16 @@
                             <div class="metric-detail">Returned late</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon purple"><i class="fas fa-globe"></i></div>
-                            <div class="metric-value">${onlineRegistered.toLocaleString()}</div>
-                            <div class="metric-title">Online Registered</div>
-                            <div class="metric-detail">Completed registration</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon navy"><i class="fas fa-building"></i></div>
+                            <div class="metric-icon purple"><i class="fas fa-building"></i></div>
                             <div class="metric-value">${assignedHostel.toLocaleString()}</div>
                             <div class="metric-title">Assigned Hostel</div>
                             <div class="metric-detail">With allocation</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gray"><i class="fas fa-calendar"></i></div>
+                            <div class="metric-value">${sessions.length}</div>
+                            <div class="metric-title">Total Sessions</div>
+                            <div class="metric-detail">All time</div>
                         </div>
                     </div>
 
@@ -812,22 +847,25 @@
                             <div class="badge-group">
                                 <span class="badge badge-live">${sessions.filter(s => s.status === 'active').length} Active</span>
                                 <span class="badge badge-success">${sessions.filter(s => s.status === 'completed').length} Completed</span>
-                                <span class="badge badge-draft">${sessions.filter(s => s.status === 'draft').length} Draft</span>
-                                <span class="badge badge-info">${sessions.length} Total</span>
+                                <span class="badge badge-warning">${sessions.filter(s => s.status === 'scheduled').length} Scheduled</span>
+                                <span class="badge badge-draft">${sessions.filter(s => s.status === 'draft' || s.status === 'archived').length} Draft/Archived</span>
                             </div>
                         </div>
                         <div class="session-list mt-2">
-                            ${recentSessions.length === 0 ? '<p class="text-xs text-muted">No sessions created yet</p>' : recentSessions.map(s => `
-                                <div class="session-item">
-                                    <div>
-                                        <div class="session-name">${s.name || 'BedCheck Session'}</div>
-                                        <div class="session-date">${s.date} · ${s.start_time || '22:00'} - ${s.end_time || '23:30'}</div>
+                            ${recentSessions.length === 0 ? '<p class="text-xs text-muted">No sessions created yet</p>' : recentSessions.map(s => {
+                                const sDisplay = getStatusDisplay(s.status);
+                                return `
+                                    <div class="session-item">
+                                        <div>
+                                            <div class="session-name">${s.name || 'BedCheck Session'}</div>
+                                            <div class="session-date">${s.date} · ${s.start_time || '22:00'} - ${s.end_time || '23:30'} · ${s.campus || 'Legacy'}</div>
+                                        </div>
+                                        <div>
+                                            <span class="session-status">${getStatusBadge(s.status)}</span>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <span class="session-status">${getStatusBadge(s.status)}</span>
-                                    </div>
-                                </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                         <div class="mt-2 pt-2 border-t">
                             <div class="flex-between">
@@ -846,7 +884,7 @@
                                 <i class="fas fa-satellite-dish" style="color:#a77915;font-size:0.9rem;"></i> Hostel Live Monitor
                             </div>
                             <div class="badge-group">
-                                <span class="badge badge-live">${activeHostels} Active</span>
+                                <span class="badge badge-live">${activeHostels} Complete</span>
                                 <span class="badge badge-warning">${partialHostels} In Progress</span>
                                 <span class="badge badge-info">${hostelProgress.filter(h => h.status === 'inactive' && h.totalStudents > 0).length} Idle</span>
                                 <span class="badge badge-draft">${hostels.length} Total</span>
@@ -927,39 +965,10 @@
                         <p class="text-xs text-muted">
                             BIU BedCheck v1.0 · © Benson Idahosa University
                             <span class="ml-3"><span class="status-dot green"></span> Online</span>
-                            <span class="ml-3"><i class="fas fa-${isSessionLive ? 'play-circle' : sessionStatusDisplay === 'completed' ? 'check-circle' : 'clock'}"></i> ${sessionStatusDisplay.toUpperCase()}</span>
+                            <span class="ml-3"><i class="fas fa-${isSessionLive ? 'play-circle' : isCompleted ? 'check-circle' : 'clock'}"></i> ${statusDisplay.label.toUpperCase()}</span>
                         </p>
                     </div>
                 `;
-
-                // Start timer if session is active
-                if (isSessionLive) {
-                    startTimer();
-                }
-            }
-
-            // =============================================
-            // TIMER
-            // =============================================
-            function startTimer() {
-                let seconds = 5056; // 1:24:16
-                const timerEl = document.getElementById('sessionTimer');
-                if (!timerEl) return;
-
-                if (window._timerInterval) clearInterval(window._timerInterval);
-
-                window._timerInterval = setInterval(() => {
-                    seconds--;
-                    if (seconds <= 0) {
-                        clearInterval(window._timerInterval);
-                        timerEl.textContent = '00:00:00';
-                        return;
-                    }
-                    const h = Math.floor(seconds / 3600);
-                    const m = Math.floor((seconds % 3600) / 60);
-                    const s = seconds % 60;
-                    timerEl.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-                }, 1000);
             }
 
             // =============================================
