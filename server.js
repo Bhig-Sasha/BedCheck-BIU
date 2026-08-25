@@ -358,24 +358,25 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
     return session;
 }
 
-// =====================================================
-// HELPER FUNCTIONS
-// =====================================================
+// =============================================
+// HELPER FUNCTIONS FOR GENERAL SESSIONS
+// =============================================
 
-async function createRABedcheckSessionsForSession(sessionId, campus) {
+async function createRABedcheckSessionsForGeneralSession(sessionId) {
     try {
-        // Get all active RAs
+        // Get all active RAs from ALL campuses
         const { data: ras, error } = await supabase
             .from('staff')
             .select('id, hostel_id, campus')
             .eq('role', 'RA')
-            .eq('status', 'Active')
-            .eq('campus', campus);
+            .eq('status', 'Active');
         
         if (error || !ras || ras.length === 0) {
             console.log('No active RAs found to create bedcheck sessions for');
             return;
         }
+        
+        console.log(`📋 Creating bedcheck sessions for ${ras.length} RAs across all campuses`);
         
         // Create bedcheck_session for each RA
         for (const ra of ras) {
@@ -385,7 +386,6 @@ async function createRABedcheckSessionsForSession(sessionId, campus) {
                 .select('id')
                 .eq('global_session_id', sessionId)
                 .eq('ra_id', ra.id)
-                .eq('campus', campus)
                 .maybeSingle();
             
             if (existing) continue;
@@ -397,16 +397,107 @@ async function createRABedcheckSessionsForSession(sessionId, campus) {
                     ra_id: ra.id,
                     hostel_id: ra.hostel_id,
                     status: 'pending',
-                    campus: campus,
-                    campus_code: campus === 'Legacy' ? 'LEG' : 'HER',
+                    campus: ra.campus,
+                    campus_code: ra.campus === 'Legacy' ? 'LEG' : 'HER',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 });
         }
         
-        console.log(`✅ Created bedcheck sessions for ${ras.length} RAs for session ${sessionId} (${campus})`);
+        console.log(`✅ Created bedcheck sessions for ${ras.length} RAs for general session ${sessionId}`);
     } catch (error) {
         console.error('Error creating RA bedcheck sessions:', error);
+    }
+}
+
+async function markUnverifiedAsAbsentForGeneralSession(sessionId) {
+    try {
+        // Get all students from ALL campuses
+        const { data: allStudents, error: studentsError } = await supabase
+            .from('students')
+            .select('id, name, matric, hostel_id, room_code, campus');
+        
+        if (studentsError || !allStudents) {
+            console.error('Error fetching students:', studentsError);
+            return;
+        }
+        
+        // Get verified students
+        const { data: verified, error: verifiedError } = await supabase
+            .from('bedcheck_attendance')
+            .select('student_id, campus')
+            .eq('global_session_id', sessionId)
+            .eq('status', 'present');
+        
+        if (verifiedError) {
+            console.error('Error fetching verified students:', verifiedError);
+            return;
+        }
+        
+        const verifiedIds = verified?.map(v => v.student_id) || [];
+        const unverified = allStudents.filter(s => !verifiedIds.includes(s.id));
+        
+        if (unverified.length === 0) {
+            console.log(`✅ All students verified for general session ${sessionId}`);
+            return;
+        }
+        
+        console.log(`📝 Marking ${unverified.length} students as absent across all campuses`);
+        
+        // Mark unverified students as absent
+        for (const student of unverified) {
+            // Check if already marked
+            const { data: existing } = await supabase
+                .from('bedcheck_attendance')
+                .select('id')
+                .eq('global_session_id', sessionId)
+                .eq('student_id', student.id)
+                .maybeSingle();
+            
+            if (existing) continue;
+            
+            await supabase
+                .from('bedcheck_attendance')
+                .insert({
+                    global_session_id: sessionId,
+                    student_id: student.id,
+                    hostel_id: student.hostel_id,
+                    room_id: null,
+                    status: 'absent',
+                    signed_at: new Date().toISOString(),
+                    verified_by: null,
+                    verification_method: 'auto',
+                    campus: student.campus,
+                    created_at: new Date().toISOString()
+                });
+            
+            // Update student status
+            await supabase
+                .from('students')
+                .update({ 
+                    status: 'Absent',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', student.id);
+            
+            // Create absent scan
+            await supabase
+                .from('bedcheck_scans')
+                .insert({
+                    session_id: sessionId,
+                    student_id: student.id,
+                    room: student.room_code,
+                    status: 'Absent',
+                    scanner_id: 'System-Auto',
+                    campus: student.campus,
+                    created_at: new Date().toISOString(),
+                    metadata: { method: 'auto-absent' }
+                });
+        }
+        
+        console.log(`📝 Marked ${unverified.length} students as absent for general session ${sessionId}`);
+    } catch (error) {
+        console.error('Error marking unverified as absent:', error);
     }
 }
 
@@ -5945,17 +6036,18 @@ app.get('/api/sessions/:id',
 // CREATE session (Admin creates the master session)
 app.post('/api/sessions',
     campusIsolation,
-    requireRole('Admin', 'RASD', 'Developer'),
+    requireRole('Admin', 'Developer', 'RASD'),
     validate(validators.sessionCreate),
     async (req, res) => {
         try {
             const { 
                 name, date, start_time, end_time, status, 
-                academic_session, campus
+                academic_session 
             } = req.body;
-
-            const sessionCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
-
+            
+            // NO CAMPUS SPECIFIED - this is a GENERAL session
+            // campus is stored as null or 'General'
+            
             // Validate required fields
             if (!name || !date || !start_time || !end_time) {
                 return res.status(400).json({
@@ -5964,13 +6056,12 @@ app.post('/api/sessions',
                     code: 'MISSING_REQUIRED_FIELDS'
                 });
             }
-
+            
             // Check if session already exists for this date
             const { data: existing, error: checkError } = await supabase
                 .from('sessions')
                 .select('id, status')
                 .eq('date', date)
-                .eq('campus', sessionCampus)
                 .maybeSingle();
             
             if (checkError) {
@@ -5980,11 +6071,12 @@ app.post('/api/sessions',
             if (existing) {
                 return res.status(400).json({
                     success: false,
-                    message: `A session already exists for ${date} in ${sessionCampus} campus (Status: ${existing.status})`,
+                    message: `A session already exists for ${date}`,
                     code: 'SESSION_EXISTS'
                 });
             }
-
+            
+            // Create GENERAL session (campus = null means applies to all)
             const newSession = {
                 name: name,
                 date: date,
@@ -5992,17 +6084,18 @@ app.post('/api/sessions',
                 end_time: end_time,
                 status: status || 'scheduled',
                 academic_session: academic_session || '2026/2027',
-                campus: sessionCampus,
+                campus: null,  // NULL = ALL CAMPUSES
+                campus_code: null,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
-
+            
             const { data, error } = await supabase
                 .from('sessions')
                 .insert(newSession)
                 .select()
                 .single();
-
+            
             if (error) {
                 console.error('Error creating session:', error);
                 return res.status(500).json({
@@ -6011,27 +6104,26 @@ app.post('/api/sessions',
                     code: 'DATABASE_ERROR'
                 });
             }
-
+            
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
-                action: 'Created BedCheck Session',
+                action: 'General Session Created',
                 module: 'sessions',
-                details: `Created session: ${data.name} for ${data.date} in ${sessionCampus} campus`,
+                details: `Created general session: ${data.name} for ${data.date}`,
                 result: 'success',
-                category: 'bedcheck',
+                category: 'sessions',
+                tone: 'blue',
                 session_id: data.id,
-                campus: sessionCampus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
             });
-
+            
             res.json({ 
                 success: true, 
                 data: data,
-                campus: sessionCampus,
-                message: 'Session created successfully'
+                message: 'General session created successfully'
             });
         } catch (error) {
             console.error('Error creating session:', error);
@@ -6044,7 +6136,7 @@ app.post('/api/sessions',
     }
 );
 
-// UPDATE session (Admin can update status, etc.)
+// UPDATE session (Admin activates the general session)
 app.put('/api/sessions/:id',
     campusIsolation,
     requireRole('Admin', 'RASD', 'Developer'),
@@ -6054,51 +6146,46 @@ app.put('/api/sessions/:id',
             const id = parseInt(req.params.id);
             const { 
                 name, date, start_time, end_time, status,
-                academic_session, campus
+                academic_session
             } = req.body;
-
+            
             const campusContext = req.campus || 'Legacy';
-
+            
+            // Get the session (it's GENERAL, so campus is null)
             const { data: existing, error: existingError } = await supabase
                 .from('sessions')
                 .select('*')
                 .eq('id', id)
-                .eq('campus', campusContext)
-                .single();
-
+                .maybeSingle();  // No campus filter - it's general
+            
             if (existingError || !existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Session not found in this campus',
+                    message: 'Session not found',
                     code: 'SESSION_NOT_FOUND'
                 });
             }
-
+            
             const updateData = {};
             const changes = [];
-
+            
             if (name !== undefined) { updateData.name = name; changes.push('name'); }
             if (date !== undefined) { updateData.date = date; changes.push('date'); }
             if (start_time !== undefined) { updateData.start_time = start_time; changes.push('start_time'); }
             if (end_time !== undefined) { updateData.end_time = end_time; changes.push('end_time'); }
             if (status !== undefined) { 
-                updateData.status = status.toLowerCase(); 
+                updateData.status = status; 
                 changes.push('status'); 
-                if (status.toLowerCase() === 'active' && existing.status !== 'active') {
+                if (status === 'active' && existing.status !== 'active') {
                     updateData.started_at = new Date().toISOString();
                 }
-                if (status.toLowerCase() === 'completed' && existing.status !== 'completed') {
+                if (status === 'completed' && existing.status !== 'completed') {
                     updateData.completed_at = new Date().toISOString();
                 }
             }
             if (academic_session !== undefined) { updateData.academic_session = academic_session; changes.push('academic_session'); }
-            if (campus !== undefined) { 
-                updateData.campus = campus;
-                changes.push('campus'); 
-            }
-
             updateData.updated_at = new Date().toISOString();
-
+            
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({ 
                     success: false, 
@@ -6106,26 +6193,25 @@ app.put('/api/sessions/:id',
                     code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
-
-            // If session is being activated
+            
+            // If session is being activated - create bedcheck_sessions for ALL campuses
             if (status === 'active' && existing.status !== 'active') {
-                // Create bedcheck_sessions for each RA automatically
-                await createRABedcheckSessionsForSession(id, campusContext);
+                // Create bedcheck_sessions for ALL RAs across ALL campuses
+                await createRABedcheckSessionsForGeneralSession(id);
             }
-
-            // If session is being completed, mark unverified as absent
+            
+            // If session is being completed, mark unverified as absent for ALL campuses
             if (status === 'completed' && existing.status !== 'completed') {
-                await markUnverifiedAsAbsentForSession(id, campusContext);
+                await markUnverifiedAsAbsentForGeneralSession(id);
             }
-
+            
             const { data, error } = await supabase
                 .from('sessions')
                 .update(updateData)
                 .eq('id', id)
-                .eq('campus', campusContext)
                 .select()
                 .single();
-
+            
             if (error) {
                 console.error('Error updating session:', error);
                 return res.status(500).json({
@@ -6134,28 +6220,26 @@ app.put('/api/sessions/:id',
                     code: 'DATABASE_ERROR'
                 });
             }
-
+            
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
-                action: `Session ${status === 'active' ? 'Activated' : status === 'completed' ? 'Completed' : 'Updated'}`,
+                action: `General Session ${status === 'active' ? 'Activated' : status === 'completed' ? 'Completed' : 'Updated'}`,
                 module: 'sessions',
-                details: `Session: ${data.name} - Status: ${data.status} (${changes.join(', ')})`,
+                details: `General session: ${data.name} - Status: ${data.status}`,
                 result: 'success',
-                category: 'bedcheck',
+                category: 'sessions',
                 tone: status === 'active' ? 'green' : status === 'completed' ? 'blue' : 'gold',
                 session_id: id,
-                campus: campusContext,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
             });
-
+            
             res.json({ 
                 success: true, 
                 data: data,
-                campus: campusContext,
-                message: `Session ${status === 'active' ? 'activated' : status === 'completed' ? 'completed' : 'updated'} successfully`
+                message: `General session ${status === 'active' ? 'activated' : status === 'completed' ? 'completed' : 'updated'} successfully`
             });
         } catch (error) {
             console.error('Error updating session:', error);
@@ -6268,11 +6352,12 @@ app.get('/api/sessions/active',
             const campusContext = req.campus || 'Legacy';
 
             // Get the most recent active session for this campus
+            // NO PARAMETERS NEEDED - just find the active session
             const { data, error } = await supabase
                 .from('sessions')
                 .select('*')
                 .eq('status', 'active')
-                .eq('campus', campusContext)
+                .eq('campus', req.campus || 'Legacy')
                 .order('date', { ascending: false })
                 .limit(1)
                 .maybeSingle();
@@ -6291,7 +6376,7 @@ app.get('/api/sessions/active',
                 return res.json({ 
                     success: true, 
                     data: null,
-                    campus: campusContext,
+                    campus: req.campus || 'Legacy',
                     is_active: false
                 });
             }
@@ -6301,20 +6386,20 @@ app.get('/api/sessions/active',
                 .from('bedcheck_attendance')
                 .select('*', { count: 'exact', head: true })
                 .eq('global_session_id', data.id)
-                .eq('campus', campusContext);
+                .eq('campus', req.campus || 'Legacy');
 
             const { count: presentStudents } = await supabase
                 .from('bedcheck_attendance')
                 .select('*', { count: 'exact', head: true })
                 .eq('global_session_id', data.id)
                 .eq('status', 'present')
-                .eq('campus', campusContext);
+                .eq('campus', req.campus || 'Legacy');
 
             const { count: scansCount } = await supabase
                 .from('bedcheck_scans')
                 .select('*', { count: 'exact', head: true })
                 .eq('session_id', data.id)
-                .eq('campus', campusContext);
+                .eq('campus', req.campus || 'Legacy');
 
             // Get RA sessions for this active session
             const { data: raSessions } = await supabase
@@ -6325,7 +6410,7 @@ app.get('/api/sessions/active',
                     hostels!hostel_id (id, name, type, gender)
                 `)
                 .eq('global_session_id', data.id)
-                .eq('campus', campusContext);
+                .eq('campus', req.campus || 'Legacy');
 
             const stats = {
                 total_students: totalStudents || 0,
@@ -6340,7 +6425,7 @@ app.get('/api/sessions/active',
             res.json({ 
                 success: true, 
                 data: { ...data, ...stats },
-                campus: campusContext,
+                campus: req.campus || 'Legacy',
                 is_active: true
             });
         } catch (error) {

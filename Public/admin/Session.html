@@ -199,6 +199,7 @@
         .form-group input, .form-group select { padding: 0.5rem 0.75rem; border: 1px solid #cbd2db; border-radius: 0.5rem; font-size: 0.9rem; outline: none; font-family: inherit; background: white; width: 100%; }
         .form-group input:focus, .form-group select:focus { border-color: #a77915; }
         .form-group input:disabled { background: #f5f1e8; cursor: not-allowed; }
+        .form-group .hint { font-size: 0.7rem; color: #68768a; margin-top: 0.15rem; }
 
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
         @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
@@ -230,6 +231,7 @@
         .action-buttons .campus-tag { font-size: 0.6rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: #e8edf2; color: #536274; }
         .action-buttons .campus-tag.legacy { background: #e7edf5; color: #10233f; }
         .action-buttons .campus-tag.heritage { background: #f5ede4; color: #7a4a1a; }
+        .action-buttons .campus-tag.general { background: #d6ad4b; color: #10233f; }
 
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
@@ -244,15 +246,19 @@
         .stats-badge.total { background: #e7edf5; color: #24466f; }
         .stats-badge.completion { background: #fff1c9; color: #8b6513; }
 
-        /* Campus selector in modal */
-        .campus-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem; }
-        .campus-option { padding: 0.4rem 1rem; border: 2px solid #cbd2db; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; background: white; }
-        .campus-option:hover { border-color: #a77915; }
-        .campus-option.selected { border-color: #10233f; background: #10233f; color: white; }
-        .campus-option.selected.heritage-selected { border-color: #7a4a1a; background: #7a4a1a; color: white; }
-        .campus-option .campus-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-right: 0.3rem; }
-        .campus-option .campus-dot.legacy-dot { background: #10233f; }
-        .campus-option .campus-dot.heritage-dot { background: #7a4a1a; }
+        .general-session-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0.75rem;
+            background: #d6ad4b20;
+            border-radius: 0.5rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #10233f;
+            border: 1px solid #d6ad4b;
+        }
+        .general-session-badge i { color: #d6ad4b; }
     </style>
 </head>
 <body>
@@ -265,14 +271,14 @@
         <div class="modal-box">
             <div class="modal-header">
                 <div class="icon"><i class="fas fa-plus-circle"></i></div>
-                <h2>Create New Session</h2>
+                <h2>Create General Session</h2>
                 <button class="close-btn" onclick="closeCreateSession()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
                     <label>Session Name <span style="color:#a84134;">*</span></label>
                     <input id="sessionName" placeholder="e.g., Monday Night BedCheck" />
-                    <span style="font-size:0.7rem;color:#68768a;margin-top:0.15rem;"><i class="fas fa-info-circle"></i> Auto-generated based on date</span>
+                    <span class="hint"><i class="fas fa-info-circle"></i> Auto-generated based on date</span>
                 </div>
                 <div class="form-row mt-3">
                     <div class="form-group">
@@ -280,16 +286,13 @@
                         <input id="sessionDate" type="date" />
                     </div>
                     <div class="form-group">
-                        <label>Campus <span style="color:#a84134;">*</span></label>
-                        <div class="campus-selector" id="campusSelector">
-                            <div class="campus-option selected" data-campus="Legacy" onclick="selectCampus('Legacy')">
-                                <span class="campus-dot legacy-dot"></span> Legacy
-                            </div>
-                            <div class="campus-option" data-campus="Heritage" onclick="selectCampus('Heritage')">
-                                <span class="campus-dot heritage-dot"></span> Heritage
-                            </div>
+                        <label style="color:#d6ad4b;">
+                            <i class="fas fa-globe"></i> Applies To
+                        </label>
+                        <div style="padding:0.5rem 0.75rem;background:#fbf7ef;border-radius:0.5rem;border:1px solid #d6ad4b;font-size:0.85rem;font-weight:600;color:#10233f;">
+                            <i class="fas fa-check-circle" style="color:#2d6545;"></i> ALL CAMPUSES (Legacy + Heritage)
                         </div>
-                        <input type="hidden" id="sessionCampus" value="Legacy" />
+                        <span class="hint"><i class="fas fa-info-circle"></i> This session will be available to both campuses</span>
                     </div>
                 </div>
                 <div class="form-row mt-3">
@@ -325,10 +328,13 @@
                         <option value="archived">Archived</option>
                     </select>
                 </div>
+                <div class="mt-3" style="background:#e8edf2;padding:0.75rem;border-radius:0.5rem;font-size:0.75rem;color:#536274;">
+                    <i class="fas fa-info-circle"></i> This is a <strong>GENERAL</strong> session. All campuses and users will see the same session.
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn-outline" onclick="closeCreateSession()">Cancel</button>
-                <button class="btn-success" onclick="createSession()"><i class="fas fa-save"></i> Create</button>
+                <button class="btn-success" onclick="createSession()"><i class="fas fa-save"></i> Create Session</button>
             </div>
         </div>
     </div>
@@ -467,7 +473,6 @@
             let sessionCheckerInterval = null;
             let deleteTargetId = null;
             let selectedSessionId = null;
-            let selectedCampus = 'Legacy';
 
             // =============================================
             // STATUS VALUES
@@ -562,42 +567,6 @@
             function getInitials(name) {
                 if (!name) return 'U';
                 return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
-
-            // =============================================
-            // CAMPUS SELECTOR
-            // =============================================
-
-            window.selectCampus = function(campus) {
-                selectedCampus = campus;
-                document.getElementById('sessionCampus').value = campus;
-                
-                // Update UI
-                document.querySelectorAll('.campus-option').forEach(el => {
-                    el.classList.remove('selected', 'heritage-selected');
-                    if (el.dataset.campus === campus) {
-                        el.classList.add('selected');
-                        if (campus === 'Heritage') {
-                            el.classList.add('heritage-selected');
-                        }
-                    }
-                });
-                
-                // Update session name with campus
-                updateSessionName();
-            };
-
-            function updateSessionName() {
-                const dateInput = document.getElementById('sessionDate');
-                const nameInput = document.getElementById('sessionName');
-                const campus = document.getElementById('sessionCampus').value;
-                
-                if (dateInput.value) {
-                    const d = new Date(dateInput.value);
-                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                    const dayName = dayNames[d.getDay()] || 'Night';
-                    nameInput.value = `${dayName} Night BedCheck - ${campus}`;
-                }
             }
 
             // =============================================
@@ -700,23 +669,20 @@
 
                     title.textContent = session.name || 'Session Details';
 
-                    // Get campus breakdown
-                    const campuses = session.campuses || [];
-                    const totalStudents = session.total_students || 0;
-                    const presentStudents = session.present_students || 0;
-                    const completion = session.completion || 0;
+                    // Check if it's a general session or campus-specific
+                    const isGeneral = !session.campus || session.campus === 'General' || session.campus === null;
+                    const campusDisplay = isGeneral ? '🌍 All Campuses' : (session.campus || 'Legacy');
 
                     body.innerHTML = `
                         <div class="flex-between mb-3">
                             <div>
                                 <p class="text-sm text-muted">${formatFullDate(session.date)}</p>
                                 <p class="text-sm text-muted">${formatTime(session.start_time)} — ${formatTime(session.end_time)}</p>
-                                <p class="text-xs text-muted"><i class="fas fa-map-marker-alt"></i> ${session.campus || 'Legacy'}</p>
-                                <div class="mt-1">
-                                    <span class="stats-badge total"><i class="fas fa-users"></i> ${totalStudents} Total</span>
-                                    <span class="stats-badge verified"><i class="fas fa-check-circle"></i> ${presentStudents} Verified</span>
-                                    <span class="stats-badge completion"><i class="fas fa-percentage"></i> ${completion}%</span>
-                                </div>
+                                <p class="text-xs text-muted">
+                                    <i class="fas fa-${isGeneral ? 'globe' : 'map-marker-alt'}"></i> 
+                                    ${campusDisplay}
+                                    ${isGeneral ? ' · <span style="color:#d6ad4b;font-weight:600;">GENERAL SESSION</span>' : ''}
+                                </p>
                             </div>
                             <span class="badge ${getStatusDisplay(session.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">
                                 ${getStatusDisplay(session.status).icon} ${getStatusDisplay(session.status).label}
@@ -725,58 +691,68 @@
 
                         <div class="grid-3 mb-3">
                             <div class="card" style="padding:0.5rem 0.75rem;">
-                                <p class="text-xs text-muted">Hostels</p>
-                                <p class="font-bold" style="font-size:1.2rem;">${campuses.length > 0 ? campuses[0].total_hostels : 0}</p>
-                                <p class="text-xs text-muted">${campuses.length > 0 ? campuses[0].completed_hostels : 0} completed</p>
+                                <p class="text-xs text-muted">Total Students</p>
+                                <p class="font-bold" style="font-size:1.2rem;">${session.total_students || 0}</p>
                             </div>
                             <div class="card" style="padding:0.5rem 0.75rem;">
-                                <p class="text-xs text-muted">Scans</p>
-                                <p class="font-bold" style="font-size:1.2rem;">${session.verified_scans || 0}</p>
-                                <p class="text-xs text-muted">${session.absent_scans || 0} absent</p>
+                                <p class="text-xs text-muted">Verified</p>
+                                <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${session.present_students || 0}</p>
                             </div>
                             <div class="card" style="padding:0.5rem 0.75rem;">
-                                <p class="text-xs text-muted">Attendance Rate</p>
-                                <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${session.attendance_rate || 0}%</p>
-                                <p class="text-xs text-muted">${session.present_students || 0} present</p>
+                                <p class="text-xs text-muted">Completion</p>
+                                <p class="font-bold" style="font-size:1.2rem;">${session.completion || 0}%</p>
                             </div>
                         </div>
 
-                        <h4 class="mt-3 mb-2">Hostels</h4>
-                        ${campuses.length === 0 ? '<p class="text-muted text-sm">No hostels found for this session.</p>' : 
-                            campuses.map(campus => `
-                                <div class="campus-section card mb-2" style="padding:0;">
-                                    <div class="campus-header">
+                        <div class="grid-3 mb-3">
+                            <div class="card" style="padding:0.5rem 0.75rem;">
+                                <p class="text-xs text-muted">Hostels</p>
+                                <p class="font-bold" style="font-size:1.2rem;">${session.total_hostels || 0}</p>
+                            </div>
+                            <div class="card" style="padding:0.5rem 0.75rem;">
+                                <p class="text-xs text-muted">Completed Hostels</p>
+                                <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${session.hostels_completed || 0}</p>
+                            </div>
+                            <div class="card" style="padding:0.5rem 0.75rem;">
+                                <p class="text-xs text-muted">Scans</p>
+                                <p class="font-bold" style="font-size:1.2rem;">${session.scans_count || 0}</p>
+                            </div>
+                        </div>
+
+                        <h4 class="mt-3 mb-2">Campus Breakdown</h4>
+                        ${session.campuses && session.campuses.length > 0 ? session.campuses.map(campus => `
+                            <div class="campus-section card mb-2" style="padding:0;">
+                                <div class="campus-header">
+                                    <div class="flex-between">
+                                        <span class="font-bold">${campus.campus}</span>
+                                        <span style="font-size:0.8rem;">
+                                            ${campus.completed_hostels}/${campus.total_hostels} hostels · ${campus.completion}%
+                                        </span>
+                                    </div>
+                                </div>
+                                ${campus.hostels && campus.hostels.map(hostel => `
+                                    <div class="hostel-item">
                                         <div class="flex-between">
-                                            <span class="font-bold">${campus.campus}</span>
-                                            <span style="font-size:0.8rem;">
-                                                ${campus.completed_hostels}/${campus.total_hostels} hostels · ${campus.completion}%
-                                            </span>
+                                            <span class="hostel-name">${hostel.hostel?.name || 'Unknown'}</span>
+                                            <div>
+                                                <span style="font-size:0.8rem;color:#6b778b;">
+                                                    ${hostel.present_students || 0}/${hostel.total_students || 0} signed
+                                                </span>
+                                                <span class="badge ${hostel.status === 'completed' ? 'badge-completed' : hostel.status === 'in_progress' ? 'badge-active' : 'badge-draft'}" style="margin-left:0.5rem;">
+                                                    ${hostel.status || 'pending'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="progress-bar mt-1" style="height:0.3rem;">
+                                            <div class="fill" style="width:${hostel.completion || 0}%;"></div>
+                                        </div>
+                                        <div style="font-size:0.6rem;color:#6b778b;margin-top:0.1rem;">
+                                            RA: ${hostel.ra?.name || 'Not assigned'} · ${hostel.hostel?.type || '—'}
                                         </div>
                                     </div>
-                                    ${campus.hostels.map(hostel => `
-                                        <div class="hostel-item">
-                                            <div class="flex-between">
-                                                <span class="hostel-name">${hostel.hostel?.name || 'Unknown'}</span>
-                                                <div>
-                                                    <span style="font-size:0.8rem;color:#6b778b;">
-                                                        ${hostel.present_students || 0}/${hostel.total_students || 0} signed
-                                                    </span>
-                                                    <span class="badge ${hostel.status === 'completed' ? 'badge-completed' : hostel.status === 'in_progress' ? 'badge-active' : 'badge-draft'}" style="margin-left:0.5rem;">
-                                                        ${hostel.status || 'pending'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div class="progress-bar mt-1" style="height:0.3rem;">
-                                                <div class="fill" style="width:${hostel.completion || 0}%;"></div>
-                                            </div>
-                                            <div style="font-size:0.6rem;color:#6b778b;margin-top:0.1rem;">
-                                                RA: ${hostel.ra?.name || 'Not assigned'} · ${hostel.hostel?.type || '—'}
-                                            </div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            `).join('')
-                        }
+                                `).join('')}
+                            </div>
+                        `).join('') : '<p class="text-muted text-sm">No campus data available for this session.</p>'}
                     `;
                 } catch (error) {
                     body.innerHTML = `<div class="text-center p-4 text-muted">Error loading details: ${error.message}</div>`;
@@ -789,7 +765,7 @@
             }
 
             // =============================================
-            // SESSION CRUD OPERATIONS - DUAL CAMPUS SUPPORT
+            // SESSION CRUD OPERATIONS - GENERAL SESSION
             // =============================================
 
             async function createSession() {
@@ -800,7 +776,6 @@
                 const academicSession = document.getElementById('academicSession').value;
                 const gracePeriod = parseInt(document.getElementById('gracePeriod').value) || 15;
                 const status = document.getElementById('sessionStatus').value;
-                const campus = document.getElementById('sessionCampus').value;
 
                 if (!name || !date || !startTime || !endTime) {
                     showToast('Please fill in all required fields', 'error');
@@ -808,14 +783,15 @@
                 }
 
                 try {
+                    // GENERAL SESSION - NO CAMPUS SPECIFIED
                     const payload = {
                         name: name,
                         date: date,
                         start_time: startTime,
                         end_time: endTime,
                         status: status || 'scheduled',
-                        academic_session: academicSession,
-                        campus: campus || 'Legacy'
+                        academic_session: academicSession
+                        // NO campus field - this is a GENERAL session
                     };
 
                     const result = await apiCall('/sessions', {
@@ -823,7 +799,7 @@
                         body: JSON.stringify(payload)
                     });
 
-                    showToast(`Session "${name}" created successfully in ${campus}!`, 'success');
+                    showToast(`✅ General session "${name}" created successfully!`, 'success');
                     closeCreateSession();
                     await loadSessions();
                     renderScreen();
@@ -853,7 +829,7 @@
                             started_at: new Date().toISOString()
                         })
                     });
-                    showToast('✅ Session started! RAs can now verify students.', 'success');
+                    showToast('✅ General session started! All campuses can now verify students.', 'success');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -870,7 +846,7 @@
                             completed_at: new Date().toISOString()
                         })
                     });
-                    showToast('✅ Session ended and completed.', 'info');
+                    showToast('✅ General session completed.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -922,11 +898,11 @@
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('sessionDate').value = today;
                 
-                // Auto-generate name
+                // Auto-generate name (no campus prefix since it's general)
                 const d = new Date(today);
                 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 const dayName = dayNames[d.getDay()] || 'Night';
-                document.getElementById('sessionName').value = `${dayName} Night BedCheck - ${selectedCampus}`;
+                document.getElementById('sessionName').value = `${dayName} Night BedCheck (General)`;
                 
                 modal.classList.add('show');
             }
@@ -1001,7 +977,7 @@
                         <div>
                             <p class="eyebrow"><i class="fas fa-clipboard-check"></i> Nightly Operations</p>
                             <h1>BedCheck Sessions</h1>
-                            <p class="desc">Configure and monitor all BedCheck sessions across all campuses.</p>
+                            <p class="desc">Configure and monitor the general BedCheck session. One session applies to all campuses.</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-primary" onclick="openCreateSession()"><i class="fas fa-plus"></i> Create Session</button>
@@ -1049,7 +1025,11 @@
                                 <div class="font-bold" style="color:#10233f;font-size:1.1rem;">🟢 ${currentActive.name}</div>
                                 <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label}</p>
                                 <p class="text-xs text-muted">Started: ${formatTime(currentActive.started_at) || formatTime(currentActive.created_at) || 'Just now'}</p>
-                                <p class="text-xs text-muted"><i class="fas fa-map-marker-alt"></i> ${currentActive.campus || 'Legacy'}</p>
+                                <p class="text-xs text-muted">
+                                    <span class="general-session-badge" style="font-size:0.7rem;">
+                                        <i class="fas fa-globe"></i> ALL CAMPUSES
+                                    </span>
+                                </p>
                             </div>
                             <div>
                                 <span class="badge ${getStatusDisplay(currentActive.status).badge}" style="font-size:0.8rem;padding:0.3rem 1rem;">${getStatusDisplay(currentActive.status).icon} ${getStatusDisplay(currentActive.status).label}</span>
@@ -1070,7 +1050,7 @@
                         <div class="flex-between">
                             <div>
                                 <div class="font-bold" style="color:#536274;font-size:1.1rem;">⏳ No Active Session</div>
-                                <p class="text-sm text-muted">Schedule a session or start one from the list below.</p>
+                                <p class="text-sm text-muted">Schedule a session to start the BedCheck process.</p>
                             </div>
                             <div>
                                 <span class="badge badge-draft" style="font-size:0.8rem;padding:0.3rem 1rem;">INACTIVE</span>
@@ -1111,6 +1091,7 @@
                                 <div class="flex-between mt-1"><span class="text-muted">Scheduled</span><span class="font-bold">${scheduled}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Completed</span><span class="font-bold">${completed}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Archived</span><span class="font-bold">${archived}</span></div>
+                                <div class="flex-between mt-1"><span class="text-muted">Campuses</span><span class="font-bold"><span class="general-session-badge" style="font-size:0.7rem;"><i class="fas fa-globe"></i> All</span></span></div>
                             </div>
                         </div>
                     </div>
@@ -1126,7 +1107,7 @@
                                 <thead><tr>
                                     <th>Date</th>
                                     <th>Session</th>
-                                    <th>Campus</th>
+                                    <th>Applies To</th>
                                     <th>Start</th>
                                     <th>End</th>
                                     <th>Status</th>
@@ -1135,7 +1116,7 @@
                                 </tr></thead>
                                 <tbody>
                                     ${sortedSessions.length === 0 ? `
-                                        <tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">No sessions found. Create your first session!</td></tr>
+                                        <tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">No sessions found. Create your first general session!</td></tr>
                                     ` : sortedSessions.map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
                                         const isScheduled = s.status === 'scheduled';
@@ -1145,9 +1126,8 @@
                                         const startTime = formatTime(s.start_time);
                                         const endTime = formatTime(s.end_time);
                                         const displayDate = formatFullDate(s.date);
-                                        const campus = s.campus || 'Legacy';
-                                        const campusColor = campus === 'Legacy' ? '#10233f' : '#7a4a1a';
-                                        const campusClass = campus === 'Legacy' ? 'legacy' : 'heritage';
+                                        const isGeneral = !s.campus || s.campus === 'General' || s.campus === null;
+                                        const campusDisplay = isGeneral ? '🌍 All Campuses' : s.campus;
                                         const completion = s.completion || 0;
                                         const totalStudents = s.total_students || 0;
                                         const presentStudents = s.present_students || 0;
@@ -1155,7 +1135,7 @@
                                             <tr class="${getRowClass(s.status)}">
                                                 <td style="font-weight:600;">${displayDate}</td>
                                                 <td>${s.name || 'Night BedCheck'}</td>
-                                                <td><span class="campus-tag ${campusClass}">${campus}</span></td>
+                                                <td><span class="general-session-badge" style="font-size:0.6rem;padding:0.1rem 0.5rem;">🌍 ALL</span></td>
                                                 <td>${startTime}</td>
                                                 <td>${endTime}</td>
                                                 <td><span class="badge ${statusDisplay.badge}">${statusDisplay.icon} ${statusDisplay.label}</span></td>
@@ -1317,7 +1297,6 @@
             window.refreshData = refreshData;
             window.viewSessionDetails = viewSessionDetails;
             window.closeSessionDetails = closeSessionDetails;
-            window.selectCampus = selectCampus;
 
             // =============================================
             // INIT
@@ -1327,18 +1306,10 @@
                 if (!checkAuth()) return;
                 setDate();
 
-                // Set default campus selector
-                document.querySelector('.campus-option.selected')?.classList.remove('selected');
-                document.querySelector('.campus-option[data-campus="Legacy"]')?.classList.add('selected');
-                document.getElementById('sessionCampus').value = 'Legacy';
-
                 document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
                 document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-                // Auto-generate name when date changes
-                document.getElementById('sessionDate').addEventListener('change', updateSessionName);
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading sessions...';
