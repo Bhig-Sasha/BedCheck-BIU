@@ -6277,7 +6277,14 @@ app.get('/api/sessions/active',
                 .limit(1)
                 .maybeSingle();
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error fetching active session:', error);
+                return res.status(500).json({ 
+                    success: false, 
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
 
             // If no active session found, return null
             if (!data) {
