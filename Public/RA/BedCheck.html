@@ -36,7 +36,7 @@
             background: #d6ad4b;
             color: #10233f;
             font-size: 0;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40"><rect width="100" height="100" rx="12" fill="%23d6ad4b"/><text x="50" y="68" font-family="Merriweather, serif" font-size="48" font-weight="900" fill="%2310233f" text-anchor="middle">B</text><circle cx="30" cy="32" r="10" fill="%2310233f" opacity="0.2"/><circle cx="70" cy="32" r="10" fill="%2310233f" opacity="0.2"/></svg>');
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40"><rect width="100" height="100" rx="12" fill="%23d6ad4b"/><text x="50" y="68" font-family="Merriweather, serif" font-size="48" font-weight="900" fill="%2310233f" text-anchor="middle">S</text><circle cx="30" cy="32" r="10" fill="%2310233f" opacity="0.2"/><circle cx="70" cy="32" r="10" fill="%2310233f" opacity="0.2"/></svg>');
             background-size: 80%;
             background-position: center;
             background-repeat: no-repeat;
@@ -66,7 +66,7 @@
             background: #d6ad4b;
             color: #10233f;
             font-size: 0;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40"><rect width="100" height="100" rx="12" fill="%23d6ad4b"/><text x="50" y="68" font-family="Merriweather, serif" font-size="48" font-weight="900" fill="%2310233f" text-anchor="middle">B</text><circle cx="30" cy="32" r="10" fill="%2310233f" opacity="0.2"/><circle cx="70" cy="32" r="10" fill="%2310233f" opacity="0.2"/></svg>');
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40"><rect width="100" height="100" rx="12" fill="%23d6ad4b"/><text x="50" y="68" font-family="Merriweather, serif" font-size="48" font-weight="900" fill="%2310233f" text-anchor="middle">S</text><circle cx="30" cy="32" r="10" fill="%2310233f" opacity="0.2"/><circle cx="70" cy="32" r="10" fill="%2310233f" opacity="0.2"/></svg>');
             background-size: 80%;
             background-position: center;
             background-repeat: no-repeat;
@@ -924,10 +924,6 @@
 
         function now() { return new Date().toISOString(); }
 
-        function addDebugLog(message) {
-            console.log('[DEBUG]', message);
-        }
-
         // =============================================
         // AUTHENTICATED API HELPER
         // =============================================
@@ -982,21 +978,17 @@
         // =============================================
         async function checkFaceApiHealth() {
             try {
-                addDebugLog('🔍 Checking face verification service...');
                 const response = await fetch(`${FACE_API_URL}/health`, {
                     signal: AbortSignal.timeout(5000)
                 });
                 if (response.ok) {
                     const data = await response.json();
                     isApiHealthy = data.status === 'running' || data.status === 'healthy';
-                    addDebugLog(`✅ Verification service ${isApiHealthy ? 'healthy' : 'unhealthy'}`);
                 } else {
                     isApiHealthy = false;
-                    addDebugLog(`❌ Verification service returned ${response.status}`);
                 }
             } catch (error) {
                 isApiHealthy = false;
-                addDebugLog(`❌ Verification service unreachable: ${error.message}`);
             }
             apiHealthChecked = true;
             return isApiHealthy;
@@ -1017,13 +1009,11 @@
                 
                 if (embedding && Array.isArray(embedding) && embedding.length > 0) {
                     studentEmbeddingCache[studentId] = embedding;
-                    addDebugLog(`✅ Retrieved embedding for student ${studentId}`);
                     return embedding;
                 } else {
                     throw new Error(`No face embedding found for student ${studentId}`);
                 }
             } catch (error) {
-                addDebugLog(`❌ Error fetching embedding: ${error.message}`);
                 console.error('Error fetching student embedding:', error);
                 throw error;
             }
@@ -1032,8 +1022,6 @@
         async function verifyFaceWithAPI(imageDataUrl, studentId) {
             try {
                 const base64Image = imageDataUrl.split(',')[1];
-                
-                addDebugLog(`🔍 Sending verification request...`);
                 
                 const storedEmbedding = await getStudentEmbedding(studentId);
 
@@ -1051,12 +1039,10 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    addDebugLog(`❌ API Error ${response.status}: ${errorText}`);
                     throw new Error(`API Error ${response.status}: ${errorText}`);
                 }
 
                 const result = await response.json();
-                addDebugLog(`✅ Verification result: ${result.success ? 'SUCCESS' : 'FAILED'}`);
                 
                 return {
                     success: result.success || result.verified || false,
@@ -1066,7 +1052,6 @@
                     threshold: result.threshold || 0.55
                 };
             } catch (error) {
-                addDebugLog(`❌ Verification error: ${error.message}`);
                 console.error('❌ Face verification API error:', error);
                 throw error;
             }
@@ -1089,7 +1074,6 @@
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    addDebugLog(`❌ Detect API Error ${response.status}: ${errorText}`);
                     throw new Error(`Face detection API error: ${response.status} - ${errorText}`);
                 }
 
@@ -1101,9 +1085,6 @@
                     document.getElementById('modalCameraStatus').textContent = '✅ Face detected';
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.add('hidden');
-                    
-                    const numFaces = result.num_faces || (result.faces ? result.faces.length : 1);
-                    addDebugLog(`✅ Face detected! (${numFaces} faces)`);
                     
                     if (result.bbox || (result.faces && result.faces[0] && result.faces[0].bbox)) {
                         const bbox = result.bbox || result.faces[0].bbox;
@@ -1126,7 +1107,6 @@
                     document.getElementById('modalFaceBox').style.display = 'none';
                 }
             } catch (error) {
-                addDebugLog(`❌ Face detection error: ${error.message}`);
                 console.error('Face detection error:', error);
                 modalFaceDetected = false;
                 document.getElementById('modalFaceGuide').className = 'face-guide';
@@ -1167,8 +1147,6 @@
             try {
                 if (modalCameraStream) stopModalCamera();
 
-                addDebugLog(`📷 Starting camera with facingMode: ${cameraFacingMode}`);
-
                 let constraints = {
                     video: {
                         facingMode: cameraFacingMode,
@@ -1181,9 +1159,7 @@
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    addDebugLog(`✅ Camera started successfully`);
                 } catch (firstError) {
-                    addDebugLog(`⚠️ Camera error: ${firstError.message}`);
                     constraints = {
                         video: {
                             width: { ideal: 640 },
@@ -1192,7 +1168,6 @@
                         audio: false
                     };
                     stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    addDebugLog(`📷 Using default camera (fallback)`);
                     showToast(`📷 Using default camera`, 'info');
                 }
 
@@ -1202,7 +1177,6 @@
                 if (video) {
                     video.srcObject = stream;
                     await video.play();
-                    addDebugLog(`🎥 Video stream started (${video.videoWidth}x${video.videoHeight})`);
 
                     document.getElementById('modalCameraStatus').textContent = 'Camera ready - detecting face...';
                     document.getElementById('statusDot').className = 'status-dot-live';
@@ -1221,7 +1195,6 @@
                     }, 600);
                 }
             } catch (error) {
-                addDebugLog(`❌ Camera error: ${error.message}`);
                 console.error('Modal camera error:', error);
                 let errorMessage = 'Camera access denied. ';
                 if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
@@ -1237,7 +1210,6 @@
             if (modalCameraStream) {
                 modalCameraStream.getTracks().forEach(track => track.stop());
                 modalCameraStream = null;
-                addDebugLog(`📷 Camera stopped`);
             }
             const video = document.getElementById('modalCamera');
             if (video) video.srcObject = null;
@@ -1294,8 +1266,6 @@
 
             document.getElementById('verifyModal').classList.add('show');
 
-            addDebugLog(`🔓 Opening verification for ${student.name}`);
-
             checkFaceApiHealth().then(() => {
                 if (!isApiHealthy) {
                     showToast('⚠️ Verification service is offline. Please try again later.', 'error');
@@ -1348,14 +1318,11 @@
 
             document.getElementById('modalResult').className = 'modal-result';
 
-            addDebugLog(`🔐 Starting verification for ${selectedStudent.name}`);
-
             const video = document.getElementById('modalCamera');
             if (video && video.readyState >= 2) {
                 const imageDataUrl = captureFrame(video);
                 performVerificationWithAPI(imageDataUrl);
             } else {
-                addDebugLog(`❌ Camera not ready for verification`);
                 showToast('Camera not ready. Please try again.', 'error');
                 isVerifying = false;
                 document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
@@ -1377,8 +1344,6 @@
                     if (label) label.textContent = '🔍 Verifying...';
                 }
 
-                addDebugLog(`📤 Sending verification request...`);
-
                 const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id);
                 
                 if (!result) {
@@ -1387,8 +1352,6 @@
 
                 const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
-
-                addDebugLog(`📊 Confidence: ${confidencePercent}%`);
 
                 if (result.verified || result.success) {
                     const student = selectedStudent;
@@ -1423,7 +1386,6 @@
                     }
 
                     showToast(`✅ ${student.name} verified`, 'success');
-                    addDebugLog(`✅ ${student.name} verified successfully!`);
 
                     if (faceBox) {
                         faceBox.className = 'face-box matched';
@@ -1459,7 +1421,6 @@
 
                 } else {
                     const reason = result.reason || 'Face does not match. Please try again with better lighting.';
-                    addDebugLog(`❌ Verification failed: ${reason}`);
                     
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
@@ -1491,7 +1452,6 @@
                 }
 
             } catch (error) {
-                addDebugLog(`❌ Verification error: ${error.message}`);
                 console.error('Verification error:', error);
                 showToast('Error during verification: ' + error.message, 'error');
                 document.getElementById('modalCameraStatus').textContent = 'Error';
@@ -1657,7 +1617,6 @@
         async function loadSessionData() {
             try {
                 if (!assignedHostelId) {
-                    console.log('No hostel assigned to this RA');
                     return;
                 }
                 
@@ -1667,14 +1626,11 @@
                     if (globalSession && globalSession.data && globalSession.is_active) {
                         globalSessionActive = true;
                         currentSession = globalSession.data;
-                        console.log(`📋 Night session: active (${currentSession.id})`);
                     } else {
                         globalSessionActive = false;
                         currentSession = null;
-                        console.log('📋 No night session active');
                     }
                 } catch (e) {
-                    console.log('No night session found');
                     globalSessionActive = false;
                     currentSession = null;
                 }
@@ -1738,7 +1694,7 @@
                                         });
                                     }
                                 } catch (scanError) {
-                                    console.warn('Could not fetch scans:', scanError);
+                                    // Silent fail
                                 }
                             }
                         }
@@ -1755,15 +1711,12 @@
                         }
                     }
                 } catch (e) {
-                    console.warn('RA session status unavailable:', e.message);
                     if (globalSessionActive) {
                         sessionStatus = 'ready';
                         isSessionActive = true;
                         effectiveStatus = 'ready';
                     }
                 }
-                
-                console.log(`📋 Final status: ${sessionStatus}, effective: ${effectiveStatus}`);
                 
             } catch (error) {
                 console.error('Error loading session:', error);
@@ -1786,7 +1739,7 @@
                         renderBedCheck();
                     }
                 } catch (error) {
-                    console.error('Session checker error:', error);
+                    // Silent fail
                 }
             }, 30000);
         }
@@ -2008,6 +1961,11 @@
                                     🔴 Session LIVE - Click Verify on each student
                                 </div>
                             ` : ''}
+                            ${isSessionActive && effectiveStatus === 'ready' ? `
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#d6ad4b;border-top:1px solid #f0ebe2;padding-top:0.5rem;text-align:center;">
+                                    🔴 Session LIVE - Click Verify on each student
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -2029,8 +1987,8 @@
                                 </div>
                             ` : ''}
                             ${currentRoom && roomPending > 0 && isSessionActive && effectiveStatus === 'ready' ? `
-                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#d6ad4b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
-                                    🟡 Session ready - Click "Verify" to start verification
+                                <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;border-top:1px solid #f0ebe2;padding-top:0.5rem;">
+                                    ⚠️ ${roomPending} student(s) pending. Click "Verify" to verify each student.
                                 </div>
                             ` : ''}
                             ${currentRoom && roomPending > 0 && !isSessionActive ? `
@@ -2230,7 +2188,6 @@
                 }
 
                 hostelStudents = allStudents.filter(s => s.hostel_id === assignedHostelId);
-                console.log(`✅ ${hostelStudents.length} students found in hostel ${assignedHostelName}`);
 
                 if (!assignedArea && assignedHostelId) {
                     const hostelStudentFloors = [...new Set(hostelStudents.map(s => s.floor_name).filter(Boolean))];
