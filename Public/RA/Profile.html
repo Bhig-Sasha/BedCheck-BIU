@@ -371,6 +371,7 @@
             let assignedHostelName = '';
             let assignedHostelId = null;
             let assignedRooms = [];
+            let campus = 'Legacy';
 
             // =============================================
             // AUTHENTICATED API HELPER
@@ -458,9 +459,11 @@
                         // Get hostel name from nested data or direct
                         assignedHostelName = userData.hostel_name || userData.hostel || sessionUser.hostel || 'Not assigned';
                         assignedHostelId = userData.hostel_id || sessionUser.hostel_id || null;
+                        campus = userData.campus || sessionUser.campus || 'Legacy';
                         
                         sessionUser.hostel = assignedHostelName;
                         sessionUser.hostel_id = assignedHostelId;
+                        sessionUser.campus = campus;
                         sessionUser.joined = userData.joined || userData.created_at ? new Date(userData.created_at).toLocaleDateString() : 'Not set';
                         sessionUser.lastLogin = userData.last_login ? new Date(userData.last_login).toLocaleString() : new Date().toLocaleString();
                         sessionUser.scope = userData.scope || 'Assigned hostel · BedCheck';
@@ -497,7 +500,8 @@
                             staff_id: currentUser.staff_id || currentUser.id || 'Not set',
                             joined: currentUser.joined || 'Not set',
                             hostel: currentUser.hostel || assignedHostelName || 'Not assigned',
-                            lastLogin: currentUser.lastLogin || new Date().toLocaleString()
+                            lastLogin: currentUser.lastLogin || new Date().toLocaleString(),
+                            campus: currentUser.campus || 'Legacy'
                         };
                     }
                 }
@@ -539,8 +543,9 @@
                 roleLabel.textContent = 'RA';
                 
                 const hostelDisplay = assignedHostelName || currentUser?.hostel || 'your hostel';
-                roleScope.textContent = hostelDisplay;
-                mobileRole.textContent = `RA · ${hostelDisplay}`;
+                const roomCount = assignedRooms.length > 0 ? ` · ${assignedRooms.length} rooms` : '';
+                roleScope.textContent = `${hostelDisplay}${roomCount}`;
+                mobileRole.textContent = `RA · ${hostelDisplay}${roomCount}`;
             }
 
             // =============================================
@@ -672,6 +677,8 @@
                 const displayStaffId = userData.staff_id || currentUser?.staff_id || currentUser?.id || 'Not set';
                 const displayHostel = userData.hostel || currentUser?.hostel || assignedHostelName || 'Not assigned';
                 const displayLastLogin = userData.lastLogin || currentUser?.lastLogin || new Date().toLocaleString();
+                const displayCampus = userData.campus || currentUser?.campus || 'Legacy';
+                const roomCount = assignedRooms.length;
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -682,7 +689,13 @@
                                 <span class="assigned-hostel-badge">
                                     <i class="fas fa-building"></i> ${displayHostel}
                                 </span>
+                                <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                    <i class="fas fa-map-marker-alt"></i> ${displayCampus}
+                                </span>
                                 <span class="text-muted" style="margin-left:0.5rem;">${displayRole}</span>
+                                ${roomCount > 0 ? `<span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                    <i class="fas fa-door-open"></i> ${roomCount} rooms
+                                </span>` : ''}
                             </p>
                         </div>
                         <div class="action-group">
@@ -713,6 +726,7 @@
                                 ` : `
                                     <h2 class="font-serif font-bold" style="font-size:1.4rem;color:#17233c;">${displayName}</h2>
                                     <p class="text-sm text-muted">${displayRole}</p>
+                                    <p class="text-xs text-muted"><i class="fas fa-map-marker-alt"></i> ${displayCampus} Campus</p>
                                 `}
                                 <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap;">
                                     <span class="badge badge-active" style="display:inline-flex;align-items:center;gap:0.3rem;">
@@ -767,10 +781,32 @@
                                 </div>
                             `}
                             <div>
+                                <p class="text-xs font-bold uppercase text-muted">Campus</p>
+                                <p class="font-bold mt-1" style="color:#17233c;">${displayCampus}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold uppercase text-muted">Assigned Rooms</p>
+                                <p class="font-bold mt-1" style="color:#17233c;">${roomCount}</p>
+                            </div>
+                            <div>
                                 <p class="text-xs font-bold uppercase text-muted">Last Login</p>
                                 <p class="font-bold mt-1" style="color:#17233c;">${displayLastLogin}</p>
                             </div>
                         </div>
+
+                        <!-- Assigned Rooms List -->
+                        ${assignedRooms.length > 0 ? `
+                            <div class="mt-4 pt-4 border-t">
+                                <p class="text-xs font-bold uppercase text-muted">Assigned Rooms</p>
+                                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem;">
+                                    ${assignedRooms.map(room => `
+                                        <span class="badge badge-assigned" style="font-size:0.75rem;padding:0.3rem 0.8rem;">
+                                            ${room.room_code}
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
 
                         <!-- Security Actions -->
                         <div class="mt-4 pt-4 border-t" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
@@ -781,7 +817,7 @@
                     <!-- Footer -->
                     <div class="mt-6 pt-4 border-t text-center" style="max-width:48rem;">
                         <p class="text-xs text-muted">
-                            BIU BedCheck System · © Benson Idahosa University
+                            BIU BedCheck System · © Benson Idahosa University · ${displayCampus} Campus
                         </p>
                     </div>
                 `;
@@ -805,6 +841,7 @@
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RA';
                 assignedHostelName = currentUser?.hostel || currentUser?.hostel_name || '';
                 assignedHostelId = currentUser?.hostel_id || null;
+                campus = currentUser?.campus || 'Legacy';
 
                 return true;
             }
@@ -883,7 +920,7 @@
                     renderProfile();
                     
                     document.getElementById('noticeText').textContent = 
-                        `Profile · ${userData.name || currentUser?.name || 'User'} · ${assignedHostelName}`;
+                        `Profile · ${userData.name || currentUser?.name || 'User'} · ${assignedHostelName} (${campus}) · ${assignedRooms.length} rooms`;
                         
                 } catch (error) {
                     console.error('Init error:', error);
