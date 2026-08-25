@@ -152,10 +152,6 @@
         .card-title { font-family: 'Merriweather',serif; font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
         .card-title .icon { color: #a77915; }
 
-        .notice-banner { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1.5rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.9rem; flex-wrap: wrap; align-items: center; }
-        .notice-banner i { margin-top: 0.15rem; font-size: 1rem; }
-        .notice-banner .status-indicator { margin-left: auto; font-weight: 700; }
-
         .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
         @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
         .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -434,11 +430,6 @@
                 </div>
             </header>
             <div class="content-container">
-                <div class="notice-banner" id="noticeBanner">
-                    <i class="fas fa-info-circle"></i>
-                    <span id="noticeText">Loading dashboard...</span>
-                    <span id="sessionStatusIndicator" class="status-indicator">⏳ Loading</span>
-                </div>
                 <div id="screenContent">
                     <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
                 </div>
@@ -714,7 +705,6 @@
                         globalSessionActive = false;
                         hasCompletedToday = false;
                         effectiveStatus = 'closed';
-                        updateStatusIndicator('closed', '⏳ No session available');
                         return null;
                     }
 
@@ -729,7 +719,6 @@
                         effectiveStatus = data.effective_status || 'ready';
                         globalSessionActive = data.global_session_active || false;
                         
-                        // Clean status values
                         if (effectiveStatus === 'started') {
                             sessionStatus = 'active';
                             isSessionActive = true;
@@ -753,19 +742,6 @@
                         } else if (global) {
                             currentSession = global;
                         }
-                        
-                        // Status indicator text
-                        let statusText = '';
-                        if (effectiveStatus === 'started') {
-                            statusText = '🟢 Session In Progress';
-                        } else if (effectiveStatus === 'ready') {
-                            statusText = '🟡 Night Session Ready';
-                        } else if (effectiveStatus === 'completed') {
-                            statusText = '✅ Session Completed';
-                        } else {
-                            statusText = '⏳ No Session';
-                        }
-                        updateStatusIndicator(effectiveStatus, statusText);
                         
                         // Update bedScanStatus from sessions
                         if (data.sessions) {
@@ -815,13 +791,11 @@
                         hasCompletedToday = false;
                         effectiveStatus = 'ready';
                         currentSession = global;
-                        updateStatusIndicator('ready', '🟡 Night Session Ready');
                         return { effective_status: 'ready' };
                     }
                     
                     sessionStatus = 'closed';
                     isSessionActive = false;
-                    updateStatusIndicator('closed', '⏳ No Session');
                     return null;
                     
                 } catch (error) {
@@ -829,26 +803,6 @@
                     isSessionActive = false;
                     return null;
                 }
-            }
-
-            function updateStatusIndicator(status, text) {
-                const indicator = document.getElementById('sessionStatusIndicator');
-                if (!indicator) return;
-                
-                let color = '#68768a';
-                let icon = '⏳';
-                if (status === 'started' || status === 'active') {
-                    color = '#2d6545';
-                    icon = '🟢';
-                } else if (status === 'ready') {
-                    color = '#d4af37';
-                    icon = '🟡';
-                } else if (status === 'completed') {
-                    color = '#2d6545';
-                    icon = '✅';
-                }
-                indicator.innerHTML = `${icon} <span style="font-weight:600;color:${color};">${text}</span>`;
-                indicator.style.color = color;
             }
 
             // =============================================
@@ -1580,8 +1534,6 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading dashboard...';
-
                     await loadHostels();
                     await loadUserProfile();
                     await loadAssignedRooms();
@@ -1603,22 +1555,6 @@
 
                     updateHeader();
 
-                    const hostelDisplay = assignedHostelName || 'No Hostel';
-                    const areaDisplay = assignedArea || 'No Floor';
-                    const roomDisplay = assignedRooms.length > 0 ? `${assignedRooms.length} rooms` : 'no rooms assigned';
-                    let statusText = '';
-                    if (effectiveStatus === 'started') {
-                        statusText = '🟢 In Progress';
-                    } else if (effectiveStatus === 'ready') {
-                        statusText = '🟡 Ready';
-                    } else if (effectiveStatus === 'completed') {
-                        statusText = '✅ Completed';
-                    } else {
-                        statusText = '⏳ Closed';
-                    }
-                    document.getElementById('noticeText').textContent =
-                        `${filteredStudents.length} students · ${hostelDisplay} · ${areaDisplay} · ${roomDisplay} · ${statusText}`;
-
                     renderDashboard();
                     startSessionChecker();
                     addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
@@ -1626,7 +1562,6 @@
                 } catch (error) {
                     console.error('Init error:', error);
                     const errorMessage = error.message || 'Failed to load dashboard data.';
-                    document.getElementById('noticeText').textContent = 'Error loading dashboard';
                     showError(errorMessage);
                     showToast('Error: ' + errorMessage, 'error');
                 }
