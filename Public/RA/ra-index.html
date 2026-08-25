@@ -145,8 +145,7 @@
         .badge-inactive { background: #e8edf2; color: #536274; }
         .badge-verified { background: #e1f0e5; color: #2d6545; }
         .badge-ready { background: #d6ad4b; color: #10233f; }
-        .badge-global { background: #10233f; color: white; }
-        .badge-university { background: #d6ad4b; color: #10233f; border: 1px solid #c49a2a; }
+        .badge-night { background: #10233f; color: white; }
 
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
         @media (max-width: 480px) { .card { padding: 0.75rem; } }
@@ -251,12 +250,74 @@
         .field select { padding: 0.4rem 0.6rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.8rem; outline: none; width: 100%; font-family: inherit; }
         .field select:focus { border-color: #a77915; }
 
-        .session-status-banner { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; background: #f5f1e8; border: 1px solid #ded6c9; flex-wrap: wrap; }
-        .session-status-banner.active { background: #e1f0e5; border-color: #2d6545; color: #1a4a2a; }
-        .session-status-banner.draft { background: #f5f1e8; border-color: #d4af37; color: #8a6413; }
-        .session-status-banner.completed { background: #e8edf2; border-color: #536274; color: #536274; }
-        .session-status-banner.ready { background: #d6ad4b20; border-color: #d6ad4b; color: #10233f; }
-        .session-status-banner.global { background: #10233f10; border-color: #10233f; color: #10233f; }
+        .session-banner {
+            border-radius: 0.75rem;
+            padding: 1.5rem 2rem;
+            margin-bottom: 1.5rem;
+            background: #10233f;
+            color: white;
+            border: 1px solid #d6ad4b;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        @media (max-width: 480px) {
+            .session-banner {
+                padding: 1rem 1.25rem;
+                flex-direction: column;
+                align-items: stretch;
+                text-align: center;
+            }
+        }
+        .session-banner .session-icon {
+            font-size: 2.5rem;
+            color: #d6ad4b;
+        }
+        .session-banner .session-info { flex: 1; }
+        .session-banner .session-title {
+            font-family: 'Merriweather', serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        @media (max-width: 480px) { .session-banner .session-title { font-size: 1.2rem; } }
+        .session-banner .session-sub {
+            font-size: 0.9rem;
+            color: #b9c7db;
+            margin-top: 0.15rem;
+        }
+        .session-banner .session-status-badge {
+            display: inline-block;
+            padding: 0.3rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .session-banner .session-status-badge.ready {
+            background: #d6ad4b;
+            color: #10233f;
+        }
+        .session-banner .session-status-badge.active {
+            background: #2d6545;
+            color: white;
+        }
+        .session-banner .session-status-badge.completed {
+            background: #e8edf2;
+            color: #536274;
+        }
+        .session-banner .session-status-badge.closed {
+            background: #e8edf2;
+            color: #536274;
+        }
+        .session-banner .session-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
 
         .error-container { text-align: center; padding: 3rem 1rem; }
         .error-container .error-icon { font-size: 3rem; color: #a84134; margin-bottom: 1rem; }
@@ -295,19 +356,14 @@
         @media (max-width: 480px) { .timeline-item { font-size: 0.75rem; } .timeline-item .time { min-width: 3rem; font-size: 0.6rem; } }
         .timeline-item .content { flex: 1; }
 
-        .general-session-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.15rem 0.6rem;
-            background: #d6ad4b20;
-            border-radius: 9999px;
-            font-size: 0.6rem;
-            font-weight: 600;
-            color: #10233f;
-            border: 1px solid #d6ad4b;
+        .night-session-footer {
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #ded6c9;
+            text-align: center;
+            font-size: 0.7rem;
+            color: #6b778b;
         }
-        .general-session-badge i { color: #d6ad4b; font-size: 0.5rem; }
     </style>
 </head>
 <body>
@@ -399,6 +455,7 @@
             // =============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
             const ITEMS_PER_PAGE = 10;
+            const DEBUG = false;
 
             // =============================================
             // TOAST
@@ -428,17 +485,27 @@
             let assignedFloorName = '';
             let assignedArea = '';
             let currentSession = null;
-            let sessionStatus = 'draft';
+            let sessionStatus = 'closed';
             let isSessionActive = false;
             let isRASessionActive = false;
             let globalSessionActive = false;
             let hasCompletedToday = false;
-            let effectiveStatus = 'draft';
+            let effectiveStatus = 'closed';
             let hasLoadedRooms = false;
             let bedScanStatus = {};
             let timeline = [];
             let globalSessionData = null;
             let sessionCheckerInterval = null;
+            let lastLoggedSessionId = null;
+
+            // =============================================
+            // DEBUG LOGGING
+            // =============================================
+            function debugLog(...args) {
+                if (DEBUG) {
+                    console.log(...args);
+                }
+            }
 
             // =============================================
             // API HELPER
@@ -600,27 +667,32 @@
             }
 
             // =============================================
-            // LOAD GLOBAL SESSION (University-Wide)
+            // LOAD GLOBAL SESSION (Night BedCheck)
             // =============================================
             async function loadGlobalSession() {
                 try {
-                    // NO PARAMETERS - server uses campus from JWT token
-                    // This gets the ONE active session for the entire university
                     const data = await apiCall('/sessions/active');
                     if (data && data.data && data.is_active) {
                         globalSessionData = data.data;
                         globalSessionActive = true;
                         currentSession = data.data;
-                        console.log('📋 University-wide session active:', data.data.id, data.data.name);
+                        
+                        if (lastLoggedSessionId !== data.data.id) {
+                            debugLog('📋 Night session active:', data.data.id, data.data.name);
+                            lastLoggedSessionId = data.data.id;
+                        }
                         return data.data;
                     } else {
                         globalSessionData = null;
                         globalSessionActive = false;
                         currentSession = null;
+                        if (lastLoggedSessionId !== null) {
+                            debugLog('📋 No night session active');
+                            lastLoggedSessionId = null;
+                        }
                         return null;
                     }
                 } catch (error) {
-                    console.warn('No active session:', error.message);
                     globalSessionData = null;
                     globalSessionActive = false;
                     currentSession = null;
@@ -629,39 +701,35 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS - University-Wide
+            // LOAD SESSION STATUS - Clean UI States
             // =============================================
             async function loadSessionStatus() {
                 try {
-                    // First check global session (university-wide)
                     const global = await loadGlobalSession();
                     
                     if (!global) {
-                        // No global session active
-                        sessionStatus = 'draft';
+                        sessionStatus = 'closed';
                         isSessionActive = false;
                         isRASessionActive = false;
                         globalSessionActive = false;
                         hasCompletedToday = false;
-                        effectiveStatus = 'draft';
-                        updateStatusIndicator('draft', '⏳ No Active Session');
+                        effectiveStatus = 'closed';
+                        updateStatusIndicator('closed', '⏳ No session available');
                         return null;
                     }
 
-                    // Check RA's session status for this global session
                     const statusData = await apiCall('/ra/bedcheck/status');
                     
                     if (statusData && statusData.data) {
                         const data = statusData.data;
                         
-                        // Set state from the server response
                         isRASessionActive = data.ra_session_active || false;
                         isSessionActive = data.has_active_session || false;
                         hasCompletedToday = data.has_completed_today || false;
-                        effectiveStatus = data.effective_status || 'draft';
+                        effectiveStatus = data.effective_status || 'ready';
                         globalSessionActive = data.global_session_active || false;
                         
-                        // Determine status based on effective_status
+                        // Clean status values
                         if (effectiveStatus === 'started') {
                             sessionStatus = 'active';
                             isSessionActive = true;
@@ -676,27 +744,26 @@
                             isSessionActive = false;
                             hasCompletedToday = true;
                         } else {
-                            sessionStatus = 'draft';
+                            sessionStatus = 'closed';
                             isSessionActive = false;
                         }
                         
-                        // Store the session data
                         if (data.active_session) {
                             currentSession = data.active_session;
                         } else if (global) {
                             currentSession = global;
                         }
                         
-                        // Update status indicator
+                        // Status indicator text
                         let statusText = '';
                         if (effectiveStatus === 'started') {
-                            statusText = '🟢 Your session is ACTIVE';
+                            statusText = '🟢 Session In Progress';
                         } else if (effectiveStatus === 'ready') {
-                            statusText = '🟡 University session READY - Click Start';
+                            statusText = '🟡 Night Session Ready';
                         } else if (effectiveStatus === 'completed') {
-                            statusText = '✅ Session COMPLETED';
+                            statusText = '✅ Session Completed';
                         } else {
-                            statusText = '⏳ No active session';
+                            statusText = '⏳ No Session';
                         }
                         updateStatusIndicator(effectiveStatus, statusText);
                         
@@ -725,16 +792,21 @@
                                         });
                                     }
                                 } catch (scanError) {
-                                    console.warn('Could not fetch scans:', scanError);
+                                    // Silently handle
                                 }
                             }
                         }
                         
-                        console.log(`📋 Session status: ${sessionStatus}, Active: ${isSessionActive}, RA: ${isRASessionActive}, Global: ${globalSessionActive}`);
+                        debugLog('📋 Session status:', {
+                            sessionStatus,
+                            isSessionActive,
+                            isRASessionActive,
+                            globalSessionActive,
+                            effectiveStatus
+                        });
                         return data;
                     }
                     
-                    // Fallback - if global session active but no RA status
                     if (global) {
                         sessionStatus = 'ready';
                         isSessionActive = true;
@@ -743,21 +815,18 @@
                         hasCompletedToday = false;
                         effectiveStatus = 'ready';
                         currentSession = global;
-                        updateStatusIndicator('ready', '🟡 University session READY');
+                        updateStatusIndicator('ready', '🟡 Night Session Ready');
                         return { effective_status: 'ready' };
                     }
                     
-                    // No data
-                    sessionStatus = 'draft';
+                    sessionStatus = 'closed';
                     isSessionActive = false;
-                    updateStatusIndicator('draft', '⏳ No Active Session');
+                    updateStatusIndicator('closed', '⏳ No Session');
                     return null;
                     
                 } catch (error) {
-                    console.warn('Session status error:', error.message);
-                    sessionStatus = 'draft';
+                    sessionStatus = 'closed';
                     isSessionActive = false;
-                    updateStatusIndicator('draft', '⏳ Error loading session');
                     return null;
                 }
             }
@@ -791,13 +860,11 @@
                 }
                 
                 try {
-                    console.log('Loading user profile for ID:', currentUser.id);
-                    
                     const data = await apiCall(`/staff/${currentUser.id}`);
                     
                     if (data.data) {
                         const userData = data.data;
-                        console.log('User profile loaded:', userData);
+                        debugLog('👤 Profile loaded:', userData.name);
                         
                         currentUser = { ...currentUser, ...userData };
                         
@@ -822,11 +889,9 @@
                         }
                         
                         if (!assignedHostelId) {
-                            console.warn('No hostel assigned to user. Using default.');
                             if (hostels.length > 0) {
                                 assignedHostelId = hostels[0].id;
                                 assignedHostelName = hostels[0].name;
-                                console.log('Using default hostel:', assignedHostelName);
                             }
                         }
                         
@@ -837,7 +902,6 @@
                     console.error('Error loading user profile:', error);
                     
                     if (currentUser) {
-                        console.log('Using cached user data from session');
                         assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
                         assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
                         assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
@@ -895,11 +959,11 @@
             }
 
             // =============================================
-            // START BEDCHECK SESSION - University-Wide
+            // START BEDCHECK
             // =============================================
             async function startBedCheck() {
                 if (isRASessionActive) {
-                    showToast('You already have an active BedCheck session.', 'info');
+                    showToast('You already have an active session.', 'info');
                     return;
                 }
 
@@ -909,25 +973,23 @@
                 }
 
                 if (!globalSessionActive) {
-                    showToast('No active university-wide session available. Please wait.', 'error');
+                    showToast('No active session available.', 'error');
                     return;
                 }
 
                 if (assignedRooms.length === 0) {
-                    showToast('No rooms assigned to you. Contact your HRA.', 'error');
+                    showToast('No rooms assigned. Contact your HRA.', 'error');
                     return;
                 }
 
                 try {
-                    // Get the global session ID from the current session
                     const sessionId = currentSession?.id || currentSession?.session_id;
                     
                     if (!sessionId) {
-                        showToast('Could not find active session ID.', 'error');
+                        showToast('Could not find session ID.', 'error');
                         return;
                     }
 
-                    // Start the RA session
                     const result = await apiCall('/ra/bedcheck/start', {
                         method: 'POST',
                         body: JSON.stringify({ session_id: sessionId })
@@ -942,31 +1004,30 @@
                         
                         addTimeline('BedCheck started', `Session ID: ${sessionId}`);
                         
-                        // Refresh session status
                         await loadSessionStatus();
                         
-                        showToast('✅ BedCheck session started successfully!', 'success');
+                        showToast('✅ BedCheck started!', 'success');
                         renderDashboard();
                     } else {
-                        showToast('Failed to start BedCheck session.', 'error');
+                        showToast('Failed to start BedCheck.', 'error');
                     }
                     
                 } catch (error) {
                     console.error('Start BedCheck error:', error);
-                    showToast('Failed to start BedCheck: ' + error.message, 'error');
+                    showToast('Failed to start: ' + error.message, 'error');
                 }
             }
 
             // =============================================
-            // COMPLETE BEDCHECK SESSION - University-Wide
+            // COMPLETE BEDCHECK
             // =============================================
             async function completeBedCheck() {
                 if (!isRASessionActive) {
-                    showToast('No active BedCheck session to complete.', 'error');
+                    showToast('No active session to complete.', 'error');
                     return;
                 }
 
-                if (!confirm('Are you sure you want to complete tonight\'s BedCheck? This action cannot be undone.')) {
+                if (!confirm('Complete tonight\'s BedCheck? This cannot be undone.')) {
                     return;
                 }
 
@@ -974,11 +1035,10 @@
                     const sessionId = currentSession?.id || currentSession?.session_id;
                     
                     if (!sessionId || sessionId === 'completed') {
-                        showToast('No session found to complete.', 'error');
+                        showToast('No session found.', 'error');
                         return;
                     }
 
-                    // Complete the RA session
                     await apiCall('/ra/bedcheck/complete', {
                         method: 'POST',
                         body: JSON.stringify({ session_id: sessionId })
@@ -992,15 +1052,14 @@
                     
                     addTimeline('BedCheck completed', `Session ID: ${sessionId}`);
                     
-                    // Refresh session status
                     await loadSessionStatus();
                     
-                    showToast('✅ BedCheck completed successfully!', 'success');
+                    showToast('✅ BedCheck completed!', 'success');
                     renderDashboard();
                     
                 } catch (error) {
                     console.error('Complete BedCheck error:', error);
-                    showToast('Failed to complete BedCheck: ' + error.message, 'error');
+                    showToast('Failed to complete: ' + error.message, 'error');
                 }
             }
 
@@ -1011,18 +1070,15 @@
                 if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
                 sessionCheckerInterval = setInterval(async () => {
                     try {
-                        await loadSessionStatus();
-                        // Only re-render if status changed significantly
                         const oldEffectiveStatus = effectiveStatus;
-                        // The loadSessionStatus updates the state
-                        // We just need to check if we should re-render
+                        await loadSessionStatus();
                         if (oldEffectiveStatus !== effectiveStatus) {
                             renderDashboard();
                         }
                     } catch (error) {
-                        console.error('Session checker error:', error);
+                        // Silent fail
                     }
-                }, 30000); // Check every 30 seconds
+                }, 30000);
             }
 
             // =============================================
@@ -1033,7 +1089,7 @@
                 container.innerHTML = `
                     <div class="error-container">
                         <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
-                        <h2>Unable to Load Dashboard</h2>
+                        <h2>Unable to Load</h2>
                         <p>${message}</p>
                         <button class="btn-success" onclick="location.reload()">
                             <i class="fas fa-refresh"></i> Retry
@@ -1043,7 +1099,7 @@
             }
 
             // =============================================
-            // RENDER DASHBOARD
+            // RENDER DASHBOARD - Clean Night Session UI
             // =============================================
             function renderDashboard() {
                 const container = document.getElementById('screenContent');
@@ -1052,7 +1108,6 @@
                 const displayArea = assignedArea || 'No Floor';
                 const totalStudents = filteredStudents.length;
                 
-                // Count students by status
                 const verified = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present').length || 0;
                 const absent = filteredStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent' || s.status === 'Absent').length || 0;
                 const pending = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status).length || 0;
@@ -1068,53 +1123,49 @@
                     if (hraStaff) hraName = hraStaff.name;
                 }
 
-                // Session status display - University-Wide
-                let sessionStatusDisplay = 'Inactive';
-                let statusClass = '';
-                let statusIcon = 'fa-pause-circle';
-                let statusBadge = 'inactive';
-                let statusMessage = '⏳ Awaiting session activation';
-                let showStartButton = false;
-                let showCompleteButton = false;
-                let showGlobalBadge = false;
-                let sessionTypeLabel = 'University-Wide';
-                
+                // Clean session state
+                let sessionDisplay = {
+                    title: 'Night BedCheck',
+                    statusText: 'No session available',
+                    badgeClass: 'closed',
+                    badgeText: 'Closed',
+                    showStartButton: false,
+                    showCompleteButton: false,
+                    showCompletedBadge: false
+                };
+
                 if (effectiveStatus === 'started') {
-                    sessionStatusDisplay = 'Active';
-                    statusClass = 'active';
-                    statusIcon = 'fa-play-circle';
-                    statusBadge = 'active';
-                    statusMessage = '🟢 Recording enabled - Your session is LIVE';
-                    showCompleteButton = true;
-                    showGlobalBadge = true;
+                    sessionDisplay.statusText = 'BedCheck In Progress';
+                    sessionDisplay.badgeClass = 'active';
+                    sessionDisplay.badgeText = 'Active';
+                    sessionDisplay.showCompleteButton = true;
+                    sessionDisplay.showCompletedBadge = false;
                 } else if (effectiveStatus === 'ready') {
-                    sessionStatusDisplay = 'Ready';
-                    statusClass = 'ready';
-                    statusIcon = 'fa-play-circle';
-                    statusBadge = 'ready';
-                    statusMessage = '🟡 University session is live - Click "Start" to begin';
-                    showStartButton = true;
-                    showGlobalBadge = true;
+                    sessionDisplay.statusText = 'Night Session Ready';
+                    sessionDisplay.badgeClass = 'ready';
+                    sessionDisplay.badgeText = 'Ready';
+                    sessionDisplay.showStartButton = true;
+                    sessionDisplay.showCompletedBadge = false;
                 } else if (effectiveStatus === 'completed') {
-                    sessionStatusDisplay = 'Completed';
-                    statusClass = 'completed';
-                    statusIcon = 'fa-check-circle';
-                    statusBadge = 'approved';
-                    statusMessage = '✅ Today\'s BedCheck is finalized';
-                    showGlobalBadge = true;
+                    sessionDisplay.statusText = 'BedCheck Completed';
+                    sessionDisplay.badgeClass = 'completed';
+                    sessionDisplay.badgeText = 'Done';
+                    sessionDisplay.showCompletedBadge = true;
+                    sessionDisplay.showStartButton = false;
+                    sessionDisplay.showCompleteButton = false;
                 } else {
-                    sessionStatusDisplay = 'Draft';
-                    statusClass = 'draft';
-                    statusIcon = 'fa-clock';
-                    statusBadge = 'inactive';
-                    statusMessage = '⏳ No active university-wide session';
+                    sessionDisplay.statusText = 'No session available';
+                    sessionDisplay.badgeClass = 'closed';
+                    sessionDisplay.badgeText = 'Closed';
+                    sessionDisplay.showStartButton = false;
+                    sessionDisplay.showCompleteButton = false;
                 }
 
-                // Get session details for display
-                const sessionName = currentSession?.name || 'No Session';
+                const sessionName = currentSession?.name || 'Night BedCheck';
                 const sessionDate = currentSession?.date ? formatDate(currentSession.date) : '—';
                 const sessionStart = currentSession?.start_time ? formatTime(currentSession.start_time) : '—';
                 const sessionEnd = currentSession?.end_time ? formatTime(currentSession.end_time) : '—';
+                const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -1132,22 +1183,16 @@
                                 <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
                                     <i class="fas fa-door-open"></i> ${assignedRooms.length} rooms
                                 </span>
-                                ${globalSessionActive ? `<span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b;color:#10233f;">
-                                    <i class="fas fa-globe"></i> University Session Active
-                                </span>` : ''}
-                                <span class="general-session-badge" style="margin-left:0.5rem;font-size:0.6rem;padding:0.1rem 0.5rem;">
-                                    <i class="fas fa-university"></i> ${sessionTypeLabel}
-                                </span>
                             </p>
                         </div>
                         <div class="action-group">
-                            ${showStartButton && assignedRooms.length > 0 ? `
+                            ${sessionDisplay.showStartButton && assignedRooms.length > 0 ? `
                                 <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
                             ` : ''}
-                            ${showCompleteButton ? `
+                            ${sessionDisplay.showCompleteButton ? `
                                 <button class="btn-danger" id="completeBedCheckBtn"><i class="fas fa-check-double"></i> Complete</button>
                             ` : ''}
-                            ${effectiveStatus === 'completed' ? `
+                            ${sessionDisplay.showCompletedBadge ? `
                                 <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed ✓</button>
                             ` : ''}
                             ${assignedRooms.length === 0 && effectiveStatus !== 'completed' ? `
@@ -1156,34 +1201,23 @@
                         </div>
                     </div>
 
-                    <!-- Session Status -->
-                    <div class="session-status-banner ${statusClass}">
-                        <i class="fas ${statusIcon}"></i>
-                        <span><strong>Session:</strong> ${sessionStatusDisplay}</span>
-                        ${effectiveStatus === 'started' ? `<span class="badge badge-active">LIVE</span>` : ''}
-                        ${effectiveStatus === 'ready' ? `<span class="badge badge-ready">READY</span>` : ''}
-                        ${effectiveStatus === 'completed' ? `<span class="badge badge-approved">DONE</span>` : ''}
-                        ${effectiveStatus === 'draft' ? `<span class="badge badge-draft">DRAFT</span>` : ''}
-                        <span class="general-session-badge" style="font-size:0.6rem;padding:0.1rem 0.5rem;">
-                            <i class="fas fa-globe"></i> All Campuses
-                        </span>
-                        <span style="margin-left:auto;font-size:0.75rem;opacity:0.7;">
-                            ${statusMessage}
-                        </span>
+                    <!-- Night Session Banner -->
+                    <div class="session-banner">
+                        <div class="session-icon">🌙</div>
+                        <div class="session-info">
+                            <div class="session-title">${sessionName}</div>
+                            <div class="session-sub">${sessionDisplay.statusText}</div>
+                            ${hasSession ? `
+                                <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
+                                    ${sessionDate} · ${sessionStart} — ${sessionEnd}
+                                    <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${currentSession?.grace_period || 15}min</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div>
+                            <span class="session-status-badge ${sessionDisplay.badgeClass}">${sessionDisplay.badgeText}</span>
+                        </div>
                     </div>
-
-                    <!-- Session Info Bar -->
-                    ${globalSessionActive || effectiveStatus !== 'draft' ? `
-                    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;padding:0.5rem 0.75rem;margin-bottom:1rem;background:white;border-radius:0.5rem;border:1px solid #ded6c9;font-size:0.8rem;">
-                        <span><strong>Session:</strong> ${sessionName}</span>
-                        <span>|</span>
-                        <span><strong>Date:</strong> ${sessionDate}</span>
-                        <span>|</span>
-                        <span><strong>Time:</strong> ${sessionStart} — ${sessionEnd}</span>
-                        <span>|</span>
-                        <span class="text-muted"><i class="fas fa-clock"></i> Grace: ${currentSession?.grace_period || 15}min</span>
-                    </div>
-                    ` : ''}
 
                     <!-- Metric Cards -->
                     <div class="metric-grid">
@@ -1197,13 +1231,13 @@
                             <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
                             <div class="metric-value" style="color:#2d6545;">${verified}</div>
                             <div class="metric-title">Verified</div>
-                            <div class="metric-detail">Students verified present</div>
+                            <div class="metric-detail">Students present</div>
                         </div>
                         <div class="metric-card" style="border-left:3px solid #8a3328;">
                             <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
                             <div class="metric-value" style="color:#8a3328;">${absent}</div>
                             <div class="metric-title">Absent</div>
-                            <div class="metric-detail">Students marked absent</div>
+                            <div class="metric-detail">Students absent</div>
                         </div>
                         <div class="metric-card" style="border-left:3px solid #b9c7db;">
                             <div class="metric-icon gray"><i class="fas fa-hourglass-half"></i></div>
@@ -1268,7 +1302,7 @@
                                     <p class="text-muted text-sm">No rooms assigned. Contact your HRA.</p>
                                 `}
                                 <div class="mt-2 pt-2 border-t text-xs text-muted">
-                                    <i class="fas fa-info-circle"></i> Status updates only during active sessions
+                                    <i class="fas fa-info-circle"></i> Status updates during active sessions
                                 </div>
                             </div>
                         </div>
@@ -1325,19 +1359,14 @@
                                     </div>
                                 </div>
                             `).join('') : `
-                                <p class="text-muted text-sm">No activity yet. Start verifying students.</p>
+                                <p class="text-muted text-sm">No activity yet.</p>
                             `}
                         </div>
                     </div>
 
                     <!-- Footer -->
-                    <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">
-                            BIU BedCheck System · Benson Idahosa University
-                        </p>
-                        <p class="text-xs text-muted" style="color:#d6ad4b;font-weight:600;margin-top:0.2rem;">
-                            <i class="fas fa-globe"></i> University-Wide Session System
-                        </p>
+                    <div class="night-session-footer">
+                        BIU BedCheck System · Benson Idahosa University
                     </div>
                 `;
 
@@ -1374,7 +1403,7 @@
                 if (pageStudents.length === 0) {
                     tbody.innerHTML =
                         `<tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">
-                            ${filteredStudents.length === 0 ? 'No students assigned to your rooms.' : 'No students match the selected filter.'}
+                            ${filteredStudents.length === 0 ? 'No students assigned.' : 'No students match the filter.'}
                         </td></tr>`;
                     updatePagination(displayStudents.length);
                     return;
@@ -1486,7 +1515,6 @@
                     return false;
                 }
 
-                // Get initial data from session
                 assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
                 assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
                 assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
@@ -1554,16 +1582,10 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading dashboard...';
 
-                    // Load hostels first
                     await loadHostels();
-                    
-                    // Load user profile
                     await loadUserProfile();
-                    
-                    // Load assigned rooms
                     await loadAssignedRooms();
 
-                    // Load floors/flats for the hostel
                     if (assignedHostelId) {
                         await loadFloorsFlats();
                         if (assignedFloor && !assignedFloorName && !isNaN(assignedFloor)) {
@@ -1575,13 +1597,8 @@
                         }
                     }
 
-                    // Load staff for HRA info
                     await loadStaff();
-
-                    // Load students
                     await loadStudents();
-
-                    // Load session status (university-wide)
                     await loadSessionStatus();
 
                     updateHeader();
@@ -1591,24 +1608,20 @@
                     const roomDisplay = assignedRooms.length > 0 ? `${assignedRooms.length} rooms` : 'no rooms assigned';
                     let statusText = '';
                     if (effectiveStatus === 'started') {
-                        statusText = '🟢 Active (Your session)';
+                        statusText = '🟢 In Progress';
                     } else if (effectiveStatus === 'ready') {
-                        statusText = '🟡 Ready - Click Start';
+                        statusText = '🟡 Ready';
                     } else if (effectiveStatus === 'completed') {
                         statusText = '✅ Completed';
                     } else {
-                        statusText = '⏳ Draft';
+                        statusText = '⏳ Closed';
                     }
                     document.getElementById('noticeText').textContent =
-                        `${filteredStudents.length} students in ${hostelDisplay} · ${areaDisplay} · ${roomDisplay} · ${statusText}`;
+                        `${filteredStudents.length} students · ${hostelDisplay} · ${areaDisplay} · ${roomDisplay} · ${statusText}`;
 
                     renderDashboard();
-
-                    // Start session checker
                     startSessionChecker();
-
-                    // Add initial timeline entry
-                    addTimeline('Dashboard loaded', `${filteredStudents.length} students loaded`);
+                    addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
 
                 } catch (error) {
                     console.error('Init error:', error);
