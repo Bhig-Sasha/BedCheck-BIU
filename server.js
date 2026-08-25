@@ -6260,13 +6260,14 @@ app.delete('/api/sessions/:id',
     }
 );
 
-// GET active session (for checking if session is live - used by RA, HRA, RASD pages)
+// GET active session - UNIFIED (for all roles to check)
 app.get('/api/sessions/active',
     campusIsolation,
     async (req, res) => {
         try {
             const campusContext = req.campus || 'Legacy';
 
+            // Get the most recent active session for this campus
             const { data, error } = await supabase
                 .from('sessions')
                 .select('*')
@@ -6278,65 +6279,62 @@ app.get('/api/sessions/active',
 
             if (error) throw error;
 
-            // Get stats if session exists
-            let stats = {};
-            let raSessions = [];
-            let attendance = [];
-            let scans = [];
-
-            if (data) {
-                // Get RA bedcheck sessions
-                const { data: raSessionsData } = await supabase
-                    .from('bedcheck_sessions')
-                    .select(`
-                        *,
-                        staff!ra_id (id, name, username),
-                        hostels!hostel_id (id, name, type, gender)
-                    `)
-                    .eq('global_session_id', data.id)
-                    .eq('campus', campusContext);
-
-                raSessions = raSessionsData || [];
-
-                // Get attendance
-                const { data: attendanceData } = await supabase
-                    .from('bedcheck_attendance')
-                    .select('*')
-                    .eq('global_session_id', data.id)
-                    .eq('campus', campusContext);
-
-                attendance = attendanceData || [];
-
-                // Get scans
-                const { data: scansData } = await supabase
-                    .from('bedcheck_scans')
-                    .select('*')
-                    .eq('session_id', data.id)
-                    .eq('campus', campusContext);
-
-                scans = scansData || [];
-
-                const totalStudents = attendance.length || 0;
-                const presentStudents = attendance.filter(a => a.status === 'present').length || 0;
-
-                stats = {
-                    total_students: totalStudents,
-                    present_students: presentStudents,
-                    absent_students: attendance.filter(a => a.status === 'absent').length || 0,
-                    completion: totalStudents > 0 ? Math.round((presentStudents / totalStudents) * 100) : 0,
-                    total_ras: raSessions.length || 0,
-                    ras_started: raSessions.filter(r => r.status === 'started' || r.status === 'in_progress').length || 0,
-                    ras_completed: raSessions.filter(r => r.status === 'completed').length || 0,
-                    verified_scans: scans.filter(s => s.status === 'Verified').length || 0,
-                    absent_scans: scans.filter(s => s.status === 'Absent').length || 0
-                };
+            // If no active session found, return null
+            if (!data) {
+                return res.json({ 
+                    success: true, 
+                    data: null,
+                    campus: campusContext,
+                    is_active: false
+                });
             }
+
+            // Get stats for the active session
+            const { count: totalStudents } = await supabase
+                .from('bedcheck_attendance')
+                .select('*', { count: 'exact', head: true })
+                .eq('global_session_id', data.id)
+                .eq('campus', campusContext);
+
+            const { count: presentStudents } = await supabase
+                .from('bedcheck_attendance')
+                .select('*', { count: 'exact', head: true })
+                .eq('global_session_id', data.id)
+                .eq('status', 'present')
+                .eq('campus', campusContext);
+
+            const { count: scansCount } = await supabase
+                .from('bedcheck_scans')
+                .select('*', { count: 'exact', head: true })
+                .eq('session_id', data.id)
+                .eq('campus', campusContext);
+
+            // Get RA sessions for this active session
+            const { data: raSessions } = await supabase
+                .from('bedcheck_sessions')
+                .select(`
+                    *,
+                    staff!ra_id (id, name, username),
+                    hostels!hostel_id (id, name, type, gender)
+                `)
+                .eq('global_session_id', data.id)
+                .eq('campus', campusContext);
+
+            const stats = {
+                total_students: totalStudents || 0,
+                present_students: presentStudents || 0,
+                scans_count: scansCount || 0,
+                total_ras: raSessions?.length || 0,
+                ras_started: raSessions?.filter(r => r.status === 'started' || r.status === 'in_progress').length || 0,
+                ras_completed: raSessions?.filter(r => r.status === 'completed').length || 0,
+                ra_sessions: raSessions || []
+            };
 
             res.json({ 
                 success: true, 
-                data: data ? { ...data, ...stats, ra_sessions: raSessions, attendance: attendance, scans: scans } : null,
+                data: { ...data, ...stats },
                 campus: campusContext,
-                is_active: !!data
+                is_active: true
             });
         } catch (error) {
             console.error('Error fetching active session:', error);
