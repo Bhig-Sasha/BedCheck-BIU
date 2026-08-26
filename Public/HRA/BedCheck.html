@@ -1011,7 +1011,7 @@
             function setNotice(msg) { noticeText.textContent = msg; }
 
             // =============================================
-            // ROOM STRUCTURE - ONLY USE REAL ROOMS
+            // ROOM STRUCTURE - FIXED: Accept both active and available
             // =============================================
             function buildRoomStructure() {
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
@@ -1020,8 +1020,9 @@
                 if (floors.length > 0 && rooms.length > 0) {
                     floors.forEach(floor => {
                         const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
+                        // ✅ FIX: Accept both 'active' and 'available' statuses
                         const roomData = floorRooms
-                            .filter(r => r.room_code && r.status === 'active')
+                            .filter(r => r.room_code && (r.status === 'active' || r.status === 'available' || r.status === 'Active' || r.status === 'Available' || r.status === '' || r.status === null))
                             .map(r => ({
                                 room_code: r.room_code,
                                 room_id: r.id,
@@ -1121,23 +1122,6 @@
             function getRoomsForArea(areaKey) {
                 const area = roomStructure.areas.find(a => a.key === areaKey);
                 return area ? area.rooms : [];
-            }
-
-            function getAreaByRoom(roomCode) {
-                const prefix = roomCode.match(/^[A-Z]/)?.[0] || '';
-                const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
-                
-                if (roomCode.startsWith('F') && roomCode.includes('R')) {
-                    const flatNum = roomCode.match(/F(\d+)/)?.[1];
-                    return roomStructure.areas.find(a => a.key === `Flat ${flatNum}`);
-                }
-                
-                return roomStructure.areas.find(a => {
-                    if (a.prefix === prefix) {
-                        return num >= a.start && num <= a.end;
-                    }
-                    return false;
-                });
             }
 
             // =============================================
@@ -1276,7 +1260,7 @@
             }
 
             // =============================================
-            // SAVE ASSIGNMENT - FIXED: Proper room ID mapping
+            // SAVE ASSIGNMENT - FIXED: Better room ID mapping
             // =============================================
             async function saveAssignment() {
                 const raId = document.getElementById('assignRAStaff').value;
@@ -1317,12 +1301,6 @@
                     const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
                     
                     // Filter rooms by range
-                    const filteredRooms = area.rooms.filter(r => {
-                        const num = parseInt(r.replace(/^[A-Z]/, ''));
-                        return num >= startNum && num <= endNum;
-                    });
-                    
-                    // Get corresponding room IDs
                     roomIds = [];
                     assignedRoomCodes = [];
                     area.rooms.forEach((roomCode, index) => {
@@ -1344,15 +1322,18 @@
                         // ✅ Ensure numeric IDs (avoids type mismatch)
                         const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id));
 
+                        // ✅ Also get room codes for logging
+                        const roomCodes = assignedRoomCodes;
+
                         console.log('Saving assignment:', {
                             ra_id: Number(ra.id),
                             ra_name: ra.name,
                             room_ids: numericRoomIds,
-                            room_codes: assignedRoomCodes
+                            room_codes: roomCodes
                         });
 
                         // ✅ USE THE PROPER HRA ASSIGNMENT ENDPOINT
-                        await apiCall('/hra/assign-rooms', {
+                        const result = await apiCall('/hra/assign-rooms', {
                             method: 'POST',
                             body: JSON.stringify({
                                 ra_id: Number(ra.id),
@@ -1367,6 +1348,7 @@
                         ra.room_range_end = endRoom || null;
                         ra.assigned_rooms = assignedRoomCodes;
                         
+                        // If we were editing, clear old assignment from previous RA
                         if (editingRAId && editingRAId != raId) {
                             const oldRA = staff.find(s => s.id == editingRAId);
                             if (oldRA) {
@@ -1398,32 +1380,35 @@
                 try {
                     const ra = staff.find(s => s.id == editingRAId);
                     if (ra) {
-                        // ✅ Get current room IDs for this RA
-                        const currentRoomIds = [];
+                        // ✅ If RA has assigned rooms, we need to remove them
                         if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
-                            // Find room IDs for the assigned room codes
+                            // Get room IDs for the assigned room codes
+                            const roomIds = [];
                             for (const roomCode of ra.assigned_rooms) {
                                 const room = rooms.find(r => r.room_code === roomCode);
                                 if (room) {
-                                    currentRoomIds.push(Number(room.id));
+                                    roomIds.push(Number(room.id));
                                 }
                             }
-                        }
-
-                        // ✅ If there are assigned rooms, remove them one by one
-                        if (currentRoomIds.length > 0) {
-                            await apiCall('/hra/assign-rooms', {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                    ra_id: Number(ra.id),
-                                    room_ids: [] // Empty array removes all assignments
-                                })
-                            });
+                            
+                            if (roomIds.length > 0) {
+                                // Remove assignments by sending the room IDs to remove
+                                await apiCall('/hra/assign-rooms', {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                        ra_id: Number(ra.id),
+                                        room_ids: [] // Empty array removes all assignments
+                                    })
+                                });
+                            }
                         }
                         
+                        // Clear local data
                         ra.assigned_floor = null;
                         ra.assigned_area = null;
                         ra.assigned_rooms = [];
+                        ra.room_range_start = null;
+                        ra.room_range_end = null;
                         
                         showToast(`Assignment removed from ${ra.name}`, 'success');
                         closeAssignRA();

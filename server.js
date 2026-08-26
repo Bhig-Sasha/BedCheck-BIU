@@ -7375,6 +7375,7 @@ app.post('/api/hra/assign-rooms',
                 });
             }
 
+            // ✅ FIX: Accept multiple room statuses (active, available, Active, Available)
             const { data: rooms, error: roomsError } = await supabase
                 .from('rooms')
                 .select(`
@@ -7385,11 +7386,18 @@ app.post('/api/hra/assign-rooms',
                 `)
                 .in('id', room_ids)
                 .eq('floors_flats.hostel_id', ra.hostel_id)
-                .eq('status', 'active');
+                .in('status', ['active', 'available', 'Active', 'Available']);  // ← FIXED HERE
 
             if (roomsError) throw roomsError;
 
             if (!rooms || rooms.length !== room_ids.length) {
+                // Log the mismatch for debugging
+                console.warn('ROOM_NOT_FOUND', {
+                    requested: room_ids,
+                    found: rooms?.map(r => r.id) || [],
+                    ra_hostel: ra.hostel_id,
+                    campus: req.campus
+                });
                 return res.status(400).json({
                     success: false,
                     message: 'One or more rooms not found or not in this hostel',
@@ -7397,12 +7405,14 @@ app.post('/api/hra/assign-rooms',
                 });
             }
 
+            // Delete existing assignments for this RA
             await supabase
                 .from('ra_room_assignments')
                 .delete()
                 .eq('ra_id', ra_id)
                 .eq('campus', req.campus);
 
+            // Create new assignments
             const assignments = room_ids.map(roomId => ({
                 ra_id: ra_id,
                 room_id: roomId,
