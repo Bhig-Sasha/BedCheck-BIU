@@ -364,7 +364,7 @@
                 setTimeout(() => toast.classList.add('show'), 10);
                 setTimeout(() => {
                     toast.classList.remove('show');
-                }, 4000);
+                }, 5000); // Increased to 5 seconds for longer messages
             }
 
             // =============================================
@@ -403,6 +403,42 @@
             };
 
             // =============================================
+            // VALIDATION HELPERS
+            // =============================================
+            function validateUsername(username) {
+                if (!username || username.trim().length < 3) {
+                    return { valid: false, message: 'Username must be at least 3 characters long' };
+                }
+                if (username.length > 50) {
+                    return { valid: false, message: 'Username must be less than 50 characters' };
+                }
+                // Allow letters, numbers, dots, underscores, hyphens, and forward slashes
+                if (!/^[a-zA-Z0-9._\-/]+$/.test(username)) {
+                    return { valid: false, message: 'Username can only contain letters, numbers, dots, underscores, hyphens, and forward slashes' };
+                }
+                return { valid: true };
+            }
+
+            function validateName(name) {
+                if (!name || name.trim().length < 2) {
+                    return { valid: false, message: 'Name must be at least 2 characters long' };
+                }
+                if (name.length > 100) {
+                    return { valid: false, message: 'Name must be less than 100 characters' };
+                }
+                return { valid: true };
+            }
+
+            function validateEmail(email) {
+                if (!email) return { valid: true }; // Email is optional
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    return { valid: false, message: 'Please enter a valid email address' };
+                }
+                return { valid: true };
+            }
+
+            // =============================================
             // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
@@ -437,6 +473,18 @@
                         throw new Error('Authentication required');
                     }
                     
+                    // Handle validation errors (400)
+                    if (response.status === 400) {
+                        const errorData = await response.json();
+                        let errorMessage = 'Validation error';
+                        if (errorData.errors && Array.isArray(errorData.errors)) {
+                            errorMessage = errorData.errors.map(e => e.message).join(', ');
+                        } else if (errorData.message) {
+                            errorMessage = errorData.message;
+                        }
+                        throw new Error(errorMessage);
+                    }
+                    
                     // Handle 409 Conflict (duplicate username)
                     if (response.status === 409) {
                         const errorData = await response.json();
@@ -449,6 +497,9 @@
                         try {
                             const errorData = JSON.parse(errorText);
                             errorMessage = errorData.message || errorMessage;
+                            if (errorData.errors) {
+                                errorMessage += ': ' + errorData.errors.map(e => e.message).join(', ');
+                            }
                         } catch (e) {
                             errorMessage = errorText || errorMessage;
                         }
@@ -716,19 +767,21 @@
                                     </div>
                                     <div class="grid-2 mt-3">
                                         <div class="field">
-                                            <label>Full Name</label>
-                                            <input id="staffName" placeholder="e.g. Jane Smith" />
+                                            <label>Full Name *</label>
+                                            <input id="staffName" placeholder="e.g. Jane Smith" maxlength="100" />
                                         </div>
                                         <div class="field">
-                                            <label>Username</label>
-                                            <input id="staffUsername" placeholder="jane.smith" />
+                                            <label>Username *</label>
+                                            <input id="staffUsername" placeholder="jane.smith" maxlength="50" />
+                                            <small class="text-muted" style="font-size:0.6rem;">Letters, numbers, dots, underscores, hyphens, and slashes only</small>
                                         </div>
                                         <div class="field">
                                             <label>Password</label>
                                             <input type="password" id="staffPassword" placeholder="Temporary password" value="password" />
+                                            <small class="text-muted" style="font-size:0.6rem;">Minimum 8 characters with uppercase, lowercase, number, and special character</small>
                                         </div>
                                         <div class="field">
-                                            <label>Role</label>
+                                            <label>Role *</label>
                                             <select id="staffRoleSelect">
                                                 <option value="RA">RA</option>
                                                 <option value="HRA">HRA</option>
@@ -745,18 +798,26 @@
                                         </div>
                                         <div class="field">
                                             <label>Assigned Room</label>
-                                            <input id="staffRoom" placeholder="e.g. B12 or F3R2" />
+                                            <input id="staffRoom" placeholder="e.g. B12 or F3R2" maxlength="20" />
                                         </div>
                                         <div class="field">
-                                            <label>Campus</label>
+                                            <label>Campus *</label>
                                             <select id="staffCampus">
                                                 <option value="Legacy">Legacy</option>
                                                 <option value="Heritage">Heritage</option>
                                             </select>
                                         </div>
+                                        <div class="field">
+                                            <label>Email</label>
+                                            <input id="staffEmail" type="email" placeholder="email@example.com" maxlength="100" />
+                                        </div>
+                                        <div class="field">
+                                            <label>Phone</label>
+                                            <input id="staffPhone" placeholder="+234 801 234 5678" maxlength="20" />
+                                        </div>
                                     </div>
                                     <button class="btn-primary mt-3" id="saveStaffBtn"><i class="fas fa-save"></i> Save Staff Account</button>
-                                    <p class="text-xs text-gold mt-2">RA and HRA must be assigned to a hostel. RASD and Administrator have no hostel assignment.</p>
+                                    <p class="text-xs text-gold mt-2">* Required fields. RA and HRA must be assigned to a hostel. RASD and Administrator have no hostel assignment.</p>
                                 </div>
                             `;
                             
@@ -797,41 +858,94 @@
                                 const hostelId = document.getElementById('staffHostel').value;
                                 const assignedRoom = document.getElementById('staffRoom').value.trim();
                                 const campus = document.getElementById('staffCampus').value;
+                                const email = document.getElementById('staffEmail').value.trim();
+                                const phone = document.getElementById('staffPhone').value.trim();
                                 
-                                // Validate required fields
-                                if (!name || !username) {
-                                    showToast('Please fill in name and username', 'error');
+                                // Validate name
+                                const nameValidation = validateName(name);
+                                if (!nameValidation.valid) {
+                                    showToast(nameValidation.message, 'error');
+                                    document.getElementById('staffName').focus();
                                     return;
                                 }
                                 
+                                // Validate username
+                                const usernameValidation = validateUsername(username);
+                                if (!usernameValidation.valid) {
+                                    showToast(usernameValidation.message, 'error');
+                                    document.getElementById('staffUsername').focus();
+                                    return;
+                                }
+                                
+                                // Validate email (optional)
+                                if (email) {
+                                    const emailValidation = validateEmail(email);
+                                    if (!emailValidation.valid) {
+                                        showToast(emailValidation.message, 'error');
+                                        document.getElementById('staffEmail').focus();
+                                        return;
+                                    }
+                                }
+                                
+                                // Validate role
+                                if (!role) {
+                                    showToast('Please select a role', 'error');
+                                    return;
+                                }
+                                
+                                // Validate RA/HRA must have hostel
                                 if ((role === 'RA' || role === 'HRA') && !hostelId) {
                                     showToast('RA and HRA must be assigned to a hostel', 'error');
+                                    document.getElementById('staffHostel').focus();
                                     return;
                                 }
                                 
                                 // Check if username already exists locally
                                 const existingStaff = staffMembers.find(s => 
-                                    s.username.toLowerCase() === username.toLowerCase()
+                                    s.username && s.username.toLowerCase() === username.toLowerCase()
                                 );
                                 
                                 if (existingStaff) {
                                     showToast(`Username "${username}" is already taken by ${existingStaff.name}. Please choose a different username.`, 'error');
+                                    document.getElementById('staffUsername').focus();
                                     return;
                                 }
                                 
+                                // Validate password (if provided and not default)
+                                if (password && password !== 'password') {
+                                    if (password.length < 8) {
+                                        showToast('Password must be at least 8 characters long', 'error');
+                                        document.getElementById('staffPassword').focus();
+                                        return;
+                                    }
+                                    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/.test(password)) {
+                                        showToast('Password must contain uppercase, lowercase, number, and special character', 'error');
+                                        document.getElementById('staffPassword').focus();
+                                        return;
+                                    }
+                                }
+                                
                                 try {
+                                    const requestBody = { 
+                                        name, 
+                                        username, 
+                                        password: password || 'password',
+                                        role, 
+                                        hostel_id: hostelId || null,
+                                        assigned_room: assignedRoom || null,
+                                        status: 'Active',
+                                        campus: campus || 'Legacy'
+                                    };
+                                    
+                                    // Add email and phone if provided
+                                    if (email) requestBody.email = email;
+                                    if (phone) requestBody.phone = phone;
+                                    
+                                    console.log('Creating staff with payload:', requestBody);
+                                    
                                     const response = await apiCall('/staff', {
                                         method: 'POST',
-                                        body: JSON.stringify({ 
-                                            name, 
-                                            username, 
-                                            password: password || 'password',
-                                            role, 
-                                            hostel_id: hostelId || null,
-                                            assigned_room: assignedRoom || null,
-                                            status: 'Active',
-                                            campus: campus || 'Legacy'
-                                        })
+                                        body: JSON.stringify(requestBody)
                                     });
                                     
                                     // Check if temporary password was returned
@@ -846,8 +960,12 @@
                                     await loadStaff();
                                     loadStaffTable();
                                 } catch (error) {
-                                    // Handle duplicate username error specifically
-                                    if (error.message && error.message.includes('Username already exists')) {
+                                    console.error('Create staff error:', error);
+                                    
+                                    // Handle validation errors specifically
+                                    if (error.message && error.message.includes('Validation error')) {
+                                        showToast('Validation failed: ' + error.message, 'error');
+                                    } else if (error.message && error.message.includes('Username already exists')) {
                                         showToast('Username "' + username + '" is already taken. Please choose a different username.', 'error');
                                     } else {
                                         showToast('Error creating staff: ' + error.message, 'error');
@@ -880,15 +998,16 @@
 
                 content.innerHTML = `
                     <div class="field mt-3">
-                        <label>Name</label>
-                        <input id="editStaffName" value="${staff.name || ''}" />
+                        <label>Name *</label>
+                        <input id="editStaffName" value="${staff.name || ''}" maxlength="100" />
                     </div>
                     <div class="field mt-3">
-                        <label>Username</label>
-                        <input id="editStaffUsername" value="${staff.username || ''}" />
+                        <label>Username *</label>
+                        <input id="editStaffUsername" value="${staff.username || ''}" maxlength="50" />
+                        <small class="text-muted" style="font-size:0.6rem;">Letters, numbers, dots, underscores, hyphens, and slashes only</small>
                     </div>
                     <div class="field mt-3">
-                        <label>Role</label>
+                        <label>Role *</label>
                         <select id="editStaffRole">
                             <option value="RA" ${staff.role === 'RA' ? 'selected' : ''}>RA</option>
                             <option value="HRA" ${staff.role === 'HRA' ? 'selected' : ''}>HRA</option>
@@ -905,14 +1024,22 @@
                     </div>
                     <div class="field mt-3">
                         <label>Assigned Room</label>
-                        <input id="editStaffRoom" value="${staff.assigned_room || ''}" placeholder="e.g. B12 or F3R2" />
+                        <input id="editStaffRoom" value="${staff.assigned_room || ''}" placeholder="e.g. B12 or F3R2" maxlength="20" />
                     </div>
                     <div class="field mt-3">
-                        <label>Campus</label>
+                        <label>Campus *</label>
                         <select id="editStaffCampus">
                             <option value="Legacy" ${staff.campus === 'Legacy' ? 'selected' : ''}>Legacy</option>
                             <option value="Heritage" ${staff.campus === 'Heritage' ? 'selected' : ''}>Heritage</option>
                         </select>
+                    </div>
+                    <div class="field mt-3">
+                        <label>Email</label>
+                        <input id="editStaffEmail" type="email" value="${staff.email || ''}" placeholder="email@example.com" maxlength="100" />
+                    </div>
+                    <div class="field mt-3">
+                        <label>Phone</label>
+                        <input id="editStaffPhone" value="${staff.phone || ''}" placeholder="+234 801 234 5678" maxlength="20" />
                     </div>
                     <div class="field mt-3">
                         <label>Status</label>
@@ -943,11 +1070,33 @@
                 const assignedRoom = document.getElementById('editStaffRoom').value.trim();
                 const campus = document.getElementById('editStaffCampus').value;
                 const status = document.getElementById('editStaffStatus').value;
+                const email = document.getElementById('editStaffEmail').value.trim();
+                const phone = document.getElementById('editStaffPhone').value.trim();
 
-                // Validate required fields
-                if (!name || !username) {
-                    showToast('Name and username are required', 'error');
+                // Validate name
+                const nameValidation = validateName(name);
+                if (!nameValidation.valid) {
+                    showToast(nameValidation.message, 'error');
+                    document.getElementById('editStaffName').focus();
                     return;
+                }
+                
+                // Validate username
+                const usernameValidation = validateUsername(username);
+                if (!usernameValidation.valid) {
+                    showToast(usernameValidation.message, 'error');
+                    document.getElementById('editStaffUsername').focus();
+                    return;
+                }
+                
+                // Validate email (optional)
+                if (email) {
+                    const emailValidation = validateEmail(email);
+                    if (!emailValidation.valid) {
+                        showToast(emailValidation.message, 'error');
+                        document.getElementById('editStaffEmail').focus();
+                        return;
+                    }
                 }
 
                 // Get current staff data
@@ -959,20 +1108,21 @@
 
                 // Check if username is being changed and if it already exists
                 if (username !== staff.username) {
-                    try {
-                        // Check if username already exists for another staff member
-                        const existingStaff = staffMembers.find(s => 
-                            s.username.toLowerCase() === username.toLowerCase() && 
-                            s.id !== staffId
+                    // Check if username already exists for another staff member
+                    const existingStaff = staffMembers.find(s => 
+                        s.username && s.username.toLowerCase() === username.toLowerCase() && 
+                        s.id !== staffId
+                    );
+                    
+                    if (existingStaff) {
+                        showToast(
+                            `Username "${username}" is already taken by ${existingStaff.name} ` +
+                            `(Role: ${existingStaff.role}, Campus: ${existingStaff.campus || 'N/A'}). ` +
+                            `Please choose a different username.`,
+                            'error'
                         );
-                        
-                        if (existingStaff) {
-                            showToast(`Username "${username}" is already taken by ${existingStaff.name}. Please choose a different username.`, 'error');
-                            return;
-                        }
-                    } catch (error) {
-                        // If we can't check locally, we'll let the API handle it
-                        console.warn('Could not check username locally:', error);
+                        document.getElementById('editStaffUsername').focus();
+                        return;
                     }
                 }
 
@@ -985,6 +1135,8 @@
                 if (status !== staff.status) payload.status = status;
                 if (campus !== staff.campus) payload.campus = campus;
                 if (assignedRoom !== (staff.assigned_room || '')) payload.assigned_room = assignedRoom || null;
+                if (email !== (staff.email || '')) payload.email = email || null;
+                if (phone !== (staff.phone || '')) payload.phone = phone || null;
                 
                 // Handle hostel_id - convert empty string to null
                 const newHostelId = hostelId ? parseInt(hostelId) : null;
@@ -999,6 +1151,7 @@
                 // Validate RA/HRA must have hostel
                 if ((role === 'RA' || role === 'HRA') && !hostelId) {
                     showToast('RA and HRA must be assigned to a hostel', 'error');
+                    document.getElementById('editStaffHostel').focus();
                     return;
                 }
 
@@ -1023,7 +1176,23 @@
                         error.message.includes('username') ||
                         error.message.includes('already taken')
                     )) {
-                        showToast(`Username "${username}" is already taken by another staff member. Please choose a different username.`, 'error');
+                        // Try to find who has this username from the staff list
+                        const existingStaff = staffMembers.find(s => 
+                            s.username && s.username.toLowerCase() === username.toLowerCase()
+                        );
+                        
+                        if (existingStaff && existingStaff.id !== staffId) {
+                            showToast(
+                                `Username "${username}" is already taken by ${existingStaff.name} ` +
+                                `(ID: ${existingStaff.id}, Role: ${existingStaff.role}). ` +
+                                `Please choose a different username.`,
+                                'error'
+                            );
+                        } else {
+                            showToast(`Username "${username}" is already taken. Please choose a different username.`, 'error');
+                        }
+                    } else if (error.message && error.message.includes('Validation error')) {
+                        showToast('Validation failed: ' + error.message, 'error');
                     } else {
                         showToast('Error updating staff: ' + error.message, 'error');
                     }
