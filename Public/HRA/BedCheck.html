@@ -1011,30 +1011,144 @@
             function setNotice(msg) { noticeText.textContent = msg; }
 
             // =============================================
-            // ROOM STRUCTURE - FIXED: Accept both active and available
+            // ROOM STRUCTURE - Handles both FLOOR and FLAT types
             // =============================================
             function buildRoomStructure() {
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
                 
-                // Only build from real floors and rooms
-                if (floors.length > 0 && rooms.length > 0) {
-                    floors.forEach(floor => {
-                        const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
-                        // ✅ FIX: Accept both 'active' and 'available' statuses
-                        const roomData = floorRooms
-                            .filter(r => r.room_code && (r.status === 'active' || r.status === 'available' || r.status === 'Active' || r.status === 'Available' || r.status === '' || r.status === null))
-                            .map(r => ({
-                                room_code: r.room_code,
-                                room_id: r.id,
-                                status: r.status
-                            }));
+                if (rooms.length === 0) {
+                    return;
+                }
+                
+                // =============================================
+                // CASE 1: FLAT-TYPE HOSTEL (e.g., F1R1, F2R1, etc.)
+                // =============================================
+                if (hostelData?.type === 'flat') {
+                    const flatsMap = {};
+                    
+                    rooms.forEach(room => {
+                        if (!room.room_code) return;
                         
-                        if (roomData.length > 0) {
+                        let flatNum = null;
+                        const flatMatch = room.room_code.match(/F(\d+)/i);
+                        if (flatMatch) {
+                            flatNum = parseInt(flatMatch[1]);
+                        } else {
+                            const floor = floors.find(f => f.id === room.floor_flat_id);
+                            if (floor) {
+                                const floorMatch = floor.name?.match(/(\d+)/);
+                                if (floorMatch) {
+                                    flatNum = parseInt(floorMatch[1]);
+                                }
+                            }
+                        }
+                        
+                        if (flatNum) {
+                            const key = `Flat ${flatNum}`;
+                            if (!flatsMap[key]) {
+                                flatsMap[key] = {
+                                    name: key,
+                                    key: key,
+                                    rooms: [],
+                                    room_ids: [],
+                                    floor: `Flat ${flatNum}`,
+                                    prefix: `F${flatNum}`,
+                                    start: 1,
+                                    end: 0
+                                };
+                            }
+                            flatsMap[key].rooms.push(room.room_code);
+                            flatsMap[key].room_ids.push(room.id);
+                            const roomNum = parseInt(room.room_code.replace(/F\d+R/i, ''));
+                            if (roomNum > flatsMap[key].end) {
+                                flatsMap[key].end = roomNum;
+                            }
+                        }
+                    });
+                    
+                    const flatAreas = Object.values(flatsMap);
+                    flatAreas.sort((a, b) => {
+                        const numA = parseInt(a.key.replace('Flat ', ''));
+                        const numB = parseInt(b.key.replace('Flat ', ''));
+                        return numA - numB;
+                    });
+                    
+                    flatAreas.forEach(area => {
+                        const sorted = area.rooms.map((code, index) => ({
+                            code: code,
+                            id: area.room_ids[index],
+                            num: parseInt(code.replace(/F\d+R/i, ''))
+                        })).sort((a, b) => a.num - b.num);
+                        
+                        area.rooms = sorted.map(r => r.code);
+                        area.room_ids = sorted.map(r => r.id);
+                        area.start = sorted.length > 0 ? sorted[0].num : 1;
+                        area.end = sorted.length > 0 ? sorted[sorted.length-1].num : 0;
+                        
+                        roomStructure.areas.push(area);
+                    });
+                    
+                // =============================================
+                // CASE 2: FLOOR-TYPE HOSTEL (e.g., A1, A2, B1, B2, etc.)
+                // =============================================
+                } else {
+                    if (floors.length > 0 && rooms.length > 0) {
+                        floors.forEach(floor => {
+                            const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
+                            const roomData = floorRooms
+                                .filter(r => r.room_code && (r.status === 'active' || r.status === 'available' || r.status === 'Active' || r.status === 'Available' || r.status === '' || r.status === null))
+                                .map(r => ({
+                                    room_code: r.room_code,
+                                    room_id: r.id,
+                                    status: r.status
+                                }));
+                            
+                            if (roomData.length > 0) {
+                                const roomsByPrefix = {};
+                                roomData.forEach(({room_code, room_id}) => {
+                                    const prefix = room_code.match(/^[A-Z]/)?.[0] || '';
+                                    if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
+                                    roomsByPrefix[prefix].push({ room_code, room_id });
+                                });
+                                
+                                Object.keys(roomsByPrefix).forEach(prefix => {
+                                    const sorted = roomsByPrefix[prefix].sort((a, b) => {
+                                        const numA = parseInt(a.room_code.replace(/^[A-Z]/, ''));
+                                        const numB = parseInt(b.room_code.replace(/^[A-Z]/, ''));
+                                        return numA - numB;
+                                    });
+                                    
+                                    if (sorted.length > 0) {
+                                        const firstNum = parseInt(sorted[0].room_code.replace(/^[A-Z]/, ''));
+                                        const lastNum = parseInt(sorted[sorted.length-1].room_code.replace(/^[A-Z]/, ''));
+                                        const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
+                                        roomStructure.areas.push({
+                                            name: rangeName,
+                                            key: rangeName,
+                                            rooms: sorted.map(r => r.room_code),
+                                            room_ids: sorted.map(r => r.room_id),
+                                            floor: floor.name || `Floor ${prefix}`,
+                                            prefix: prefix,
+                                            start: firstNum,
+                                            end: lastNum
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    } else {
+                        // Fallback: Group rooms by prefix without floors
+                        if (rooms.length > 0) {
                             const roomsByPrefix = {};
-                            roomData.forEach(({room_code, room_id}) => {
-                                const prefix = room_code.match(/^[A-Z]/)?.[0] || '';
-                                if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
-                                roomsByPrefix[prefix].push({ room_code, room_id });
+                            rooms.forEach(r => {
+                                if (r.room_code) {
+                                    const prefix = r.room_code.match(/^[A-Z]/)?.[0] || 'R';
+                                    if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
+                                    roomsByPrefix[prefix].push({
+                                        room_code: r.room_code,
+                                        room_id: r.id
+                                    });
+                                }
                             });
                             
                             Object.keys(roomsByPrefix).forEach(prefix => {
@@ -1053,7 +1167,7 @@
                                         key: rangeName,
                                         rooms: sorted.map(r => r.room_code),
                                         room_ids: sorted.map(r => r.room_id),
-                                        floor: floor.name || `Floor ${prefix}`,
+                                        floor: `Floor ${prefix}`,
                                         prefix: prefix,
                                         start: firstNum,
                                         end: lastNum
@@ -1061,67 +1175,8 @@
                                 }
                             });
                         }
-                    });
-                } else {
-                    // Only create default areas if we have real room data
-                    if (rooms.length > 0) {
-                        // Group existing rooms by prefix
-                        const roomsByPrefix = {};
-                        rooms.forEach(r => {
-                            if (r.room_code) {
-                                const prefix = r.room_code.match(/^[A-Z]/)?.[0] || '';
-                                if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
-                                roomsByPrefix[prefix].push({
-                                    room_code: r.room_code,
-                                    room_id: r.id
-                                });
-                            }
-                        });
-                        
-                        Object.keys(roomsByPrefix).forEach(prefix => {
-                            const sorted = roomsByPrefix[prefix].sort((a, b) => {
-                                const numA = parseInt(a.room_code.replace(/^[A-Z]/, ''));
-                                const numB = parseInt(b.room_code.replace(/^[A-Z]/, ''));
-                                return numA - numB;
-                            });
-                            
-                            if (sorted.length > 0) {
-                                const firstNum = parseInt(sorted[0].room_code.replace(/^[A-Z]/, ''));
-                                const lastNum = parseInt(sorted[sorted.length-1].room_code.replace(/^[A-Z]/, ''));
-                                const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
-                                roomStructure.areas.push({
-                                    name: rangeName,
-                                    key: rangeName,
-                                    rooms: sorted.map(r => r.room_code),
-                                    room_ids: sorted.map(r => r.room_id),
-                                    floor: `Floor ${prefix}`,
-                                    prefix: prefix,
-                                    start: firstNum,
-                                    end: lastNum
-                                });
-                            }
-                        });
                     }
                 }
-
-                // Log what we built for debugging
-                console.log('Room Structure Built:', {
-                    type: roomStructure.type,
-                    areas: roomStructure.areas.map(a => ({
-                        name: a.name,
-                        rooms: a.rooms.length,
-                        room_ids: a.room_ids ? a.room_ids.length : 0
-                    }))
-                });
-
-                if (roomStructure.areas.length === 0) {
-                    console.warn('No room structure could be built. Check that rooms data is loaded.');
-                }
-            }
-
-            function getRoomsForArea(areaKey) {
-                const area = roomStructure.areas.find(a => a.key === areaKey);
-                return area ? area.rooms : [];
             }
 
             // =============================================
