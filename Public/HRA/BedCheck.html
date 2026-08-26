@@ -730,7 +730,7 @@
         </main>
     </div>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -842,14 +842,12 @@
             // =============================================
             async function loadHostelData() {
                 try {
-                    // First get the staff profile to get hostel_id
                     const staffId = getStaffId();
                     if (!staffId) {
                         console.error('No staff ID found');
                         return null;
                     }
 
-                    // Get staff profile with hostel info
                     const staffResult = await apiCall(`/staff/${staffId}`);
                     if (!staffResult.success || !staffResult.data) {
                         console.error('Failed to get staff profile');
@@ -858,7 +856,6 @@
 
                     const staffData = staffResult.data;
                     
-                    // If staff has a hostel_id, fetch the hostel details
                     if (staffData.hostel_id) {
                         const hostelResult = await apiCall(`/hostels/${staffData.hostel_id}`);
                         if (hostelResult.success && hostelResult.data) {
@@ -1019,15 +1016,12 @@
             function buildRoomStructure() {
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
                 
-                // Check if we have floors or flats from the database
                 if (floors.length > 0) {
-                    // Use actual floors from database
                     floors.forEach(floor => {
                         const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
                         const roomCodes = floorRooms.map(r => r.room_code).filter(Boolean);
                         
                         if (roomCodes.length > 0) {
-                            // Group rooms by prefix (A, B, C, etc.)
                             const roomsByPrefix = {};
                             roomCodes.forEach(code => {
                                 const prefix = code.match(/^[A-Z]/)?.[0] || '';
@@ -1060,7 +1054,6 @@
                         }
                     });
                 } else if (hostelData?.type === 'flat') {
-                    // Flats: Each flat is an area with all its rooms
                     const flatNumbers = [];
                     students.forEach(s => {
                         if (s.flat) {
@@ -1076,7 +1069,6 @@
                         rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
                     }));
                 } else {
-                    // Boys Hostel: Floors A, B, C with room ranges
                     const floorLetters = [];
                     students.forEach(s => {
                         if (s.floor) {
@@ -1239,7 +1231,7 @@
             }
 
             // =============================================
-            // ASSIGN RA LOGIC WITH ROOM RANGES
+            // ASSIGN RA LOGIC WITH ROOM RANGES - FIXED
             // =============================================
 
             function openAssignRA(raId = null) {
@@ -1253,37 +1245,38 @@
                 const select = document.getElementById('assignRAStaff');
                 const raStaff = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor');
                 
-                // Populate RA dropdown
                 select.innerHTML = '<option value="">Choose an RA...</option>' + 
                     raStaff.map(ra => `<option value="${ra.id}">${ra.name} ${ra.assigned_floor ? '· ' + ra.assigned_floor : ''}</option>`).join('');
                 
-                // Set hostel info
                 document.getElementById('assignHostelName').textContent = hostelData?.name || '—';
                 document.getElementById('assignHostelType').textContent = roomStructure.type;
                 const totalRooms = roomStructure.areas.reduce((sum, a) => sum + a.rooms.length, 0);
                 document.getElementById('assignTotalRooms').textContent = totalRooms;
 
-                // Populate areas
                 const areaContainer = document.getElementById('assignAreaList');
                 areaContainer.innerHTML = roomStructure.areas.map(area => {
                     const displayName = area.floor ? `${area.floor} · ${area.name}` : area.name;
+                    const assignedRA = staff.find(s => 
+                        (s.role === 'RA' || s.role === 'Resident Advisor') && 
+                        s.assigned_floor === area.key
+                    );
+                    const isAssigned = assignedRA && (raId ? assignedRA.id != raId : true);
                     return `
-                        <label onclick="window.selectAreaForAssignment('${area.key}')">
-                            <input type="radio" name="assignArea" value="${area.key}" />
+                        <label onclick="window.selectAreaForAssignment('${area.key}')" ${isAssigned ? 'style="opacity:0.6;border-color:#a84134;"' : ''}>
+                            <input type="radio" name="assignArea" value="${area.key}" ${isAssigned ? 'disabled' : ''} />
                             <span>${displayName}</span>
                             <span class="count">${area.rooms.length} rooms</span>
+                            ${isAssigned ? `<span class="badge badge-absent" style="font-size:0.5rem;margin-left:0.3rem;">Assigned to ${assignedRA.name}</span>` : ''}
                         </label>
                     `;
                 }).join('');
 
-                // Reset room range container
                 document.getElementById('roomRangeContainer').style.display = 'none';
                 document.getElementById('currentAssignmentInfo').style.display = 'none';
                 document.getElementById('removeAssignmentBtn').style.display = 'none';
                 selectedAreaKey = null;
                 editingRAId = null;
 
-                // If editing an existing RA
                 if (raId) {
                     const ra = staff.find(s => s.id == raId && (s.role === 'RA' || s.role === 'Resident Advisor'));
                     if (ra) {
@@ -1292,10 +1285,8 @@
                         document.getElementById('assignModalSubtitle').textContent = `Update ${ra.name}'s assignment`;
                         document.getElementById('saveBtnText').textContent = 'Update Assignment';
                         
-                        // Select the RA in dropdown
                         select.value = raId;
                         
-                        // Show current assignment info
                         const currentArea = ra.assigned_floor || 'Not assigned';
                         const currentRooms = ra.assigned_rooms && ra.assigned_rooms.length > 0 ? 
                             `${ra.assigned_rooms.length} rooms` : 'All rooms';
@@ -1309,14 +1300,12 @@
                         document.getElementById('currentAssignmentInfo').style.display = 'block';
                         document.getElementById('removeAssignmentBtn').style.display = 'inline-flex';
                         
-                        // Pre-select the area if assigned
                         if (ra.assigned_floor) {
                             const areaRadio = document.querySelector(`input[name="assignArea"][value="${ra.assigned_floor}"]`);
                             if (areaRadio) {
                                 areaRadio.checked = true;
                                 selectAreaForAssignment(ra.assigned_floor);
                                 
-                                // Pre-select room range if set
                                 if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
                                     const sorted = ra.assigned_rooms.sort();
                                     if (sorted.length > 0) {
@@ -1367,6 +1356,9 @@
                 editingRAId = null;
             }
 
+            // =============================================
+            // SAVE ASSIGNMENT - FIXED: Use proper endpoint
+            // =============================================
             async function saveAssignment() {
                 const raId = document.getElementById('assignRAStaff').value;
                 const selectedArea = document.querySelector('input[name="assignArea"]:checked');
@@ -1378,58 +1370,58 @@
                 const area = roomStructure.areas.find(a => a.key === areaKey);
                 if (!area) { showToast('Area not found', 'error'); return; }
 
+                const existingRA = staff.find(s => 
+                    s.id != raId && 
+                    (s.role === 'RA' || s.role === 'Resident Advisor') && 
+                    s.assigned_floor === areaKey
+                );
+                
+                const ra = staff.find(s => s.id == raId);
+                
+                if (existingRA) {
+                    if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra?.name || 'this RA'}?`)) {
+                        return;
+                    }
+                }
+
                 const startRoom = document.getElementById('assignStartRoom').value;
                 const endRoom = document.getElementById('assignEndRoom').value;
                 
-                let assignedRooms = area.rooms;
+                let assignedRoomCodes = area.rooms;
                 if (startRoom && endRoom) {
                     const prefix = area.prefix || '';
                     const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
                     const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
-                    assignedRooms = area.rooms.filter(r => {
+                    assignedRoomCodes = area.rooms.filter(r => {
                         const num = parseInt(r.replace(/^[A-Z]/, ''));
                         return num >= startNum && num <= endNum;
                     });
                     
-                    if (assignedRooms.length === 0) {
+                    if (assignedRoomCodes.length === 0) {
                         showToast('No rooms found in the selected range', 'error');
                         return;
                     }
                 }
 
-                const ra = staff.find(s => s.id == raId);
                 if (ra) {
                     try {
-                        // Check if this area is already assigned to another RA
-                        const existingRA = staff.find(s => 
-                            s.id != raId && 
-                            (s.role === 'RA' || s.role === 'Resident Advisor') && 
-                            s.assigned_floor === areaKey
-                        );
-                        
-                        if (existingRA) {
-                            if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra.name}?`)) {
-                                return;
-                            }
+                        const roomIds = assignedRoomCodes.map(roomCode => {
+                            const room = rooms.find(r => r.room_code === roomCode);
+                            return room ? room.id : null;
+                        }).filter(Boolean);
+
+                        if (roomIds.length === 0) {
+                            showToast('No valid rooms found for assignment', 'error');
+                            return;
                         }
 
-                        // Update RA assignment via API
-                        const updateData = {
-                            assigned_floor: areaKey,
-                            assigned_area: areaKey,
-                            room_range_start: startRoom || null,
-                            room_range_end: endRoom || null,
-                            assigned_rooms: assignedRooms
-                        };
-                        
-                        await apiCall(`/staff/${ra.id}`, {
-                            method: 'PUT',
-                            body: JSON.stringify(updateData)
-                        }).catch(() => {
-                            return apiCall(`/staff/${ra.id}`, {
-                                method: 'PATCH',
-                                body: JSON.stringify(updateData)
-                            });
+                        // ✅ USE THE PROPER HRA ASSIGNMENT ENDPOINT
+                        await apiCall('/hra/assign-rooms', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                ra_id: ra.id,
+                                room_ids: roomIds
+                            })
                         });
                         
                         // Update local data
@@ -1437,9 +1429,8 @@
                         ra.assigned_area = areaKey;
                         ra.room_range_start = startRoom || null;
                         ra.room_range_end = endRoom || null;
-                        ra.assigned_rooms = assignedRooms;
+                        ra.assigned_rooms = assignedRoomCodes;
                         
-                        // If we were editing, clear old assignment from previous RA
                         if (editingRAId && editingRAId != raId) {
                             const oldRA = staff.find(s => s.id == editingRAId);
                             if (oldRA) {
@@ -1460,6 +1451,9 @@
                 }
             }
 
+            // =============================================
+            // REMOVE ASSIGNMENT - FIXED: Use proper endpoint
+            // =============================================
             async function removeAssignment() {
                 if (!editingRAId) return;
                 if (!confirm('Are you sure you want to remove this RA assignment?')) return;
@@ -1467,12 +1461,12 @@
                 try {
                     const ra = staff.find(s => s.id == editingRAId);
                     if (ra) {
-                        await apiCall(`/staff/${ra.id}`, {
-                            method: 'PUT',
+                        // ✅ Remove assignment by assigning no rooms
+                        await apiCall('/hra/assign-rooms', {
+                            method: 'POST',
                             body: JSON.stringify({
-                                assigned_floor: null,
-                                assigned_area: null,
-                                assigned_rooms: []
+                                ra_id: ra.id,
+                                room_ids: []
                             })
                         });
                         
@@ -1732,7 +1726,6 @@
                 const assignedCount = raStaff.filter(s => s.assigned_floor).length;
                 const isLocked = isSessionActive;
 
-                // Session display
                 let sessionDisplay = {
                     statusText: 'No active session',
                     badgeClass: 'closed',
@@ -1763,7 +1756,6 @@
                     };
                 }
 
-                // Session times
                 let sessionStart = '10:00 PM';
                 let sessionEnd = '11:30 PM';
                 let sessionDate = '—';
@@ -1796,7 +1788,6 @@
                         </div>
                     </div>
 
-                    <!-- Session Info -->
                     <div class="card" style="border-color:#d8c79e;background:#fff9e9;">
                         <div class="card-title"><span class="icon"><i class="fas fa-moon"></i></span> Tonight's BedCheck</div>
                         <div class="grid-4 mt-2">
@@ -1811,7 +1802,6 @@
                         </div>
                     </div>
 
-                    <!-- Summary Cards -->
                     <div class="metric-grid mt-4">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-user-tie"></i></div>
@@ -1840,7 +1830,6 @@
                         </div>
                     </div>
 
-                    <!-- RA Assignment Table -->
                     <div class="card mt-4">
                         <div class="flex-between">
                             <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> RA Assignments & Review Queue</div>
@@ -1922,7 +1911,6 @@
                         </div>
                     </div>
 
-                    <!-- Approval Actions -->
                     <div class="card mt-4" style="border-color:#d8c79e;background:#fff9e9;">
                         <div class="flex-between flex-wrap gap-3">
                             <div>
@@ -1948,7 +1936,6 @@
                 `;
                 screenContent.innerHTML = html;
 
-                // Rebind globals
                 window.showToast = showToast;
                 window.openViewSubmission = openViewSubmission;
                 window.closeViewSubmission = closeViewSubmission;
@@ -1985,7 +1972,6 @@
                     } catch (e) { window.location.replace('../Login.html'); return; }
                     updateUserDisplay();
 
-                    // Get HRA's hostel
                     hostelData = await loadHostelData();
                     
                     if (!hostelData) {
@@ -2001,7 +1987,6 @@
                     setNotice(`${hostelData.name} · Review BedCheck`);
                     updateUserDisplay();
 
-                    // Load all data
                     const [studentsData, staffData, floorsData, roomsData, scansData, sessionsData] = await Promise.all([
                         apiCall('/students').catch(() => ({ data: [] })),
                         apiCall('/staff').catch(() => ({ data: [] })),
@@ -2020,11 +2005,9 @@
                     });
                     sessions = sessionsData.data || [];
                     
-                    // Match scans to students in this hostel
                     const studentIds = students.map(s => s.id);
                     scans = (scansData.data || []).filter(s => studentIds.includes(s.student_id));
 
-                    // Load session status
                     await loadSessionStatus();
 
                     const now = new Date();
@@ -2127,7 +2110,7 @@
                 init();
             }
         })();
-    </script>
+</script>
 
 </body>
 </html>
