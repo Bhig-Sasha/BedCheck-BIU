@@ -364,7 +364,7 @@
                 setTimeout(() => toast.classList.add('show'), 10);
                 setTimeout(() => {
                     toast.classList.remove('show');
-                }, 5000); // Increased to 5 seconds for longer messages
+                }, 5000);
             }
 
             // =============================================
@@ -569,13 +569,42 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - Loads ALL staff members
             // =============================================
             async function loadStaff() {
                 try {
-                    const data = await apiCall('/staff');
-                    staffMembers = data.data || [];
-                    return staffMembers;
+                    // Try the /all endpoint first (if available)
+                    try {
+                        const data = await apiCall('/staff/all');
+                        staffMembers = data.data || [];
+                        return staffMembers;
+                    } catch (allError) {
+                        // If /all doesn't exist, use pagination
+                        let allStaff = [];
+                        let offset = 0;
+                        const limit = 100;
+                        let hasMore = true;
+                        
+                        while (hasMore) {
+                            const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
+                            const staffBatch = data.data || [];
+                            
+                            if (staffBatch.length === 0) {
+                                hasMore = false;
+                            } else {
+                                allStaff = allStaff.concat(staffBatch);
+                                offset += limit;
+                                
+                                // If we got fewer than limit, we've reached the end
+                                if (staffBatch.length < limit) {
+                                    hasMore = false;
+                                }
+                            }
+                        }
+                        
+                        staffMembers = allStaff;
+                        return staffMembers;
+                    }
                 } catch (error) {
                     staffMembers = [];
                     return staffMembers;
@@ -660,6 +689,13 @@
                             </tr></thead>
                             <tbody id="staffTableBody"></tbody>
                         </table>
+                        <div id="staffCount" style="padding: 0.6rem 0.75rem; font-size: 0.7rem; color: #68768a; border-top: 1px solid #eee8de; display: flex; justify-content: space-between; align-items: center;">
+                            <span>Showing <strong>${total}</strong> staff members</span>
+                            <span style="font-size: 0.6rem;">
+                                <i class="fas fa-users"></i> 
+                                ${ra} RAs · ${hra} HRAs · ${total - ra - hra} Admin
+                            </span>
+                        </div>
                     </div>
                 `;
 
@@ -735,6 +771,21 @@
                         </tr>
                     `;
                 }).join('') || '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff members found</td></tr>';
+                
+                // Update count display
+                const countEl = document.getElementById('staffCount');
+                if (countEl) {
+                    const total = staffMembers.length;
+                    const ra = staffMembers.filter(s => s.role === 'RA').length;
+                    const hra = staffMembers.filter(s => s.role === 'HRA').length;
+                    countEl.innerHTML = `
+                        <span>Showing <strong>${total}</strong> staff members</span>
+                        <span style="font-size: 0.6rem;">
+                            <i class="fas fa-users"></i> 
+                            ${ra} RAs · ${hra} HRAs · ${total - ra - hra} Admin
+                        </span>
+                    `;
+                }
             }
 
             // =============================================
@@ -941,8 +992,6 @@
                                     if (email) requestBody.email = email;
                                     if (phone) requestBody.phone = phone;
                                     
-                                    console.log('Creating staff with payload:', requestBody);
-                                    
                                     const response = await apiCall('/staff', {
                                         method: 'POST',
                                         body: JSON.stringify(requestBody)
@@ -960,8 +1009,6 @@
                                     await loadStaff();
                                     loadStaffTable();
                                 } catch (error) {
-                                    console.error('Create staff error:', error);
-                                    
                                     // Handle validation errors specifically
                                     if (error.message && error.message.includes('Validation error')) {
                                         showToast('Validation failed: ' + error.message, 'error');
@@ -1156,8 +1203,6 @@
                 }
 
                 try {
-                    console.log('Updating staff with payload:', payload);
-                    
                     const response = await apiCall(`/staff/${staffId}`, {
                         method: 'PUT',
                         body: JSON.stringify(payload)
@@ -1168,8 +1213,6 @@
                     await loadStaff();
                     loadStaffTable();
                 } catch (error) {
-                    console.error('Update error:', error);
-                    
                     // Check for duplicate username error
                     if (error.message && (
                         error.message.includes('duplicate key value') || 
