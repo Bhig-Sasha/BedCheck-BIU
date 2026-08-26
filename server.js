@@ -1601,12 +1601,24 @@ const validators = {
         body('password').notEmpty().withMessage('Password is required')
     ],
     createStaff: [
-        body('name').trim().notEmpty().withMessage('Name is required'),
+        body('name').trim().notEmpty().withMessage('Name is required')
+            .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
         body('username').trim().notEmpty().withMessage('Username is required')
-            .isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
+            .isLength({ min: 3, max: 50 }).withMessage('Username must be between 3 and 50 characters')
+            .matches(/^[a-zA-Z0-9._-]+$/).withMessage('Username can only contain letters, numbers, dots, underscores, and hyphens'),
         body('role').isIn(['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer']).withMessage('Invalid role'),
-        body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
+        body('email').optional().isEmail().withMessage('Invalid email address')
+            .normalizeEmail(),
+        body('phone').optional().isString().withMessage('Invalid phone number'),
+        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus'),
+        body('hostel_id').optional().custom((value) => {
+            if (value === null || value === undefined || value === '') return true;
+            const id = parseInt(value);
+            return !isNaN(id) && id > 0;
+        }).withMessage('Invalid hostel ID'),
+        body('assigned_floor').optional().isString().withMessage('Invalid floor'),
+        body('assigned_room').optional().isString().withMessage('Invalid room'),
+        body('department').optional().isString().withMessage('Invalid department')
     ],
     updateStaff: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
@@ -4739,58 +4751,149 @@ app.post('/api/staff',
         const { name, username, role, hostel_id, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
         
         try {
+            // Validate required fields
+            if (!name || !username || !role) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Name, username, and role are required',
+                    code: 'MISSING_REQUIRED_FIELDS'
+                });
+            }
+
+            // Validate role
+            const validRoles = ['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer'];
+            if (!validRoles.includes(role)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid role. Must be one of: ${validRoles.join(', ')}`,
+                    code: 'INVALID_ROLE'
+                });
+            }
+
+            // Check if user is trying to create a Developer account
+            if (role === 'Developer' && req.user.role !== 'Developer') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied. Only Developers can create Developer accounts.',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+
             const staffCampus = campus || req.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
-            
-            const { data: existingStaff } = await supabase
+
+            // Check for existing username (case-insensitive)
+            const { data: existingStaff, error: checkError } = await supabase
                 .from('staff')
-                .select('id')
-                .eq('username', username)
+                .select('id, name')
+                .ilike('username', username) // Case-insensitive check
                 .eq('campus', staffCampus)
                 .maybeSingle();
 
+            if (checkError) {
+                console.error('Error checking existing staff:', checkError);
+                // Continue despite error, let the insert handle it
+            }
+
             if (existingStaff) {
-                return res.status(400).json({ 
+                return res.status(409).json({ 
                     success: false, 
-                    message: 'Username already exists in this campus',
-                    code: 'DUPLICATE_USERNAME'
+                    message: `Username "${username}" is already taken by ${existingStaff.name}. Please choose a different username.`,
+                    code: 'DUPLICATE_USERNAME',
+                    existing_user: existingStaff
                 });
             }
-            
+
+            // Validate RA/HRA must have hostel
+            if ((role === 'RA' || role === 'HRA') && !hostel_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${role} must be assigned to a hostel`,
+                    code: 'HOSTEL_REQUIRED'
+                });
+            }
+
+            // If hostel_id is provided, verify it exists
+            if (hostel_id) {
+                const { data: hostel, error: hostelError } = await supabase
+                    .from('hostels')
+                    .select('id, name')
+                    .eq('id', parseInt(hostel_id))
+                    .eq('campus', staffCampus)
+                    .maybeSingle();
+
+                if (hostelError || !hostel) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Hostel not found in this campus',
+                        code: 'HOSTEL_NOT_FOUND'
+                    });
+                }
+            }
+
+            // Generate initials
             const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            
+
+            // Generate temporary password
             const tempPassword = crypto.randomBytes(12).toString('base64').slice(0, 16);
             const hashedPassword = await bcrypt.hash(tempPassword, SALT_ROUNDS);
-            
+
+            // Prepare staff data
             const newStaff = { 
-                name, username, password: hashedPassword, role, 
-                hostel_id: hostel_id || null, 
-                assigned_floor: assigned_floor || null, 
-                assigned_room: assigned_room || null, 
-                status: 'Active', 
-                initials, 
-                email: email || null, 
-                phone: phone || null, 
-                department: department || null, 
+                name: name.trim(),
+                username: username.trim().toLowerCase(), // Store username in lowercase
+                password: hashedPassword,
+                role: role,
+                hostel_id: hostel_id ? parseInt(hostel_id) : null,
+                assigned_floor: assigned_floor || null,
+                assigned_room: assigned_room || null,
+                status: 'Active',
+                initials: initials,
+                email: email || null,
+                phone: phone || null,
+                department: department || null,
                 joined: new Date().toISOString().split('T')[0],
                 campus: staffCampus,
-                campus_code: staffCampus === 'Legacy' ? 'LEG' : 'HER'
+                campus_code: staffCampus === 'Legacy' ? 'LEG' : 'HER',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
             };
 
-            const { data, error } = await supabase
+            // Insert staff
+            const { data, error: insertError } = await supabase
                 .from('staff')
                 .insert(newStaff)
                 .select()
                 .single();
 
-            if (error) throw error;
+            if (insertError) {
+                console.error('Supabase insert error:', insertError);
 
+                // Check for duplicate key error (just in case)
+                if (insertError.code === '23505' || insertError.message?.includes('duplicate key value violates unique constraint')) {
+                    return res.status(409).json({
+                        success: false,
+                        message: `Username "${username}" is already taken. Please choose a different username.`,
+                        code: 'DUPLICATE_USERNAME',
+                        details: insertError.details
+                    });
+                }
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Database error: ' + insertError.message,
+                    code: 'DATABASE_ERROR',
+                    details: process.env.NODE_ENV === 'development' ? insertError : undefined
+                });
+            }
+
+            // Log the creation
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
                 action: 'Staff Created',
                 module: 'staff',
-                details: `Created ${role} account for ${name} (${username}) in ${staffCampus} campus`,
+                details: `Created ${role} account for ${data.name} (${data.username}) in ${staffCampus} campus`,
                 result: 'success',
                 category: 'staff',
                 hostel_id: data.hostel_id,
@@ -4799,20 +4902,35 @@ app.post('/api/staff',
                 user_agent: req.userAgent
             });
 
+            // Remove password from response
             const { password: _, ...staffWithoutPassword } = data;
 
-            res.json({ 
+            // Send response with temporary password
+            res.status(201).json({ 
                 success: true, 
                 data: staffWithoutPassword,
                 campus: staffCampus,
+                temporary_password: tempPassword,
                 message: `Staff created successfully. Temporary password: ${tempPassword} (Please change on first login)`
             });
+
         } catch (error) {
             console.error('Error creating staff:', error);
+            
+            // Handle bcrypt errors
+            if (error.message && error.message.includes('bcrypt')) {
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error securing password. Please try again.',
+                    code: 'PASSWORD_ENCRYPTION_ERROR'
+                });
+            }
+
             res.status(500).json({ 
                 success: false, 
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
+                message: 'An error occurred while creating staff. Please try again.',
+                code: 'SERVER_ERROR',
+                details: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
@@ -4829,7 +4947,6 @@ app.put('/api/staff/:id',
     async (req, res) => {
         const id = parseInt(req.params.id);
         
-        // Validate ID
         if (isNaN(id)) {
             return res.status(400).json({
                 success: false,
@@ -4839,7 +4956,7 @@ app.put('/api/staff/:id',
         }
         
         try {
-            // First, get the existing staff member
+            // Get existing staff
             const { data: existing, error: fetchError } = await supabase
                 .from('staff')
                 .select('*')
@@ -4855,7 +4972,7 @@ app.put('/api/staff/:id',
                 });
             }
 
-            // Check if trying to modify a Developer account
+            // Check Developer permissions
             if (existing.role === 'Developer' && req.user.role !== 'Developer') {
                 return res.status(403).json({
                     success: false,
@@ -4864,11 +4981,10 @@ app.put('/api/staff/:id',
                 });
             }
 
-            // Build update object with only provided fields
+            // Build update data
             const updateData = {};
             const changes = [];
             
-            // Map fields from request body to database fields
             const fieldMap = {
                 'name': 'name',
                 'username': 'username', 
@@ -4885,8 +5001,31 @@ app.put('/api/staff/:id',
             
             for (const [reqField, dbField] of Object.entries(fieldMap)) {
                 if (req.body[reqField] !== undefined && req.body[reqField] !== null) {
-                    // Special handling for role
-                    if (reqField === 'role') {
+                    // Special handling for username - check for duplicates
+                    if (reqField === 'username') {
+                        const newUsername = req.body[reqField];
+                        
+                        // Check if username already exists for another staff member
+                        const { data: duplicateCheck, error: checkError } = await supabase
+                            .from('staff')
+                            .select('id, name')
+                            .eq('username', newUsername)
+                            .neq('id', id)
+                            .eq('campus', req.campus)
+                            .maybeSingle();
+                        
+                        if (!checkError && duplicateCheck) {
+                            return res.status(409).json({
+                                success: false,
+                                message: `Username "${newUsername}" is already taken by ${duplicateCheck.name}`,
+                                code: 'DUPLICATE_USERNAME',
+                                existing_user: duplicateCheck
+                            });
+                        }
+                        
+                        updateData.username = newUsername;
+                        changes.push('username');
+                    } else if (reqField === 'role') {
                         const newRole = req.body[reqField];
                         if (newRole === 'Developer' && req.user.role !== 'Developer') {
                             return res.status(403).json({
@@ -4910,7 +5049,6 @@ app.put('/api/staff/:id',
                         updateData.campus_code = newCampus === 'Legacy' ? 'LEG' : 'HER';
                         changes.push('campus');
                     } else if (reqField === 'hostel_id') {
-                        // Handle hostel_id - convert empty string to null
                         const hostelId = req.body[reqField];
                         updateData.hostel_id = hostelId ? parseInt(hostelId) : null;
                         changes.push('hostel_id');
@@ -4930,12 +5068,12 @@ app.put('/api/staff/:id',
                 });
             }
 
-            // Add updated_at timestamp
+            // Add updated_at
             updateData.updated_at = new Date().toISOString();
 
             console.log('Updating staff:', { id, updateData, changes });
 
-            // Perform the update
+            // Perform update
             const { data: updatedStaff, error: updateError } = await supabase
                 .from('staff')
                 .update(updateData)
@@ -4946,6 +5084,17 @@ app.put('/api/staff/:id',
 
             if (updateError) {
                 console.error('Supabase update error:', updateError);
+                
+                // Check for duplicate key error
+                if (updateError.code === '23505' || updateError.message.includes('duplicate key value violates unique constraint')) {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'Username already exists. Please choose a different username.',
+                        code: 'DUPLICATE_USERNAME',
+                        details: updateError.details
+                    });
+                }
+                
                 return res.status(500).json({
                     success: false,
                     message: 'Database error: ' + updateError.message,
@@ -4954,7 +5103,7 @@ app.put('/api/staff/:id',
                 });
             }
 
-            // Log the update
+            // Log update
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
@@ -4970,7 +5119,6 @@ app.put('/api/staff/:id',
                 user_agent: req.userAgent
             });
 
-            // Remove password from response
             const { password: _, ...staffWithoutPassword } = updatedStaff;
 
             res.json({ 

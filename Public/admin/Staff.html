@@ -437,9 +437,22 @@
                         throw new Error('Authentication required');
                     }
                     
+                    // Handle 409 Conflict (duplicate username)
+                    if (response.status === 409) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Username already exists');
+                    }
+                    
                     if (!response.ok) {
                         const errorText = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                        let errorMessage = `HTTP ${response.status}`;
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            errorMessage = errorData.message || errorMessage;
+                        } catch (e) {
+                            errorMessage = errorText || errorMessage;
+                        }
+                        throw new Error(errorMessage);
                     }
                     
                     const data = await response.json();
@@ -765,20 +778,27 @@
                                 }
                             });
                             
+                            // Initial state for hostel field
+                            const initialRole = roleSelect.value;
+                            if (initialRole === 'RASD' || initialRole === 'Administrator') {
+                                hostelField.style.display = 'none';
+                            }
+                            
                             document.getElementById('closeStaffForm').addEventListener('click', () => { 
                                 formOpen = false; 
                                 container.innerHTML = ''; 
                             });
                             
                             document.getElementById('saveStaffBtn').addEventListener('click', async () => {
-                                const name = document.getElementById('staffName').value;
-                                const username = document.getElementById('staffUsername').value;
+                                const name = document.getElementById('staffName').value.trim();
+                                const username = document.getElementById('staffUsername').value.trim();
                                 const password = document.getElementById('staffPassword').value;
                                 const role = document.getElementById('staffRoleSelect').value;
                                 const hostelId = document.getElementById('staffHostel').value;
-                                const assignedRoom = document.getElementById('staffRoom').value;
+                                const assignedRoom = document.getElementById('staffRoom').value.trim();
                                 const campus = document.getElementById('staffCampus').value;
                                 
+                                // Validate required fields
                                 if (!name || !username) {
                                     showToast('Please fill in name and username', 'error');
                                     return;
@@ -789,8 +809,18 @@
                                     return;
                                 }
                                 
+                                // Check if username already exists locally
+                                const existingStaff = staffMembers.find(s => 
+                                    s.username.toLowerCase() === username.toLowerCase()
+                                );
+                                
+                                if (existingStaff) {
+                                    showToast(`Username "${username}" is already taken by ${existingStaff.name}. Please choose a different username.`, 'error');
+                                    return;
+                                }
+                                
                                 try {
-                                    await apiCall('/staff', {
+                                    const response = await apiCall('/staff', {
                                         method: 'POST',
                                         body: JSON.stringify({ 
                                             name, 
@@ -803,13 +833,25 @@
                                             campus: campus || 'Legacy'
                                         })
                                     });
-                                    showToast(`${name} created as ${role} in ${campus} campus.`);
+                                    
+                                    // Check if temporary password was returned
+                                    let message = `${name} created as ${role} in ${campus} campus.`;
+                                    if (response.temporary_password) {
+                                        message = `${name} created as ${role}. Temporary password: ${response.temporary_password}`;
+                                    }
+                                    showToast(message, 'success');
+                                    
                                     formOpen = false;
                                     container.innerHTML = '';
                                     await loadStaff();
                                     loadStaffTable();
                                 } catch (error) {
-                                    showToast('Error creating staff: ' + error.message, 'error');
+                                    // Handle duplicate username error specifically
+                                    if (error.message && error.message.includes('Username already exists')) {
+                                        showToast('Username "' + username + '" is already taken. Please choose a different username.', 'error');
+                                    } else {
+                                        showToast('Error creating staff: ' + error.message, 'error');
+                                    }
                                 }
                             });
                         } else {
@@ -902,22 +944,41 @@
                 const campus = document.getElementById('editStaffCampus').value;
                 const status = document.getElementById('editStaffStatus').value;
 
-                // Validate
+                // Validate required fields
                 if (!name || !username) {
                     showToast('Name and username are required', 'error');
                     return;
                 }
 
-                // Build payload with only changed fields
-                const payload = {};
-                
-                // Get current staff data to compare
+                // Get current staff data
                 const staff = staffMembers.find(s => s.id === staffId);
                 if (!staff) {
                     showToast('Staff not found', 'error');
                     return;
                 }
 
+                // Check if username is being changed and if it already exists
+                if (username !== staff.username) {
+                    try {
+                        // Check if username already exists for another staff member
+                        const existingStaff = staffMembers.find(s => 
+                            s.username.toLowerCase() === username.toLowerCase() && 
+                            s.id !== staffId
+                        );
+                        
+                        if (existingStaff) {
+                            showToast(`Username "${username}" is already taken by ${existingStaff.name}. Please choose a different username.`, 'error');
+                            return;
+                        }
+                    } catch (error) {
+                        // If we can't check locally, we'll let the API handle it
+                        console.warn('Could not check username locally:', error);
+                    }
+                }
+
+                // Build payload - only include changed fields
+                const payload = {};
+                
                 if (name !== staff.name) payload.name = name;
                 if (username !== staff.username) payload.username = username;
                 if (role !== staff.role) payload.role = role;
@@ -955,7 +1016,17 @@
                     loadStaffTable();
                 } catch (error) {
                     console.error('Update error:', error);
-                    showToast('Error updating staff: ' + error.message, 'error');
+                    
+                    // Check for duplicate username error
+                    if (error.message && (
+                        error.message.includes('duplicate key value') || 
+                        error.message.includes('username') ||
+                        error.message.includes('already taken')
+                    )) {
+                        showToast(`Username "${username}" is already taken by another staff member. Please choose a different username.`, 'error');
+                    } else {
+                        showToast('Error updating staff: ' + error.message, 'error');
+                    }
                 }
             }
 
