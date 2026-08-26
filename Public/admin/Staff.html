@@ -750,7 +750,7 @@
                     const statusClass = getStatusBadgeClass(member.status);
                     const initials = member.initials || getInitials(member.name);
                     return `
-                        <tr>
+                        <tr data-staff-id="${member.id}">
                             <td>
                                 <div style="display:flex;align-items:center;gap:0.4rem;">
                                     <span class="avatar">${initials}</span>
@@ -1027,12 +1027,18 @@
             }
 
             // =============================================
-            // MANAGE STAFF FUNCTIONS
+            // MANAGE STAFF FUNCTIONS - FIXED
             // =============================================
             function openManageStaff(staffId) {
-                const staff = staffMembers.find(s => s.id === staffId);
+                // Validate staffId
+                if (!staffId || isNaN(parseInt(staffId))) {
+                    showToast('Invalid staff ID. Please refresh and try again.', 'error');
+                    return;
+                }
+                
+                const staff = staffMembers.find(s => s.id === parseInt(staffId));
                 if (!staff) {
-                    showToast('Staff member not found', 'error');
+                    showToast('Staff member not found. Please refresh and try again.', 'error');
                     return;
                 }
 
@@ -1110,6 +1116,14 @@
             }
 
             async function saveStaffChanges(staffId) {
+                // Validate staffId
+                if (!staffId || isNaN(parseInt(staffId))) {
+                    showToast('Invalid staff ID. Please refresh and try again.', 'error');
+                    return;
+                }
+                
+                const id = parseInt(staffId);
+                
                 const name = document.getElementById('editStaffName').value.trim();
                 const username = document.getElementById('editStaffUsername').value.trim();
                 const role = document.getElementById('editStaffRole').value;
@@ -1147,9 +1161,9 @@
                 }
 
                 // Get current staff data
-                const staff = staffMembers.find(s => s.id === staffId);
+                const staff = staffMembers.find(s => s.id === id);
                 if (!staff) {
-                    showToast('Staff not found', 'error');
+                    showToast('Staff not found. Please refresh and try again.', 'error');
                     return;
                 }
 
@@ -1158,7 +1172,7 @@
                     // Check if username already exists for another staff member
                     const existingStaff = staffMembers.find(s => 
                         s.username && s.username.toLowerCase() === username.toLowerCase() && 
-                        s.id !== staffId
+                        s.id !== id
                     );
                     
                     if (existingStaff) {
@@ -1203,7 +1217,7 @@
                 }
 
                 try {
-                    const response = await apiCall(`/staff/${staffId}`, {
+                    const response = await apiCall(`/staff/${id}`, {
                         method: 'PUT',
                         body: JSON.stringify(payload)
                     });
@@ -1224,7 +1238,7 @@
                             s.username && s.username.toLowerCase() === username.toLowerCase()
                         );
                         
-                        if (existingStaff && existingStaff.id !== staffId) {
+                        if (existingStaff && existingStaff.id !== id) {
                             showToast(
                                 `Username "${username}" is already taken by ${existingStaff.name} ` +
                                 `(ID: ${existingStaff.id}, Role: ${existingStaff.role}). ` +
@@ -1243,10 +1257,18 @@
             }
 
             async function deleteStaff(staffId) {
+                // Validate staffId
+                if (!staffId || isNaN(parseInt(staffId))) {
+                    showToast('Invalid staff ID. Please refresh and try again.', 'error');
+                    return;
+                }
+                
+                const id = parseInt(staffId);
+                
                 if (!confirm('Are you sure you want to delete this staff member?')) return;
 
                 try {
-                    await apiCall(`/staff/${staffId}`, {
+                    await apiCall(`/staff/${id}`, {
                         method: 'DELETE'
                     });
                     showToast('Staff deleted successfully!');
