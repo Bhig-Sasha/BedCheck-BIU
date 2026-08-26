@@ -789,7 +789,7 @@
             }
 
             // =============================================
-            // AUTHENTICATED API HELPER
+            // AUTHENTICATED API HELPER - WITH CAMPUS HEADER
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -806,6 +806,7 @@
                     const headers = {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`,
+                        'X-Campus': currentUser?.campus || hostelData?.campus || 'Legacy',
                         ...(options.headers || {})
                     };
                     let url = `${API_BASE}${endpoint}`;
@@ -1010,40 +1011,47 @@
             function setNotice(msg) { noticeText.textContent = msg; }
 
             // =============================================
-            // ROOM STRUCTURE & ASSIGNMENT LOGIC
+            // ROOM STRUCTURE - ONLY USE REAL ROOMS
             // =============================================
-
             function buildRoomStructure() {
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
                 
-                if (floors.length > 0) {
+                // Only build from real floors and rooms
+                if (floors.length > 0 && rooms.length > 0) {
                     floors.forEach(floor => {
                         const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
-                        const roomCodes = floorRooms.map(r => r.room_code).filter(Boolean);
+                        const roomData = floorRooms
+                            .filter(r => r.room_code && r.status === 'active')
+                            .map(r => ({
+                                room_code: r.room_code,
+                                room_id: r.id,
+                                status: r.status
+                            }));
                         
-                        if (roomCodes.length > 0) {
+                        if (roomData.length > 0) {
                             const roomsByPrefix = {};
-                            roomCodes.forEach(code => {
-                                const prefix = code.match(/^[A-Z]/)?.[0] || '';
+                            roomData.forEach(({room_code, room_id}) => {
+                                const prefix = room_code.match(/^[A-Z]/)?.[0] || '';
                                 if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
-                                roomsByPrefix[prefix].push(code);
+                                roomsByPrefix[prefix].push({ room_code, room_id });
                             });
                             
                             Object.keys(roomsByPrefix).forEach(prefix => {
                                 const sorted = roomsByPrefix[prefix].sort((a, b) => {
-                                    const numA = parseInt(a.replace(/^[A-Z]/, ''));
-                                    const numB = parseInt(b.replace(/^[A-Z]/, ''));
+                                    const numA = parseInt(a.room_code.replace(/^[A-Z]/, ''));
+                                    const numB = parseInt(b.room_code.replace(/^[A-Z]/, ''));
                                     return numA - numB;
                                 });
                                 
                                 if (sorted.length > 0) {
-                                    const firstNum = parseInt(sorted[0].replace(/^[A-Z]/, ''));
-                                    const lastNum = parseInt(sorted[sorted.length-1].replace(/^[A-Z]/, ''));
+                                    const firstNum = parseInt(sorted[0].room_code.replace(/^[A-Z]/, ''));
+                                    const lastNum = parseInt(sorted[sorted.length-1].room_code.replace(/^[A-Z]/, ''));
                                     const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
                                     roomStructure.areas.push({
                                         name: rangeName,
                                         key: rangeName,
-                                        rooms: sorted,
+                                        rooms: sorted.map(r => r.room_code),
+                                        room_ids: sorted.map(r => r.room_id),
                                         floor: floor.name || `Floor ${prefix}`,
                                         prefix: prefix,
                                         start: firstNum,
@@ -1053,158 +1061,60 @@
                             });
                         }
                     });
-                } else if (hostelData?.type === 'flat') {
-                    const flatNumbers = [];
-                    students.forEach(s => {
-                        if (s.flat) {
-                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
-                            if (num) flatNumbers.push(num);
-                        }
-                    });
-                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
-                    roomStructure.type = 'flat';
-                    roomStructure.areas = sortedFlats.map(num => ({
-                        name: `Flat ${num}`,
-                        key: `Flat ${num}`,
-                        rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
-                    }));
                 } else {
-                    const floorLetters = [];
-                    students.forEach(s => {
-                        if (s.floor) {
-                            const letter = s.floor.replace('Floor ', '');
-                            if (letter) floorLetters.push(letter);
-                        }
-                    });
-                    const sortedLetters = [...new Set(floorLetters)].sort();
-                    roomStructure.type = 'floor';
-                    
-                    sortedLetters.forEach(letter => {
-                        const floorRooms = students
-                            .filter(s => s.floor === `Floor ${letter}`)
-                            .map(s => s.room)
-                            .filter(Boolean)
-                            .sort((a, b) => {
-                                const numA = parseInt(a.replace(letter, ''));
-                                const numB = parseInt(b.replace(letter, ''));
+                    // Only create default areas if we have real room data
+                    if (rooms.length > 0) {
+                        // Group existing rooms by prefix
+                        const roomsByPrefix = {};
+                        rooms.forEach(r => {
+                            if (r.room_code) {
+                                const prefix = r.room_code.match(/^[A-Z]/)?.[0] || '';
+                                if (!roomsByPrefix[prefix]) roomsByPrefix[prefix] = [];
+                                roomsByPrefix[prefix].push({
+                                    room_code: r.room_code,
+                                    room_id: r.id
+                                });
+                            }
+                        });
+                        
+                        Object.keys(roomsByPrefix).forEach(prefix => {
+                            const sorted = roomsByPrefix[prefix].sort((a, b) => {
+                                const numA = parseInt(a.room_code.replace(/^[A-Z]/, ''));
+                                const numB = parseInt(b.room_code.replace(/^[A-Z]/, ''));
                                 return numA - numB;
                             });
-                        
-                        const roomRanges = [];
-                        if (floorRooms.length > 0) {
-                            const roomsByLetter = {};
-                            floorRooms.forEach(r => {
-                                const prefix = r.match(/^[A-Z]/)?.[0] || '';
-                                const num = parseInt(r.replace(/^[A-Z]/, ''));
-                                if (!roomsByLetter[prefix]) roomsByLetter[prefix] = [];
-                                roomsByLetter[prefix].push(num);
-                            });
                             
-                            Object.keys(roomsByLetter).forEach(prefix => {
-                                const nums = roomsByLetter[prefix].sort((a, b) => a - b);
-                                const range1 = nums.filter(n => n <= 9);
-                                const range2 = nums.filter(n => n >= 10);
-                                
-                                if (range1.length > 0) {
-                                    const rangeName = `${prefix}${Math.min(...range1)}-${prefix}${Math.max(...range1)}`;
-                                    const rangeRooms = range1.map(n => `${prefix}${n}`);
-                                    roomRanges.push({
-                                        name: rangeName,
-                                        key: rangeName,
-                                        rooms: rangeRooms,
-                                        prefix: prefix,
-                                        start: Math.min(...range1),
-                                        end: Math.max(...range1)
-                                    });
-                                }
-                                if (range2.length > 0) {
-                                    const rangeName = `${prefix}${Math.min(...range2)}-${prefix}${Math.max(...range2)}`;
-                                    const rangeRooms = range2.map(n => `${prefix}${n}`);
-                                    roomRanges.push({
-                                        name: rangeName,
-                                        key: rangeName,
-                                        rooms: rangeRooms,
-                                        prefix: prefix,
-                                        start: Math.min(...range2),
-                                        end: Math.max(...range2)
-                                    });
-                                }
-                            });
-                        }
-                        
-                        if (roomRanges.length === 0) {
-                            const defaultRooms1 = Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`);
-                            const defaultRooms2 = Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`);
-                            roomRanges.push({
-                                name: `${letter}1-${letter}9`,
-                                key: `${letter}1-${letter}9`,
-                                rooms: defaultRooms1,
-                                prefix: letter,
-                                start: 1,
-                                end: 9
-                            });
-                            roomRanges.push({
-                                name: `${letter}10-${letter}18`,
-                                key: `${letter}10-${letter}18`,
-                                rooms: defaultRooms2,
-                                prefix: letter,
-                                start: 10,
-                                end: 18
-                            });
-                        }
-                        
-                        roomRanges.forEach(range => {
-                            roomStructure.areas.push({
-                                name: range.name,
-                                key: range.key,
-                                rooms: range.rooms,
-                                floor: `Floor ${letter}`,
-                                prefix: range.prefix,
-                                start: range.start,
-                                end: range.end
-                            });
+                            if (sorted.length > 0) {
+                                const firstNum = parseInt(sorted[0].room_code.replace(/^[A-Z]/, ''));
+                                const lastNum = parseInt(sorted[sorted.length-1].room_code.replace(/^[A-Z]/, ''));
+                                const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
+                                roomStructure.areas.push({
+                                    name: rangeName,
+                                    key: rangeName,
+                                    rooms: sorted.map(r => r.room_code),
+                                    room_ids: sorted.map(r => r.room_id),
+                                    floor: `Floor ${prefix}`,
+                                    prefix: prefix,
+                                    start: firstNum,
+                                    end: lastNum
+                                });
+                            }
                         });
-                    });
+                    }
                 }
 
+                // Log what we built for debugging
+                console.log('Room Structure Built:', {
+                    type: roomStructure.type,
+                    areas: roomStructure.areas.map(a => ({
+                        name: a.name,
+                        rooms: a.rooms.length,
+                        room_ids: a.room_ids ? a.room_ids.length : 0
+                    }))
+                });
+
                 if (roomStructure.areas.length === 0) {
-                    if (hostelData?.type === 'flat') {
-                        const totalFlats = hostelData.total_flats || 9;
-                        for (let i = 1; i <= totalFlats; i++) {
-                            const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
-                            roomStructure.areas.push({
-                                name: `Flat ${i}`,
-                                key: `Flat ${i}`,
-                                rooms: rooms
-                            });
-                        }
-                    } else {
-                        const totalFloors = hostelData?.total_floors || 3;
-                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-                        for (let i = 0; i < totalFloors; i++) {
-                            const letter = letters[i];
-                            const range1 = Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`);
-                            const range2 = Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`);
-                            roomStructure.areas.push({
-                                name: `${letter}1-${letter}9`,
-                                key: `${letter}1-${letter}9`,
-                                rooms: range1,
-                                floor: `Floor ${letter}`,
-                                prefix: letter,
-                                start: 1,
-                                end: 9
-                            });
-                            roomStructure.areas.push({
-                                name: `${letter}10-${letter}18`,
-                                key: `${letter}10-${letter}18`,
-                                rooms: range2,
-                                floor: `Floor ${letter}`,
-                                prefix: letter,
-                                start: 10,
-                                end: 18
-                            });
-                        }
-                    }
+                    console.warn('No room structure could be built. Check that rooms data is loaded.');
                 }
             }
 
@@ -1250,26 +1160,35 @@
                 
                 document.getElementById('assignHostelName').textContent = hostelData?.name || '—';
                 document.getElementById('assignHostelType').textContent = roomStructure.type;
-                const totalRooms = roomStructure.areas.reduce((sum, a) => sum + a.rooms.length, 0);
+                const totalRooms = roomStructure.areas.reduce((sum, a) => sum + (a.rooms ? a.rooms.length : 0), 0);
                 document.getElementById('assignTotalRooms').textContent = totalRooms;
 
                 const areaContainer = document.getElementById('assignAreaList');
-                areaContainer.innerHTML = roomStructure.areas.map(area => {
-                    const displayName = area.floor ? `${area.floor} · ${area.name}` : area.name;
-                    const assignedRA = staff.find(s => 
-                        (s.role === 'RA' || s.role === 'Resident Advisor') && 
-                        s.assigned_floor === area.key
-                    );
-                    const isAssigned = assignedRA && (raId ? assignedRA.id != raId : true);
-                    return `
-                        <label onclick="window.selectAreaForAssignment('${area.key}')" ${isAssigned ? 'style="opacity:0.6;border-color:#a84134;"' : ''}>
-                            <input type="radio" name="assignArea" value="${area.key}" ${isAssigned ? 'disabled' : ''} />
-                            <span>${displayName}</span>
-                            <span class="count">${area.rooms.length} rooms</span>
-                            ${isAssigned ? `<span class="badge badge-absent" style="font-size:0.5rem;margin-left:0.3rem;">Assigned to ${assignedRA.name}</span>` : ''}
-                        </label>
+                if (roomStructure.areas.length === 0) {
+                    areaContainer.innerHTML = `
+                        <div class="text-muted text-sm p-3" style="border:1px solid #eee8de;border-radius:0.5rem;text-align:center;">
+                            <i class="fas fa-exclamation-triangle" style="color:#d97706;"></i>
+                            No rooms found in this hostel. Please ensure rooms are set up.
+                        </div>
                     `;
-                }).join('');
+                } else {
+                    areaContainer.innerHTML = roomStructure.areas.map(area => {
+                        const displayName = area.floor ? `${area.floor} · ${area.name}` : area.name;
+                        const assignedRA = staff.find(s => 
+                            (s.role === 'RA' || s.role === 'Resident Advisor') && 
+                            s.assigned_floor === area.key
+                        );
+                        const isAssigned = assignedRA && (raId ? assignedRA.id != raId : true);
+                        return `
+                            <label onclick="window.selectAreaForAssignment('${area.key}')" ${isAssigned ? 'style="opacity:0.6;border-color:#a84134;"' : ''}>
+                                <input type="radio" name="assignArea" value="${area.key}" ${isAssigned ? 'disabled' : ''} />
+                                <span>${displayName}</span>
+                                <span class="count">${area.rooms ? area.rooms.length : 0} rooms</span>
+                                ${isAssigned ? `<span class="badge badge-absent" style="font-size:0.5rem;margin-left:0.3rem;">Assigned to ${assignedRA.name}</span>` : ''}
+                            </label>
+                        `;
+                    }).join('');
+                }
 
                 document.getElementById('roomRangeContainer').style.display = 'none';
                 document.getElementById('currentAssignmentInfo').style.display = 'none';
@@ -1338,11 +1257,11 @@
                 const startSelect = document.getElementById('assignStartRoom');
                 const endSelect = document.getElementById('assignEndRoom');
                 
-                const rooms = area.rooms.sort((a, b) => {
+                const rooms = area.rooms ? area.rooms.sort((a, b) => {
                     const numA = parseInt(a.replace(/^[A-Z]/, ''));
                     const numB = parseInt(b.replace(/^[A-Z]/, ''));
                     return numA - numB;
-                });
+                }) : [];
 
                 startSelect.innerHTML = '<option value="">Start...</option>' + 
                     rooms.map(r => `<option value="${r}">${r}</option>`).join('');
@@ -1357,7 +1276,7 @@
             }
 
             // =============================================
-            // SAVE ASSIGNMENT - FIXED: Use proper endpoint
+            // SAVE ASSIGNMENT - FIXED: Proper room ID mapping
             // =============================================
             async function saveAssignment() {
                 const raId = document.getElementById('assignRAStaff').value;
@@ -1387,40 +1306,57 @@
                 const startRoom = document.getElementById('assignStartRoom').value;
                 const endRoom = document.getElementById('assignEndRoom').value;
                 
-                let assignedRoomCodes = area.rooms;
+                // ✅ Use the room IDs from the area
+                let roomIds = area.room_ids || [];
+                let assignedRoomCodes = area.rooms || [];
+                
+                // If range is selected, filter room IDs by range
                 if (startRoom && endRoom) {
                     const prefix = area.prefix || '';
                     const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
                     const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
-                    assignedRoomCodes = area.rooms.filter(r => {
+                    
+                    // Filter rooms by range
+                    const filteredRooms = area.rooms.filter(r => {
                         const num = parseInt(r.replace(/^[A-Z]/, ''));
                         return num >= startNum && num <= endNum;
                     });
                     
-                    if (assignedRoomCodes.length === 0) {
-                        showToast('No rooms found in the selected range', 'error');
-                        return;
-                    }
+                    // Get corresponding room IDs
+                    roomIds = [];
+                    assignedRoomCodes = [];
+                    area.rooms.forEach((roomCode, index) => {
+                        const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
+                        if (num >= startNum && num <= endNum) {
+                            roomIds.push(area.room_ids[index]);
+                            assignedRoomCodes.push(roomCode);
+                        }
+                    });
+                }
+
+                if (roomIds.length === 0) {
+                    showToast('No valid rooms found for assignment', 'error');
+                    return;
                 }
 
                 if (ra) {
                     try {
-                        const roomIds = assignedRoomCodes.map(roomCode => {
-                            const room = rooms.find(r => r.room_code === roomCode);
-                            return room ? room.id : null;
-                        }).filter(Boolean);
+                        // ✅ Ensure numeric IDs (avoids type mismatch)
+                        const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id));
 
-                        if (roomIds.length === 0) {
-                            showToast('No valid rooms found for assignment', 'error');
-                            return;
-                        }
+                        console.log('Saving assignment:', {
+                            ra_id: Number(ra.id),
+                            ra_name: ra.name,
+                            room_ids: numericRoomIds,
+                            room_codes: assignedRoomCodes
+                        });
 
                         // ✅ USE THE PROPER HRA ASSIGNMENT ENDPOINT
                         await apiCall('/hra/assign-rooms', {
                             method: 'POST',
                             body: JSON.stringify({
-                                ra_id: ra.id,
-                                room_ids: roomIds
+                                ra_id: Number(ra.id),
+                                room_ids: numericRoomIds
                             })
                         });
                         
@@ -1444,6 +1380,7 @@
                         closeAssignRA();
                         renderReviewBedCheck();
                     } catch (error) {
+                        console.error('Assignment error:', error);
                         showToast('Error saving assignment: ' + error.message, 'error');
                     }
                 } else {
@@ -1452,7 +1389,7 @@
             }
 
             // =============================================
-            // REMOVE ASSIGNMENT - FIXED: Use proper endpoint
+            // REMOVE ASSIGNMENT - FIXED
             // =============================================
             async function removeAssignment() {
                 if (!editingRAId) return;
@@ -1461,14 +1398,28 @@
                 try {
                     const ra = staff.find(s => s.id == editingRAId);
                     if (ra) {
-                        // ✅ Remove assignment by assigning no rooms
-                        await apiCall('/hra/assign-rooms', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                ra_id: ra.id,
-                                room_ids: []
-                            })
-                        });
+                        // ✅ Get current room IDs for this RA
+                        const currentRoomIds = [];
+                        if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
+                            // Find room IDs for the assigned room codes
+                            for (const roomCode of ra.assigned_rooms) {
+                                const room = rooms.find(r => r.room_code === roomCode);
+                                if (room) {
+                                    currentRoomIds.push(Number(room.id));
+                                }
+                            }
+                        }
+
+                        // ✅ If there are assigned rooms, remove them one by one
+                        if (currentRoomIds.length > 0) {
+                            await apiCall('/hra/assign-rooms', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    ra_id: Number(ra.id),
+                                    room_ids: [] // Empty array removes all assignments
+                                })
+                            });
+                        }
                         
                         ra.assigned_floor = null;
                         ra.assigned_area = null;
@@ -1479,6 +1430,7 @@
                         renderReviewBedCheck();
                     }
                 } catch (error) {
+                    console.error('Error removing assignment:', error);
                     showToast('Error removing assignment: ' + error.message, 'error');
                 }
             }
