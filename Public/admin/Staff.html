@@ -566,39 +566,34 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - FIXED: No /staff/all call
             // =============================================
             async function loadStaff() {
                 try {
-                    try {
-                        const data = await apiCall('/staff/all');
-                        staffMembers = data.data || [];
-                        return staffMembers;
-                    } catch (allError) {
-                        let allStaff = [];
-                        let offset = 0;
-                        const limit = 100;
-                        let hasMore = true;
-                        
-                        while (hasMore) {
-                            const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
-                            const staffBatch = data.data || [];
-                            
-                            if (staffBatch.length === 0) {
+                    let allStaff = [];
+                    let offset = 0;
+                    const limit = 100;
+                    let hasMore = true;
+
+                    while (hasMore) {
+                        const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
+                        const staffBatch = data.data || [];
+
+                        if (staffBatch.length === 0) {
+                            hasMore = false;
+                        } else {
+                            allStaff = allStaff.concat(staffBatch);
+                            offset += limit;
+                            if (staffBatch.length < limit) {
                                 hasMore = false;
-                            } else {
-                                allStaff = allStaff.concat(staffBatch);
-                                offset += limit;
-                                if (staffBatch.length < limit) {
-                                    hasMore = false;
-                                }
                             }
                         }
-                        
-                        staffMembers = allStaff;
-                        return staffMembers;
                     }
+
+                    staffMembers = allStaff;
+                    return staffMembers;
                 } catch (error) {
+                    console.error('Failed to load staff:', error);
                     staffMembers = [];
                     return staffMembers;
                 }
@@ -759,7 +754,7 @@
                             <td><span class="campus-badge">${campusName}</span></td>
                             <td><span class="status-badge ${statusClass}">${member.status || 'Active'}</span></td>
                             <td>
-                                <button class="btn-ghost" onclick="openManageStaff('${staffId}')" style="font-size:0.65rem;">
+                                <button class="btn-ghost" onclick="openManageStaff(${staffId})" style="font-size:0.65rem;">
                                     <i class="fas fa-edit"></i> Manage
                                 </button>
                             </td>
@@ -1010,12 +1005,9 @@
             }
 
             // =============================================
-            // MANAGE STAFF FUNCTIONS - FIXED
+            // MANAGE STAFF FUNCTIONS
             // =============================================
             function openManageStaff(staffId) {
-                // Debug: Log the staffId to see what's being passed
-                console.log('openManageStaff called with staffId:', staffId);
-                
                 // Validate staffId
                 if (!staffId || staffId === 'undefined' || staffId === 'null' || staffId === '') {
                     showToast('Invalid staff ID. Please refresh and try again.', 'error');
@@ -1108,9 +1100,6 @@
             }
 
             async function saveStaffChanges(staffId) {
-                // Debug: Log the staffId
-                console.log('saveStaffChanges called with staffId:', staffId);
-                
                 // Validate staffId
                 if (!staffId || staffId === 'undefined' || staffId === 'null' || staffId === '') {
                     showToast('Invalid staff ID. Please refresh and try again.', 'error');
@@ -1244,9 +1233,6 @@
             }
 
             async function deleteStaff(staffId) {
-                // Debug: Log the staffId
-                console.log('deleteStaff called with staffId:', staffId);
-                
                 // Validate staffId
                 if (!staffId || staffId === 'undefined' || staffId === 'null' || staffId === '') {
                     showToast('Invalid staff ID. Please refresh and try again.', 'error');
