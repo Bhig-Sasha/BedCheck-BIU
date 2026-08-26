@@ -1610,9 +1610,20 @@ const validators = {
     ],
     updateStaff: [
         body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
+        body('username').optional().trim().notEmpty().withMessage('Username cannot be empty')
+            .isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
         body('role').optional().isIn(['RA', 'HRA', 'Admin', 'Administrator', 'RASD', 'Developer']).withMessage('Invalid role'),
         body('email').optional().isEmail().withMessage('Invalid email address'),
-        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
+        body('campus').optional().isIn(['Legacy', 'Heritage']).withMessage('Invalid campus'),
+        body('status').optional().isIn(['Active', 'Suspended', 'Inactive', 'Offline']).withMessage('Invalid status'),
+        body('hostel_id').optional().custom((value) => {
+            if (value === null || value === undefined || value === '') return true;
+            return !isNaN(parseInt(value));
+        }).withMessage('Invalid hostel ID'),
+        body('assigned_floor').optional().isString().withMessage('Invalid floor'),
+        body('assigned_room').optional().isString().withMessage('Invalid room'),
+        body('phone').optional().isString().withMessage('Invalid phone'),
+        body('department').optional().isString().withMessage('Invalid department')
     ],
     changePassword: [
         body('currentPassword').notEmpty().withMessage('Current password is required'),
@@ -4817,17 +4828,26 @@ app.put('/api/staff/:id',
     validate(validators.updateStaff),
     async (req, res) => {
         const id = parseInt(req.params.id);
-        const { name, username, role, hostel_id, status, email, phone, department, assigned_floor, assigned_room, campus } = req.body;
+        
+        // Validate ID
+        if (isNaN(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid staff ID',
+                code: 'INVALID_ID'
+            });
+        }
         
         try {
-            const { data: existing } = await supabase
+            // First, get the existing staff member
+            const { data: existing, error: fetchError } = await supabase
                 .from('staff')
-                .select('hostel_id, campus, role')
+                .select('*')
                 .eq('id', id)
                 .eq('campus', req.campus)
                 .single();
 
-            if (!existing) {
+            if (fetchError || !existing) {
                 return res.status(404).json({
                     success: false,
                     message: 'Staff not found in this campus',
@@ -4835,6 +4855,7 @@ app.put('/api/staff/:id',
                 });
             }
 
+            // Check if trying to modify a Developer account
             if (existing.role === 'Developer' && req.user.role !== 'Developer') {
                 return res.status(403).json({
                     success: false,
@@ -4843,46 +4864,79 @@ app.put('/api/staff/:id',
                 });
             }
 
+            // Build update object with only provided fields
             const updateData = {};
             const changes = [];
-
-            if (name !== undefined) { updateData.name = name; changes.push('name'); }
-            if (username !== undefined) { updateData.username = username; changes.push('username'); }
-            if (role !== undefined) { 
-                if (role === 'Developer' && req.user.role !== 'Developer') {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'Access denied. Only Developers can create Developer accounts.',
-                        code: 'PERMISSION_DENIED'
-                    });
+            
+            // Map fields from request body to database fields
+            const fieldMap = {
+                'name': 'name',
+                'username': 'username', 
+                'role': 'role',
+                'hostel_id': 'hostel_id',
+                'assigned_floor': 'assigned_floor',
+                'assigned_room': 'assigned_room',
+                'status': 'status',
+                'email': 'email',
+                'phone': 'phone',
+                'department': 'department',
+                'campus': 'campus'
+            };
+            
+            for (const [reqField, dbField] of Object.entries(fieldMap)) {
+                if (req.body[reqField] !== undefined && req.body[reqField] !== null) {
+                    // Special handling for role
+                    if (reqField === 'role') {
+                        const newRole = req.body[reqField];
+                        if (newRole === 'Developer' && req.user.role !== 'Developer') {
+                            return res.status(403).json({
+                                success: false,
+                                message: 'Access denied. Only Developers can create Developer accounts.',
+                                code: 'PERMISSION_DENIED'
+                            });
+                        }
+                        if (existing.role === 'Developer' && newRole !== 'Developer' && req.user.role !== 'Developer') {
+                            return res.status(403).json({
+                                success: false,
+                                message: 'Cannot change Developer role.',
+                                code: 'PERMISSION_DENIED'
+                            });
+                        }
+                        updateData.role = newRole;
+                        changes.push('role');
+                    } else if (reqField === 'campus') {
+                        const newCampus = req.body[reqField];
+                        updateData.campus = newCampus;
+                        updateData.campus_code = newCampus === 'Legacy' ? 'LEG' : 'HER';
+                        changes.push('campus');
+                    } else if (reqField === 'hostel_id') {
+                        // Handle hostel_id - convert empty string to null
+                        const hostelId = req.body[reqField];
+                        updateData.hostel_id = hostelId ? parseInt(hostelId) : null;
+                        changes.push('hostel_id');
+                    } else {
+                        updateData[dbField] = req.body[reqField];
+                        changes.push(reqField);
+                    }
                 }
-                updateData.role = role; 
-                changes.push('role'); 
-            }
-            if (hostel_id !== undefined) { updateData.hostel_id = hostel_id || null; changes.push('hostel_id'); }
-            if (assigned_floor !== undefined) { updateData.assigned_floor = assigned_floor || null; changes.push('assigned_floor'); }
-            if (assigned_room !== undefined) { updateData.assigned_room = assigned_room || null; changes.push('assigned_room'); }
-            if (status !== undefined) { updateData.status = status; changes.push('status'); }
-            if (email !== undefined) { updateData.email = email; changes.push('email'); }
-            if (phone !== undefined) { updateData.phone = phone; changes.push('phone'); }
-            if (department !== undefined) { updateData.department = department; changes.push('department'); }
-            if (campus !== undefined) { 
-                updateData.campus = campus; 
-                updateData.campus_code = campus === 'Legacy' ? 'LEG' : 'HER';
-                changes.push('campus'); 
             }
 
+            // Check if anything to update
             if (Object.keys(updateData).length === 0) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: 'No fields to update',
+                return res.status(400).json({
+                    success: false,
+                    message: 'No valid fields to update',
                     code: 'NO_FIELDS_TO_UPDATE'
                 });
             }
 
+            // Add updated_at timestamp
             updateData.updated_at = new Date().toISOString();
 
-            const { data, error } = await supabase
+            console.log('Updating staff:', { id, updateData, changes });
+
+            // Perform the update
+            const { data: updatedStaff, error: updateError } = await supabase
                 .from('staff')
                 .update(updateData)
                 .eq('id', id)
@@ -4890,31 +4944,49 @@ app.put('/api/staff/:id',
                 .select()
                 .single();
 
-            if (error) throw error;
+            if (updateError) {
+                console.error('Supabase update error:', updateError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Database error: ' + updateError.message,
+                    code: 'DATABASE_ERROR',
+                    details: process.env.NODE_ENV === 'development' ? updateError : undefined
+                });
+            }
 
+            // Log the update
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
                 action: 'Staff Updated',
                 module: 'staff',
-                details: `Updated ${data?.name}: ${changes.join(', ')}`,
+                details: `Updated ${updatedStaff?.name}: ${changes.join(', ')}`,
                 result: 'success',
                 category: 'staff',
-                hostel_id: data?.hostel_id,
+                hostel_id: updatedStaff?.hostel_id,
                 campus: req.campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
             });
 
-            const { password: _, ...staffWithoutPassword } = data;
-            res.json({ success: true, data: staffWithoutPassword, campus: req.campus });
+            // Remove password from response
+            const { password: _, ...staffWithoutPassword } = updatedStaff;
+
+            res.json({ 
+                success: true, 
+                data: staffWithoutPassword, 
+                campus: req.campus,
+                message: 'Staff updated successfully'
+            });
+
         } catch (error) {
             console.error('Error updating staff:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred while updating staff: ' + error.message,
+                code: 'SERVER_ERROR',
+                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
             });
         }
     }

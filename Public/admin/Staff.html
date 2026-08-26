@@ -894,31 +894,57 @@
             }
 
             async function saveStaffChanges(staffId) {
-                const name = document.getElementById('editStaffName').value;
-                const username = document.getElementById('editStaffUsername').value;
+                const name = document.getElementById('editStaffName').value.trim();
+                const username = document.getElementById('editStaffUsername').value.trim();
                 const role = document.getElementById('editStaffRole').value;
                 const hostelId = document.getElementById('editStaffHostel').value;
-                const assignedRoom = document.getElementById('editStaffRoom').value;
+                const assignedRoom = document.getElementById('editStaffRoom').value.trim();
                 const campus = document.getElementById('editStaffCampus').value;
                 const status = document.getElementById('editStaffStatus').value;
 
+                // Validate
                 if (!name || !username) {
                     showToast('Name and username are required', 'error');
                     return;
                 }
 
-                try {
-                    const payload = {
-                        name,
-                        username,
-                        role,
-                        hostel_id: hostelId || null,
-                        assigned_room: assignedRoom || null,
-                        campus: campus || 'Legacy',
-                        status
-                    };
+                // Build payload with only changed fields
+                const payload = {};
+                
+                // Get current staff data to compare
+                const staff = staffMembers.find(s => s.id === staffId);
+                if (!staff) {
+                    showToast('Staff not found', 'error');
+                    return;
+                }
 
-                    await apiCall(`/staff/${staffId}`, {
+                if (name !== staff.name) payload.name = name;
+                if (username !== staff.username) payload.username = username;
+                if (role !== staff.role) payload.role = role;
+                if (status !== staff.status) payload.status = status;
+                if (campus !== staff.campus) payload.campus = campus;
+                if (assignedRoom !== (staff.assigned_room || '')) payload.assigned_room = assignedRoom || null;
+                
+                // Handle hostel_id - convert empty string to null
+                const newHostelId = hostelId ? parseInt(hostelId) : null;
+                if (newHostelId !== (staff.hostel_id || null)) payload.hostel_id = newHostelId;
+
+                // Check if there's anything to update
+                if (Object.keys(payload).length === 0) {
+                    showToast('No changes to update', 'warning');
+                    return;
+                }
+
+                // Validate RA/HRA must have hostel
+                if ((role === 'RA' || role === 'HRA') && !hostelId) {
+                    showToast('RA and HRA must be assigned to a hostel', 'error');
+                    return;
+                }
+
+                try {
+                    console.log('Updating staff with payload:', payload);
+                    
+                    const response = await apiCall(`/staff/${staffId}`, {
                         method: 'PUT',
                         body: JSON.stringify(payload)
                     });
@@ -928,6 +954,7 @@
                     await loadStaff();
                     loadStaffTable();
                 } catch (error) {
+                    console.error('Update error:', error);
                     showToast('Error updating staff: ' + error.message, 'error');
                 }
             }
