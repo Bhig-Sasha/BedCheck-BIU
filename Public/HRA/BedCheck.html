@@ -1236,7 +1236,7 @@
             }
 
             // =============================================
-            // SAVE ASSIGNMENT
+            // SAVE ASSIGNMENT - FIXED
             // =============================================
             async function saveAssignment() {
                 const raId = document.getElementById('assignRAStaff').value;
@@ -1266,23 +1266,39 @@
                 const startRoom = document.getElementById('assignStartRoom').value;
                 const endRoom = document.getElementById('assignEndRoom').value;
                 
+                // Get room IDs and codes safely
                 let roomIds = area.room_ids || [];
                 let assignedRoomCodes = area.rooms || [];
                 
-                if (startRoom && endRoom) {
+                // If we have a range, filter the rooms
+                if (startRoom && endRoom && area.rooms && area.rooms.length > 0) {
                     const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
                     const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
                     
-                    roomIds = [];
-                    assignedRoomCodes = [];
-                    area.rooms.forEach((roomCode, index) => {
-                        const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
-                        if (num >= startNum && num <= endNum) {
-                            roomIds.push(area.room_ids[index]);
-                            assignedRoomCodes.push(roomCode);
-                        }
-                    });
+                    if (!isNaN(startNum) && !isNaN(endNum)) {
+                        const filteredRooms = [];
+                        const filteredIds = [];
+                        
+                        area.rooms.forEach((roomCode, index) => {
+                            if (roomCode) {
+                                const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
+                                if (!isNaN(num) && num >= startNum && num <= endNum) {
+                                    filteredRooms.push(roomCode);
+                                    if (area.room_ids && area.room_ids[index]) {
+                                        filteredIds.push(area.room_ids[index]);
+                                    }
+                                }
+                            }
+                        });
+                        
+                        assignedRoomCodes = filteredRooms;
+                        roomIds = filteredIds;
+                    }
                 }
+
+                // Ensure we have valid room IDs
+                roomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+                assignedRoomCodes = assignedRoomCodes.filter(code => code && code.trim() !== '');
 
                 if (roomIds.length === 0) {
                     showToast('No valid rooms found for assignment', 'error');
@@ -1293,6 +1309,14 @@
                     try {
                         const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id));
 
+                        console.log('Saving assignment:', {
+                            ra_id: Number(ra.id),
+                            ra_name: ra.name,
+                            room_ids: numericRoomIds,
+                            room_codes: assignedRoomCodes,
+                            area: areaKey
+                        });
+
                         await apiCall('/hra/assign-rooms', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1301,6 +1325,7 @@
                             })
                         });
                         
+                        // Update local data
                         ra.assigned_floor = areaKey;
                         ra.assigned_area = areaKey;
                         ra.room_range_start = startRoom || null;
@@ -1324,7 +1349,7 @@
                         showToast('Error saving assignment: ' + error.message, 'error');
                     }
                 } else {
-                    showToast('Error saving assignment', 'error');
+                    showToast('RA not found', 'error');
                 }
             }
 
@@ -1895,12 +1920,14 @@
                     staff = (staffData.data || []).filter(s => s.hostel_id === hostelData.id);
                     floors = (floorsData.data || []).filter(f => f.hostel_id === hostelData.id);
                     
+                    // Filter rooms - accept both active and available AND Not Started
                     rooms = (roomsData.data || []).filter(r => {
                         if (r.hostel_id != null && r.hostel_id === hostelData.id) return true;
                         const floor = floors.find(f => f.id === r.floor_flat_id);
                         return !!floor;
                     });
 
+                    // Updated filter to accept 'active', 'available', 'Not Started', or empty
                     rooms = rooms.filter(r => {
                         const s = String(r.status || '').toLowerCase();
                         return s === 'active' || s === 'available' || s === '' || s === 'not started';
