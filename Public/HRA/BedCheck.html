@@ -845,13 +845,11 @@
                 try {
                     const staffId = getStaffId();
                     if (!staffId) {
-                        console.error('No staff ID found');
                         return null;
                     }
 
                     const staffResult = await apiCall(`/staff/${staffId}`);
                     if (!staffResult.success || !staffResult.data) {
-                        console.error('Failed to get staff profile');
                         return null;
                     }
 
@@ -866,7 +864,6 @@
                     
                     return null;
                 } catch (error) {
-                    console.error('Error loading hostel data:', error);
                     return null;
                 }
             }
@@ -924,7 +921,6 @@
 
                     return { isSessionActive, sessionStatus, session: currentSession };
                 } catch (error) {
-                    console.error('Error loading session status:', error);
                     return { isSessionActive: false, sessionStatus: 'Closed', session: null };
                 }
             }
@@ -1020,7 +1016,6 @@
                 };
 
                 if (!rooms || rooms.length === 0) {
-                    console.warn('No rooms loaded for this hostel – cannot build areas');
                     return;
                 }
 
@@ -1309,14 +1304,6 @@
                     try {
                         const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id));
 
-                        console.log('Saving assignment:', {
-                            ra_id: Number(ra.id),
-                            ra_name: ra.name,
-                            room_ids: numericRoomIds,
-                            room_codes: assignedRoomCodes,
-                            area: areaKey
-                        });
-
                         await apiCall('/hra/assign-rooms', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1345,7 +1332,6 @@
                         closeAssignRA();
                         renderReviewBedCheck();
                     } catch (error) {
-                        console.error('Assignment error:', error);
                         showToast('Error saving assignment: ' + error.message, 'error');
                     }
                 } else {
@@ -1394,7 +1380,6 @@
                         renderReviewBedCheck();
                     }
                 } catch (error) {
-                    console.error('Error removing assignment:', error);
                     showToast('Error removing assignment: ' + error.message, 'error');
                 }
             }
@@ -1589,30 +1574,6 @@
                 if (student) { selectedStudent = student; renderModalStudentDetails(); }
             }
 
-            // ---- SEND NOTIFICATION ----
-            async function sendNotificationToRA(raName, message) {
-                const ra = staff.find(s => s.name === raName && (s.role === 'RA' || s.role === 'Resident Advisor'));
-                if (!ra) { showToast('RA not found', 'error'); return; }
-                try {
-                    await apiCall('/notifications', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            title: 'BedCheck Reminder',
-                            detail: message || `Please start your BedCheck for ${hostelData?.name} - ${ra.assigned_floor || 'your assigned area'}`,
-                            tone: 'gold',
-                            icon: 'fa-bell',
-                            type: 'info',
-                            read: false,
-                            hostel_id: hostelData?.id,
-                            staff_id: ra.id
-                        })
-                    });
-                    showToast(`✅ Notification sent to ${ra.name}`, 'success');
-                } catch (error) {
-                    showToast('Error sending notification: ' + error.message, 'error');
-                }
-            }
-
             function statusBadge(status) {
                 const map = {
                     'Not Started': 'status-badge-not-started',
@@ -1802,8 +1763,7 @@
                                             `;
                                         } else if (status === 'Not Started' || status === 'Pending') {
                                             actionBtn = `
-                                                <button class="btn-ghost" style="font-size:0.75rem;" onclick="window.sendNotificationToRA('${ra.name}', 'Please start your BedCheck for ${hostelData?.name} - ${area}')"><i class="fas fa-bell"></i></button>
-                                                ${!isLocked ? `<button class="btn-ghost" style="font-size:0.75rem;color:#a77915;" onclick="window.openAssignRA('${ra.id}')"><i class="fas fa-edit"></i></button>` : ''}
+                                                <button class="btn-ghost" style="font-size:0.75rem;" onclick="window.openAssignRA('${ra.id}')"><i class="fas fa-edit"></i></button>
                                             `;
                                         } else {
                                             actionBtn = `
@@ -1862,7 +1822,6 @@
                 window.closeAssignRA = closeAssignRA;
                 window.saveAssignment = saveAssignment;
                 window.removeAssignment = removeAssignment;
-                window.sendNotificationToRA = sendNotificationToRA;
                 window.selectAreaForAssignment = selectAreaForAssignment;
                 window.getRoomsForArea = getRoomsForArea;
                 window.getRoomIdsForArea = getRoomIdsForArea;
@@ -1952,7 +1911,6 @@
                     startSessionChecker();
                     
                 } catch (error) {
-                    console.error('Load error:', error);
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
@@ -1997,8 +1955,9 @@
                         setTimeout(() => { window.location.replace('../Login.html'); }, 2000); return; }
                     updateUserDisplay();
                     loadAllData();
-                } catch (e) { console.error('Error parsing user data:', e);
-                    window.location.replace('../Login.html'); }
+                } catch (e) {
+                    window.location.replace('../Login.html');
+                }
 
                 logoutBtn.addEventListener('click', handleLogout);
                 menuToggle.addEventListener('click', openMobileDrawer);
@@ -2031,7 +1990,6 @@
             window.closeAssignRA = closeAssignRA;
             window.saveAssignment = saveAssignment;
             window.removeAssignment = removeAssignment;
-            window.sendNotificationToRA = sendNotificationToRA;
             window.selectAreaForAssignment = selectAreaForAssignment;
             window.getRoomsForArea = getRoomsForArea;
             window.getRoomIdsForArea = getRoomIdsForArea;
