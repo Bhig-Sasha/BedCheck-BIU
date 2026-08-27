@@ -1236,7 +1236,7 @@
             }
 
             // =============================================
-            // SAVE ASSIGNMENT - FIXED
+            // SAVE ASSIGNMENT 
             // =============================================
             async function saveAssignment() {
                 try {
@@ -1342,24 +1342,14 @@
                         if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra.name}?`)) {
                             return;
                         }
-                        // Clear the old RA's assignment
+                        // Clear the old RA's assignment in local data
                         existingRA.assigned_floor = null;
                         existingRA.assigned_area = null;
                         existingRA.assigned_rooms = [];
                         existingRA.assigned_room_ids = [];
                     }
 
-                    // IMPORTANT: Update the staff record with the assigned_floor
-                    await apiCall(`/staff/${raId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({
-                            assigned_floor: areaKey,
-                            assigned_area: areaKey,
-                            hostel_id: hostelData?.id || null
-                        })
-                    });
-
-                    // If we have room IDs, assign them
+                    // Use the HRA endpoint to assign rooms (this is allowed)
                     const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
 
                     if (numericRoomIds.length > 0) {
@@ -1373,8 +1363,12 @@
                             });
                         } catch (roomError) {
                             console.warn('Room assignment error:', roomError);
-                            // Continue even if room assignment fails
+                            showToast('Error assigning rooms: ' + roomError.message, 'error');
+                            return;
                         }
+                    } else {
+                        showToast('No valid rooms found for assignment', 'error');
+                        return;
                     }
                     
                     // Update local data
@@ -1382,8 +1376,15 @@
                     ra.assigned_area = areaKey;
                     ra.assigned_rooms = assignedRoomCodes;
                     ra.assigned_room_ids = numericRoomIds;
+                    ra.room_range_start = startRoom || null;
+                    ra.room_range_end = endRoom || null;
                     
-                    // Clear old assignment if editing
+                    // Update submission_status to 'Assigned' or 'Not Started'
+                    if (ra.submission_status === 'Not Started' || !ra.submission_status) {
+                        ra.submission_status = 'Assigned';
+                    }
+                    
+                    // Clear old assignment in local data if editing
                     if (editingRAId && editingRAId != raId) {
                         const oldRA = staff.find(s => s.id == editingRAId);
                         if (oldRA) {
@@ -1391,25 +1392,16 @@
                             oldRA.assigned_area = null;
                             oldRA.assigned_rooms = [];
                             oldRA.assigned_room_ids = [];
-                            // Also update the old RA in the database
-                            try {
-                                await apiCall(`/staff/${editingRAId}`, {
-                                    method: 'PUT',
-                                    body: JSON.stringify({
-                                        assigned_floor: null,
-                                        assigned_area: null,
-                                        hostel_id: hostelData?.id || null
-                                    })
-                                });
-                            } catch (e) {
-                                // Silent fail
-                            }
+                            oldRA.room_range_start = null;
+                            oldRA.room_range_end = null;
+                            oldRA.submission_status = 'Not Started';
                         }
                     }
                     
                     const roomCount = numericRoomIds.length > 0 ? ` (${numericRoomIds.length} rooms)` : ' (area only)';
                     showToast(`${ra.name} assigned to ${areaKey}${roomCount}`, 'success');
                     closeAssignRA();
+                    // Refresh the page data
                     await loadAllData();
                 } catch (error) {
                     console.error('Save assignment error:', error);
@@ -1427,17 +1419,7 @@
                 try {
                     const ra = staff.find(s => s.id == editingRAId);
                     if (ra) {
-                        // Clear the staff record's assigned_floor
-                        await apiCall(`/staff/${editingRAId}`, {
-                            method: 'PUT',
-                            body: JSON.stringify({
-                                assigned_floor: null,
-                                assigned_area: null,
-                                hostel_id: hostelData?.id || null
-                            })
-                        });
-
-                        // Clear room assignments
+                        // Clear room assignments using HRA endpoint
                         if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
                             const roomIds = [];
                             for (const roomCode of ra.assigned_rooms) {
@@ -1452,18 +1434,20 @@
                                     method: 'POST',
                                     body: JSON.stringify({
                                         ra_id: Number(ra.id),
-                                        room_ids: []
+                                        room_ids: [] // Empty array removes all assignments
                                     })
                                 });
                             }
                         }
                         
+                        // Update local data only (no staff update via API)
                         ra.assigned_floor = null;
                         ra.assigned_area = null;
                         ra.assigned_rooms = [];
                         ra.assigned_room_ids = [];
                         ra.room_range_start = null;
                         ra.room_range_end = null;
+                        ra.submission_status = 'Not Started';
                         
                         showToast(`Assignment removed from ${ra.name}`, 'success');
                         closeAssignRA();
