@@ -752,7 +752,7 @@
             let selectedRoom = null;
             let selectedStudent = null;
             let modalData = null;
-            let roomStructure = {};
+            let roomStructure = { areas: [] };
             let selectedAreaKey = null;
             let editingRAId = null;
 
@@ -1007,7 +1007,7 @@
             function setNotice(msg) { noticeText.textContent = msg; }
 
             // =============================================
-            // ROOM STRUCTURE BUILDING
+            // ROOM STRUCTURE BUILDING - FIXED
             // =============================================
             function buildRoomStructure() {
                 roomStructure = {
@@ -1068,9 +1068,14 @@
                     });
                     area.rooms = unique;
 
+                    // Rebuild room IDs to match the sorted rooms
                     const codeToId = {};
-                    rooms.forEach(r => { codeToId[r.room_code] = Number(r.id); });
-                    area.roomIds = area.rooms.map(c => codeToId[c]).filter(Boolean);
+                    rooms.forEach(r => { 
+                        if (r.room_code) {
+                            codeToId[r.room_code] = Number(r.id);
+                        }
+                    });
+                    area.roomIds = area.rooms.map(c => codeToId[c]).filter(id => id && !isNaN(id) && id > 0);
 
                     roomStructure.areas.push(area);
                 });
@@ -1234,76 +1239,134 @@
             // SAVE ASSIGNMENT - FIXED
             // =============================================
             async function saveAssignment() {
-                const raId = document.getElementById('assignRAStaff').value;
-                const selectedArea = document.querySelector('input[name="assignArea"]:checked');
-                
-                if (!raId) { showToast('Please select an RA', 'error'); return; }
-                if (!selectedArea) { showToast('Please select an area', 'error'); return; }
-                
-                const areaKey = selectedArea.value;
-                const area = roomStructure.areas.find(a => a.key === areaKey);
-                if (!area) { showToast('Area not found', 'error'); return; }
-
-                const existingRA = staff.find(s => 
-                    s.id != raId && 
-                    (s.role === 'RA' || s.role === 'Resident Advisor') && 
-                    s.assigned_floor === areaKey
-                );
-                
-                const ra = staff.find(s => s.id == raId);
-                
-                if (existingRA) {
-                    if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra?.name || 'this RA'}?`)) {
+                try {
+                    const raId = document.getElementById('assignRAStaff').value;
+                    const selectedArea = document.querySelector('input[name="assignArea"]:checked');
+                    
+                    if (!raId) {
+                        showToast('Please select an RA', 'error');
                         return;
                     }
-                }
-
-                const startRoom = document.getElementById('assignStartRoom').value;
-                const endRoom = document.getElementById('assignEndRoom').value;
-                
-                // Get room IDs and codes safely
-                let roomIds = area.room_ids || [];
-                let assignedRoomCodes = area.rooms || [];
-                
-                // If we have a range, filter the rooms
-                if (startRoom && endRoom && area.rooms && area.rooms.length > 0) {
-                    const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
-                    const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
+                    if (!selectedArea) {
+                        showToast('Please select an area', 'error');
+                        return;
+                    }
                     
-                    if (!isNaN(startNum) && !isNaN(endNum)) {
-                        const filteredRooms = [];
-                        const filteredIds = [];
+                    const areaKey = selectedArea.value;
+                    const area = roomStructure.areas.find(a => a.key === areaKey);
+                    if (!area) {
+                        showToast('Area not found', 'error');
+                        return;
+                    }
+
+                    // Get room IDs and codes safely
+                    let roomIds = area.room_ids || [];
+                    let assignedRoomCodes = area.rooms || [];
+                    
+                    // If we have a range, filter the rooms
+                    const startRoom = document.getElementById('assignStartRoom').value;
+                    const endRoom = document.getElementById('assignEndRoom').value;
+                    
+                    if (startRoom && endRoom && area.rooms && area.rooms.length > 0) {
+                        const startNum = parseInt(startRoom.replace(/^[A-Z]/, ''));
+                        const endNum = parseInt(endRoom.replace(/^[A-Z]/, ''));
                         
-                        area.rooms.forEach((roomCode, index) => {
-                            if (roomCode) {
-                                const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
-                                if (!isNaN(num) && num >= startNum && num <= endNum) {
-                                    filteredRooms.push(roomCode);
-                                    if (area.room_ids && area.room_ids[index]) {
-                                        filteredIds.push(area.room_ids[index]);
+                        if (!isNaN(startNum) && !isNaN(endNum)) {
+                            const filteredRooms = [];
+                            const filteredIds = [];
+                            
+                            area.rooms.forEach((roomCode, index) => {
+                                if (roomCode) {
+                                    const num = parseInt(roomCode.replace(/^[A-Z]/, ''));
+                                    if (!isNaN(num) && num >= startNum && num <= endNum) {
+                                        filteredRooms.push(roomCode);
+                                        if (area.room_ids && area.room_ids[index]) {
+                                            filteredIds.push(area.room_ids[index]);
+                                        }
                                     }
                                 }
-                            }
-                        });
-                        
-                        assignedRoomCodes = filteredRooms;
-                        roomIds = filteredIds;
+                            });
+                            
+                            assignedRoomCodes = filteredRooms;
+                            roomIds = filteredIds;
+                        }
                     }
-                }
 
-                // Ensure we have valid room IDs
-                roomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
-                assignedRoomCodes = assignedRoomCodes.filter(code => code && code.trim() !== '');
+                    // Ensure we have valid room IDs - get them from the rooms data if needed
+                    if (roomIds.length === 0 && assignedRoomCodes.length > 0) {
+                        // Try to find room IDs from the rooms array
+                        roomIds = assignedRoomCodes.map(code => {
+                            const room = rooms.find(r => r.room_code === code);
+                            return room ? Number(room.id) : null;
+                        }).filter(id => id && !isNaN(id) && id > 0);
+                    }
 
-                if (roomIds.length === 0) {
-                    showToast('No valid rooms found for assignment', 'error');
-                    return;
-                }
+                    // Ensure we have valid room IDs
+                    roomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+                    assignedRoomCodes = assignedRoomCodes.filter(code => code && code.trim() !== '');
 
-                if (ra) {
-                    try {
-                        const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id));
+                    // If still no rooms found, try to get rooms using the floor_flat_id
+                    if (roomIds.length === 0) {
+                        // Try to find the floor/flat by name
+                        const areaFloor = floors.find(f => 
+                            f.name === areaKey || 
+                            f.code === areaKey || 
+                            `${f.name}` === areaKey
+                        );
+                        if (areaFloor) {
+                            const areaRooms = rooms.filter(r => r.floor_flat_id === areaFloor.id);
+                            roomIds = areaRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
+                            assignedRoomCodes = areaRooms.map(r => r.room_code).filter(code => code);
+                        }
+                    }
 
+                    // Last resort: try to find rooms by matching room_code prefix
+                    if (roomIds.length === 0) {
+                        // For flat type, try to match "F1", "F2", etc.
+                        if (roomStructure.type === 'flat') {
+                            const flatNum = areaKey.replace('Flat ', '');
+                            const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(`F${flatNum}`));
+                            roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
+                            assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
+                        }
+                        // For floor type, try to match "A", "B", "C", etc.
+                        else {
+                            const floorLetter = areaKey.replace('Floor ', '');
+                            const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(floorLetter));
+                            roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
+                            assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
+                        }
+                    }
+
+                    if (roomIds.length === 0) {
+                        // Try to assign just the floor without rooms
+                        showToast('No rooms found. Assigning area only.', 'warning');
+                        // Still proceed with floor assignment
+                    }
+
+                    const ra = staff.find(s => s.id == raId);
+                    if (!ra) {
+                        showToast('RA not found', 'error');
+                        return;
+                    }
+
+                    // Check if area is already assigned to another RA
+                    const existingRA = staff.find(s => 
+                        s.id != raId && 
+                        (s.role === 'RA' || s.role === 'Resident Advisor') && 
+                        s.assigned_floor === areaKey
+                    );
+
+                    if (existingRA) {
+                        if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra.name}?`)) {
+                            return;
+                        }
+                    }
+
+                    // Update the RA room assignments
+                    const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+
+                    if (numericRoomIds.length > 0) {
                         await apiCall('/hra/assign-rooms', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1311,31 +1374,30 @@
                                 room_ids: numericRoomIds
                             })
                         });
-                        
-                        // Update local data
-                        ra.assigned_floor = areaKey;
-                        ra.assigned_area = areaKey;
-                        ra.room_range_start = startRoom || null;
-                        ra.room_range_end = endRoom || null;
-                        ra.assigned_rooms = assignedRoomCodes;
-                        
-                        if (editingRAId && editingRAId != raId) {
-                            const oldRA = staff.find(s => s.id == editingRAId);
-                            if (oldRA) {
-                                oldRA.assigned_floor = null;
-                                oldRA.assigned_area = null;
-                                oldRA.assigned_rooms = [];
-                            }
-                        }
-                        
-                        showToast(`${ra.name} assigned to ${areaKey}${startRoom && endRoom ? ` (${startRoom} - ${endRoom})` : ''}`, 'success');
-                        closeAssignRA();
-                        renderReviewBedCheck();
-                    } catch (error) {
-                        showToast('Error saving assignment: ' + error.message, 'error');
                     }
-                } else {
-                    showToast('RA not found', 'error');
+                    
+                    // Update local data
+                    ra.assigned_floor = areaKey;
+                    ra.assigned_area = areaKey;
+                    ra.assigned_rooms = assignedRoomCodes;
+                    ra.assigned_room_ids = numericRoomIds;
+                    
+                    if (editingRAId && editingRAId != raId) {
+                        const oldRA = staff.find(s => s.id == editingRAId);
+                        if (oldRA) {
+                            oldRA.assigned_floor = null;
+                            oldRA.assigned_area = null;
+                            oldRA.assigned_rooms = [];
+                            oldRA.assigned_room_ids = [];
+                        }
+                    }
+                    
+                    const roomCount = numericRoomIds.length > 0 ? ` (${numericRoomIds.length} rooms)` : ' (area only)';
+                    showToast(`${ra.name} assigned to ${areaKey}${roomCount}`, 'success');
+                    closeAssignRA();
+                    await loadAllData();
+                } catch (error) {
+                    showToast('Error saving assignment: ' + error.message, 'error');
                 }
             }
 
@@ -1372,6 +1434,7 @@
                         ra.assigned_floor = null;
                         ra.assigned_area = null;
                         ra.assigned_rooms = [];
+                        ra.assigned_room_ids = [];
                         ra.room_range_start = null;
                         ra.room_range_end = null;
                         
@@ -1760,10 +1823,6 @@
                                             actionBtn = `
                                                 <button class="btn-ghost" style="font-size:0.75rem;" onclick="window.openViewSubmission('${ra.name}', '${area}')"><i class="fas fa-eye"></i> Review</button>
                                                 ${!isLocked ? `<button class="btn-ghost" style="font-size:0.75rem;color:#a77915;" onclick="window.openAssignRA('${ra.id}')"><i class="fas fa-edit"></i></button>` : ''}
-                                            `;
-                                        } else if (status === 'Not Started' || status === 'Pending') {
-                                            actionBtn = `
-                                                <button class="btn-ghost" style="font-size:0.75rem;" onclick="window.openAssignRA('${ra.id}')"><i class="fas fa-edit"></i></button>
                                             `;
                                         } else {
                                             actionBtn = `
