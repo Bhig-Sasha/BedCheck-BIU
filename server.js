@@ -1554,8 +1554,25 @@ const requireRole = (...roles) => {
     };
 };
 
+// =====================================================
+// CAMPUS ISOLATION MIDDLEWARE - UPDATED
+// Admins, Developers, and Administrators can see ALL campuses
+// =====================================================
+
 const campusIsolation = (req, res, next) => {
-    const campus = getCampusContext(req);
+    // Admin, Developer, and Administration can see ALL campuses
+    const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+    
+    if (adminRoles.includes(req.user?.role)) {
+        // Admins get the campus from header or default, but can see all
+        req.campus = req.headers['x-campus'] || req.user?.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
+        req.viewAllCampuses = true;  // Flag to bypass campus filters
+        return next();
+    }
+    
+    // For non-admin users, enforce campus isolation
+    const campus = req.headers['x-campus'] || req.user?.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
+    
     if (!campus || !SUPPORTED_CAMPUSES.includes(campus)) {
         return res.status(400).json({
             success: false,
@@ -1563,7 +1580,9 @@ const campusIsolation = (req, res, next) => {
             code: 'INVALID_CAMPUS'
         });
     }
+    
     req.campus = campus;
+    req.viewAllCampuses = false;
     next();
 };
 
@@ -4699,19 +4718,26 @@ app.get('/api/staff',
             const limit = Math.min(parseInt(req.query.limit) || 50, 100);
             const offset = parseInt(req.query.offset) || 0;
             
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            
             let query = supabase
                 .from('staff')
                 .select('id, name, username, role, hostel_id, assigned_floor, assigned_room, status, email, phone, department, initials, joined, last_login, campus, campus_code')
-                .eq('campus', req.campus)
                 .order('name', { ascending: true })
                 .range(offset, offset + limit - 1);
 
+            // ✅ Only filter by campus if NOT admin
+            if (!adminRoles.includes(req.user.role)) {
+                query = query.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    query = query.eq('hostel_id', req.user.hostel_id);
+                }
+            }
+            // ✅ Admins see ALL campuses
+
+            // ✅ Never show Developer accounts to non-Developers
             if (req.user.role !== 'Developer') {
                 query = query.neq('role', 'Developer');
-            }
-
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
             }
 
             const { data, error, count } = await query;
@@ -6068,7 +6094,10 @@ app.get('/api/sessions/active',
     async (req, res) => {
         try {
             const campusContext = req.campus || 'Legacy';
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            const isAdmin = adminRoles.includes(req.user?.role);
 
+            // ✅ Get the active session (university-wide - no campus filter)
             const { data: session, error } = await supabase
                 .from('sessions')
                 .select('*')
@@ -6086,7 +6115,6 @@ app.get('/api/sessions/active',
                 });
             }
 
-            // If no active session found, return null
             if (!session) {
                 return res.json({ 
                     success: true, 
@@ -6096,47 +6124,64 @@ app.get('/api/sessions/active',
                 });
             }
 
-            // ✅ Get stats for this campus
-            // Get all hostel IDs for this campus
-            const { data: campusHostels } = await supabase
-                .from('hostels')
-                .select('id')
-                .eq('campus', campusContext)
-                .eq('status', 'Active');
+            // ✅ For non-admins, filter stats by their campus
+            let campusFilter = isAdmin ? null : campusContext;
             
+            // Get hostel IDs for the campus
+            let hostelQuery = supabase.from('hostels').select('id');
+            if (campusFilter) {
+                hostelQuery = hostelQuery.eq('campus', campusFilter);
+            }
+            const { data: campusHostels } = await hostelQuery;
             const hostelIds = campusHostels?.map(h => h.id) || [];
 
             // Get bedcheck sessions for this campus
-            const { data: bedcheckSessions, error: bedcheckError } = await supabase
+            let bedcheckQuery = supabase
                 .from('bedcheck_sessions')
                 .select('*')
-                .eq('global_session_id', session.id)
-                .in('hostel_id', hostelIds)
-                .eq('campus', campusContext);
+                .eq('global_session_id', session.id);
+            
+            if (campusFilter && hostelIds.length > 0) {
+                bedcheckQuery = bedcheckQuery.in('hostel_id', hostelIds);
+            }
+            
+            const { data: bedcheckSessions, error: bedcheckError } = await bedcheckQuery;
 
             if (bedcheckError) {
                 console.error('Error fetching bedcheck sessions:', bedcheckError);
             }
 
             // Get attendance for this campus
-            const { count: totalStudents } = await supabase
+            let attendanceQuery = supabase
+                .from('bedcheck_attendance')
+                .select('*', { count: 'exact', head: true })
+                .eq('global_session_id', session.id);
+            
+            if (campusFilter) {
+                attendanceQuery = attendanceQuery.eq('campus', campusFilter);
+            }
+            const { count: totalStudents } = await attendanceQuery;
+
+            let presentQuery = supabase
                 .from('bedcheck_attendance')
                 .select('*', { count: 'exact', head: true })
                 .eq('global_session_id', session.id)
-                .eq('campus', campusContext);
+                .eq('status', 'present');
+            
+            if (campusFilter) {
+                presentQuery = presentQuery.eq('campus', campusFilter);
+            }
+            const { count: presentStudents } = await presentQuery;
 
-            const { count: presentStudents } = await supabase
-                .from('bedcheck_attendance')
-                .select('*', { count: 'exact', head: true })
-                .eq('global_session_id', session.id)
-                .eq('status', 'present')
-                .eq('campus', campusContext);
-
-            const { count: scansCount } = await supabase
+            let scansQuery = supabase
                 .from('bedcheck_scans')
                 .select('*', { count: 'exact', head: true })
-                .eq('session_id', session.id)
-                .eq('campus', campusContext);
+                .eq('session_id', session.id);
+            
+            if (campusFilter) {
+                scansQuery = scansQuery.eq('campus', campusFilter);
+            }
+            const { count: scansCount } = await scansQuery;
 
             // Calculate hostel stats
             const totalHostels = bedcheckSessions?.length || 0;
@@ -6145,7 +6190,7 @@ app.get('/api/sessions/active',
             const pendingHostels = bedcheckSessions?.filter(b => b.status === 'pending').length || 0;
 
             const stats = {
-                campus: campusContext,
+                campus: campusFilter || 'All Campuses',
                 total_students: totalStudents || 0,
                 present_students: presentStudents || 0,
                 scans_count: scansCount || 0,
@@ -6161,8 +6206,9 @@ app.get('/api/sessions/active',
             res.json({ 
                 success: true, 
                 data: { ...session, stats },
-                campus: campusContext,
-                is_active: true
+                campus: campusFilter || 'All',
+                is_active: true,
+                view_all: isAdmin
             });
         } catch (error) {
             console.error('Error fetching active session:', error);
@@ -8828,12 +8874,17 @@ app.get('/api/hostels',
             let query = supabase
                 .from('hostels')
                 .select('*')
-                .eq('campus', req.campus)
                 .order('name', { ascending: true });
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                query = query.eq('id', req.user.hostel_id);
+            // ✅ If NOT admin, filter by campus AND hostel
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
+                query = query.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    query = query.eq('id', req.user.hostel_id);
+                }
             }
+            // ✅ Admins see ALL campuses (no campus filter)
 
             const { data: hostelsData, error: hostelsError } = await query;
             if (hostelsError) throw hostelsError;
@@ -8849,12 +8900,18 @@ app.get('/api/hostels',
                     .in('hostel_id', hostelIds);
                 floorsData = floors || [];
 
-                const { data: staff } = await supabase
+                // ✅ If NOT admin, filter staff by campus
+                let staffQuery = supabase
                     .from('staff')
                     .select('id, name, role, hostel_id')
                     .in('hostel_id', hostelIds)
-                    .eq('status', 'Active')
-                    .eq('campus', req.campus);
+                    .eq('status', 'Active');
+                
+                if (!adminRoles.includes(req.user.role)) {
+                    staffQuery = staffQuery.eq('campus', req.campus);
+                }
+                
+                const { data: staff } = await staffQuery;
                 staffData = staff || [];
             }
 
@@ -11315,35 +11372,53 @@ app.get('/api/dashboard/stats',
     async (req, res) => {
         try {
             const stats = {};
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            const isAdmin = adminRoles.includes(req.user.role);
             
-            let studentsQuery = supabase.from('students').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                studentsQuery = studentsQuery.eq('hostel_id', req.user.hostel_id);
+            // ✅ If admin, get ALL students (both campuses)
+            let studentsQuery = supabase.from('students').select('*', { count: 'exact', head: true });
+            if (!isAdmin) {
+                studentsQuery = studentsQuery.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    studentsQuery = studentsQuery.eq('hostel_id', req.user.hostel_id);
+                }
             }
-            const { count: studentsCount, error: studentsError } = await studentsQuery;
+            const { count: studentsCount } = await studentsQuery;
             stats.totalStudents = studentsCount || 0;
             
-            let hostelsQuery = supabase.from('hostels').select('*', { count: 'exact', head: true }).eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
+            // ✅ If admin, get ALL hostels
+            let hostelsQuery = supabase.from('hostels').select('*', { count: 'exact', head: true });
+            if (!isAdmin) {
+                hostelsQuery = hostelsQuery.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    hostelsQuery = hostelsQuery.eq('id', req.user.hostel_id);
+                }
             }
-            const { count: hostelsCount, error: hostelsError } = await hostelsQuery;
+            const { count: hostelsCount } = await hostelsQuery;
             stats.totalHostels = hostelsCount || 0;
             
-            let staffQuery = supabase.from('staff').select('role', { count: 'exact' }).eq('campus', req.campus);
+            // ✅ If admin, get ALL staff
+            let staffQuery = supabase.from('staff').select('role', { count: 'exact' });
+            if (!isAdmin) {
+                staffQuery = staffQuery.eq('campus', req.campus);
+            }
             if (req.user.role !== 'Developer') {
                 staffQuery = staffQuery.neq('role', 'Developer');
             }
-            const { count: totalStaff, error: staffError } = await staffQuery;
+            const { count: totalStaff } = await staffQuery;
             stats.totalStaff = totalStaff || 0;
             
-            let statusQuery = supabase.from('students').select('status, face_enrolled').eq('campus', req.campus);
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                statusQuery = statusQuery.eq('hostel_id', req.user.hostel_id);
+            // ✅ If admin, get ALL student statuses
+            let statusQuery = supabase.from('students').select('status, face_enrolled');
+            if (!isAdmin) {
+                statusQuery = statusQuery.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    statusQuery = statusQuery.eq('hostel_id', req.user.hostel_id);
+                }
             }
-            const { data: statusData, error: statusError } = await statusQuery;
+            const { data: statusData } = await statusQuery;
             
-            if (!statusError && statusData) {
+            if (statusData) {
                 stats.present = statusData.filter(s => s.status === 'Present').length;
                 stats.absent = statusData.filter(s => s.status === 'Absent').length;
                 stats.faceEnrolled = statusData.filter(s => s.face_enrolled === true).length;
@@ -11353,13 +11428,17 @@ app.get('/api/dashboard/stats',
                 stats.faceEnrolled = 0;
             }
             
-            const { data: faceData, error: faceError } = await supabase
+            // ✅ If admin, get ALL face data
+            let faceQuery = supabase
                 .from('student_face')
                 .select('enrollment_status')
-                .eq('campus', req.campus)
                 .eq('is_active', true);
+            if (!isAdmin) {
+                faceQuery = faceQuery.eq('campus', req.campus);
+            }
+            const { data: faceData } = await faceQuery;
             
-            if (!faceError && faceData) {
+            if (faceData) {
                 stats.faceEnrolledCount = faceData.filter(f => f.enrollment_status === 'enrolled').length;
                 stats.facePendingCount = faceData.filter(f => f.enrollment_status === 'pending').length;
             } else {
