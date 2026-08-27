@@ -1292,22 +1292,12 @@
                         }
                     }
 
-                    // Ensure we have valid room IDs - get them from the rooms data if needed
-                    if (roomIds.length === 0 && assignedRoomCodes.length > 0) {
-                        // Try to find room IDs from the rooms array
-                        roomIds = assignedRoomCodes.map(code => {
-                            const room = rooms.find(r => r.room_code === code);
-                            return room ? Number(room.id) : null;
-                        }).filter(id => id && !isNaN(id) && id > 0);
-                    }
-
                     // Ensure we have valid room IDs
                     roomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
                     assignedRoomCodes = assignedRoomCodes.filter(code => code && code.trim() !== '');
 
                     // If still no rooms found, try to get rooms using the floor_flat_id
                     if (roomIds.length === 0) {
-                        // Try to find the floor/flat by name
                         const areaFloor = floors.find(f => 
                             f.name === areaKey || 
                             f.code === areaKey || 
@@ -1322,26 +1312,17 @@
 
                     // Last resort: try to find rooms by matching room_code prefix
                     if (roomIds.length === 0) {
-                        // For flat type, try to match "F1", "F2", etc.
                         if (roomStructure.type === 'flat') {
                             const flatNum = areaKey.replace('Flat ', '');
                             const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(`F${flatNum}`));
                             roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
                             assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
-                        }
-                        // For floor type, try to match "A", "B", "C", etc.
-                        else {
+                        } else {
                             const floorLetter = areaKey.replace('Floor ', '');
                             const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(floorLetter));
                             roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
                             assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
                         }
-                    }
-
-                    if (roomIds.length === 0) {
-                        // Try to assign just the floor without rooms
-                        showToast('No rooms found. Assigning area only.', 'warning');
-                        // Still proceed with floor assignment
                     }
 
                     const ra = staff.find(s => s.id == raId);
@@ -1361,19 +1342,39 @@
                         if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra.name}?`)) {
                             return;
                         }
+                        // Clear the old RA's assignment
+                        existingRA.assigned_floor = null;
+                        existingRA.assigned_area = null;
+                        existingRA.assigned_rooms = [];
+                        existingRA.assigned_room_ids = [];
                     }
 
-                    // Update the RA room assignments
+                    // IMPORTANT: Update the staff record with the assigned_floor
+                    await apiCall(`/staff/${raId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            assigned_floor: areaKey,
+                            assigned_area: areaKey,
+                            hostel_id: hostelData?.id || null
+                        })
+                    });
+
+                    // If we have room IDs, assign them
                     const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
 
                     if (numericRoomIds.length > 0) {
-                        await apiCall('/hra/assign-rooms', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                ra_id: Number(ra.id),
-                                room_ids: numericRoomIds
-                            })
-                        });
+                        try {
+                            await apiCall('/hra/assign-rooms', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    ra_id: Number(ra.id),
+                                    room_ids: numericRoomIds
+                                })
+                            });
+                        } catch (roomError) {
+                            console.warn('Room assignment error:', roomError);
+                            // Continue even if room assignment fails
+                        }
                     }
                     
                     // Update local data
@@ -1382,6 +1383,7 @@
                     ra.assigned_rooms = assignedRoomCodes;
                     ra.assigned_room_ids = numericRoomIds;
                     
+                    // Clear old assignment if editing
                     if (editingRAId && editingRAId != raId) {
                         const oldRA = staff.find(s => s.id == editingRAId);
                         if (oldRA) {
@@ -1389,6 +1391,19 @@
                             oldRA.assigned_area = null;
                             oldRA.assigned_rooms = [];
                             oldRA.assigned_room_ids = [];
+                            // Also update the old RA in the database
+                            try {
+                                await apiCall(`/staff/${editingRAId}`, {
+                                    method: 'PUT',
+                                    body: JSON.stringify({
+                                        assigned_floor: null,
+                                        assigned_area: null,
+                                        hostel_id: hostelData?.id || null
+                                    })
+                                });
+                            } catch (e) {
+                                // Silent fail
+                            }
                         }
                     }
                     
@@ -1397,6 +1412,7 @@
                     closeAssignRA();
                     await loadAllData();
                 } catch (error) {
+                    console.error('Save assignment error:', error);
                     showToast('Error saving assignment: ' + error.message, 'error');
                 }
             }
