@@ -950,7 +950,6 @@
 
                 const numericLevel = parseInt(level, 10);
 
-                // Faculties permanently on Legacy Campus
                 const legacyFaculties = [
                     'agriculture',
                     'arts & education',
@@ -960,15 +959,11 @@
                     'science'
                 ];
 
-                // College of Medicine:
-                // 100 Level → Legacy
-                // 200 Level and above → Heritage
                 const medicineFaculties = [
                     'college of medicine',
                     'medicine'
                 ];
 
-                // Always Legacy
                 if (legacyFaculties.includes(normalizedFaculty)) {
                     return {
                         campus: 'Legacy',
@@ -976,7 +971,6 @@
                     };
                 }
 
-                // Medicine depends on level
                 if (medicineFaculties.includes(normalizedFaculty)) {
                     if (numericLevel === 100) {
                         return {
@@ -984,14 +978,12 @@
                             campus_code: 'LEG'
                         };
                     }
-
                     return {
                         campus: 'Heritage',
                         campus_code: 'HER'
                     };
                 }
 
-                // Social & Management Sciences
                 if (
                     normalizedFaculty === 'social & management sciences' ||
                     normalizedFaculty === 'social and management sciences'
@@ -1002,7 +994,6 @@
                     };
                 }
 
-                // Safe default for anything else
                 return {
                     campus: 'Heritage',
                     campus_code: 'HER'
@@ -1031,7 +1022,7 @@
             }
 
             // =============================================
-            // API CALL - Check response format
+            // API CALL - Fixed to handle case-insensitive status
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
@@ -1054,26 +1045,45 @@
 
                     const data = await response.json();
                     
-                    // Log the full response to see what we're getting
                     console.log(`📦 Response from ${endpoint}:`, data);
 
-                    // Check if the response has the expected structure
-                    // Some APIs return { success: true, data: [...] }
-                    // Others return the array directly
+                    // Handle different response formats
                     if (data.success !== undefined) {
-                        // It's a wrapped response
                         if (!data.success) {
                             throw new Error(data.message || 'API error');
                         }
+                        // If data.data exists and is an array, use it
+                        if (data.data && Array.isArray(data.data)) {
+                            // Filter by status (case-insensitive)
+                            const filtered = data.data.filter(item => {
+                                // If item has a status field, check if it's active (case-insensitive)
+                                if (item.status !== undefined) {
+                                    return item.status.toLowerCase() === 'active';
+                                }
+                                return true;
+                            });
+                            return filtered;
+                        }
                         return data.data || [];
                     } else if (Array.isArray(data)) {
-                        // It's a direct array response
-                        return data;
+                        // Filter by status (case-insensitive)
+                        const filtered = data.filter(item => {
+                            if (item.status !== undefined) {
+                                return item.status.toLowerCase() === 'active';
+                            }
+                            return true;
+                        });
+                        return filtered;
                     } else if (data.data && Array.isArray(data.data)) {
-                        // It has a data property that's an array
-                        return data.data;
+                        // Filter by status (case-insensitive)
+                        const filtered = data.data.filter(item => {
+                            if (item.status !== undefined) {
+                                return item.status.toLowerCase() === 'active';
+                            }
+                            return true;
+                        });
+                        return filtered;
                     } else {
-                        // Unknown format, return empty array
                         console.warn(`⚠️ Unknown response format from ${endpoint}:`, data);
                         return [];
                     }
@@ -1097,7 +1107,6 @@
                 const campusError = document.getElementById('campusError');
                 const hostelSelect = document.getElementById('hostelSelect');
 
-                // Reset hostel dropdown when campus changes
                 hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
                 document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
                 document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
@@ -1115,19 +1124,13 @@
                 try {
                     const campusInfo = determineCampus(faculty, level);
 
-                    // Update campus display
                     campusDisplayText.textContent = campusInfo.campus + ' Campus';
                     campusBadge.textContent = campusInfo.campus;
                     campusBadge.className = `campus-badge ${campusInfo.campus.toLowerCase()}`;
                     campusBadge.style.display = 'inline-block';
 
-                    // Update icon
                     campusIcon.textContent = campusInfo.campus === 'Legacy' ? '📜' : '🏛️';
-
-                    // Update campus code display
                     campusCodeDisplay.textContent = campusInfo.campus_code;
-
-                    // Hide error
                     campusError.style.display = 'none';
 
                     // Filter hostels by campus (case-insensitive)
@@ -1138,11 +1141,13 @@
                     });
 
                     console.log(`🔍 Found ${campusHostels.length} hostels for ${campusInfo.campus} campus`);
-                    console.log('All hostels:', allHostels.map(h => ({ id: h.id, name: h.name, campus: h.campus })));
+                    console.log('All hostels:', allHostels.map(h => ({ id: h.id, name: h.name, campus: h.campus, status: h
+                            .status })));
 
                     if (campusHostels.length === 0) {
                         hostelSelect.innerHTML = '<option value="">No hostels found for this campus</option>';
-                        showToast(`No hostels found for ${campusInfo.campus} campus. Please add hostels in the admin panel.`, 'info');
+                        showToast(`No hostels found for ${campusInfo.campus} campus. Please add hostels in the admin panel.`,
+                            'info');
                     } else {
                         campusHostels.forEach(h => {
                             const opt = document.createElement('option');
@@ -1157,7 +1162,6 @@
                         showToast(`Found ${campusHostels.length} hostels in ${campusInfo.campus} campus`, 'success');
                     }
 
-                    // Save campus info for later use
                     window._currentCampusInfo = campusInfo;
 
                 } catch (error) {
@@ -1187,7 +1191,7 @@
                 try {
                     console.log('🔄 Loading data...');
                     
-                    // Try each endpoint individually to see which ones work
+                    // Try each endpoint individually
                     const hostelsData = await apiCall('/public/hostels');
                     const floorsData = await apiCall('/public/floors-flats');
                     const roomsData = await apiCall('/public/rooms');
@@ -1213,7 +1217,6 @@
 
                     updateDepartments();
 
-                    // Check if we have saved draft data
                     const draft = localStorage.getItem('studentDetailsDraft');
                     if (draft) {
                         try {
@@ -1225,7 +1228,6 @@
                             if (data.level) {
                                 document.getElementById('level').value = data.level;
                             }
-                            // Update campus display after loading saved values
                             setTimeout(updateCampusDisplay, 100);
                         } catch (e) {}
                     }
@@ -1412,7 +1414,6 @@
                     }
                 });
 
-                // Check campus is determined
                 const faculty = document.getElementById('faculty').value;
                 const level = document.getElementById('level').value;
                 if (!faculty || !level) {
@@ -1656,7 +1657,6 @@
                     }
                 });
 
-                // Initial campus display update
                 setTimeout(updateCampusDisplay, 200);
             }
 
