@@ -785,10 +785,11 @@
     // ============ CONFIG ============
     const API_BASE = 'https://bedcheck-biu.onrender.com/api';
     const TOTAL = 5;
-    const MIN_SCORE = 0.65;
-    const MIN_FACE_RATIO = 0.18;
-    const MAX_FACE_RATIO = 0.55;
-    const STABLE_FRAMES = 8;
+    const MIN_SCORE = 0.60;
+    const MIN_FACE_RATIO = 0.15;
+    const MAX_FACE_RATIO = 0.60;
+    const STABLE_FRAMES = 20;        // INCREASED: slower capture (was 8)
+    const CAPTURE_INTERVAL = 2000;    // INCREASED: 2 seconds between captures (was instant)
     const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model';
 
     const POSES = [
@@ -809,6 +810,7 @@
     let stableCount = 0;
     let lastDetect = null;
     let animId = null;
+    let captureCooldown = false;
     let student = { id: null, name: '', matric: '', hostel_id: null, hostel_name: '', room_id: null, room_code: '', bed_space_id: null, bed_code: '' };
     let frameCounter = 0;
 
@@ -908,7 +910,6 @@
         modelBanner.classList.add('show');
         setStatus('loading', 'Loading AI models…');
         try {
-            // Try multiple model URLs
             const modelUrls = [
                 MODEL_URL,
                 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model',
@@ -941,7 +942,6 @@
             console.error('Model load error', e);
             modelBanner.textContent = '⚠️ Model load failed. Using basic fallback mode.';
             modelBanner.style.color = 'var(--amber)';
-            // Still allow basic mode with our own detection
             modelsReady = false;
             setTimeout(() => {
                 modelBanner.classList.remove('show');
@@ -952,7 +952,6 @@
 
     // ============ FALLBACK FACE DETECTION ============
     function detectFaceFallback(ctx, width, height) {
-        // Simple skin-tone + contrast detection
         const imageData = ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
         let skinPixels = 0;
@@ -967,7 +966,6 @@
             const avg = (r + g + b) / 3;
             avgBrightness += avg;
             
-            // Simple skin tone detection
             const isSkin = (r > 60 && g > 40 && b > 30 && 
                            r > g && r > b && 
                            Math.abs(r - g) < 50 && Math.abs(g - b) < 50);
@@ -977,7 +975,6 @@
         avgBrightness = avgBrightness / totalPixels;
         const skinRatio = skinPixels / totalPixels;
         
-        // Face if enough skin pixels and good lighting
         const isFace = skinRatio > 0.03 && avgBrightness > 40 && avgBrightness < 230;
         
         return {
@@ -1042,7 +1039,6 @@
                 return;
             }
 
-            // Match overlay size
             const w = video.videoWidth || 640;
             const h = video.videoHeight || 480;
             if (overlay.width !== w) {
@@ -1056,7 +1052,6 @@
             let quality = 0;
             let isGood = false;
 
-            // Try face-api if available
             if (modelsReady) {
                 try {
                     detection = await faceapi
@@ -1065,7 +1060,6 @@
                 } catch (e) { /* ignore frame errors */ }
             }
 
-            // Fallback if no detection
             if (!detection) {
                 const fallback = detectFaceFallback(octx, w, h);
                 if (fallback.isFace) {
@@ -1087,7 +1081,6 @@
                 const score = detection.detection.score;
                 const faceRatio = box.height / h;
 
-                // Draw box (mirrored)
                 const drawX = w - box.x - box.width;
                 const isSizeGood = faceRatio >= MIN_FACE_RATIO && faceRatio <= MAX_FACE_RATIO;
                 const isScoreGood = score >= MIN_SCORE;
@@ -1097,7 +1090,6 @@
                 octx.lineWidth = 3;
                 octx.strokeRect(drawX, box.y, box.width, box.height);
 
-                // Landmarks
                 if (detection.landmarks) {
                     octx.fillStyle = 'rgba(214,173,75,0.7)';
                     const pts = detection.landmarks.positions;
@@ -1108,7 +1100,6 @@
                     }
                 }
 
-                // Quality: combine score + size fitness
                 const sizeScore = faceRatio < MIN_FACE_RATIO
                     ? faceRatio / MIN_FACE_RATIO
                     : faceRatio > MAX_FACE_RATIO
@@ -1119,7 +1110,6 @@
                 faceGuide.className = isGood ? 'face-guide good' : 'face-guide detected';
             }
 
-            // Update UI based on detection
             if (isGood) {
                 if (!capturing) {
                     btnStart.disabled = false;
@@ -1136,14 +1126,24 @@
 
             updateQuality(quality);
 
-            // Auto-capture logic when capturing
-            if (capturing && frames.length < TOTAL) {
+            // Auto-capture logic - SLOWER
+            if (capturing && frames.length < TOTAL && !captureCooldown) {
                 if (isGood) {
                     stableCount++;
                     setStatus('capturing', `Hold still… ${stableCount}/${STABLE_FRAMES}`);
                     if (stableCount >= STABLE_FRAMES) {
+                        // Instead of capturing instantly, set cooldown
+                        captureCooldown = true;
                         captureFrame();
                         stableCount = 0;
+                        // Reset cooldown after interval
+                        setTimeout(() => {
+                            captureCooldown = false;
+                            if (capturing && frames.length < TOTAL) {
+                                const next = POSES[frames.length];
+                                setStatus('capturing', `Next: ${next.label}`);
+                            }
+                        }, CAPTURE_INTERVAL);
                     }
                 } else {
                     stableCount = Math.max(0, stableCount - 2);
@@ -1222,6 +1222,7 @@
         }
         capturing = true;
         stableCount = 0;
+        captureCooldown = false;
         btnStart.disabled = true;
         btnStart.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing…';
         setStep(2);
@@ -1254,7 +1255,7 @@
         try {
             let studentId = student.id;
 
-            // Resolve student ID if needed
+            // Resolve student ID - PUBLIC endpoints (no auth)
             if (!studentId && student.matric) {
                 loadingMsg.textContent = 'Looking up student…';
                 loadingBar.style.width = '15%';
@@ -1265,21 +1266,6 @@
                         if (d.exists && d.data) {
                             studentId = d.data.id;
                             student.id = studentId;
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            if (!studentId && student.matric) {
-                loadingMsg.textContent = 'Searching records…';
-                loadingBar.style.width = '22%';
-                try {
-                    const r = await fetch(`${API_BASE}/students?search=${encodeURIComponent(student.matric)}`);
-                    if (r.ok) {
-                        const d = await r.json();
-                        if (d.data?.length) {
-                            const found = d.data.find(s => s.matric === student.matric);
-                            if (found) { studentId = found.id; student.id = studentId; }
                         }
                     }
                 } catch (_) {}
@@ -1330,7 +1316,8 @@
             loadingMsg.textContent = 'Sending to server…';
             loadingBar.style.width = '55%';
 
-            const enrollRes = await fetch(`${API_BASE}/students/${studentId}/face/enroll`, {
+            // PUBLIC endpoint - no auth required
+            const enrollRes = await fetch(`${API_BASE}/public/students/${studentId}/face/enroll`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1399,6 +1386,7 @@
         enrolling = false;
         frames = [];
         stableCount = 0;
+        captureCooldown = false;
         successOverlay.classList.remove('show');
         errorOverlay.classList.remove('show');
         loadingOverlay.classList.remove('show');
