@@ -677,10 +677,11 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS
+            // LOAD SESSION STATUS - FIXED
             // =============================================
             async function loadSessionStatus() {
                 try {
+                    // First check for active global session
                     const sessionResult = await apiCall('/sessions/active').catch(() => null);
                     
                     if (sessionResult && sessionResult.data && sessionResult.is_active) {
@@ -690,10 +691,31 @@
                         return { isSessionActive, sessionStatus, session: currentSession };
                     }
 
+                    // If no global session, check for any session for this hostel
                     if (hostelData && hostelData.id) {
-                        const hostelSessionResult = await apiCall(`/sessions/hostel/${hostelData.id}`).catch(() => null);
-                        if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
-                            const latest = hostelSessionResult.data[0];
+                        try {
+                            // Try to get sessions for this hostel
+                            const hostelSessionResult = await apiCall(`/sessions/hostel/${hostelData.id}`).catch(() => null);
+                            if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
+                                const latest = hostelSessionResult.data[0];
+                                currentSession = latest;
+                                sessionStatus = latest.status || 'Closed';
+                                isSessionActive = sessionStatus === 'active' || sessionStatus === 'Active' || 
+                                                sessionStatus === 'Running' || sessionStatus === 'Open' || 
+                                                sessionStatus === 'started' || sessionStatus === 'in_progress';
+                                return { isSessionActive, sessionStatus, session: currentSession };
+                            }
+                        } catch (e) {
+                            // Silently fail - just means no sessions for this hostel
+                            console.log('No sessions found for hostel:', hostelData.id);
+                        }
+                    }
+
+                    // Try to get sessions without hostel filter (fallback)
+                    try {
+                        const allSessions = await apiCall('/sessions').catch(() => null);
+                        if (allSessions && allSessions.data && allSessions.data.length > 0) {
+                            const latest = allSessions.data[0];
                             currentSession = latest;
                             sessionStatus = latest.status || 'Closed';
                             isSessionActive = sessionStatus === 'active' || sessionStatus === 'Active' || 
@@ -701,6 +723,8 @@
                                             sessionStatus === 'started' || sessionStatus === 'in_progress';
                             return { isSessionActive, sessionStatus, session: currentSession };
                         }
+                    } catch (e) {
+                        // Silently fail
                     }
 
                     currentSession = null;
@@ -710,6 +734,7 @@
 
                 } catch (error) {
                     console.error('Error loading session status:', error);
+                    // Don't let this error break the page
                     return { isSessionActive: false, sessionStatus: 'Closed', session: null };
                 }
             }
@@ -1085,7 +1110,7 @@
             }
 
             // =============================================
-            // RENDER DASHBOARD
+            // RENDER DASHBOARD - FIXED
             // =============================================
             async function renderDashboard() {
                 if (!hostelData) {
@@ -1101,384 +1126,408 @@
                     return;
                 }
 
-                await loadSessionStatus();
-                buildRoomStructure();
+                try {
+                    // Try to load session status, but don't let it break the page
+                    try {
+                        await loadSessionStatus();
+                    } catch (e) {
+                        console.warn('Session status load failed, continuing:', e);
+                        isSessionActive = false;
+                        sessionStatus = 'Closed';
+                        currentSession = null;
+                    }
+                    
+                    buildRoomStructure();
 
-                const now = new Date();
-                const hostelName = hostelData.name || 'Your Hostel';
-                const totalStudents = students.length;
-                
-                // Calculate verified students from scans
-                const verified = students.filter(s => {
-                    const scan = scans.find(sc => sc.student_id === s.id);
-                    return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                           scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
-                }).length || 0;
-                
-                const pending = totalStudents - verified;
-                const completion = totalStudents > 0 ? Math.round((verified / totalStudents) * 100) : 0;
-
-                // Room completion
-                const roomsWithStudents = rooms.filter(r => students.some(s => s.room_id === r.id));
-                const roomsCompleted = roomsWithStudents.filter(r => {
-                    const roomStudents = students.filter(s => s.room_id === r.id);
-                    return roomStudents.length > 0 && roomStudents.every(s => {
+                    const now = new Date();
+                    const hostelName = hostelData.name || 'Your Hostel';
+                    const totalStudents = students.length;
+                    
+                    // Calculate verified students from scans
+                    const verified = students.filter(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
                         return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
-                    });
-                }).length;
+                            scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                    }).length || 0;
+                    
+                    const pending = totalStudents - verified;
+                    const completion = totalStudents > 0 ? Math.round((verified / totalStudents) * 100) : 0;
 
-                const raStaff = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor');
-                const activeRA = raStaff.filter(s => {
-                    const area = s.assigned_floor || '';
-                    return area && students.some(st => {
-                        const scan = scans.find(sc => sc.student_id === st.id);
-                        return scan && area.includes(st.floor || '');
-                    });
-                }).length;
+                    // Room completion
+                    const roomsWithStudents = rooms.filter(r => students.some(s => s.room_id === r.id));
+                    const roomsCompleted = roomsWithStudents.filter(r => {
+                        const roomStudents = students.filter(s => s.room_id === r.id);
+                        return roomStudents.length > 0 && roomStudents.every(s => {
+                            const scan = scans.find(sc => sc.student_id === s.id);
+                            return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                                scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                        });
+                    }).length;
 
-                // Session display
-                let sessionDisplay = {
-                    statusText: 'No active session',
-                    badgeClass: 'closed',
-                    badgeText: 'Closed',
-                    icon: '🔴',
-                    detailText: 'BedCheck session is not currently running.'
-                };
+                    const raStaff = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor');
+                    const activeRA = raStaff.filter(s => {
+                        const area = s.assigned_floor || '';
+                        return area && students.some(st => {
+                            const scan = scans.find(sc => sc.student_id === st.id);
+                            return scan && area.includes(st.floor || '');
+                        });
+                    }).length;
 
-                if (isSessionActive && sessionStatus === 'active') {
-                    sessionDisplay = {
-                        statusText: 'BedCheck Session Active',
-                        badgeClass: 'active',
-                        badgeText: 'Active',
-                        icon: '🟢',
-                        detailText: 'RAs are currently verifying students. Controlled by Administrator / RASD.'
+                    // Session display
+                    let sessionDisplay = {
+                        statusText: 'No active session',
+                        badgeClass: 'closed',
+                        badgeText: 'Closed',
+                        icon: '🔴',
+                        detailText: 'BedCheck session is not currently running.'
                     };
-                } else if (isSessionActive && sessionStatus === 'ready') {
-                    sessionDisplay = {
-                        statusText: 'BedCheck Session Ready',
-                        badgeClass: 'ready',
-                        badgeText: 'Ready',
-                        icon: '🟡',
-                        detailText: 'Session is ready. Waiting for RAs to start verification.'
-                    };
-                } else if (sessionStatus === 'completed') {
-                    sessionDisplay = {
-                        statusText: 'BedCheck Completed',
-                        badgeClass: 'completed',
-                        badgeText: 'Done',
-                        icon: '✅',
-                        detailText: 'Today\'s BedCheck has been completed.'
-                    };
-                }
 
-                // Session times
-                let sessionStart = '—';
-                let sessionEnd = '—';
-                let sessionDate = '—';
-                let sessionGrace = '15';
-
-                if (currentSession) {
-                    if (currentSession.start_time) sessionStart = formatTimeStr(currentSession.start_time);
-                    if (currentSession.end_time) sessionEnd = formatTimeStr(currentSession.end_time);
-                    if (currentSession.date) sessionDate = formatDateStr(currentSession.date);
-                    if (currentSession.grace_period) sessionGrace = currentSession.grace_period;
-                }
-
-                // Floor progress
-                const floorGroups = {};
-                roomStructure.areas.forEach(area => {
-                    const floorKey = area.floor || area.name;
-                    if (!floorGroups[floorKey]) {
-                        floorGroups[floorKey] = {
-                            name: floorKey,
-                            areas: [],
-                            total: 0,
-                            checked: 0
+                    if (isSessionActive && sessionStatus === 'active') {
+                        sessionDisplay = {
+                            statusText: 'BedCheck Session Active',
+                            badgeClass: 'active',
+                            badgeText: 'Active',
+                            icon: '🟢',
+                            detailText: 'RAs are currently verifying students. Controlled by Administrator / RASD.'
+                        };
+                    } else if (isSessionActive && sessionStatus === 'ready') {
+                        sessionDisplay = {
+                            statusText: 'BedCheck Session Ready',
+                            badgeClass: 'ready',
+                            badgeText: 'Ready',
+                            icon: '🟡',
+                            detailText: 'Session is ready. Waiting for RAs to start verification.'
+                        };
+                    } else if (sessionStatus === 'completed') {
+                        sessionDisplay = {
+                            statusText: 'BedCheck Completed',
+                            badgeClass: 'completed',
+                            badgeText: 'Done',
+                            icon: '✅',
+                            detailText: 'Today\'s BedCheck has been completed.'
                         };
                     }
-                    const areaStudents = students.filter(s => area.rooms.includes(s.room));
-                    const total = areaStudents.length;
-                    const checked = areaStudents.filter(s => {
-                        const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
-                    }).length;
-                    floorGroups[floorKey].areas.push({ name: area.name, total, checked, rooms: area.rooms.length });
-                    floorGroups[floorKey].total += total;
-                    floorGroups[floorKey].checked += checked;
-                });
 
-                const floorData = Object.values(floorGroups).map(group => {
-                    const progress = group.total > 0 ? Math.round((group.checked / group.total) * 100) : 0;
-                    const ra = staff.find(s => {
-                        const assigned = s.assigned_floor || '';
-                        return assigned.includes(group.name) && (s.role === 'RA' || s.role === 'Resident Advisor');
-                    });
-                    return {
-                        name: group.name,
-                        total: group.total,
-                        checked: group.checked,
-                        progress: progress,
-                        ra: ra?.name || 'Not assigned',
-                        status: progress === 100 ? 'Completed' : progress > 50 ? 'In progress' : 'Pending',
-                        areas: group.areas
-                    };
-                });
+                    // Session times
+                    let sessionStart = '—';
+                    let sessionEnd = '—';
+                    let sessionDate = '—';
+                    let sessionGrace = '15';
 
-                // RA Activity
-                const raActivity = raStaff.map(ra => {
-                    const area = ra.assigned_floor || 'Unassigned';
-                    const displayName = getAreaDisplay(area);
-                    
-                    let statusDisplay = '⏳ Waiting';
-                    let statusClass = 'badge-pending';
-                    
-                    const raRooms = roomStructure.areas.filter(a => 
-                        a.floor && ra.assigned_floor && a.floor.includes(ra.assigned_floor.replace('Floor ', ''))
-                    );
-                    
-                    const raStudents = students.filter(s => 
-                        raRooms.some(r => r.rooms.includes(s.room))
-                    );
-                    
-                    const raVerified = raStudents.filter(s => {
-                        const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
-                    }).length;
-                    
-                    if (raStudents.length > 0 && raVerified === raStudents.length) {
-                        statusDisplay = '✅ Completed';
-                        statusClass = 'badge-approved';
-                    } else if (raVerified > 0) {
-                        statusDisplay = '🟢 Scanning';
-                        statusClass = 'badge-live';
+                    if (currentSession) {
+                        if (currentSession.start_time) sessionStart = formatTimeStr(currentSession.start_time);
+                        if (currentSession.end_time) sessionEnd = formatTimeStr(currentSession.end_time);
+                        if (currentSession.date) sessionDate = formatDateStr(currentSession.date);
+                        if (currentSession.grace_period) sessionGrace = currentSession.grace_period;
                     }
-                    
-                    return {
-                        name: ra.name,
-                        room: displayName,
-                        status: statusDisplay,
-                        statusClass: statusClass,
-                        verified: raVerified,
-                        total: raStudents.length
-                    };
-                });
 
-                // Rooms needing attention
-                const pendingRooms = roomsWithStudents.filter(r => {
-                    const roomStudents = students.filter(s => s.room_id === r.id);
-                    return roomStudents.length > 0 && !roomStudents.every(s => {
-                        const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                    // Floor progress
+                    const floorGroups = {};
+                    roomStructure.areas.forEach(area => {
+                        const floorKey = area.floor || area.name;
+                        if (!floorGroups[floorKey]) {
+                            floorGroups[floorKey] = {
+                                name: floorKey,
+                                areas: [],
+                                total: 0,
+                                checked: 0
+                            };
+                        }
+                        const areaStudents = students.filter(s => area.rooms.includes(s.room));
+                        const total = areaStudents.length;
+                        const checked = areaStudents.filter(s => {
+                            const scan = scans.find(sc => sc.student_id === s.id);
+                            return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                                scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                        }).length;
+                        floorGroups[floorKey].areas.push({ name: area.name, total, checked, rooms: area.rooms.length });
+                        floorGroups[floorKey].total += total;
+                        floorGroups[floorKey].checked += checked;
                     });
-                }).slice(0, 5).map(r => {
-                    const roomStudents = students.filter(s => s.room_id === r.id);
-                    const verifiedCount = roomStudents.filter(s => {
-                        const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
-                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
-                    }).length;
-                    const totalCount = roomStudents.length;
-                    return {
-                        room: r.room_code || 'Room ' + r.id,
-                        verified: verifiedCount,
-                        total: totalCount,
-                        progress: totalCount > 0 ? Math.round((verifiedCount / totalCount) * 100) : 0
-                    };
-                });
 
-                const hour = now.getHours();
-                let greeting = 'Good Evening';
-                if (hour < 12) greeting = 'Good Morning';
-                else if (hour < 17) greeting = 'Good Afternoon';
+                    const floorData = Object.values(floorGroups).map(group => {
+                        const progress = group.total > 0 ? Math.round((group.checked / group.total) * 100) : 0;
+                        const ra = staff.find(s => {
+                            const assigned = s.assigned_floor || '';
+                            return assigned.includes(group.name) && (s.role === 'RA' || s.role === 'Resident Advisor');
+                        });
+                        return {
+                            name: group.name,
+                            total: group.total,
+                            checked: group.checked,
+                            progress: progress,
+                            ra: ra?.name || 'Not assigned',
+                            status: progress === 100 ? 'Completed' : progress > 50 ? 'In progress' : 'Pending',
+                            areas: group.areas
+                        };
+                    });
 
-                const isGirls = hostelData?.gender === 'female';
-                const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
-                    isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
+                    // RA Activity
+                    const raActivity = raStaff.map(ra => {
+                        const area = ra.assigned_floor || 'Unassigned';
+                        const displayName = getAreaDisplay(area);
+                        
+                        let statusDisplay = '⏳ Waiting';
+                        let statusClass = 'badge-pending';
+                        
+                        const raRooms = roomStructure.areas.filter(a => 
+                            a.floor && ra.assigned_floor && a.floor.includes(ra.assigned_floor.replace('Floor ', ''))
+                        );
+                        
+                        const raStudents = students.filter(s => 
+                            raRooms.some(r => r.rooms.includes(s.room))
+                        );
+                        
+                        const raVerified = raStudents.filter(s => {
+                            const scan = scans.find(sc => sc.student_id === s.id);
+                            return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                                scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                        }).length;
+                        
+                        if (raStudents.length > 0 && raVerified === raStudents.length) {
+                            statusDisplay = '✅ Completed';
+                            statusClass = 'badge-approved';
+                        } else if (raVerified > 0) {
+                            statusDisplay = '🟢 Scanning';
+                            statusClass = 'badge-live';
+                        }
+                        
+                        return {
+                            name: ra.name,
+                            room: displayName,
+                            status: statusDisplay,
+                            statusClass: statusClass,
+                            verified: raVerified,
+                            total: raStudents.length
+                        };
+                    });
 
-                // Calculate total bed capacity from rooms
-                const totalBeds = rooms.reduce((sum, r) => sum + (r.capacity || 4), 0);
+                    // Rooms needing attention
+                    const pendingRooms = roomsWithStudents.filter(r => {
+                        const roomStudents = students.filter(s => s.room_id === r.id);
+                        return roomStudents.length > 0 && !roomStudents.every(s => {
+                            const scan = scans.find(sc => sc.student_id === s.id);
+                            return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                                scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                        });
+                    }).slice(0, 5).map(r => {
+                        const roomStudents = students.filter(s => s.room_id === r.id);
+                        const verifiedCount = roomStudents.filter(s => {
+                            const scan = scans.find(sc => sc.student_id === s.id);
+                            return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                                scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
+                        }).length;
+                        const totalCount = roomStudents.length;
+                        return {
+                            room: r.room_code || 'Room ' + r.id,
+                            verified: verifiedCount,
+                            total: totalCount,
+                            progress: totalCount > 0 ? Math.round((verifiedCount / totalCount) * 100) : 0
+                        };
+                    });
 
-                const html = `
-                    <!-- HERO HEADER -->
-                    <div class="hero-header">
-                        <div class="hero-left">
-                            <div class="hostel-name">${hostelName}</div>
-                            <div class="hostel-sub">
-                                <span>${hostelTypeLabel}</span>
-                                <span>· ${totalStudents} students</span>
-                                <span>· ${roomsWithStudents.length} rooms</span>
-                                <span class="badge badge-floor" style="font-size:0.55rem;">${roomStructure.areas.length} room ranges</span>
-                                <span class="badge badge-active" style="font-size:0.55rem;background:#d6ad4b;color:#10233f;">${hostelData.campus || 'Legacy'}</span>
+                    const hour = now.getHours();
+                    let greeting = 'Good Evening';
+                    if (hour < 12) greeting = 'Good Morning';
+                    else if (hour < 17) greeting = 'Good Afternoon';
+
+                    const isGirls = hostelData?.gender === 'female';
+                    const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
+                        isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
+
+                    // Calculate total bed capacity from rooms
+                    const totalBeds = rooms.reduce((sum, r) => sum + (r.capacity || 4), 0);
+
+                    const html = `
+                        <!-- HERO HEADER -->
+                        <div class="hero-header">
+                            <div class="hero-left">
+                                <div class="hostel-name">${hostelName}</div>
+                                <div class="hostel-sub">
+                                    <span>${hostelTypeLabel}</span>
+                                    <span>· ${totalStudents} students</span>
+                                    <span>· ${roomsWithStudents.length} rooms</span>
+                                    <span class="badge badge-floor" style="font-size:0.55rem;">${roomStructure.areas.length} room ranges</span>
+                                    <span class="badge badge-active" style="font-size:0.55rem;background:#d6ad4b;color:#10233f;">${hostelData.campus || 'Legacy'}</span>
+                                </div>
+                                <div class="greeting">${greeting}, <span class="highlight">${currentUser?.name || 'HRA'}</span></div>
                             </div>
-                            <div class="greeting">${greeting}, <span class="highlight">${currentUser?.name || 'HRA'}</span></div>
+                            <div class="hero-right">
+                                <div class="clock" id="heroClock">--:--:--</div>
+                                <div class="clock-label">${isSessionActive ? 'Session Active' : 'Session Closed'}</div>
+                                <div class="countdown" id="heroCountdown">${isSessionActive ? '⏱ --:--:--' : '⏸ Session Closed'}</div>
+                            </div>
                         </div>
-                        <div class="hero-right">
-                            <div class="clock" id="heroClock">--:--:--</div>
-                            <div class="clock-label">${isSessionActive ? 'Session Active' : 'Session Closed'}</div>
-                            <div class="countdown" id="heroCountdown">${isSessionActive ? '⏱ --:--:--' : '⏸ Session Closed'}</div>
-                        </div>
-                    </div>
 
-                    <!-- SESSION BANNER -->
-                    <div class="session-banner" style="border-color:${isSessionActive ? '#d6ad4b' : '#ded6c9'};background:${isSessionActive ? '#fbf7ef' : '#fffcf6'};">
-                        <div class="session-icon">${sessionDisplay.icon}</div>
-                        <div class="session-info">
-                            <div class="session-title">${sessionDisplay.statusText}</div>
-                            <div class="session-sub">${sessionDisplay.detailText}</div>
-                            ${currentSession ? `
-                                <div class="session-detail">
-                                    ${sessionDate} · ${sessionStart} — ${sessionEnd} · Grace: ${sessionGrace}min
+                        <!-- SESSION BANNER -->
+                        <div class="session-banner" style="border-color:${isSessionActive ? '#d6ad4b' : '#ded6c9'};background:${isSessionActive ? '#fbf7ef' : '#fffcf6'};">
+                            <div class="session-icon">${sessionDisplay.icon}</div>
+                            <div class="session-info">
+                                <div class="session-title">${sessionDisplay.statusText}</div>
+                                <div class="session-sub">${sessionDisplay.detailText}</div>
+                                ${currentSession ? `
+                                    <div class="session-detail">
+                                        ${sessionDate} · ${sessionStart} — ${sessionEnd} · Grace: ${sessionGrace}min
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <div>
+                                <span class="session-status-badge ${sessionDisplay.badgeClass}">${sessionDisplay.badgeText}</span>
+                            </div>
+                        </div>
+
+                        <!-- STAT CARDS -->
+                        <div class="stat-card-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                                <div class="stat-number">${totalStudents}</div>
+                                <div class="stat-label">Students</div>
+                                <div class="stat-sub">Total Registered</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-hourglass-half" style="color:#d97706;"></i></div>
+                                <div class="stat-number" style="color:#d97706;">${pending}</div>
+                                <div class="stat-label">Pending</div>
+                                <div class="stat-sub">Not verified</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-door-open" style="color:#a77915;"></i></div>
+                                <div class="stat-number" style="color:#a77915;">${roomsCompleted} / ${roomsWithStudents.length}</div>
+                                <div class="stat-label">Rooms Complete</div>
+                                <div class="stat-sub">${roomsWithStudents.length > 0 ? Math.round((roomsCompleted/roomsWithStudents.length)*100) : 0}%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="fas fa-user-tie" style="color:#2563eb;"></i></div>
+                                <div class="stat-number" style="color:#2563eb;">${activeRA}</div>
+                                <div class="stat-label">RA Active</div>
+                                <div class="stat-sub">/${raStaff.length}</div>
+                            </div>
+                        </div>
+
+                        <!-- HOSTEL INFORMATION -->
+                        <div class="card mt-4">
+                            <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Information</div>
+                            <div class="grid-3 mt-3">
+                                <div><span class="text-muted">Hostel Name</span><br><span class="font-bold">${hostelData.name || '—'}</span></div>
+                                <div><span class="text-muted">Hostel Type</span><br><span class="font-bold">${hostelTypeLabel}</span></div>
+                                <div><span class="text-muted">Floors</span><br><span class="font-bold">${hostelData.total_floors || 3}</span></div>
+                                <div><span class="text-muted">Rooms</span><br><span class="font-bold">${rooms.length}</span></div>
+                                <div><span class="text-muted">Bed Capacity</span><br><span class="font-bold">${totalBeds} Students</span></div>
+                                <div><span class="text-muted">Resident Advisors</span><br><span class="font-bold">${raStaff.length}</span></div>
+                            </div>
+                        </div>
+
+                        <!-- ROW 2: Hostel Progress + RA Activity -->
+                        <div class="grid-2 mt-4">
+                            <!-- Hostel Progress -->
+                            <div class="card">
+                                <div class="card-title"><span class="icon"><i class="fas fa-chart-line"></i></span> Hostel Progress</div>
+                                <div class="flex-between">
+                                    <span class="text-sm text-muted">${verified} / ${totalStudents} Verified</span>
+                                    <span class="font-bold" style="color:#a77915;">${completion}%</span>
+                                </div>
+                                <div class="progress-bar mt-1">
+                                    <div class="fill" style="width:${completion}%;background:${completion === 100 ? '#2d6545' : '#d6ad4b'};"></div>
+                                </div>
+                                <div class="mt-3">
+                                    ${floorData.length > 0 ? floorData.map(f => `
+                                        <div class="floor-progress-item">
+                                            <div class="floor-header">
+                                                <span class="floor-name">${f.name}</span>
+                                                <span class="floor-stats">
+                                                    ${f.checked}/${f.total} 
+                                                    <span class="percent">${f.progress}%</span>
+                                                    ${f.progress === 100 ? '✅' : ''}
+                                                </span>
+                                            </div>
+                                            <div class="floor-progress">
+                                                <div class="progress-bar">
+                                                    <div class="fill" style="width:${f.progress}%;background:${f.progress === 100 ? '#2d6545' : '#d6ad4b'};"></div>
+                                                </div>
+                                            </div>
+                                            ${f.areas.map(area => `
+                                                <div class="flex-between" style="padding:0.1rem 0 0.1rem 1rem;font-size:0.7rem;color:#6b778b;border-bottom:1px solid #f5f1e8;">
+                                                    <span>${area.name}</span>
+                                                    <span>${area.checked}/${area.total}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `).join('') : '<p class="text-muted text-sm">No floors configured</p>'}
+                                </div>
+                            </div>
+
+                            <!-- RA Activity -->
+                            <div class="card">
+                                <div class="card-title"><span class="icon"><i class="fas fa-user-tie"></i></span> Live RA Activity</div>
+                                <div class="scrollable-section" style="max-height:220px;">
+                                    ${raActivity.length > 0 ? raActivity.map(ra => `
+                                        <div class="ra-activity-item">
+                                            <span class="ra-name">${ra.name}</span>
+                                            <span class="ra-room">${ra.room}</span>
+                                            <span class="ra-status">
+                                                <span class="badge ${ra.statusClass}" style="font-size:0.5rem;">${ra.status}</span>
+                                                ${ra.total > 0 ? `${ra.verified}/${ra.total}` : ''}
+                                            </span>
+                                        </div>
+                                    `).join('') : '<p class="text-muted text-sm">No RAs assigned</p>'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ROW 3: Rooms Needing Attention -->
+                        <div class="card mt-4">
+                            <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Rooms Needing Attention</div>
+                            <div class="scrollable-section" style="max-height:200px;">
+                                ${pendingRooms.length > 0 ? pendingRooms.map(r => `
+                                    <div class="room-attention-item">
+                                        <div class="room-info">
+                                            <span class="room-code">${r.room}</span>
+                                            <span class="room-detail">${r.verified}/${r.total} verified</span>
+                                            <div class="progress-bar" style="width:80px;height:0.3rem;">
+                                                <div class="fill" style="width:${r.progress}%;background:${r.progress === 100 ? '#2d6545' : '#d97706'};"></div>
+                                            </div>
+                                        </div>
+                                        <div class="room-status">
+                                            <span class="badge badge-pending" style="font-size:0.5rem;">
+                                                ${r.progress === 100 ? '✅ Complete' : r.progress > 50 ? '🟡 In Progress' : '⏳ Waiting'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                `).join('') : '<p class="text-muted text-sm">🎉 All rooms completed!</p>'}
+                            </div>
+                            ${pendingRooms.length > 0 ? `
+                                <div class="mt-2 text-right">
+                                    <button class="btn-ghost" style="font-size:0.8rem;" onclick="showToast('Viewing all rooms','info')">
+                                        <i class="fas fa-arrow-right"></i> View All Rooms
+                                    </button>
                                 </div>
                             ` : ''}
                         </div>
-                        <div>
-                            <span class="session-status-badge ${sessionDisplay.badgeClass}">${sessionDisplay.badgeText}</span>
-                        </div>
-                    </div>
 
-                    <!-- STAT CARDS -->
-                    <div class="stat-card-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-users"></i></div>
-                            <div class="stat-number">${totalStudents}</div>
-                            <div class="stat-label">Students</div>
-                            <div class="stat-sub">Total Registered</div>
+                        <!-- Footer -->
+                        <div class="mt-6 pt-4 border-t text-center">
+                            <p class="text-xs text-muted">
+                                BedCheck · Benson Idahosa University
+                            </p>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-hourglass-half" style="color:#d97706;"></i></div>
-                            <div class="stat-number" style="color:#d97706;">${pending}</div>
-                            <div class="stat-label">Pending</div>
-                            <div class="stat-sub">Not verified</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-door-open" style="color:#a77915;"></i></div>
-                            <div class="stat-number" style="color:#a77915;">${roomsCompleted} / ${roomsWithStudents.length}</div>
-                            <div class="stat-label">Rooms Complete</div>
-                            <div class="stat-sub">${roomsWithStudents.length > 0 ? Math.round((roomsCompleted/roomsWithStudents.length)*100) : 0}%</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-user-tie" style="color:#2563eb;"></i></div>
-                            <div class="stat-number" style="color:#2563eb;">${activeRA}</div>
-                            <div class="stat-label">RA Active</div>
-                            <div class="stat-sub">/${raStaff.length}</div>
-                        </div>
-                    </div>
+                    `;
 
-                    <!-- HOSTEL INFORMATION -->
-                    <div class="card mt-4">
-                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Information</div>
-                        <div class="grid-3 mt-3">
-                            <div><span class="text-muted">Hostel Name</span><br><span class="font-bold">${hostelData.name || '—'}</span></div>
-                            <div><span class="text-muted">Hostel Type</span><br><span class="font-bold">${hostelTypeLabel}</span></div>
-                            <div><span class="text-muted">Floors</span><br><span class="font-bold">${hostelData.total_floors || 3}</span></div>
-                            <div><span class="text-muted">Rooms</span><br><span class="font-bold">${rooms.length}</span></div>
-                            <div><span class="text-muted">Bed Capacity</span><br><span class="font-bold">${totalBeds} Students</span></div>
-                            <div><span class="text-muted">Resident Advisors</span><br><span class="font-bold">${raStaff.length}</span></div>
-                        </div>
-                    </div>
-
-                    <!-- ROW 2: Hostel Progress + RA Activity -->
-                    <div class="grid-2 mt-4">
-                        <!-- Hostel Progress -->
-                        <div class="card">
-                            <div class="card-title"><span class="icon"><i class="fas fa-chart-line"></i></span> Hostel Progress</div>
-                            <div class="flex-between">
-                                <span class="text-sm text-muted">${verified} / ${totalStudents} Verified</span>
-                                <span class="font-bold" style="color:#a77915;">${completion}%</span>
-                            </div>
-                            <div class="progress-bar mt-1">
-                                <div class="fill" style="width:${completion}%;background:${completion === 100 ? '#2d6545' : '#d6ad4b'};"></div>
-                            </div>
-                            <div class="mt-3">
-                                ${floorData.length > 0 ? floorData.map(f => `
-                                    <div class="floor-progress-item">
-                                        <div class="floor-header">
-                                            <span class="floor-name">${f.name}</span>
-                                            <span class="floor-stats">
-                                                ${f.checked}/${f.total} 
-                                                <span class="percent">${f.progress}%</span>
-                                                ${f.progress === 100 ? '✅' : ''}
-                                            </span>
-                                        </div>
-                                        <div class="floor-progress">
-                                            <div class="progress-bar">
-                                                <div class="fill" style="width:${f.progress}%;background:${f.progress === 100 ? '#2d6545' : '#d6ad4b'};"></div>
-                                            </div>
-                                        </div>
-                                        ${f.areas.map(area => `
-                                            <div class="flex-between" style="padding:0.1rem 0 0.1rem 1rem;font-size:0.7rem;color:#6b778b;border-bottom:1px solid #f5f1e8;">
-                                                <span>${area.name}</span>
-                                                <span>${area.checked}/${area.total}</span>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                `).join('') : '<p class="text-muted text-sm">No floors configured</p>'}
+                    screenContent.innerHTML = html;
+                    startClock();
+                    
+                } catch (error) {
+                    console.error('Error rendering dashboard:', error);
+                    screenContent.innerHTML = `
+                        <div class="card mt-4" style="border-color:#d6ad4b;background:#fbf7ef;">
+                            <div class="text-center p-4">
+                                <i class="fas fa-building" style="font-size:3rem;color:#a77915;"></i>
+                                <h2 class="mt-3">${hostelData.name || 'Hostel'}</h2>
+                                <p class="text-muted">Dashboard partially loaded. Some data may be unavailable.</p>
+                                <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
                             </div>
                         </div>
-
-                        <!-- RA Activity -->
-                        <div class="card">
-                            <div class="card-title"><span class="icon"><i class="fas fa-user-tie"></i></span> Live RA Activity</div>
-                            <div class="scrollable-section" style="max-height:220px;">
-                                ${raActivity.length > 0 ? raActivity.map(ra => `
-                                    <div class="ra-activity-item">
-                                        <span class="ra-name">${ra.name}</span>
-                                        <span class="ra-room">${ra.room}</span>
-                                        <span class="ra-status">
-                                            <span class="badge ${ra.statusClass}" style="font-size:0.5rem;">${ra.status}</span>
-                                            ${ra.total > 0 ? `${ra.verified}/${ra.total}` : ''}
-                                        </span>
-                                    </div>
-                                `).join('') : '<p class="text-muted text-sm">No RAs assigned</p>'}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ROW 3: Rooms Needing Attention -->
-                    <div class="card mt-4">
-                        <div class="card-title"><span class="icon"><i class="fas fa-clock"></i></span> Rooms Needing Attention</div>
-                        <div class="scrollable-section" style="max-height:200px;">
-                            ${pendingRooms.length > 0 ? pendingRooms.map(r => `
-                                <div class="room-attention-item">
-                                    <div class="room-info">
-                                        <span class="room-code">${r.room}</span>
-                                        <span class="room-detail">${r.verified}/${r.total} verified</span>
-                                        <div class="progress-bar" style="width:80px;height:0.3rem;">
-                                            <div class="fill" style="width:${r.progress}%;background:${r.progress === 100 ? '#2d6545' : '#d97706'};"></div>
-                                        </div>
-                                    </div>
-                                    <div class="room-status">
-                                        <span class="badge badge-pending" style="font-size:0.5rem;">
-                                            ${r.progress === 100 ? '✅ Complete' : r.progress > 50 ? '🟡 In Progress' : '⏳ Waiting'}
-                                        </span>
-                                    </div>
-                                </div>
-                            `).join('') : '<p class="text-muted text-sm">🎉 All rooms completed!</p>'}
-                        </div>
-                        ${pendingRooms.length > 0 ? `
-                            <div class="mt-2 text-right">
-                                <button class="btn-ghost" style="font-size:0.8rem;" onclick="showToast('Viewing all rooms','info')">
-                                    <i class="fas fa-arrow-right"></i> View All Rooms
-                                </button>
-                            </div>
-                        ` : ''}
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">
-                            BedCheck · Benson Idahosa University
-                        </p>
-                    </div>
-                `;
-
-                screenContent.innerHTML = html;
-                startClock();
+                    `;
+                }
             }
 
             // =============================================
