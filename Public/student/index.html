@@ -279,6 +279,9 @@
         .toast.info {
             background: #1e3a5f;
         }
+        .toast.warning {
+            background: #b45309;
+        }
 
         .loading-spinner {
             display: flex;
@@ -485,6 +488,13 @@
         .mt-3 {
             margin-top: 0.75rem;
         }
+
+        .dropdown-loading {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            padding: 0.3rem;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -508,9 +518,8 @@
         <div id="loadingIndicator" style="display:none;text-align:center;padding:2rem;">
             <div class="loading-spinner">
                 <div class="spinner"></div>
-                <span style="color:#68768a;font-size:0.9rem;">Loading data...</span>
+                <span style="color:#68768a;font-size:0.9rem;">Loading hostels...</span>
             </div>
-            <div style="color:#94a3b8;font-size:0.75rem;margin-top:0.5rem;">Please wait while we fetch all available hostels, floors, rooms and beds</div>
         </div>
 
         <!-- Form -->
@@ -777,17 +786,19 @@
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
             // =============================================
-            // GLOBAL DATA STORES - BATCH LOADED
+            // GLOBAL DATA STORES
             // =============================================
             let allHostels = [];
-            let allFloorsFlats = [];
-            let allRooms = [];
-            let allBedSpaces = [];
+            
+            // Caches for on-demand loaded data
+            const floorsCache = {};      // key: hostelId, value: array of floors
+            const roomsCache = {};       // key: floorId, value: array of rooms
+            const bedsCache = {};        // key: roomId, value: array of beds
 
-            // Cache for quick lookups
-            let floorsByHostel = {};
-            let roomsByFloor = {};
-            let bedsByRoom = {};
+            // Track what's currently loading to prevent duplicate requests
+            const loadingFloors = {};
+            const loadingRooms = {};
+            const loadingBeds = {};
 
             let isSubmitting = false;
             let photoDataURL = '';
@@ -896,19 +907,17 @@
                     return [];
                 } catch (error) {
                     console.error('API Error:', error);
-                    showToast('Error: ' + error.message, 'error');
                     throw error;
                 }
             }
 
             // =============================================
-            // FIXED: DATA LOADING - PREVENTS DUPLICATE CALLS
+            // LOAD HOSTELS ONLY - ON PAGE LOAD
             // =============================================
-            async function loadData() {
+            async function loadHostels() {
                 try {
                     document.getElementById('loadingIndicator').style.display = 'block';
-
-                    // Load hostels from public endpoint
+                    
                     allHostels = await publicApiCall('/public/hostels');
                     console.log('✅ Hostels loaded:', allHostels.length);
 
@@ -918,99 +927,7 @@
                         return;
                     }
 
-                    // Use a Set to track which hostels we've already loaded floors for
-                    const loadedHostelIds = new Set();
-                    const floorPromises = [];
-
-                    // Only load floors for each hostel ONCE
-                    for (const hostel of allHostels) {
-                        if (!loadedHostelIds.has(hostel.id)) {
-                            loadedHostelIds.add(hostel.id);
-                            floorPromises.push(
-                                publicApiCall(`/public/floors-flats?hostel_id=${hostel.id}`)
-                                    .then(floors => {
-                                        if (floors && floors.length > 0) {
-                                            // Add hostel_id to each floor for reference
-                                            const floorsWithHostel = floors.map(f => ({
-                                                ...f,
-                                                hostel_id: hostel.id
-                                            }));
-                                            allFloorsFlats = [...allFloorsFlats, ...floorsWithHostel];
-                                            console.log(`✅ Loaded ${floors.length} floors for hostel ${hostel.id} (${hostel.name})`);
-                                        }
-                                    })
-                                    .catch(e => console.warn(`Could not load floors for hostel ${hostel.id}:`, e))
-                            );
-                        }
-                    }
-
-                    // Wait for all floor requests to complete
-                    await Promise.all(floorPromises);
-                    console.log('✅ Total floors loaded:', allFloorsFlats.length);
-
-                    // Load rooms for each floor - use a Set to track which floors we've loaded
-                    const loadedFloorIds = new Set();
-                    const roomPromises = [];
-
-                    for (const floor of allFloorsFlats) {
-                        if (!loadedFloorIds.has(floor.id)) {
-                            loadedFloorIds.add(floor.id);
-                            roomPromises.push(
-                                publicApiCall(`/public/rooms?floor_flat_id=${floor.id}`)
-                                    .then(rooms => {
-                                        if (rooms && rooms.length > 0) {
-                                            const roomsWithFloor = rooms.map(r => ({
-                                                ...r,
-                                                floor_flat_id: floor.id
-                                            }));
-                                            allRooms = [...allRooms, ...roomsWithFloor];
-                                            console.log(`✅ Loaded ${rooms.length} rooms for floor ${floor.id} (${floor.name})`);
-                                        }
-                                    })
-                                    .catch(e => console.warn(`Could not load rooms for floor ${floor.id}:`, e))
-                            );
-                        }
-                    }
-
-                    // Wait for all room requests to complete
-                    await Promise.all(roomPromises);
-                    console.log('✅ Total rooms loaded:', allRooms.length);
-
-                    // Load beds for each room - use a Set to track which rooms we've loaded
-                    const loadedRoomIds = new Set();
-                    const bedPromises = [];
-
-                    for (const room of allRooms) {
-                        if (!loadedRoomIds.has(room.id)) {
-                            loadedRoomIds.add(room.id);
-                            bedPromises.push(
-                                publicApiCall(`/public/bed-spaces?room_id=${room.id}`)
-                                    .then(beds => {
-                                        if (beds && beds.length > 0) {
-                                            const bedsWithRoom = beds.map(b => ({
-                                                ...b,
-                                                room_id: room.id
-                                            }));
-                                            allBedSpaces = [...allBedSpaces, ...bedsWithRoom];
-                                            console.log(`✅ Loaded ${beds.length} beds for room ${room.id} (${room.room_code})`);
-                                        }
-                                    })
-                                    .catch(e => console.warn(`Could not load beds for room ${room.id}:`, e))
-                            );
-                        }
-                    }
-
-                    // Wait for all bed requests to complete
-                    await Promise.all(bedPromises);
-                    console.log('✅ Total beds loaded:', allBedSpaces.length);
-
-                    console.log('✅ Final counts - Hostels:', allHostels.length, 'Floors:', allFloorsFlats.length, 'Rooms:',
-                        allRooms.length, 'Beds:', allBedSpaces.length);
-
-                    // Build lookup caches
-                    buildLookupCaches();
-
-                    // Populate hostel dropdown
+                    // Populate hostel dropdown based on campus
                     updateHostelDropdown();
 
                     document.getElementById('loadingIndicator').style.display = 'none';
@@ -1018,49 +935,108 @@
                 } catch (error) {
                     console.error('Load error:', error);
                     document.getElementById('loadingIndicator').style.display = 'none';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    showToast('Error loading hostels: ' + error.message, 'error');
                 }
             }
 
             // =============================================
-            // BUILD LOOKUP CACHES
+            // ON-DEMAND LOADING WITH DUPLICATE PREVENTION
             // =============================================
-            function buildLookupCaches() {
-                // Group floors by hostel_id
-                floorsByHostel = {};
-                allFloorsFlats.forEach(floor => {
-                    const hostelId = floor.hostel_id;
-                    if (!floorsByHostel[hostelId]) {
-                        floorsByHostel[hostelId] = [];
-                    }
-                    floorsByHostel[hostelId].push(floor);
-                });
+            async function loadFloorsForHostel(hostelId) {
+                // Check cache first
+                if (floorsCache[hostelId]) {
+                    console.log(`📋 Using cached floors for hostel ${hostelId}`);
+                    return floorsCache[hostelId];
+                }
 
-                // Group rooms by floor_flat_id
-                roomsByFloor = {};
-                allRooms.forEach(room => {
-                    const floorId = room.floor_flat_id;
-                    if (!roomsByFloor[floorId]) {
-                        roomsByFloor[floorId] = [];
-                    }
-                    roomsByFloor[floorId].push(room);
-                });
+                // Check if already loading
+                if (loadingFloors[hostelId]) {
+                    console.log(`⏳ Floors for hostel ${hostelId} already loading, waiting...`);
+                    return loadingFloors[hostelId];
+                }
 
-                // Group beds by room_id
-                bedsByRoom = {};
-                allBedSpaces.forEach(bed => {
-                    const roomId = bed.room_id;
-                    if (!bedsByRoom[roomId]) {
-                        bedsByRoom[roomId] = [];
+                // Start loading
+                const promise = (async () => {
+                    try {
+                        const floors = await publicApiCall(`/public/floors-flats?hostel_id=${hostelId}`);
+                        floorsCache[hostelId] = floors;
+                        console.log(`✅ Loaded ${floors.length} floors for hostel ${hostelId}`);
+                        return floors;
+                    } catch (error) {
+                        console.error(`Error loading floors for hostel ${hostelId}:`, error);
+                        floorsCache[hostelId] = [];
+                        return [];
+                    } finally {
+                        delete loadingFloors[hostelId];
                     }
-                    bedsByRoom[roomId].push(bed);
-                });
+                })();
 
-                console.log('✅ Lookup caches built');
+                loadingFloors[hostelId] = promise;
+                return promise;
+            }
+
+            async function loadRoomsForFloor(floorId) {
+                if (roomsCache[floorId]) {
+                    console.log(`📋 Using cached rooms for floor ${floorId}`);
+                    return roomsCache[floorId];
+                }
+
+                if (loadingRooms[floorId]) {
+                    console.log(`⏳ Rooms for floor ${floorId} already loading, waiting...`);
+                    return loadingRooms[floorId];
+                }
+
+                const promise = (async () => {
+                    try {
+                        const rooms = await publicApiCall(`/public/rooms?floor_flat_id=${floorId}`);
+                        roomsCache[floorId] = rooms;
+                        console.log(`✅ Loaded ${rooms.length} rooms for floor ${floorId}`);
+                        return rooms;
+                    } catch (error) {
+                        console.error(`Error loading rooms for floor ${floorId}:`, error);
+                        roomsCache[floorId] = [];
+                        return [];
+                    } finally {
+                        delete loadingRooms[floorId];
+                    }
+                })();
+
+                loadingRooms[floorId] = promise;
+                return promise;
+            }
+
+            async function loadBedsForRoom(roomId) {
+                if (bedsCache[roomId]) {
+                    console.log(`📋 Using cached beds for room ${roomId}`);
+                    return bedsCache[roomId];
+                }
+
+                if (loadingBeds[roomId]) {
+                    console.log(`⏳ Beds for room ${roomId} already loading, waiting...`);
+                    return loadingBeds[roomId];
+                }
+
+                const promise = (async () => {
+                    try {
+                        const beds = await publicApiCall(`/public/bed-spaces?room_id=${roomId}`);
+                        bedsCache[roomId] = beds;
+                        console.log(`✅ Loaded ${beds.length} beds for room ${roomId}`);
+                        return beds;
+                    } catch (error) {
+                        console.error(`Error loading beds for room ${roomId}:`, error);
+                        bedsCache[roomId] = [];
+                        return [];
+                    } finally {
+                        delete loadingBeds[roomId];
+                    }
+                })();
+
+                loadingBeds[roomId] = promise;
+                return promise;
             }
 
             // =============================================
-            // UI UPDATES - USING CACHED DATA
+            // UI UPDATES - ON-DEMAND
             // =============================================
             function updateDepartments() {
                 const faculty = document.getElementById('faculty').value;
@@ -1086,6 +1062,7 @@
                 const codeDisplay = document.getElementById('campusCodeDisplay');
                 const error = document.getElementById('campusError');
 
+                // Reset dependent dropdowns
                 document.getElementById('hostelSelect').innerHTML = '<option value="">Select Hostel</option>';
                 document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
                 document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
@@ -1112,6 +1089,7 @@
                     codeDisplay.textContent = campusInfo.campus_code;
                     error.style.display = 'none';
 
+                    // Update hostel dropdown based on campus
                     updateHostelDropdown(campusInfo.campus);
 
                 } catch (error) {
@@ -1134,7 +1112,7 @@
                 }
 
                 if (filtered.length === 0) {
-                    select.innerHTML = `<option value="">No hostels found for ${campusFilter} campus</option>`;
+                    select.innerHTML = `<option value="">No hostels found for ${campusFilter || 'selected'} campus</option>`;
                     return;
                 }
 
@@ -1146,99 +1124,155 @@
                 });
             }
 
-            function updateFloors() {
+            async function updateFloors() {
                 const hostelId = parseInt(document.getElementById('hostelSelect').value);
                 const floorSelect = document.getElementById('floorSelect');
-                floorSelect.innerHTML = '<option value="">Select Floor</option>';
+                
+                // Show loading state
+                floorSelect.innerHTML = '<option value="">Loading floors...</option>';
+                floorSelect.disabled = true;
+                
                 document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
-                if (!hostelId) return;
-
-                const floors = floorsByHostel[hostelId] || [];
-                
-                if (floors.length === 0) {
-                    floorSelect.innerHTML = '<option value="">No floors found</option>';
+                if (!hostelId) {
+                    floorSelect.innerHTML = '<option value="">Select Floor</option>';
+                    floorSelect.disabled = false;
                     return;
                 }
 
-                floors.sort((a, b) => {
-                    const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
-                    const bNum = parseInt(b.name.replace(/[^0-9]/g, '')) || 0;
-                    return aNum - bNum;
-                });
+                try {
+                    const floors = await loadFloorsForHostel(hostelId);
+                    
+                    floorSelect.innerHTML = '<option value="">Select Floor</option>';
+                    floorSelect.disabled = false;
 
-                floors.forEach(floor => {
-                    const opt = document.createElement('option');
-                    opt.value = floor.id;
-                    opt.textContent = floor.name;
-                    floorSelect.appendChild(opt);
-                });
+                    if (floors.length === 0) {
+                        floorSelect.innerHTML = '<option value="">No floors found</option>';
+                        return;
+                    }
+
+                    floors.sort((a, b) => {
+                        const aNum = parseInt(a.name.replace(/[^0-9]/g, '')) || 0;
+                        const bNum = parseInt(b.name.replace(/[^0-9]/g, '')) || 0;
+                        return aNum - bNum;
+                    });
+
+                    floors.forEach(floor => {
+                        const opt = document.createElement('option');
+                        opt.value = floor.id;
+                        opt.textContent = floor.name;
+                        floorSelect.appendChild(opt);
+                    });
+
+                } catch (error) {
+                    console.error('Error loading floors:', error);
+                    floorSelect.innerHTML = '<option value="">Error loading floors</option>';
+                    floorSelect.disabled = false;
+                    showToast('Error loading floors', 'error');
+                }
             }
 
-            function updateRooms() {
+            async function updateRooms() {
                 const floorId = parseInt(document.getElementById('floorSelect').value);
                 const roomSelect = document.getElementById('roomSelect');
-                roomSelect.innerHTML = '<option value="">Select Room</option>';
+                
+                // Show loading state
+                roomSelect.innerHTML = '<option value="">Loading rooms...</option>';
+                roomSelect.disabled = true;
+                
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
-                if (!floorId) return;
-
-                const rooms = roomsByFloor[floorId] || [];
-                
-                if (rooms.length === 0) {
-                    roomSelect.innerHTML = '<option value="">No rooms found</option>';
+                if (!floorId) {
+                    roomSelect.innerHTML = '<option value="">Select Room</option>';
+                    roomSelect.disabled = false;
                     return;
                 }
 
-                rooms.sort((a, b) => {
-                    const aNum = parseInt(a.room_code.replace(/[^0-9]/g, '')) || 0;
-                    const bNum = parseInt(b.room_code.replace(/[^0-9]/g, '')) || 0;
-                    return aNum - bNum;
-                });
+                try {
+                    const rooms = await loadRoomsForFloor(floorId);
+                    
+                    roomSelect.innerHTML = '<option value="">Select Room</option>';
+                    roomSelect.disabled = false;
 
-                rooms.forEach(room => {
-                    const opt = document.createElement('option');
-                    opt.value = room.id;
-                    opt.textContent = room.room_code;
-                    roomSelect.appendChild(opt);
-                });
+                    if (rooms.length === 0) {
+                        roomSelect.innerHTML = '<option value="">No rooms found</option>';
+                        return;
+                    }
+
+                    rooms.sort((a, b) => {
+                        const aNum = parseInt(a.room_code.replace(/[^0-9]/g, '')) || 0;
+                        const bNum = parseInt(b.room_code.replace(/[^0-9]/g, '')) || 0;
+                        return aNum - bNum;
+                    });
+
+                    rooms.forEach(room => {
+                        const opt = document.createElement('option');
+                        opt.value = room.id;
+                        opt.textContent = room.room_code;
+                        roomSelect.appendChild(opt);
+                    });
+
+                } catch (error) {
+                    console.error('Error loading rooms:', error);
+                    roomSelect.innerHTML = '<option value="">Error loading rooms</option>';
+                    roomSelect.disabled = false;
+                    showToast('Error loading rooms', 'error');
+                }
             }
 
-            function updateBeds() {
+            async function updateBeds() {
                 const roomId = parseInt(document.getElementById('roomSelect').value);
                 const bedSelect = document.getElementById('bedSelect');
-                bedSelect.innerHTML = '<option value="">Select Bed</option>';
-
-                if (!roomId) return;
-
-                const beds = bedsByRoom[roomId] || [];
                 
-                const availableBeds = beds.filter(b => 
-                    b.status === 'available' || b.status === 'Available'
-                );
+                // Show loading state
+                bedSelect.innerHTML = '<option value="">Loading beds...</option>';
+                bedSelect.disabled = true;
 
-                if (availableBeds.length === 0) {
-                    const opt = document.createElement('option');
-                    opt.value = '';
-                    opt.textContent = 'No beds available';
-                    opt.disabled = true;
-                    bedSelect.appendChild(opt);
+                if (!roomId) {
+                    bedSelect.innerHTML = '<option value="">Select Bed</option>';
+                    bedSelect.disabled = false;
                     return;
                 }
 
-                availableBeds.sort((a, b) => {
-                    const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
-                    const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
-                    return aNum - bNum;
-                });
+                try {
+                    const beds = await loadBedsForRoom(roomId);
+                    
+                    bedSelect.innerHTML = '<option value="">Select Bed</option>';
+                    bedSelect.disabled = false;
 
-                availableBeds.forEach(bed => {
-                    const opt = document.createElement('option');
-                    opt.value = bed.id;
-                    opt.textContent = `${bed.bed_code} (Available)`;
-                    bedSelect.appendChild(opt);
-                });
+                    const availableBeds = beds.filter(b => 
+                        b.status === 'available' || b.status === 'Available'
+                    );
+
+                    if (availableBeds.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'No beds available';
+                        opt.disabled = true;
+                        bedSelect.appendChild(opt);
+                        return;
+                    }
+
+                    availableBeds.sort((a, b) => {
+                        const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
+                        const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
+                        return aNum - bNum;
+                    });
+
+                    availableBeds.forEach(bed => {
+                        const opt = document.createElement('option');
+                        opt.value = bed.id;
+                        opt.textContent = `${bed.bed_code} (Available)`;
+                        bedSelect.appendChild(opt);
+                    });
+
+                } catch (error) {
+                    console.error('Error loading beds:', error);
+                    bedSelect.innerHTML = '<option value="">Error loading beds</option>';
+                    bedSelect.disabled = false;
+                    showToast('Error loading beds', 'error');
+                }
             }
 
             // =============================================
@@ -1422,10 +1456,14 @@
                     const roomId = parseInt(document.getElementById('roomSelect').value);
                     const bedId = parseInt(document.getElementById('bedSelect').value);
 
-                    // Get details from cached data
-                    const floor = allFloorsFlats.find(f => f.id === floorId);
-                    const room = allRooms.find(r => r.id === roomId);
-                    const bed = allBedSpaces.find(b => b.id === bedId);
+                    // Get details from caches
+                    const floors = floorsCache[hostelId] || [];
+                    const rooms = roomsCache[floorId] || [];
+                    const beds = bedsCache[roomId] || [];
+
+                    const floor = floors.find(f => f.id === floorId);
+                    const room = rooms.find(r => r.id === roomId);
+                    const bed = beds.find(b => b.id === bedId);
 
                     const studentData = {
                         name: fullName,
@@ -1537,10 +1575,9 @@
             // INIT
             // =============================================
             async function init() {
-                // Load all data first
-                await loadData();
+                // Only load hostels initially
+                await loadHostels();
 
-                // Then setup the form
                 const faculty = document.getElementById('faculty').value;
                 const level = document.getElementById('level').value;
                 if (faculty && level) {
