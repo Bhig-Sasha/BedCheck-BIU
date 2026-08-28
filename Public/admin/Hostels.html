@@ -849,6 +849,7 @@
             `;
             
             try {
+                // Load all data
                 const floorsData = await loadFloorsFlatsForHostel(hostelId);
                 allFloorsFlats = floorsData;
                 console.log('✅ allFloorsFlats:', allFloorsFlats);
@@ -861,27 +862,43 @@
                 allBedSpaces = bedsData;
                 console.log('✅ allBedSpaces:', allBedSpaces);
                 
-                // Build floor label map
+                // Build floor label map from floors_flats
                 const floorLabelMap = {};
                 floorsData.forEach(f => {
                     floorLabelMap[f.id] = f.name;
                 });
+                console.log('✅ floorLabelMap:', floorLabelMap);
                 
                 // Enrich rooms with floor labels
                 allRooms = roomsData.map(room => {
-                    if (!room.floor_label && room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
+                    // If room has floor_flat_id, get the floor name
+                    if (room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
                         room.floor_label = floorLabelMap[room.floor_flat_id];
                     }
+                    // If room already has floor, use that
                     if (!room.floor_label && room.floor) {
                         room.floor_label = room.floor;
                     }
                     if (!room.floor_label && room.floor_name) {
                         room.floor_label = room.floor_name;
                     }
+                    // If no floor label, try to get it from the full_code
+                    if (!room.floor_label && room.full_code) {
+                        const parts = room.full_code.split('-');
+                        if (parts.length > 1) {
+                            room.floor_label = parts[0];
+                        }
+                    }
                     return room;
                 });
                 
                 console.log('✅ Enriched rooms:', allRooms);
+                
+                // Update hostel with actual counts
+                const totalRooms = allRooms.length;
+                const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || 4), 0);
+                hostel.total_rooms = totalRooms;
+                hostel.total_beds = totalBeds;
                 
                 renderHostelDetail(hostel);
             } catch (error) {
@@ -1050,50 +1067,102 @@
             
             let floorLabels = [];
             
-            // First try to get floors from rooms
+            // FIRST: Get floors from the actual rooms data
             if (allRooms && allRooms.length > 0) {
                 floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor).filter(Boolean))].sort();
+                console.log('📋 Floor labels from rooms:', floorLabels);
             }
             
-            // If no floors from rooms, use floors_flats data
+            // SECOND: If no floors from rooms, try to get from floors_flats data
             if (floorLabels.length === 0 && allFloorsFlats && allFloorsFlats.length > 0) {
                 floorLabels = allFloorsFlats.map(f => f.name).sort();
+                console.log('📋 Floor labels from floors_flats:', floorLabels);
             }
             
-            // If still no floors, generate based on hostel type
+            // THIRD: If still no floors, generate based on hostel type and use existing room data
+            if (floorLabels.length === 0) {
+                // Check if there are any rooms with floor_flat_id
+                if (allRooms && allRooms.length > 0) {
+                    // Get unique floor_flat_ids from rooms
+                    const floorFlatIds = [...new Set(allRooms.map(r => r.floor_flat_id).filter(Boolean))];
+                    if (floorFlatIds.length > 0) {
+                        // Get floor names from floors_flats
+                        const matchedFloors = allFloorsFlats.filter(f => floorFlatIds.includes(f.id));
+                        floorLabels = matchedFloors.map(f => f.name).sort();
+                        console.log('📋 Floor labels from floor_flat_ids:', floorLabels);
+                    }
+                }
+            }
+            
+            // FOURTH: Final fallback - generate based on hostel type
             if (floorLabels.length === 0) {
                 if (isFlat) {
-                    const totalFlats = hostel.total_flats || 9;
+                    // Use total_flats from hostel or rooms data
+                    let totalFlats = hostel.total_flats || 0;
+                    // If rooms exist, try to determine number of flats from room codes
+                    if (allRooms && allRooms.length > 0) {
+                        const uniqueFlats = new Set();
+                        allRooms.forEach(r => {
+                            const code = r.room_code || '';
+                            const match = code.match(/^F(\d+)/);
+                            if (match) {
+                                uniqueFlats.add(parseInt(match[1]));
+                            }
+                        });
+                        if (uniqueFlats.size > 0) {
+                            totalFlats = Math.max(...uniqueFlats);
+                        }
+                    }
+                    if (totalFlats === 0) totalFlats = 9;
                     for (let i = 1; i <= totalFlats; i++) {
                         floorLabels.push(`F${i}`);
                     }
                 } else {
-                    const totalFloors = hostel.floors || hostel.total_floors || 3;
+                    let totalFloors = hostel.floors || hostel.total_floors || 3;
+                    if (allRooms && allRooms.length > 0) {
+                        const uniqueFloors = new Set();
+                        allRooms.forEach(r => {
+                            const code = r.room_code || '';
+                            const match = code.match(/^([A-H])/);
+                            if (match) {
+                                uniqueFloors.add(match[1]);
+                            }
+                        });
+                        if (uniqueFloors.size > 0) {
+                            totalFloors = uniqueFloors.size;
+                        }
+                    }
                     const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
                     for (let i = 0; i < totalFloors && i < letters.length; i++) {
                         floorLabels.push(letters[i]);
                     }
                 }
+                console.log('📋 Floor labels generated (fallback):', floorLabels);
             }
             
-            console.log('📋 Floor labels:', floorLabels);
-            
-            if (floorLabels.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center text-muted p-3" style="grid-column:1/-1;">
-                        <i class="fas fa-info-circle"></i> No floors/flats found. Add a room to get started.
-                    </div>
-                `;
-                return;
-            }
-            
+            // Build floor data with actual room counts
             let floorData = [];
             
             floorLabels.forEach(label => {
-                const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
-                const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
+                // Find rooms that belong to this floor
+                const floorRooms = allRooms.filter(r => {
+                    const roomFloor = r.floor_label || r.floor;
+                    return roomFloor === label;
+                });
+                
+                // If no rooms found with exact match, try partial match
+                let matchedRooms = floorRooms;
+                if (floorRooms.length === 0) {
+                    matchedRooms = allRooms.filter(r => {
+                        const code = r.room_code || '';
+                        const fullCode = r.full_code || '';
+                        return code.startsWith(label) || fullCode.startsWith(label);
+                    });
+                }
+                
+                const totalBeds = matchedRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
                 const occupied = allBedSpaces.filter(b => 
-                    b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied'
+                    b.room_id && matchedRooms.some(r => r.id === b.room_id) && b.status === 'occupied'
                 ).length;
                 const available = totalBeds - occupied;
                 const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
@@ -1108,13 +1177,29 @@
                 floorData.push({
                     label: displayLabel,
                     value: label,
-                    rooms: floorRooms.length,
+                    rooms: matchedRooms.length,
                     totalBeds: totalBeds,
                     occupied: occupied,
                     available: available,
                     pct: pct
                 });
             });
+            
+            // Sort floors by number
+            floorData.sort((a, b) => {
+                const aNum = parseInt(a.value.replace('F', '')) || 0;
+                const bNum = parseInt(b.value.replace('F', '')) || 0;
+                return aNum - bNum;
+            });
+            
+            if (floorData.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-muted p-3" style="grid-column:1/-1;">
+                        <i class="fas fa-info-circle"></i> No floors/flats found. Add a room to get started.
+                    </div>
+                `;
+                return;
+            }
             
             container.innerHTML = floorData.map(f => `
                 <div class="floor-card ${selectedFloor === f.value ? 'active' : ''}" onclick="selectFloor('${f.value}')">
@@ -1180,7 +1265,21 @@
             const tbody = document.getElementById('roomTableBody');
             if (!tbody) return;
             
-            const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === floorValue);
+            // Find rooms for this floor
+            let floorRooms = allRooms.filter(r => {
+                const roomFloor = r.floor_label || r.floor;
+                return roomFloor === floorValue;
+            });
+            
+            // If no exact match, try partial match
+            if (floorRooms.length === 0) {
+                floorRooms = allRooms.filter(r => {
+                    const code = r.room_code || '';
+                    const fullCode = r.full_code || '';
+                    return code.startsWith(floorValue) || fullCode.startsWith(floorValue);
+                });
+            }
+            
             const bedsPerRoom = selectedHostelForRoom?.beds_per_room || 4;
             
             const roomsWithData = floorRooms.map(r => {
@@ -1203,7 +1302,7 @@
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="6" class="text-center text-muted p-3">
-                            <i class="fas fa-info-circle"></i> No rooms found. Click "Add Room" to create one.
+                            <i class="fas fa-info-circle"></i> No rooms found for ${floorValue}. Click "Add Room" to create one.
                         </td>
                     </tr>
                 `;
