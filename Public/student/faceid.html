@@ -1311,7 +1311,14 @@
             loadingBar.style.width = '40%';
             const best = frames.reduce((a, b) => (b.score > a.score ? b : a), frames[0]);
             let imageB64 = best.imageData;
-            if (imageB64.startsWith('data:')) imageB64 = imageB64.split(',')[1];
+            
+            // ✅ FIX: Keep the data URL prefix - DO NOT remove it
+            // The server's validateImage expects the prefix
+            // If it doesn't have the prefix, add it
+            if (!imageB64.startsWith('data:image')) {
+                // If it's raw base64, add the prefix
+                imageB64 = `data:image/jpeg;base64,${imageB64}`;
+            }
 
             loadingMsg.textContent = 'Sending to server…';
             loadingBar.style.width = '55%';
@@ -1321,7 +1328,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    image: imageB64,
+                    image: imageB64,  // ✅ Send with data URL prefix
                     name: student.name || '',
                     matric: student.matric || '',
                     hostel: student.hostel_id || '',
