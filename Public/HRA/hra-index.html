@@ -450,6 +450,15 @@
         .session-status-badge.completed { background: #d1fae5; color: #065f46; }
         .session-status-badge.closed { background: #e8edf2; color: #536274; }
         .session-status-badge.scheduled { background: #fef3c7; color: #92400e; }
+        .session-status-badge.inprogress { background: #fef3c7; color: #92400e; }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: #68768a;
+        }
+        .empty-state i { font-size: 3rem; color: #b9c7db; margin-bottom: 1rem; }
+        .empty-state h3 { font-size: 1.2rem; color: #17233c; margin-bottom: 0.5rem; }
     </style>
 </head>
 <body>
@@ -550,7 +559,6 @@
             let roomStructure = { type: 'floor', areas: [] };
             let sessionCheckerInterval = null;
 
-            // Session state
             let isSessionActive = false;
             let sessionStatus = 'Closed';
             let currentSession = null;
@@ -669,57 +677,39 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS
+            // LOAD SESSION STATUS - FIXED
             // =============================================
             async function loadSessionStatus() {
                 try {
-                    const sessionResult = await apiCall('/sessions/active');
+                    // First check for active global session
+                    const sessionResult = await apiCall('/sessions/active').catch(() => null);
                     
                     if (sessionResult && sessionResult.data && sessionResult.is_active) {
                         currentSession = sessionResult.data;
                         isSessionActive = true;
                         sessionStatus = currentSession.status || 'Active';
-                    } else {
-                        if (hostelData && hostelData.id) {
-                            const hostelSessionResult = await apiCall(`/sessions?hostel_id=${hostelData.id}`);
-                            if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
-                                const latest = hostelSessionResult.data[0];
-                                currentSession = latest;
-                                sessionStatus = latest.status || 'Closed';
-                                isSessionActive = sessionStatus === 'Active' || sessionStatus === 'Running' || sessionStatus === 'Open' || sessionStatus === 'started';
-                            } else {
-                                currentSession = null;
-                                isSessionActive = false;
-                                sessionStatus = 'Closed';
-                            }
-                        } else {
-                            currentSession = null;
-                            isSessionActive = false;
-                            sessionStatus = 'Closed';
+                        return { isSessionActive, sessionStatus, session: currentSession };
+                    }
+
+                    // If no global session, check for any session for this hostel
+                    if (hostelData && hostelData.id) {
+                        const hostelSessionResult = await apiCall(`/sessions/hostel/${hostelData.id}`).catch(() => null);
+                        if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
+                            const latest = hostelSessionResult.data[0];
+                            currentSession = latest;
+                            sessionStatus = latest.status || 'Closed';
+                            isSessionActive = sessionStatus === 'active' || sessionStatus === 'Active' || 
+                                            sessionStatus === 'Running' || sessionStatus === 'Open' || 
+                                            sessionStatus === 'started' || sessionStatus === 'in_progress';
+                            return { isSessionActive, sessionStatus, session: currentSession };
                         }
                     }
 
-                    if (isSessionActive && currentSession) {
-                        try {
-                            const statusResult = await apiCall('/ra/bedcheck/status');
-                            if (statusResult && statusResult.data) {
-                                if (statusResult.data.effective_status === 'started') {
-                                    sessionStatus = 'Active';
-                                    isSessionActive = true;
-                                } else if (statusResult.data.effective_status === 'completed') {
-                                    sessionStatus = 'Completed';
-                                    isSessionActive = false;
-                                } else if (statusResult.data.effective_status === 'ready') {
-                                    sessionStatus = 'Ready';
-                                    isSessionActive = true;
-                                }
-                            }
-                        } catch (e) {
-                            // Silent fail - use session data
-                        }
-                    }
+                    currentSession = null;
+                    isSessionActive = false;
+                    sessionStatus = 'Closed';
+                    return { isSessionActive: false, sessionStatus: 'Closed', session: null };
 
-                    return { isSessionActive, sessionStatus, session: currentSession };
                 } catch (error) {
                     console.error('Error loading session status:', error);
                     return { isSessionActive: false, sessionStatus: 'Closed', session: null };
@@ -826,13 +816,12 @@
             }
 
             // =============================================
-            // BUILD ROOM STRUCTURE
+            // BUILD ROOM STRUCTURE - FIXED
             // =============================================
             function buildRoomStructure() {
-                // Initialize roomStructure
                 roomStructure = { type: hostelData?.type || 'floor', areas: [] };
 
-                // Use floors and rooms data from API
+                // If we have floors and rooms from API, use those
                 if (floors.length > 0 && rooms.length > 0) {
                     floors.forEach(floor => {
                         const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
@@ -857,35 +846,101 @@
                                     const firstNum = parseInt(sorted[0].replace(/^[A-Z]/, ''));
                                     const lastNum = parseInt(sorted[sorted.length-1].replace(/^[A-Z]/, ''));
                                     const rangeName = `${prefix}${firstNum}-${prefix}${lastNum}`;
-                                    roomStructure.areas.push({
-                                        name: rangeName,
-                                        key: rangeName,
-                                        rooms: sorted,
-                                        floor: floor.name || `Floor ${prefix}`,
-                                        prefix: prefix,
-                                        start: firstNum,
-                                        end: lastNum
-                                    });
+                                    
+                                    // Determine if this is a girls hostel pattern
+                                    const isGirls = hostelData?.gender === 'female';
+                                    let areaRooms = sorted;
+                                    
+                                    // For girls hostels, split into 3 ranges: 1-8, 9-14, 15-18
+                                    if (isGirls) {
+                                        const range1 = sorted.filter(r => {
+                                            const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                            return num >= 1 && num <= 8;
+                                        });
+                                        const range2 = sorted.filter(r => {
+                                            const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                            return num >= 9 && num <= 14;
+                                        });
+                                        const range3 = sorted.filter(r => {
+                                            const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                            return num >= 15 && num <= 18;
+                                        });
+                                        
+                                        if (range1.length > 0) {
+                                            roomStructure.areas.push({
+                                                name: `${prefix}1-${prefix}8`,
+                                                key: `${prefix}1-${prefix}8`,
+                                                rooms: range1,
+                                                floor: floor.name || `Floor ${prefix}`,
+                                                prefix: prefix,
+                                                start: 1,
+                                                end: 8
+                                            });
+                                        }
+                                        if (range2.length > 0) {
+                                            roomStructure.areas.push({
+                                                name: `${prefix}9-${prefix}14`,
+                                                key: `${prefix}9-${prefix}14`,
+                                                rooms: range2,
+                                                floor: floor.name || `Floor ${prefix}`,
+                                                prefix: prefix,
+                                                start: 9,
+                                                end: 14
+                                            });
+                                        }
+                                        if (range3.length > 0) {
+                                            roomStructure.areas.push({
+                                                name: `${prefix}15-${prefix}18`,
+                                                key: `${prefix}15-${prefix}18`,
+                                                rooms: range3,
+                                                floor: floor.name || `Floor ${prefix}`,
+                                                prefix: prefix,
+                                                start: 15,
+                                                end: 18
+                                            });
+                                        }
+                                    } else {
+                                        // Boys hostels: split into 2 ranges: 1-9, 10-18
+                                        const range1 = sorted.filter(r => {
+                                            const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                            return num >= 1 && num <= 9;
+                                        });
+                                        const range2 = sorted.filter(r => {
+                                            const num = parseInt(r.replace(/^[A-Z]/, ''));
+                                            return num >= 10 && num <= 18;
+                                        });
+                                        
+                                        if (range1.length > 0) {
+                                            roomStructure.areas.push({
+                                                name: `${prefix}1-${prefix}9`,
+                                                key: `${prefix}1-${prefix}9`,
+                                                rooms: range1,
+                                                floor: floor.name || `Floor ${prefix}`,
+                                                prefix: prefix,
+                                                start: 1,
+                                                end: 9
+                                            });
+                                        }
+                                        if (range2.length > 0) {
+                                            roomStructure.areas.push({
+                                                name: `${prefix}10-${prefix}18`,
+                                                key: `${prefix}10-${prefix}18`,
+                                                rooms: range2,
+                                                floor: floor.name || `Floor ${prefix}`,
+                                                prefix: prefix,
+                                                start: 10,
+                                                end: 18
+                                            });
+                                        }
+                                    }
                                 }
                             });
                         }
                     });
-                } else if (hostelData?.type === 'flat') {
-                    const flatNumbers = [];
-                    students.forEach(s => {
-                        if (s.flat) {
-                            const num = parseInt(s.flat.match(/\d+/)?.[0]);
-                            if (num) flatNumbers.push(num);
-                        }
-                    });
-                    const sortedFlats = [...new Set(flatNumbers)].sort((a, b) => a - b);
-                    roomStructure.type = 'flat';
-                    roomStructure.areas = sortedFlats.map(num => ({
-                        name: `Flat ${num}`,
-                        key: `Flat ${num}`,
-                        rooms: students.filter(s => s.flat === `Flat ${num}`).map(s => s.room).filter(Boolean)
-                    }));
-                } else {
+                }
+
+                // If no areas built from rooms, use students data
+                if (roomStructure.areas.length === 0) {
                     const floorLetters = [];
                     students.forEach(s => {
                         if (s.floor) {
@@ -894,10 +949,8 @@
                         }
                     });
                     const sortedLetters = [...new Set(floorLetters)].sort();
-                    roomStructure.type = 'floor';
 
-                    const raStaff = staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor');
-                    const isGirlsHostel = checkIfGirlsHostel(raStaff, sortedLetters);
+                    const isGirls = hostelData?.gender === 'female';
 
                     sortedLetters.forEach(letter => {
                         const floorRooms = students
@@ -910,9 +963,7 @@
                                 return numA - numB;
                             });
 
-                        let roomRanges = [];
-
-                        if (isGirlsHostel) {
+                        if (isGirls) {
                             const range1 = floorRooms.filter(r => {
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 1 && num <= 8;
@@ -925,15 +976,39 @@
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 15 && num <= 18;
                             });
-
-                            if (range1.length > 0) {
-                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`, rooms: range1, prefix: letter, start: 1, end: 8 });
+                            
+                            if (range1.length > 0 || floorRooms.length > 0) {
+                                roomStructure.areas.push({
+                                    name: `${letter}1-${letter}8`,
+                                    key: `${letter}1-${letter}8`,
+                                    rooms: range1.length > 0 ? range1 : Array.from({ length: 8 }, (_, i) => `${letter}${i+1}`),
+                                    floor: `Floor ${letter}`,
+                                    prefix: letter,
+                                    start: 1,
+                                    end: 8
+                                });
                             }
                             if (range2.length > 0) {
-                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`, rooms: range2, prefix: letter, start: 9, end: 14 });
+                                roomStructure.areas.push({
+                                    name: `${letter}9-${letter}14`,
+                                    key: `${letter}9-${letter}14`,
+                                    rooms: range2,
+                                    floor: `Floor ${letter}`,
+                                    prefix: letter,
+                                    start: 9,
+                                    end: 14
+                                });
                             }
                             if (range3.length > 0) {
-                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`, rooms: range3, prefix: letter, start: 15, end: 18 });
+                                roomStructure.areas.push({
+                                    name: `${letter}15-${letter}18`,
+                                    key: `${letter}15-${letter}18`,
+                                    rooms: range3,
+                                    floor: `Floor ${letter}`,
+                                    prefix: letter,
+                                    start: 15,
+                                    end: 18
+                                });
                             }
                         } else {
                             const range1 = floorRooms.filter(r => {
@@ -944,85 +1019,106 @@
                                 const num = parseInt(r.replace(letter, ''));
                                 return num >= 10 && num <= 18;
                             });
-
-                            if (range1.length > 0) {
-                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: range1, prefix: letter, start: 1, end: 9 });
+                            
+                            if (range1.length > 0 || floorRooms.length > 0) {
+                                roomStructure.areas.push({
+                                    name: `${letter}1-${letter}9`,
+                                    key: `${letter}1-${letter}9`,
+                                    rooms: range1.length > 0 ? range1 : Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`),
+                                    floor: `Floor ${letter}`,
+                                    prefix: letter,
+                                    start: 1,
+                                    end: 9
+                                });
                             }
                             if (range2.length > 0) {
-                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: range2, prefix: letter, start: 10, end: 18 });
+                                roomStructure.areas.push({
+                                    name: `${letter}10-${letter}18`,
+                                    key: `${letter}10-${letter}18`,
+                                    rooms: range2,
+                                    floor: `Floor ${letter}`,
+                                    prefix: letter,
+                                    start: 10,
+                                    end: 18
+                                });
                             }
                         }
-
-                        if (roomRanges.length === 0) {
-                            if (isGirlsHostel) {
-                                roomRanges.push({ name: `${letter}1-${letter}8`, key: `${letter}1-${letter}8`, rooms: Array.from({ length: 8 }, (_, i) => `${letter}${i+1}`), prefix: letter, start: 1, end: 8 });
-                                roomRanges.push({ name: `${letter}9-${letter}14`, key: `${letter}9-${letter}14`, rooms: Array.from({ length: 6 }, (_, i) => `${letter}${i+9}`), prefix: letter, start: 9, end: 14 });
-                                roomRanges.push({ name: `${letter}15-${letter}18`, key: `${letter}15-${letter}18`, rooms: Array.from({ length: 4 }, (_, i) => `${letter}${i+15}`), prefix: letter, start: 15, end: 18 });
-                            } else {
-                                roomRanges.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: Array.from({ length: 9 }, (_, i) => `${letter}${i+1}`), prefix: letter, start: 1, end: 9 });
-                                roomRanges.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: Array.from({ length: 9 }, (_, i) => `${letter}${i+10}`), prefix: letter, start: 10, end: 18 });
-                            }
-                        }
-
-                        roomRanges.forEach(range => {
-                            roomStructure.areas.push({
-                                name: range.name,
-                                key: range.key,
-                                rooms: range.rooms,
-                                floor: `Floor ${letter}`,
-                                prefix: range.prefix,
-                                start: range.start,
-                                end: range.end
-                            });
-                        });
                     });
                 }
 
+                // Final fallback: generate based on hostel data
                 if (roomStructure.areas.length === 0) {
                     if (hostelData?.type === 'flat') {
                         const totalFlats = hostelData.total_flats || 9;
                         for (let i = 1; i <= totalFlats; i++) {
                             const rooms = Array.from({ length: 4 }, (_, r) => `F${i}R${r + 1}`);
-                            roomStructure.areas.push({ name: `Flat ${i}`, key: `Flat ${i}`, rooms: rooms });
+                            roomStructure.areas.push({ 
+                                name: `Flat ${i}`, 
+                                key: `Flat ${i}`, 
+                                rooms: rooms,
+                                floor: `Flat ${i}`,
+                                prefix: `F${i}`,
+                                start: 1,
+                                end: 4
+                            });
                         }
                     } else {
                         const totalFloors = hostelData?.total_floors || 3;
                         const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+                        const isGirls = hostelData?.gender === 'female';
                         for (let i = 0; i < totalFloors; i++) {
                             const letter = letters[i];
-                            roomStructure.areas.push({ name: `${letter}1-${letter}9`, key: `${letter}1-${letter}9`, rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`), floor: `Floor ${letter}`, prefix: letter, start: 1, end: 9 });
-                            roomStructure.areas.push({ name: `${letter}10-${letter}18`, key: `${letter}10-${letter}18`, rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`), floor: `Floor ${letter}`, prefix: letter, start: 10, end: 18 });
+                            if (isGirls) {
+                                roomStructure.areas.push({ 
+                                    name: `${letter}1-${letter}8`, 
+                                    key: `${letter}1-${letter}8`, 
+                                    rooms: Array.from({ length: 8 }, (_, r) => `${letter}${r+1}`), 
+                                    floor: `Floor ${letter}`, 
+                                    prefix: letter, 
+                                    start: 1, 
+                                    end: 8 
+                                });
+                                roomStructure.areas.push({ 
+                                    name: `${letter}9-${letter}14`, 
+                                    key: `${letter}9-${letter}14`, 
+                                    rooms: Array.from({ length: 6 }, (_, r) => `${letter}${r+9}`), 
+                                    floor: `Floor ${letter}`, 
+                                    prefix: letter, 
+                                    start: 9, 
+                                    end: 14 
+                                });
+                                roomStructure.areas.push({ 
+                                    name: `${letter}15-${letter}18`, 
+                                    key: `${letter}15-${letter}18`, 
+                                    rooms: Array.from({ length: 4 }, (_, r) => `${letter}${r+15}`), 
+                                    floor: `Floor ${letter}`, 
+                                    prefix: letter, 
+                                    start: 15, 
+                                    end: 18 
+                                });
+                            } else {
+                                roomStructure.areas.push({ 
+                                    name: `${letter}1-${letter}9`, 
+                                    key: `${letter}1-${letter}9`, 
+                                    rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+1}`), 
+                                    floor: `Floor ${letter}`, 
+                                    prefix: letter, 
+                                    start: 1, 
+                                    end: 9 
+                                });
+                                roomStructure.areas.push({ 
+                                    name: `${letter}10-${letter}18`, 
+                                    key: `${letter}10-${letter}18`, 
+                                    rooms: Array.from({ length: 9 }, (_, r) => `${letter}${r+10}`), 
+                                    floor: `Floor ${letter}`, 
+                                    prefix: letter, 
+                                    start: 10, 
+                                    end: 18 
+                                });
+                            }
                         }
                     }
                 }
-            }
-
-            function checkIfGirlsHostel(raStaff, floorLetters) {
-                let girlsHostelPattern = false;
-                floorLetters.forEach(letter => {
-                    const rasOnFloor = raStaff.filter(ra => {
-                        const area = ra.assigned_floor || '';
-                        return area.includes(`Floor ${letter}`);
-                    });
-                    if (rasOnFloor.length === 3) {
-                        const hasRange1 = rasOnFloor.some(ra => {
-                            const area = ra.assigned_floor || '';
-                            return area.includes(`${letter}1-${letter}8`);
-                        });
-                        const hasRange2 = rasOnFloor.some(ra => {
-                            const area = ra.assigned_floor || '';
-                            return area.includes(`${letter}9-${letter}14`);
-                        });
-                        const hasRange3 = rasOnFloor.some(ra => {
-                            const area = ra.assigned_floor || '';
-                            return area.includes(`${letter}15-${letter}18`);
-                        });
-                        if (hasRange1 && hasRange2 && hasRange3) {
-                            girlsHostelPattern = true;
-                        }
-                    }
-                });
-                return girlsHostelPattern;
             }
 
             function getAreaDisplay(areaKey) {
@@ -1035,7 +1131,7 @@
             }
 
             // =============================================
-            // RENDER DASHBOARD
+            // RENDER DASHBOARD - FIXED
             // =============================================
             async function renderDashboard() {
                 if (!hostelData) {
@@ -1059,10 +1155,11 @@
                 const hostelName = hostelData.name || 'Your Hostel';
                 const totalStudents = students.length;
                 
-                // Determine verified status from scans and student status
+                // Determine verified status from scans
                 const verified = students.filter(s => {
                     const scan = scans.find(sc => sc.student_id === s.id);
-                    return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                    return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                           scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                 }).length || 0;
                 
                 const pending = totalStudents - verified;
@@ -1074,7 +1171,8 @@
                     const roomStudents = students.filter(s => s.room_id === r.id);
                     return roomStudents.length > 0 && roomStudents.every(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                     });
                 }).length;
 
@@ -1096,7 +1194,7 @@
                     detailText: 'BedCheck session is not currently running.'
                 };
 
-                if (isSessionActive && sessionStatus === 'Active') {
+                if (isSessionActive && sessionStatus === 'active') {
                     sessionDisplay = {
                         statusText: 'BedCheck Session Active',
                         badgeClass: 'active',
@@ -1104,7 +1202,7 @@
                         icon: '🟢',
                         detailText: 'RAs are currently verifying students. Controlled by Administrator / RASD.'
                     };
-                } else if (isSessionActive && sessionStatus === 'Ready') {
+                } else if (isSessionActive && sessionStatus === 'ready') {
                     sessionDisplay = {
                         statusText: 'BedCheck Session Ready',
                         badgeClass: 'ready',
@@ -1112,21 +1210,13 @@
                         icon: '🟡',
                         detailText: 'Session is ready. Waiting for RAs to start verification.'
                     };
-                } else if (sessionStatus === 'Completed') {
+                } else if (sessionStatus === 'completed') {
                     sessionDisplay = {
                         statusText: 'BedCheck Completed',
                         badgeClass: 'completed',
                         badgeText: 'Done',
                         icon: '✅',
                         detailText: 'Today\'s BedCheck has been completed.'
-                    };
-                } else {
-                    sessionDisplay = {
-                        statusText: 'No active session',
-                        badgeClass: 'closed',
-                        badgeText: 'Closed',
-                        icon: '🔴',
-                        detailText: 'Please wait for the Administrator to start a BedCheck session.'
                     };
                 }
 
@@ -1159,7 +1249,8 @@
                     const total = areaStudents.length;
                     const checked = areaStudents.filter(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                     }).length;
                     floorGroups[floorKey].areas.push({ name: area.name, total, checked, rooms: area.rooms.length });
                     floorGroups[floorKey].total += total;
@@ -1201,7 +1292,8 @@
                     
                     const raVerified = raStudents.filter(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                     }).length;
                     
                     if (raStudents.length > 0 && raVerified === raStudents.length) {
@@ -1223,17 +1315,19 @@
                 });
 
                 // Rooms needing attention
-                const pendingRooms = rooms.filter(r => {
+                const pendingRooms = roomsWithStudents.filter(r => {
                     const roomStudents = students.filter(s => s.room_id === r.id);
                     return roomStudents.length > 0 && !roomStudents.every(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                     });
                 }).slice(0, 5).map(r => {
                     const roomStudents = students.filter(s => s.room_id === r.id);
                     const verifiedCount = roomStudents.filter(s => {
                         const scan = scans.find(sc => sc.student_id === s.id);
-                        return scan?.status === 'Verified' || scan?.status === 'Present' || s.status === 'Present' || s.status === 'Verified';
+                        return scan?.status === 'Verified' || scan?.status === 'Present' || 
+                               scan?.status === 'present' || s.status === 'Present' || s.status === 'Verified';
                     }).length;
                     const totalCount = roomStudents.length;
                     return {
@@ -1249,7 +1343,7 @@
                 if (hour < 12) greeting = 'Good Morning';
                 else if (hour < 17) greeting = 'Good Afternoon';
 
-                const isGirls = roomStructure.areas.some(a => a.start === 15);
+                const isGirls = hostelData?.gender === 'female';
                 const hostelTypeLabel = hostelData.type === 'flat' ? 'Flats' :
                     isGirls ? 'Girls (3 RAs/floor)' : 'Boys (2 RAs/floor)';
 
@@ -1263,6 +1357,7 @@
                                 <span>· ${totalStudents} students</span>
                                 <span>· ${roomsWithStudents.length} rooms</span>
                                 <span class="badge badge-floor" style="font-size:0.55rem;">${roomStructure.areas.length} room ranges</span>
+                                <span class="badge badge-active" style="font-size:0.55rem;background:#d6ad4b;color:#10233f;">${hostelData.campus || 'Legacy'}</span>
                             </div>
                             <div class="greeting">${greeting}, <span class="highlight">${currentUser?.name || 'HRA'}</span></div>
                         </div>
@@ -1290,7 +1385,7 @@
                         </div>
                     </div>
 
-                    <!-- STAT CARDS - 4 Cards -->
+                    <!-- STAT CARDS -->
                     <div class="stat-card-grid">
                         <div class="stat-card">
                             <div class="stat-icon"><i class="fas fa-users"></i></div>
@@ -1431,7 +1526,7 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - FIXED
             // =============================================
             async function loadAllData() {
                 try {
@@ -1446,9 +1541,15 @@
                     try {
                         currentUser = JSON.parse(userData);
                         if (!sessionStorage.getItem('bedcheck_user')) sessionStorage.setItem('bedcheck_user', userData);
-                        if (!currentUser.id) { showToast('User data incomplete', 'error');
-                            setTimeout(() => window.location.replace('../Login.html'), 2000); return; }
-                    } catch (e) { window.location.replace('../Login.html'); return; }
+                        if (!currentUser.id) { 
+                            showToast('User data incomplete', 'error');
+                            setTimeout(() => window.location.replace('../Login.html'), 2000); 
+                            return; 
+                        }
+                    } catch (e) { 
+                        window.location.replace('../Login.html'); 
+                        return; 
+                    }
                     updateUserDisplay();
 
                     // Get HRA's hostel
@@ -1553,12 +1654,17 @@
                 try {
                     currentUser = JSON.parse(userData);
                     if (!sessionStorage.getItem('bedcheck_user')) sessionStorage.setItem('bedcheck_user', userData);
-                    if (!currentUser.id) { showToast('User data incomplete', 'error');
-                        setTimeout(() => window.location.replace('../Login.html'), 2000); return; }
+                    if (!currentUser.id) { 
+                        showToast('User data incomplete', 'error');
+                        setTimeout(() => window.location.replace('../Login.html'), 2000); 
+                        return; 
+                    }
                     updateUserDisplay();
                     loadAllData();
-                } catch (e) { console.error('Error parsing user data:', e);
-                    window.location.replace('../Login.html'); }
+                } catch (e) { 
+                    console.error('Error parsing user data:', e);
+                    window.location.replace('../Login.html'); 
+                }
 
                 logoutBtn.addEventListener('click', handleLogout);
                 menuToggle.addEventListener('click', openMobileDrawer);
