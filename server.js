@@ -9493,40 +9493,43 @@ app.get('/api/floors-flats',
         try {
             let hostelQuery = supabase
                 .from('hostels')
-                .select('id')
-                .eq('campus', req.campus);
-            
+                .select('id');
+
+            // Only filter by campus if NOT viewing all campuses
+            if (!req.viewAllCampuses) {
+                hostelQuery = hostelQuery.eq('campus', req.campus);
+            }
+
             if (hostel_id) {
                 hostelQuery = hostelQuery.eq('id', parseInt(hostel_id));
             }
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+
+            if (!req.viewAllCampuses && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
-            
+
             const { data: hostels, error: hostelError } = await hostelQuery;
             if (hostelError) throw hostelError;
-            
-            const hostelIds = hostels.map(h => h.id);
-            
+
+            const hostelIds = (hostels || []).map(h => h.id);
+
             if (hostelIds.length === 0) {
                 return res.json({ success: true, data: [], campus: req.campus });
             }
-            
-            let query = supabase
+
+            const { data, error } = await supabase
                 .from('floors_flats')
                 .select('*')
                 .in('hostel_id', hostelIds)
                 .order('name', { ascending: true });
-            
-            const { data, error } = await query;
+
             if (error) throw error;
-            
-            res.json({ success: true, data: data, campus: req.campus });
+
+            res.json({ success: true, data: data || [], campus: req.campus });
         } catch (error) {
             console.error('Error fetching floors/flats:', error);
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 message: 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });
@@ -9842,26 +9845,32 @@ app.get('/api/rooms',
     async (req, res) => {
         const { floor_flat_id, hostel_id } = req.query;
         try {
+            // Build hostel list
             let hostelQuery = supabase
                 .from('hostels')
-                .select('id')
-                .eq('campus', req.campus);
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+                .select('id');
+
+            // Only filter by campus if NOT an admin viewing all campuses
+            if (!req.viewAllCampuses) {
+                hostelQuery = hostelQuery.eq('campus', req.campus);
+            }
+
+            // Non-admins with a specific hostel are further restricted
+            if (!req.viewAllCampuses && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
-            
+
             const { data: hostels, error: hostelError } = await hostelQuery;
             if (hostelError) throw hostelError;
-            
-            const hostelIds = hostels.map(h => h.id);
-            
+
+            const hostelIds = (hostels || []).map(h => h.id);
+
             if (hostelIds.length === 0) {
                 return res.json({ success: true, data: [], campus: req.campus });
             }
 
             let query = supabase.from('rooms').select('*');
-            
+
             if (floor_flat_id) {
                 query = query.eq('floor_flat_id', parseInt(floor_flat_id));
             } else if (hostel_id) {
@@ -9870,16 +9879,16 @@ app.get('/api/rooms',
                     .select('id')
                     .eq('hostel_id', parseInt(hostel_id))
                     .in('hostel_id', hostelIds);
-                
+
                 if (floorsError) {
                     console.error('Error fetching floors:', floorsError);
-                    return res.status(500).json({ 
-                        success: false, 
+                    return res.status(500).json({
+                        success: false,
                         message: 'An error occurred. Please try again.',
                         code: 'SERVER_ERROR'
                     });
                 }
-                
+
                 if (floors && floors.length > 0) {
                     const floorIds = floors.map(f => f.id);
                     query = query.in('floor_flat_id', floorIds);
@@ -9891,16 +9900,16 @@ app.get('/api/rooms',
                     .from('floors_flats')
                     .select('id')
                     .in('hostel_id', hostelIds);
-                
+
                 if (floorsError) {
                     console.error('Error fetching floors:', floorsError);
-                    return res.status(500).json({ 
-                        success: false, 
+                    return res.status(500).json({
+                        success: false,
                         message: 'An error occurred. Please try again.',
                         code: 'SERVER_ERROR'
                     });
                 }
-                
+
                 if (floors && floors.length > 0) {
                     const floorIds = floors.map(f => f.id);
                     query = query.in('floor_flat_id', floorIds);
@@ -9908,40 +9917,40 @@ app.get('/api/rooms',
                     return res.json({ success: true, data: [], campus: req.campus });
                 }
             }
-            
+
             const { data, error } = await query.order('room_code', { ascending: true });
             if (error) throw error;
-            
-            const enrichedData = await Promise.all(data.map(async (room) => {
+
+            const enrichedData = await Promise.all((data || []).map(async (room) => {
                 const { data: floorData } = await supabase
                     .from('floors_flats')
                     .select('name, hostel_id')
                     .eq('id', room.floor_flat_id)
                     .maybeSingle();
-                
+
                 const { data: bedData } = await supabase
                     .from('bed_spaces')
                     .select('id, status')
                     .eq('room_id', room.id);
-                
-                const capacity = bedData?.length || 4;
+
+                const capacity = bedData?.length || room.capacity || 4;
                 const occupiedCount = bedData?.filter(b => b.status === 'occupied').length || 0;
-                
+
                 return {
                     ...room,
                     floor_label: floorData?.name || null,
                     hostel_id: floorData?.hostel_id || null,
-                    capacity: capacity,
+                    capacity,
                     occupied: occupiedCount,
                     available: capacity - occupiedCount
                 };
             }));
-            
+
             res.json({ success: true, data: enrichedData, campus: req.campus });
         } catch (error) {
             console.error('Error fetching rooms:', error);
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 message: 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });
@@ -10290,26 +10299,32 @@ app.get('/api/bed-spaces',
     async (req, res) => {
         const { room_id, hostel_id } = req.query;
         try {
+            // Build hostel list
             let hostelQuery = supabase
                 .from('hostels')
-                .select('id')
-                .eq('campus', req.campus);
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+                .select('id');
+
+            // Only filter by campus if NOT an admin viewing all campuses
+            if (!req.viewAllCampuses) {
+                hostelQuery = hostelQuery.eq('campus', req.campus);
+            }
+
+            // Non-admins with a specific hostel are further restricted
+            if (!req.viewAllCampuses && req.user.hostel_id) {
                 hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
-            
+
             const { data: hostels, error: hostelError } = await hostelQuery;
             if (hostelError) throw hostelError;
-            
-            const hostelIds = hostels.map(h => h.id);
-            
+
+            const hostelIds = (hostels || []).map(h => h.id);
+
             if (hostelIds.length === 0) {
                 return res.json({ success: true, data: [], campus: req.campus });
             }
 
             let query = supabase.from('bed_spaces').select('*');
-            
+
             if (room_id) {
                 query = query.eq('room_id', parseInt(room_id));
             } else if (hostel_id) {
@@ -10318,32 +10333,32 @@ app.get('/api/bed-spaces',
                     .select('id')
                     .eq('hostel_id', parseInt(hostel_id))
                     .in('hostel_id', hostelIds);
-                
+
                 if (floorsError) {
                     console.error('Error fetching floors:', floorsError);
-                    return res.status(500).json({ 
-                        success: false, 
+                    return res.status(500).json({
+                        success: false,
                         message: 'An error occurred. Please try again.',
                         code: 'SERVER_ERROR'
                     });
                 }
-                
+
                 if (floors && floors.length > 0) {
                     const floorIds = floors.map(f => f.id);
                     const { data: rooms, error: roomsError } = await supabase
                         .from('rooms')
                         .select('id')
                         .in('floor_flat_id', floorIds);
-                    
+
                     if (roomsError) {
                         console.error('Error fetching rooms:', roomsError);
-                        return res.status(500).json({ 
-                            success: false, 
+                        return res.status(500).json({
+                            success: false,
                             message: 'An error occurred. Please try again.',
                             code: 'SERVER_ERROR'
                         });
                     }
-                    
+
                     if (rooms && rooms.length > 0) {
                         const roomIds = rooms.map(r => r.id);
                         query = query.in('room_id', roomIds);
@@ -10358,32 +10373,32 @@ app.get('/api/bed-spaces',
                     .from('floors_flats')
                     .select('id')
                     .in('hostel_id', hostelIds);
-                
+
                 if (floorsError) {
                     console.error('Error fetching floors:', floorsError);
-                    return res.status(500).json({ 
-                        success: false, 
+                    return res.status(500).json({
+                        success: false,
                         message: 'An error occurred. Please try again.',
                         code: 'SERVER_ERROR'
                     });
                 }
-                
+
                 if (floors && floors.length > 0) {
                     const floorIds = floors.map(f => f.id);
                     const { data: rooms, error: roomsError } = await supabase
                         .from('rooms')
                         .select('id')
                         .in('floor_flat_id', floorIds);
-                    
+
                     if (roomsError) {
                         console.error('Error fetching rooms:', roomsError);
-                        return res.status(500).json({ 
-                            success: false, 
+                        return res.status(500).json({
+                            success: false,
                             message: 'An error occurred. Please try again.',
                             code: 'SERVER_ERROR'
                         });
                     }
-                    
+
                     if (rooms && rooms.length > 0) {
                         const roomIds = rooms.map(r => r.id);
                         query = query.in('room_id', roomIds);
@@ -10394,14 +10409,15 @@ app.get('/api/bed-spaces',
                     return res.json({ success: true, data: [], campus: req.campus });
                 }
             }
-            
+
             const { data, error } = await query.order('bed_code', { ascending: true });
             if (error) throw error;
-            res.json({ success: true, data: data, campus: req.campus });
+
+            res.json({ success: true, data: data || [], campus: req.campus });
         } catch (error) {
             console.error('Error fetching bed spaces:', error);
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 message: 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });
