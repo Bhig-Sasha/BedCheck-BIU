@@ -935,7 +935,6 @@
             let floorsFlats = [];
             let allRooms = [];
             let bedSpaces = [];
-            let students = [];
             let isSubmitting = false;
             let photoDataURL = '';
 
@@ -1136,8 +1135,15 @@
                     // Hide error
                     campusError.style.display = 'none';
 
-                    // Filter hostels by campus
-                    const campusHostels = allHostels.filter(h => h.campus === campusInfo.campus);
+                    // Filter hostels by campus (case-insensitive)
+                    const campusHostels = allHostels.filter(h => {
+                        const hCampus = (h.campus || '').toLowerCase().trim();
+                        const targetCampus = campusInfo.campus.toLowerCase().trim();
+                        return hCampus === targetCampus;
+                    });
+
+                    console.log(`🔍 Found ${campusHostels.length} hostels for ${campusInfo.campus} campus`);
+                    console.log('All hostels:', allHostels.map(h => ({ id: h.id, name: h.name, campus: h.campus })));
 
                     if (campusHostels.length === 0) {
                         hostelSelect.innerHTML = '<option value="">No hostels found for this campus</option>';
@@ -1184,6 +1190,7 @@
 
             async function loadData() {
                 try {
+                    console.log('🔄 Loading data...');
                     const [hostelsRes, floorsRes, roomsRes, bedsRes] = await Promise.all([
                         apiCall('/public/hostels'),
                         apiCall('/public/floors-flats'),
@@ -1198,6 +1205,7 @@
 
                     console.log(
                         `✅ Loaded: ${allHostels.length} hostels, ${floorsFlats.length} floors, ${allRooms.length} rooms, ${bedSpaces.length} beds`);
+                    console.log('📋 Hostels:', allHostels.map(h => `${h.name} (${h.campus})`).join(', '));
 
                     const hostelSelect = document.getElementById('hostelSelect');
                     hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
@@ -1217,7 +1225,7 @@
                                 document.getElementById('level').value = data.level;
                             }
                             // Update campus display after loading saved values
-                            updateCampusDisplay();
+                            setTimeout(updateCampusDisplay, 100);
                         } catch (e) {}
                     }
 
@@ -1592,7 +1600,7 @@
                             updateDepartments();
                         }
                         if (data.faculty && data.level) {
-                            updateCampusDisplay();
+                            setTimeout(updateCampusDisplay, 100);
                         }
                     }
                 } catch (e) {}
@@ -1644,7 +1652,7 @@
                 });
 
                 // Initial campus display update
-                updateCampusDisplay();
+                setTimeout(updateCampusDisplay, 200);
             }
 
             window.saveAndContinue = saveAndContinue;
