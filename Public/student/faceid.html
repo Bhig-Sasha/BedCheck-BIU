@@ -1,1267 +1,2444 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Face ID · Rotate & Enroll</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600;14..32,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: #0b0b12;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 12px;
-    }
-    .card {
-      max-width: 420px;
-      width: 100%;
-      background: #16161f;
-      border-radius: 48px;
-      padding: 20px 20px 28px;
-      box-shadow: 0 30px 80px rgba(0,0,0,0.8);
-      border: 1px solid rgba(255,255,255,0.04);
-      position: relative;
-      overflow: hidden;
-    }
-    .card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 10%; right: 10%;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, #d6ad4b55, transparent);
-    }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face ID Setup · BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    /* header */
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 18px;
-      padding: 0 4px;
-    }
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .header-left .logo {
-      width: 38px;
-      height: 38px;
-      background: #d6ad4b;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #0b0b12;
-      font-weight: 700;
-      font-size: 16px;
-    }
-    .header-left h1 {
-      font-size: 18px;
-      font-weight: 700;
-      color: #f1f1f6;
-      letter-spacing: -0.3px;
-    }
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      color: #8e8ea0;
-      background: #22222e;
-      padding: 6px 14px;
-      border-radius: 40px;
-      border: 1px solid #2d2d3a;
-    }
-    .header-right i {
-      color: #d6ad4b;
-      font-size: 12px;
-    }
-    .header-right .status-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      display: inline-block;
-    }
-    .header-right .status-indicator.online { background: #4ade80; }
-    .header-right .status-indicator.offline { background: #f87171; }
-    .header-right .status-indicator.checking { background: #fbbf24; animation: pulse-dot 0.8s infinite; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #0a0a15 0%, #1a1a2e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
 
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.8); }
-    }
+        .container {
+            max-width: 480px;
+            width: 100%;
+            background: #1a1a2e;
+            border-radius: 2rem;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(214, 173, 75, 0.2);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
 
-    /* camera */
-    .camera-wrapper {
-      position: relative;
-      background: #0c0c14;
-      border-radius: 32px;
-      overflow: hidden;
-      aspect-ratio: 3 / 4;
-      min-height: 380px;
-      border: 1px solid #262633;
-      box-shadow: inset 0 0 40px rgba(0,0,0,0.7);
-    }
-    #video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1);
-      display: block;
-      background: #0a0a10;
-    }
-    .camera-placeholder {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: #0c0c14;
-      color: #8e8ea0;
-      z-index: 5;
-      gap: 12px;
-      backdrop-filter: blur(2px);
-    }
-    .camera-placeholder i {
-      font-size: 44px;
-      color: #3d3d4a;
-    }
-    .camera-placeholder button {
-      background: #d6ad4b;
-      border: none;
-      color: #0b0b12;
-      font-weight: 600;
-      padding: 10px 28px;
-      border-radius: 40px;
-      font-size: 15px;
-      cursor: pointer;
-      transition: 0.2s;
-      box-shadow: 0 6px 20px rgba(214, 173, 75, 0.2);
-    }
-    .camera-placeholder button:hover {
-      transform: scale(1.02);
-      background: #e0b85c;
-    }
-    .camera-placeholder.hidden {
-      display: none;
-    }
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #d6ad4b, transparent);
+        }
 
-    /* === APPLE-STYLE OVERLAY === */
-    .face-overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    /* main ring – exactly like Apple */
-    .ring {
-      width: 210px;
-      height: 210px;
-      border-radius: 50%;
-      border: 2.5px solid rgba(255,255,255,0.15);
-      position: relative;
-      transition: border-color 0.3s, box-shadow 0.3s;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.02);
-    }
-    .ring.detected {
-      border-color: #4ade80;
-      box-shadow: 0 0 40px rgba(74, 222, 128, 0.12);
-    }
-    .ring.complete {
-      border-color: #4ade80;
-      box-shadow: 0 0 60px rgba(74, 222, 128, 0.2);
-    }
+        .header {
+            text-align: center;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 1.5rem;
+        }
 
-    /* dotted guideline around ring – subtle */
-    .ring-dots {
-      position: absolute;
-      inset: -12px;
-      border-radius: 50%;
-      border: 1.5px dashed rgba(255,255,255,0.08);
-      pointer-events: none;
-    }
-    /* 4 small directional dots (top, right, bottom, left) */
-    .ring-dot {
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.12);
-      transition: 0.3s;
-      box-shadow: 0 0 6px rgba(0,0,0,0.4);
-    }
-    .ring-dot.active {
-      background: #4ade80;
-      box-shadow: 0 0 20px #4ade8070;
-    }
-    .ring-dot.top { top: -6px; left: 50%; transform: translateX(-50%); }
-    .ring-dot.right { right: -6px; top: 50%; transform: translateY(-50%); }
-    .ring-dot.bottom { bottom: -6px; left: 50%; transform: translateX(-50%); }
-    .ring-dot.left { left: -6px; top: 50%; transform: translateY(-50%); }
+        .header .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
 
-    /* center crosshair */
-    .crosshair {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: 30px;
-      height: 30px;
-      opacity: 0.3;
-      transition: 0.3s;
-    }
-    .crosshair::before,
-    .crosshair::after {
-      content: '';
-      position: absolute;
-      background: rgba(255,255,255,0.3);
-    }
-    .crosshair::before {
-      width: 1px;
-      height: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-    }
-    .crosshair::after {
-      width: 100%;
-      height: 1px;
-      top: 50%;
-      transform: translateY(-50%);
-    }
-    .ring.detected .crosshair { opacity: 0.8; }
+        .header .logo img {
+            width: 48px;
+            height: 48px;
+            object-fit: contain;
+        }
 
-    /* position label – bottom of ring */
-    .position-badge {
-      position: absolute;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(12px);
-      padding: 8px 22px;
-      border-radius: 60px;
-      border: 1px solid rgba(255,255,255,0.06);
-      color: #d0d0dd;
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      transition: 0.2s;
-      pointer-events: none;
-    }
-    .position-badge .badge-icon {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #d6ad4b;
-      margin-right: 4px;
-    }
-    .position-badge.done {
-      border-color: #4ade80;
-      color: #b0f0c0;
-    }
-    .position-badge.done .badge-icon { background: #4ade80; }
+        .header .logo h1 {
+            font-family: 'Merriweather', serif;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #d6ad4b;
+        }
 
-    /* progress ring (top right) */
-    .progress-ring {
-      position: absolute;
-      top: 16px;
-      right: 16px;
-      z-index: 10;
-      width: 52px;
-      height: 52px;
-      background: rgba(0,0,0,0.5);
-      backdrop-filter: blur(8px);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid rgba(255,255,255,0.06);
-    }
-    .progress-ring svg {
-      transform: rotate(-90deg);
-      width: 52px;
-      height: 52px;
-    }
-    .progress-ring .bg {
-      fill: none;
-      stroke: rgba(255,255,255,0.06);
-      stroke-width: 3.5;
-    }
-    .progress-ring .fg {
-      fill: none;
-      stroke: #4ade80;
-      stroke-width: 3.5;
-      stroke-linecap: round;
-      transition: stroke-dashoffset 0.3s ease;
-    }
-    .progress-ring .pct {
-      position: absolute;
-      font-size: 12px;
-      font-weight: 700;
-      color: #f0f0f8;
-    }
+        .header .subtitle {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
 
-    /* bottom status */
-    .status-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 16px;
-      padding: 0 4px;
-    }
-    .status-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #4ade80;
-      box-shadow: 0 0 12px #4ade8040;
-      transition: 0.2s;
-    }
-    .status-dot.idle { background: #8e8ea0; box-shadow: none; }
-    .status-dot.capturing { background: #d6ad4b; box-shadow: 0 0 16px #d6ad4b60; animation: pulse-dot 0.8s infinite; }
-    .status-dot.done { background: #4ade80; box-shadow: 0 0 20px #4ade8060; }
-    .status-text {
-      font-size: 14px;
-      font-weight: 500;
-      color: #c8c8d8;
-    }
-    .status-count {
-      background: #22222e;
-      padding: 4px 14px;
-      border-radius: 40px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #b0b0c0;
-      border: 1px solid #2d2d3a;
-    }
-    .status-count span { color: #4ade80; }
+        .header .subtitle i {
+            color: #d6ad4b;
+        }
 
-    /* controls */
-    .controls {
-      margin-top: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .btn-group {
-      display: flex;
-      gap: 10px;
-    }
-    .btn {
-      flex: 1;
-      padding: 14px 0;
-      border: none;
-      border-radius: 60px;
-      font-weight: 700;
-      font-size: 16px;
-      cursor: pointer;
-      transition: 0.2s;
-      background: #2a2a38;
-      color: #b0b0c0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      border: 1px solid #323242;
-    }
-    .btn-primary {
-      background: #d6ad4b;
-      color: #0b0b12;
-      border: none;
-      box-shadow: 0 6px 20px rgba(214, 173, 75, 0.2);
-    }
-    .btn-primary:hover { background: #e0b85c; transform: scale(1.01); }
-    .btn-primary:disabled { opacity: 0.4; pointer-events: none; }
-    .btn-success {
-      background: #4ade80;
-      color: #0b0b12;
-      border: none;
-    }
-    .btn-success:hover { background: #5be88e; }
-    .btn-success:disabled { opacity: 0.4; pointer-events: none; }
-    .btn-outline { background: transparent; border: 1px solid #3a3a4a; }
-    .btn-outline:hover { background: #22222e; }
-    .btn-back {
-      background: transparent;
-      color: #8e8ea0;
-      border: none;
-      font-size: 14px;
-      padding: 10px;
-      width: 100%;
-      text-align: center;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-    .btn-back:hover { color: #d0d0dd; }
+        .student-info-bar {
+            background: rgba(214, 173, 75, 0.08);
+            border: 1px solid rgba(214, 173, 75, 0.15);
+            border-radius: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+        }
 
-    /* toast */
-    .toast {
-      position: fixed;
-      bottom: 30px;
-      left: 50%;
-      transform: translateX(-50%) translateY(80px);
-      background: #1c1c28;
-      border: 1px solid #3a3a4a;
-      padding: 12px 24px;
-      border-radius: 60px;
-      color: #f0f0f8;
-      font-weight: 500;
-      font-size: 14px;
-      backdrop-filter: blur(16px);
-      box-shadow: 0 12px 40px rgba(0,0,0,0.7);
-      opacity: 0;
-      transition: 0.4s ease;
-      z-index: 99;
-      pointer-events: none;
-    }
-    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    .toast.success { border-color: #4ade80; }
-    .toast.error { border-color: #f87171; }
+        .student-info-bar .info-item {
+            font-size: 0.65rem;
+            color: #94a3b8;
+        }
 
-    /* loading overlay */
-    .loading-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.85);
-      backdrop-filter: blur(8px);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 20;
-      border-radius: 32px;
-      gap: 12px;
-    }
-    .loading-overlay.show { display: flex; }
-    .loading-overlay .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(214, 173, 75, 0.2);
-      border-top-color: #d6ad4b;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .loading-overlay .loading-text {
-      color: #94a3b8;
-      font-size: 14px;
-      font-weight: 500;
-    }
-    .loading-overlay .loading-progress {
-      width: 60%;
-      height: 3px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 9999px;
-      overflow: hidden;
-    }
-    .loading-overlay .loading-progress .fill {
-      height: 100%;
-      background: linear-gradient(90deg, #d6ad4b, #4ade80);
-      border-radius: 9999px;
-      transition: width 0.3s ease;
-    }
+        .student-info-bar .info-item strong {
+            color: #d6ad4b;
+            font-weight: 600;
+        }
 
-    /* success overlay */
-    .success-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(74, 222, 128, 0.08);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 15;
-      border-radius: 32px;
-      backdrop-filter: blur(4px);
-      gap: 8px;
-    }
-    .success-overlay.show { display: flex; }
-    .success-overlay .icon { font-size: 56px; color: #4ade80; }
-    .success-overlay .title { font-size: 20px; font-weight: 700; color: #4ade80; }
-    .success-overlay .sub { font-size: 14px; color: #94a3b8; }
+        .student-info-bar .info-item .label {
+            color: #64748b;
+        }
 
-    /* error overlay */
-    .error-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(248, 113, 113, 0.08);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 15;
-      border-radius: 32px;
-      backdrop-filter: blur(4px);
-      gap: 8px;
-    }
-    .error-overlay.show { display: flex; }
-    .error-overlay .icon { font-size: 56px; color: #f87171; }
-    .error-overlay .title { font-size: 20px; font-weight: 700; color: #f87171; }
-    .error-overlay .sub { font-size: 14px; color: #94a3b8; text-align: center; max-width: 80%; }
-    .error-overlay .btn-retry {
-      margin-top: 12px;
-      padding: 10px 28px;
-      background: #d6ad4b;
-      border: none;
-      border-radius: 40px;
-      color: #0b0b12;
-      font-weight: 600;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-    .error-overlay .btn-retry:hover { background: #e0b85c; }
+        .time-display {
+            text-align: center;
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.5px;
+        }
 
-    /* responsiveness */
-    @media (max-width: 460px) {
-      .card { padding: 12px; border-radius: 32px; }
-      .ring { width: 170px; height: 170px; }
-      .ring-dots { inset: -8px; }
-      .position-badge { font-size: 12px; padding: 6px 16px; bottom: 18px; }
-      .progress-ring { width: 44px; height: 44px; }
-      .progress-ring svg { width: 44px; height: 44px; }
-      .header-left h1 { font-size: 16px; }
-    }
-  </style>
+        .camera-preview {
+            position: relative;
+            background: #0a0a15;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            aspect-ratio: 3/4;
+            min-height: 420px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .camera-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+        }
+
+        .camera-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            z-index: 2;
+            background: #0a0a15;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .camera-placeholder .icon {
+            font-size: 3rem;
+            color: #475569;
+            margin-bottom: 0.5rem;
+        }
+
+        .camera-placeholder .title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+
+        .camera-placeholder .sub {
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-top: 0.25rem;
+        }
+
+        .camera-placeholder .btn-camera {
+            margin-top: 0.75rem;
+            padding: 0.5rem 1.5rem;
+            background: #d6ad4b;
+            color: #0a0a15;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .camera-placeholder .btn-camera:hover {
+            background: #c49a3a;
+            transform: scale(1.02);
+        }
+
+        .camera-placeholder.hidden {
+            display: none;
+        }
+
+        .face-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .face-guide-ring {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            border: 2px dashed rgba(214, 173, 75, 0.3);
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .face-guide-ring.detected {
+            border-color: #4ade80;
+            border-style: solid;
+            box-shadow: 0 0 40px rgba(74, 222, 128, 0.15);
+        }
+
+        .face-guide-ring.capturing {
+            border-color: #d6ad4b;
+            border-style: solid;
+            animation: capture-pulse 0.6s ease;
+        }
+
+        .face-guide-ring.complete {
+            border-color: #4ade80;
+            border-style: solid;
+            box-shadow: 0 0 60px rgba(74, 222, 128, 0.3);
+        }
+
+        @keyframes capture-pulse {
+            0%,
+            100% {
+                transform: scale(1);
+                border-color: #d6ad4b;
+                box-shadow: 0 0 30px rgba(214, 173, 75, 0.3);
+            }
+            50% {
+                transform: scale(1.05);
+                border-color: #4ade80;
+                box-shadow: 0 0 60px rgba(74, 222, 128, 0.5);
+            }
+        }
+
+        .face-guide-ring .guide-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(214, 173, 75, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .face-guide-ring .guide-dot.active {
+            background: #4ade80;
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.5);
+        }
+
+        .face-guide-ring .guide-dot.top {
+            top: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .face-guide-ring .guide-dot.bottom {
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .face-guide-ring .guide-dot.left {
+            left: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .face-guide-ring .guide-dot.right {
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .face-guide-ring .guide-dot.center {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: rgba(214, 173, 75, 0.2);
+        }
+        .face-guide-ring .guide-dot.center.active {
+            background: rgba(74, 222, 128, 0.3);
+        }
+
+        .face-size-warning {
+            position: absolute;
+            bottom: 7rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.6rem;
+            color: #fbbf24;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 0.3rem 0.8rem;
+            border-radius: 9999px;
+            z-index: 5;
+            display: none;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 480px) {
+            .face-size-warning {
+                font-size: 0.5rem;
+                padding: 0.2rem 0.5rem;
+                bottom: 6.5rem;
+                white-space: normal;
+                max-width: 90%;
+            }
+        }
+
+        .face-size-warning.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            0% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        .direction-arrows {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .direction-arrows .arrow {
+            position: absolute;
+            font-size: 1.5rem;
+            color: rgba(214, 173, 75, 0.3);
+            transition: all 0.5s ease;
+            opacity: 0;
+        }
+
+        .direction-arrows .arrow.visible {
+            opacity: 1;
+            color: rgba(214, 173, 75, 0.6);
+        }
+
+        .direction-arrows .arrow.done {
+            color: #4ade80;
+            opacity: 1;
+        }
+
+        .direction-arrows .arrow.up {
+            top: 15%;
+            left: 50%;
+            transform: translateX(-50%) rotate(-90deg);
+        }
+        .direction-arrows .arrow.down {
+            bottom: 15%;
+            left: 50%;
+            transform: translateX(-50%) rotate(90deg);
+        }
+        .direction-arrows .arrow.left {
+            left: 10%;
+            top: 50%;
+            transform: translateY(-50%) rotate(180deg);
+        }
+        .direction-arrows .arrow.right {
+            right: 10%;
+            top: 50%;
+            transform: translateY(-50%) rotate(0deg);
+        }
+
+        .capture-status-overlay {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 1.5rem;
+            right: 1.5rem;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .capture-status-overlay .status-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .capture-status-overlay .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .capture-status-overlay .status-dot.waiting {
+            background: #fbbf24;
+            animation: pulse-dot 1s infinite;
+        }
+        .capture-status-overlay .status-dot.capturing {
+            background: #d6ad4b;
+            animation: pulse-dot 0.5s infinite;
+        }
+        .capture-status-overlay .status-dot.done {
+            background: #4ade80;
+        }
+        .capture-status-overlay .status-dot.error {
+            background: #f87171;
+        }
+
+        @keyframes pulse-dot {
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.4;
+                transform: scale(0.8);
+            }
+        }
+
+        .capture-status-overlay .status-text {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .capture-status-overlay .status-count {
+            font-size: 0.65rem;
+            color: #94a3b8;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+        }
+
+        .capture-status-overlay .status-count .count-num {
+            color: #4ade80;
+            font-weight: 700;
+        }
+
+        .progress-ring-container {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 10;
+        }
+
+        .progress-ring {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .progress-ring svg {
+            transform: rotate(-90deg);
+            width: 50px;
+            height: 50px;
+        }
+
+        .progress-ring .bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.05);
+            stroke-width: 3;
+        }
+
+        .progress-ring .progress {
+            fill: none;
+            stroke: #4ade80;
+            stroke-width: 3;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        .progress-ring .progress-text {
+            position: absolute;
+            font-size: 0.55rem;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .quality-indicator {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            padding: 0.3rem 0.6rem;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .quality-indicator .quality-bar {
+            width: 40px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .quality-indicator .quality-bar .fill {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.3s ease;
+            background: linear-gradient(90deg, #f87171, #fbbf24, #4ade80);
+        }
+
+        .quality-indicator .quality-label {
+            font-size: 0.55rem;
+            font-weight: 600;
+            color: #94a3b8;
+            min-width: 30px;
+        }
+
+        .bottom-controls {
+            margin-top: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .instruction-text {
+            text-align: center;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            padding: 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .instruction-text .highlight {
+            color: #d6ad4b;
+            font-weight: 700;
+        }
+
+        .instruction-text .success-highlight {
+            color: #4ade80;
+            font-weight: 700;
+        }
+
+        .instruction-text .error-text {
+            color: #f87171;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+            padding: 0.6rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: #d6ad4b;
+            color: #0a0a15;
+        }
+
+        .btn-primary:hover {
+            background: #c49a3a;
+            transform: scale(1.02);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-success {
+            background: #4ade80;
+            color: #0a0a15;
+        }
+
+        .btn-success:hover {
+            background: #22c55e;
+            transform: scale(1.02);
+        }
+
+        .btn-success:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-back {
+            background: transparent;
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 0.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .position-indicators {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.3rem;
+            padding: 0.3rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .position-dot {
+            text-align: center;
+            padding: 0.3rem 0.1rem;
+            border-radius: 0.4rem;
+            font-size: 0.5rem;
+            font-weight: 600;
+            color: #475569;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .position-dot .pos-icon {
+            display: block;
+            font-size: 0.8rem;
+            margin-bottom: 0.1rem;
+        }
+
+        .position-dot.done {
+            background: rgba(74, 222, 128, 0.15);
+            border-color: #4ade80;
+            color: #4ade80;
+        }
+
+        .position-dot.active {
+            background: rgba(214, 173, 75, 0.2);
+            border-color: #d6ad4b;
+            color: #d6ad4b;
+            animation: pulse-dot 0.8s infinite;
+        }
+
+        .position-dot .check {
+            display: none;
+        }
+        .position-dot.done .check {
+            display: inline;
+        }
+        .position-dot.done .pos-icon {
+            display: none;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            padding: 0.75rem 1.5rem;
+            border-radius: 1rem;
+            background: #1a1a2e;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            opacity: 0;
+            transition: all 0.4s ease;
+            font-size: 0.8rem;
+            max-width: 90%;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast.success {
+            border-color: #4ade80;
+        }
+        .toast.error {
+            border-color: #f87171;
+        }
+        .toast.info {
+            border-color: #d6ad4b;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 0.75rem;
+                border-radius: 1rem;
+            }
+            .camera-preview {
+                aspect-ratio: 3/4;
+                min-height: 320px;
+            }
+            .face-guide-ring {
+                width: 160px;
+                height: 160px;
+            }
+            .capture-status-overlay {
+                padding: 0.5rem 0.75rem;
+                left: 0.75rem;
+                right: 0.75rem;
+                bottom: 0.75rem;
+            }
+            .direction-arrows .arrow {
+                font-size: 1rem;
+            }
+            .header .logo h1 {
+                font-size: 1rem;
+            }
+            .position-indicators {
+                grid-template-columns: repeat(5, 1fr);
+                gap: 0.2rem;
+                padding: 0.2rem;
+            }
+            .position-dot {
+                font-size: 0.4rem;
+                padding: 0.2rem 0.05rem;
+            }
+            .position-dot .pos-icon {
+                font-size: 0.6rem;
+            }
+            .progress-ring {
+                width: 40px;
+                height: 40px;
+            }
+            .progress-ring svg {
+                width: 40px;
+                height: 40px;
+            }
+            .quality-indicator {
+                padding: 0.2rem 0.4rem;
+                top: 0.5rem;
+                left: 0.5rem;
+            }
+            .quality-indicator .quality-bar {
+                width: 30px;
+            }
+            .btn-group .btn {
+                font-size: 0.7rem;
+                padding: 0.5rem;
+            }
+            .instruction-text {
+                font-size: 0.7rem;
+                padding: 0.4rem;
+            }
+            .student-info-bar {
+                padding: 0.4rem 0.5rem;
+                font-size: 0.55rem;
+            }
+            .student-info-bar .info-item {
+                font-size: 0.55rem;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            display: none;
+        }
+
+        #captureCanvas {
+            display: none;
+        }
+
+        .success-animation {
+            animation: success-pop 0.6s ease;
+        }
+
+        @keyframes success-pop {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            border-radius: 1.5rem;
+        }
+
+        .loading-overlay .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(214, 173, 75, 0.2);
+            border-top-color: #d6ad4b;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-overlay .loading-text {
+            margin-top: 0.75rem;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        .loading-overlay .loading-progress {
+            margin-top: 0.5rem;
+            width: 60%;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .loading-overlay .loading-progress .fill {
+            height: 100%;
+            background: linear-gradient(90deg, #d6ad4b, #4ade80);
+            border-radius: 9999px;
+            transition: width 0.3s ease;
+        }
+
+        .success-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(74, 222, 128, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            border-radius: 1.5rem;
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+        }
+
+        .success-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .success-overlay .check-icon {
+            font-size: 4rem;
+            color: #4ade80;
+            animation: success-pop 0.6s ease;
+        }
+
+        .success-overlay .success-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #4ade80;
+            margin-top: 0.5rem;
+        }
+
+        .success-overlay .success-subtitle {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        .success-overlay .success-details {
+            margin-top: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+            font-size: 0.65rem;
+            color: #94a3b8;
+            text-align: center;
+            max-width: 80%;
+        }
+
+        .success-overlay .success-details strong {
+            color: #d6ad4b;
+        }
+
+        .error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(248, 113, 113, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            border-radius: 1.5rem;
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+        }
+
+        .error-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .error-overlay .error-icon {
+            font-size: 4rem;
+            color: #f87171;
+        }
+
+        .error-overlay .error-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #f87171;
+            margin-top: 0.5rem;
+        }
+
+        .error-overlay .error-subtitle {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+            max-width: 80%;
+            text-align: center;
+        }
+
+        .error-overlay .btn-retry {
+            margin-top: 1rem;
+            padding: 0.5rem 1.5rem;
+            background: #d6ad4b;
+            color: #0a0a15;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .error-overlay .btn-retry:hover {
+            background: #c49a3a;
+            transform: scale(1.02);
+        }
+
+        .api-status {
+            font-size: 0.6rem;
+            color: #64748b;
+            text-align: center;
+            margin-top: 0.5rem;
+            padding: 0.3rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .api-status .status-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 0.3rem;
+        }
+
+        .api-status .status-indicator.online {
+            background: #4ade80;
+        }
+        .api-status .status-indicator.offline {
+            background: #f87171;
+        }
+        .api-status .status-indicator.checking {
+            background: #fbbf24;
+            animation: pulse-dot 0.8s infinite;
+        }
+
+        .position-label {
+            position: absolute;
+            bottom: 4.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #94a3b8;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 0.2rem 0.8rem;
+            border-radius: 9999px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+
+        .position-label.done {
+            color: #4ade80;
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.15);
+        }
+
+        .position-label .pos-label {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .position-label .pos-label .check-mark {
+            display: none;
+        }
+
+        .position-label.done .pos-label .check-mark {
+            display: inline;
+        }
+        .position-label.done .pos-label .pos-arrow {
+            display: none;
+        }
+
+        .debug-info {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+            font-size: 0.55rem;
+            color: #94a3b8;
+            font-family: monospace;
+            max-height: 100px;
+            overflow-y: auto;
+            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .debug-info.show {
+            display: block;
+        }
+
+        .debug-info .log-entry {
+            padding: 0.1rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .debug-info .log-entry.error {
+            color: #f87171;
+        }
+
+        .debug-info .log-entry.success {
+            color: #4ade80;
+        }
+
+        .debug-info .log-entry.info {
+            color: #d6ad4b;
+        }
+
+        .api-url-config {
+            margin-top: 0.5rem;
+            display: flex;
+            gap: 0.3rem;
+            align-items: center;
+            font-size: 0.6rem;
+            color: #64748b;
+        }
+
+        .api-url-config input {
+            flex: 1;
+            padding: 0.2rem 0.4rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.3rem;
+            color: #94a3b8;
+            font-size: 0.55rem;
+            font-family: monospace;
+            outline: none;
+        }
+
+        .api-url-config input:focus {
+            border-color: #d6ad4b;
+        }
+
+        .api-url-config .btn-config {
+            padding: 0.2rem 0.5rem;
+            background: #d6ad4b;
+            border: none;
+            border-radius: 0.3rem;
+            color: #0a0a15;
+            font-weight: 700;
+            font-size: 0.55rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .api-url-config .btn-config:hover {
+            background: #c49a3a;
+        }
+    </style>
 </head>
 <body>
-<div class="card" id="app">
-  <!-- header -->
-  <div class="header">
-    <div class="header-left">
-      <div class="logo"><i class="fas fa-face-smile"></i></div>
-      <h1>Face ID</h1>
-    </div>
-    <div class="header-right">
-      <span class="status-indicator checking" id="apiIndicator"></span>
-      <span id="apiStatusText">Connecting...</span>
-    </div>
-  </div>
 
-  <!-- camera -->
-  <div class="camera-wrapper" id="cameraWrapper">
-    <video id="video" autoplay playsinline muted></video>
-    <div class="camera-placeholder" id="cameraPlaceholder">
-      <i class="fas fa-camera"></i>
-      <span style="font-weight:500;">Camera required</span>
-      <button onclick="requestCamera()">Enable Camera</button>
+    <div class="container" id="app">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <img src="../BIU logo 2.png" alt="BIU Logo" />
+                <h1>Face ID Setup</h1>
+            </div>
+            <p class="subtitle"><i class="fas fa-shield-alt"></i> Secure your BedCheck with InsightFace</p>
+        </div>
+
+        <!-- Student Info -->
+        <div class="student-info-bar" id="studentInfoBar">
+            <span class="info-item"><span class="label">👤</span> <strong id="studentName">Loading...</strong></span>
+            <span class="info-item"><span class="label">🎓</span> <strong id="studentMatric">---</strong></span>
+            <span class="info-item"><span class="label">🏠</span> <strong id="studentHostel">---</strong></span>
+            <span class="info-item"><span class="label">🛏️</span> <strong id="studentRoomBed">---</strong></span>
+        </div>
+
+        <div class="time-display" id="timeDisplay">⏱️ Face enrollment · 10 positions</div>
+
+        <!-- Camera Preview -->
+        <div class="camera-preview" id="cameraPreview">
+            <video id="modalCamera" autoplay playsinline muted></video>
+            
+            <!-- Camera Placeholder -->
+            <div class="camera-placeholder" id="cameraPlaceholder">
+                <div class="icon">📷</div>
+                <div class="title">Camera Access Required</div>
+                <div class="sub">Please allow camera access to continue with Face ID setup</div>
+                <button class="btn-camera" onclick="requestCameraAccess()">🎥 Enable Camera</button>
+            </div>
+
+            <!-- Face Guide -->
+            <div class="face-overlay">
+                <div class="face-guide-ring" id="modalFaceGuide">
+                    <span class="guide-dot top" id="dotTop"></span>
+                    <span class="guide-dot bottom" id="dotBottom"></span>
+                    <span class="guide-dot left" id="dotLeft"></span>
+                    <span class="guide-dot right" id="dotRight"></span>
+                    <span class="guide-dot center" id="dotCenter"></span>
+                </div>
+            </div>
+
+            <!-- Dynamic Warning -->
+            <div id="faceSizeWarning" class="face-size-warning">📏 Move closer to camera</div>
+
+            <!-- Direction Arrows -->
+            <div class="direction-arrows" id="directionArrows">
+                <span class="arrow up" id="arrowUp">⬆</span>
+                <span class="arrow down" id="arrowDown">⬇</span>
+                <span class="arrow left" id="arrowLeft">⬅</span>
+                <span class="arrow right" id="arrowRight">➡</span>
+            </div>
+
+            <!-- Position Label -->
+            <div class="position-label" id="positionLabel">
+                <span class="pos-label">
+                    <span class="pos-arrow">🎯</span>
+                    <span id="positionText">Front</span>
+                    <span class="check-mark">✅</span>
+                </span>
+            </div>
+
+            <!-- Quality Indicator -->
+            <div class="quality-indicator">
+                <span class="quality-label" id="qualityLabel">Quality</span>
+                <div class="quality-bar">
+                    <div class="fill" id="qualityFill" style="width:0%"></div>
+                </div>
+                <span class="quality-label" id="qualityPercent">0%</span>
+            </div>
+
+            <!-- Progress Ring -->
+            <div class="progress-ring-container">
+                <div class="progress-ring">
+                    <svg viewBox="0 0 50 50">
+                        <circle class="bg" cx="25" cy="25" r="22" />
+                        <circle class="progress" id="progressCircle" cx="25" cy="25" r="22"
+                        stroke-dasharray="138.2" stroke-dashoffset="138.2" />
+                    </svg>
+                    <span class="progress-text" id="progressText">0%</span>
+                </div>
+            </div>
+
+            <!-- Capture Status -->
+            <div class="capture-status-overlay">
+                <div class="status-left">
+                    <span class="status-dot waiting" id="statusDot"></span>
+                    <span class="status-text" id="modalCameraStatus">Position your face</span>
+                </div>
+                <span class="status-count">
+                    <span class="count-num" id="captureCount">0</span>/10
+                </span>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loadingOverlay" style="display:none;">
+                <div class="spinner"></div>
+                <div class="loading-text" id="loadingText">Enrolling with InsightFace...</div>
+                <div class="loading-progress">
+                    <div class="fill" id="loadingProgressFill" style="width:0%"></div>
+                </div>
+            </div>
+
+            <!-- Success Overlay -->
+            <div class="success-overlay" id="successOverlay">
+                <div class="check-icon">✅</div>
+                <div class="success-title">Face Enrolled!</div>
+                <div class="success-subtitle">Your face is now registered with InsightFace</div>
+                <div class="success-details" id="successDetails">
+                    <strong id="successStudentName">Student</strong> · Matric: <strong id="successMatric">---</strong>
+                    <br />
+                    <span id="successRoom">Room: ---</span> · <span id="successBed">Bed: ---</span>
+                </div>
+            </div>
+
+            <!-- Error Overlay -->
+            <div class="error-overlay" id="errorOverlay">
+                <div class="error-icon">❌</div>
+                <div class="error-title">Enrollment Failed</div>
+                <div class="error-subtitle" id="errorMessage">An error occurred during enrollment</div>
+                <button class="btn-retry" onclick="retryEnrollment()">🔄 Retry</button>
+            </div>
+        </div>
+
+        <!-- Position Indicators -->
+        <div class="position-indicators" id="positionIndicators">
+            <div class="position-dot" data-pos="0">
+                <span class="pos-icon">👤</span>
+                <span class="check">✓</span>
+                <span>Front</span>
+            </div>
+            <div class="position-dot" data-pos="1">
+                <span class="pos-icon">↗</span>
+                <span class="check">✓</span>
+                <span>Right</span>
+            </div>
+            <div class="position-dot" data-pos="2">
+                <span class="pos-icon">↘</span>
+                <span class="check">✓</span>
+                <span>Bottom</span>
+            </div>
+            <div class="position-dot" data-pos="3">
+                <span class="pos-icon">↙</span>
+                <span class="check">✓</span>
+                <span>Left</span>
+            </div>
+            <div class="position-dot" data-pos="4">
+                <span class="pos-icon">↖</span>
+                <span class="check">✓</span>
+                <span>Top</span>
+            </div>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="bottom-controls">
+            <div class="instruction-text" id="instructionText">
+                <i class="fas fa-info-circle" style="color:#d6ad4b;"></i>
+                Position your face in the guide and <strong>move your head</strong> to capture all angles
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" id="btnStart" onclick="startFaceSetup()">
+                    <i class="fas fa-play"></i> Start Setup
+                </button>
+                <button class="btn btn-outline" onclick="resetSetup()">
+                    <i class="fas fa-undo"></i> Reset
+                </button>
+            </div>
+
+            <div class="btn-group" id="enrollGroup" style="display:none;">
+                <button class="btn btn-success" id="btnEnroll" onclick="enrollFace()" style="flex:1;">
+                    <i class="fas fa-check-circle"></i> Enroll with InsightFace
+                </button>
+            </div>
+
+            <button class="btn-back" onclick="goBackToLogin()">
+                <i class="fas fa-arrow-left"></i> Back to Login
+            </button>
+        </div>
+
+        <!-- API Status -->
+        <div class="api-status" id="apiStatus">
+            <span class="status-indicator checking" id="apiIndicator"></span>
+            <span id="apiStatusText">Checking API connection...</span>
+        </div>
+
+        <!-- API URL Configuration -->
+        <div class="api-url-config">
+            <span>🔗 Face API:</span>
+            <input type="text" id="faceApiUrl" value="https://face-api-f9k5.onrender.com" />
+            <button class="btn-config" onclick="updateApiUrl()">Update</button>
+        </div>
+
+        <!-- Debug Info -->
+        <div class="debug-info" id="debugInfo">
+            <div id="debugLogs"></div>
+        </div>
     </div>
 
-    <!-- Apple-style overlay -->
-    <div class="face-overlay">
-      <div class="ring" id="ring">
-        <div class="ring-dots"></div>
-        <span class="ring-dot top" id="dotTop"></span>
-        <span class="ring-dot right" id="dotRight"></span>
-        <span class="ring-dot bottom" id="dotBottom"></span>
-        <span class="ring-dot left" id="dotLeft"></span>
-        <div class="crosshair"></div>
-      </div>
-      <div class="position-badge" id="positionBadge">
-        <span class="badge-icon"></span>
-        <span id="posLabel">Front</span>
-      </div>
-    </div>
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
-    <!-- progress ring -->
-    <div class="progress-ring">
-      <svg viewBox="0 0 52 52">
-        <circle class="bg" cx="26" cy="26" r="22" />
-        <circle class="fg" id="progressCircle" cx="26" cy="26" r="22"
-          stroke-dasharray="138.23" stroke-dashoffset="138.23" />
-      </svg>
-      <span class="pct" id="pctText">0%</span>
-    </div>
-
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loadingText">Enrolling with InsightFace...</div>
-      <div class="loading-progress">
-        <div class="fill" id="loadingProgressFill" style="width:0%"></div>
-      </div>
-    </div>
-
-    <!-- Success Overlay -->
-    <div class="success-overlay" id="successOverlay">
-      <div class="icon">✅</div>
-      <div class="title">Face Enrolled!</div>
-      <div class="sub">Your face is now registered</div>
-    </div>
-
-    <!-- Error Overlay -->
-    <div class="error-overlay" id="errorOverlay">
-      <div class="icon">❌</div>
-      <div class="title">Enrollment Failed</div>
-      <div class="sub" id="errorMessage">An error occurred during enrollment</div>
-      <button class="btn-retry" onclick="retryEnrollment()">🔄 Retry</button>
-    </div>
-  </div>
-
-  <!-- status -->
-  <div class="status-bar">
-    <div class="status-left">
-      <span class="status-dot idle" id="statusDot"></span>
-      <span class="status-text" id="statusText">Position your face</span>
-    </div>
-    <div class="status-count"><span id="captureCount">0</span> / 10</div>
-  </div>
-
-  <!-- controls -->
-  <div class="controls">
-    <div class="btn-group">
-      <button class="btn btn-primary" id="btnStart" onclick="startCapture()">
-        <i class="fas fa-play"></i> Start
-      </button>
-      <button class="btn btn-outline" onclick="resetAll()">
-        <i class="fas fa-rotate-left"></i> Reset
-      </button>
-    </div>
-    <div class="btn-group" id="enrollGroup" style="display:none;">
-      <button class="btn btn-success" id="btnEnroll" onclick="enrollFace()">
-        <i class="fas fa-check-circle"></i> Enroll
-      </button>
-    </div>
-    <button class="btn-back" onclick="goBack()">
-      <i class="fas fa-arrow-left"></i> Back
-    </button>
-  </div>
-</div>
-
-<!-- toast -->
-<div class="toast" id="toast"></div>
+    <!-- Hidden Canvas -->
+    <canvas id="captureCanvas"></canvas>
 
 <script>
-  (function(){
-    'use strict';
+    (function() {
+        'use strict';
 
-    // =============================================
-    // API CONFIGURATION
-    // =============================================
-    const FACE_API_URL = localStorage.getItem('faceApiUrl') || 'https://face-api-f9k5.onrender.com';
-    const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
+        // =============================================
+        // API CONFIGURATION - CAN BE CHANGED BY USER
+        // =============================================
+        let FACE_API_URL = localStorage.getItem('faceApiUrl') || 'https://face-api-f9k5.onrender.com';
+        const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
-    // =============================================
-    // STATE
-    // =============================================
-    const TOTAL = 10;
-    const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
-    const DIRS = ['center', 'right', 'down', 'left', 'up'];
-    let captured = [];
-    let isActive = false;
-    let isEnrolling = false;
-    let stream = null;
-    let isCamReady = false;
-    let captureInterval = null;
-    let faceDetected = false;
-    let quality = 0;
-    let isApiOnline = false;
-    let lastDetectionTime = 0;
-    const DETECTION_INTERVAL = 500;
-    let healthCheckTimer = null;
-    const HEALTH_CHECK_INTERVAL = 30000;
-
-    let studentData = {
-      id: null,
-      name: '',
-      matric: '',
-      hostel_id: null,
-      hostel_name: '',
-      room_id: null,
-      room_code: '',
-      bed_space_id: null,
-      bed_code: ''
-    };
-
-    // =============================================
-    // DOM REFS
-    // =============================================
-    const video = document.getElementById('video');
-    const ring = document.getElementById('ring');
-    const dotTop = document.getElementById('dotTop');
-    const dotRight = document.getElementById('dotRight');
-    const dotBottom = document.getElementById('dotBottom');
-    const dotLeft = document.getElementById('dotLeft');
-    const posLabel = document.getElementById('posLabel');
-    const posBadge = document.getElementById('positionBadge');
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const captureCount = document.getElementById('captureCount');
-    const pctText = document.getElementById('pctText');
-    const progressCircle = document.getElementById('progressCircle');
-    const btnStart = document.getElementById('btnStart');
-    const btnEnroll = document.getElementById('btnEnroll');
-    const enrollGroup = document.getElementById('enrollGroup');
-    const toast = document.getElementById('toast');
-    const placeholder = document.getElementById('cameraPlaceholder');
-    const loadingOverlay = document.getElementById('loadingOverlay');
-    const loadingText = document.getElementById('loadingText');
-    const loadingProgressFill = document.getElementById('loadingProgressFill');
-    const successOverlay = document.getElementById('successOverlay');
-    const errorOverlay = document.getElementById('errorOverlay');
-    const errorMessage = document.getElementById('errorMessage');
-    const apiIndicator = document.getElementById('apiIndicator');
-    const apiStatusText = document.getElementById('apiStatusText');
-
-    const circumference = 138.23;
-
-    // =============================================
-    // TOAST
-    // =============================================
-    function showToast(msg, type='info') {
-      toast.textContent = msg;
-      toast.className = `toast ${type}`;
-      setTimeout(() => toast.classList.add('show'), 20);
-      setTimeout(() => toast.classList.remove('show'), 3500);
-    }
-
-    // =============================================
-    // API STATUS CHECK
-    // =============================================
-    async function checkApiStatus() {
-      try {
-        apiIndicator.className = 'status-indicator checking';
-        apiStatusText.textContent = 'Checking API...';
-        
-        const response = await fetch(`${FACE_API_URL}/health`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(5000)
+        // Set the input field to the current URL
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('faceApiUrl').value = FACE_API_URL;
         });
-        
-        if (response.ok) {
-          const data = await response.json();
-          isApiOnline = data.status === 'running' || data.status === 'healthy' || data.status === 'ok';
-          apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
-          apiStatusText.textContent = isApiOnline ? '✅ Online' : '⚠️ Unknown';
-          return isApiOnline;
-        } else {
-          isApiOnline = false;
-          apiIndicator.className = 'status-indicator offline';
-          apiStatusText.textContent = '❌ Offline';
-          return false;
-        }
-      } catch (error) {
-        isApiOnline = false;
-        apiIndicator.className = 'status-indicator offline';
-        apiStatusText.textContent = '❌ Offline';
-        return false;
-      }
-    }
 
-    // =============================================
-    // FACE DETECTION WITH API
-    // =============================================
-    async function detectFaceWithAPI(imageData) {
-      const now = Date.now();
-      if (now - lastDetectionTime < DETECTION_INTERVAL) {
-        return faceDetected;
-      }
-      lastDetectionTime = now;
-
-      if (!isApiOnline) return faceDetected;
-
-      try {
-        let base64Image = imageData;
-        if (base64Image.startsWith('data:image')) {
-          base64Image = base64Image.split(',')[1];
-        }
-        
-        const response = await fetch(`${FACE_API_URL}/detect-face`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64Image })
-        });
-        
-        if (!response.ok) return false;
-        const data = await response.json();
-        return data.success && data.faces && data.faces.length > 0;
-      } catch (error) {
-        console.warn('Face detection error:', error);
-        return false;
-      }
-    }
-
-    // =============================================
-    // CAMERA
-    // =============================================
-    async function startCamera() {
-      try {
-        if (stream) stopCamera();
-        const constraints = { 
-          video: { 
-            facingMode: 'user', 
-            width: { ideal: 640 }, 
-            height: { ideal: 480 } 
-          }, 
-          audio: false 
+        // Function to update API URL
+        window.updateApiUrl = function() {
+            const newUrl = document.getElementById('faceApiUrl').value.trim();
+            if (newUrl) {
+                FACE_API_URL = newUrl;
+                localStorage.setItem('faceApiUrl', newUrl);
+                showToast('Face API URL updated to: ' + newUrl, 'info');
+                addDebugLog('API URL updated to: ' + newUrl, 'info');
+                checkApiStatus();
+            }
         };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-        await video.play();
-        isCamReady = true;
-        placeholder.classList.add('hidden');
-        showToast('Camera ready', 'success');
-        monitorFace();
-        return true;
-      } catch(e) {
-        console.warn(e);
-        placeholder.classList.remove('hidden');
-        showToast('Camera access denied', 'error');
-        return false;
-      }
-    }
 
-    function stopCamera() {
-      if (stream) { 
-        stream.getTracks().forEach(t => t.stop()); 
-        stream = null; 
-      }
-      isCamReady = false;
-    }
+        // ---------- STATE ----------
+        let cameraStream = null;
+        let isCameraReady = false;
+        let faceDetected = false;
+        let currentQuality = 0;
 
-    window.requestCamera = startCamera;
+        let isEnrolling = false;
+        let capturedFrames = [];
+        const TOTAL_CAPTURES = 10;
+        let isSetupActive = false;
+        let captureTimer = null;
+        let isApiOnline = false;
+        let apiChecked = false;
 
-    // =============================================
-    // FACE MONITORING
-    // =============================================
-    function monitorFace() {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      async function check() {
-        if (!isCamReady || !video || video.readyState < 2) { 
-          requestAnimationFrame(check); 
-          return; 
-        }
-        try {
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 240;
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-          ctx.restore();
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-          
-          const detected = await detectFaceWithAPI(dataUrl);
-          faceDetected = detected;
-          
-          if (detected) {
-            ring.classList.add('detected');
-            quality = Math.min(95, quality + 4);
-          } else {
-            ring.classList.remove('detected');
-            quality = Math.max(0, quality - 2);
-          }
-          
-          if (isActive && faceDetected && quality > 45 && captured.length < TOTAL) {
-            // Capture will be handled by interval
-          }
-          updateUI();
-        } catch(e) {
-          console.warn('Monitor error:', e);
-        }
-        requestAnimationFrame(check);
-      }
-      check();
-    }
+        let warningTimeout = null;
+        let cameraAttempts = 0;
+        const MAX_CAMERA_ATTEMPTS = 3;
 
-    // =============================================
-    // UI UPDATES
-    // =============================================
-    function updateUI() {
-      const done = captured.length;
-      const pct = Math.min(100, (done / TOTAL) * 100);
-      pctText.textContent = Math.round(pct) + '%';
-      const offset = circumference - (pct / 100) * circumference;
-      progressCircle.style.strokeDashoffset = offset;
-      captureCount.textContent = done;
+        const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
+        const POSITION_DIRECTIONS = ['center', 'right', 'down', 'left', 'up'];
 
-      [dotTop, dotRight, dotBottom, dotLeft].forEach(d => d.classList.remove('active'));
-      if (done < TOTAL) {
-        const idx = done % 5;
-        const dir = DIRS[idx];
-        if (dir === 'top') dotTop.classList.add('active');
-        else if (dir === 'right') dotRight.classList.add('active');
-        else if (dir === 'bottom') dotBottom.classList.add('active');
-        else if (dir === 'left') dotLeft.classList.add('active');
-        posLabel.textContent = POSITIONS[idx];
-        posBadge.classList.remove('done');
-      } else {
-        posLabel.textContent = '✓ Complete';
-        posBadge.classList.add('done');
-        ring.classList.add('complete');
-      }
+        let studentData = {
+            id: null,
+            name: '',
+            matric: '',
+            hostel_id: null,
+            hostel_name: '',
+            room_id: null,
+            room_code: '',
+            bed_space_id: null,
+            bed_code: ''
+        };
 
-      if (done === TOTAL) {
-        ring.classList.add('complete');
-        statusDot.className = 'status-dot done';
-        statusText.textContent = '✅ All angles captured';
-        btnStart.disabled = true;
-        btnStart.innerHTML = '<i class="fas fa-check"></i> Done';
-        enrollGroup.style.display = 'flex';
-        if (captureInterval) {
-          clearInterval(captureInterval);
-          captureInterval = null;
-        }
-        isActive = false;
-      } else if (isActive) {
-        statusDot.className = 'status-dot capturing';
-        statusText.textContent = faceDetected ? 'Capturing...' : 'Move your head';
-      } else {
-        statusDot.className = 'status-dot idle';
-        statusText.textContent = faceDetected ? 'Face detected' : 'Position your face';
-      }
-    }
+        // ---------- DOM REFS ----------
+        const video = document.getElementById('modalCamera');
+        const captureCanvas = document.getElementById('captureCanvas');
+        const faceGuideRing = document.getElementById('modalFaceGuide');
+        const statusText = document.getElementById('modalCameraStatus');
+        const statusDot = document.getElementById('statusDot');
+        const captureCount = document.getElementById('captureCount');
+        const progressText = document.getElementById('progressText');
+        const progressCircle = document.getElementById('progressCircle');
+        const qualityFill = document.getElementById('qualityFill');
+        const qualityPercent = document.getElementById('qualityPercent');
+        const toast = document.getElementById('toast');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingProgressFill = document.getElementById('loadingProgressFill');
+        const instructionText = document.getElementById('instructionText');
+        const btnStart = document.getElementById('btnStart');
+        const btnEnroll = document.getElementById('btnEnroll');
+        const enrollGroup = document.getElementById('enrollGroup');
+        const successOverlay = document.getElementById('successOverlay');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorMessage = document.getElementById('errorMessage');
+        const apiIndicator = document.getElementById('apiIndicator');
+        const apiStatusText = document.getElementById('apiStatusText');
+        const positionLabel = document.getElementById('positionLabel');
+        const positionText = document.getElementById('positionText');
+        const faceSizeWarning = document.getElementById('faceSizeWarning');
+        const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+        const debugInfo = document.getElementById('debugInfo');
+        const debugLogs = document.getElementById('debugLogs');
 
-    // =============================================
-    // START CAPTURE
-    // =============================================
-    async function startCapture() {
-      if (captured.length >= TOTAL) { 
-        showToast('Already complete!', 'info'); 
-        return; 
-      }
-      if (!isCamReady) { 
-        const ok = await startCamera(); 
-        if (!ok) return; 
-      }
-      if (isActive) return;
-      
-      await checkApiStatus();
-      if (!isApiOnline) {
-        showToast('Face API is offline. Please try again.', 'error');
-        return;
-      }
+        const positionDots = document.querySelectorAll('.position-dot');
+        const arrows = {
+            up: document.getElementById('arrowUp'),
+            down: document.getElementById('arrowDown'),
+            left: document.getElementById('arrowLeft'),
+            right: document.getElementById('arrowRight')
+        };
 
-      isActive = true;
-      btnStart.disabled = true;
-      btnStart.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing';
-      statusDot.className = 'status-dot capturing';
-      statusText.textContent = 'Rotate your head slowly';
-      showToast('🔄 Move your head in a circle', 'info');
-      
-      if (captureInterval) clearInterval(captureInterval);
-      captureInterval = setInterval(async () => {
-        if (!isActive) return;
-        if (faceDetected && quality > 40 && captured.length < TOTAL) {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 240;
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-          ctx.restore();
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          const idx = captured.length % 5;
-          captured.push({ 
-            index: captured.length, 
-            direction: DIRS[idx], 
-            image: dataUrl, 
-            quality: quality 
-          });
-          updateUI();
-          if (captured.length === TOTAL) {
-            clearInterval(captureInterval);
-            captureInterval = null;
-            isActive = false;
-            updateUI();
-            showToast('✅ All 10 positions captured!', 'success');
-            btnStart.innerHTML = '<i class="fas fa-check"></i> Done';
-            enrollGroup.style.display = 'flex';
-          }
-        } else {
-          statusText.textContent = faceDetected ? 'Hold still...' : 'Move your head';
-        }
-      }, 1200);
-      updateUI();
-    }
+        const dots = {
+            top: document.getElementById('dotTop'),
+            bottom: document.getElementById('dotBottom'),
+            left: document.getElementById('dotLeft'),
+            right: document.getElementById('dotRight'),
+            center: document.getElementById('dotCenter')
+        };
 
-    // =============================================
-    // LOAD STUDENT DATA
-    // =============================================
-    function loadStudentData() {
-      try {
-        const stored = localStorage.getItem('studentForFaceID');
-        if (stored) {
-          studentData = JSON.parse(stored);
-          console.log('✅ Student data loaded:', studentData);
-        } else {
-          showToast('No student data found. Please register first.', 'error');
-          setTimeout(() => { window.location.href = 'hub.html'; }, 2000);
-        }
-      } catch (error) {
-        console.error('Error loading student data:', error);
-      }
-    }
-
-    // =============================================
-    // ENROLL FACE WITH API
-    // =============================================
-    async function enrollFace() {
-      if (captured.length < TOTAL) { 
-        showToast('Capture all 10 positions first', 'error'); 
-        return; 
-      }
-      if (isEnrolling) return;
-      
-      await checkApiStatus();
-      if (!isApiOnline) {
-        showToast('Face API is offline. Please try again.', 'error');
-        return;
-      }
-
-      if (!studentData.id && !studentData.matric) {
-        loadStudentData();
-        if (!studentData.id && !studentData.matric) {
-          showToast('Student data not found. Please register first.', 'error');
-          return;
-        }
-      }
-
-      isEnrolling = true;
-      btnEnroll.disabled = true;
-      btnEnroll.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enrolling...';
-      errorOverlay.classList.remove('show');
-      successOverlay.classList.remove('show');
-      loadingOverlay.classList.add('show');
-      loadingText.textContent = 'Preparing enrollment...';
-      loadingProgressFill.style.width = '10%';
-
-      try {
-        let studentId = studentData.id;
-
-        if (!studentId && studentData.matric) {
-          const searchRes = await fetch(`${NODE_API_BASE}/students?search=${encodeURIComponent(studentData.matric)}`);
-          if (searchRes.ok) {
-            const data = await searchRes.json();
-            if (data.data && data.data.length > 0) {
-              studentId = data.data[0].id;
-              studentData.id = studentId;
+        // ---------- DEBUG LOGGING ----------
+        function addDebugLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLogs.appendChild(entry);
+            debugInfo.classList.add('show');
+            while (debugLogs.children.length > 20) {
+                debugLogs.removeChild(debugLogs.firstChild);
             }
-          }
+            console.log(`[FaceSetup] ${message}`);
         }
 
-        if (!studentId) {
-          throw new Error('Student ID not found. Please complete registration first.');
+        // ---------- TOAST ----------
+        function showToast(message, type = 'info') {
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => toast.classList.remove('show'), 4000);
+            addDebugLog(`Toast: ${message} (${type})`, type);
         }
 
-        loadingText.textContent = 'Selecting best face capture...';
-        loadingProgressFill.style.width = '20%';
-
-        let bestFrame = captured.reduce((best, current) => {
-          return (current.quality || 0) > (best.quality || 0) ? current : best;
-        }, captured[0]);
-
-        loadingText.textContent = 'Enrolling with InsightFace...';
-        loadingProgressFill.style.width = '40%';
-
-        let imageData = bestFrame.image;
-        if (imageData.startsWith('data:image')) {
-          imageData = imageData.split(',')[1];
+        // ---------- API STATUS CHECK ----------
+        async function checkApiStatus() {
+            try {
+                apiIndicator.className = 'status-indicator checking';
+                apiStatusText.textContent = 'Checking InsightFace API...';
+                addDebugLog(`Checking API at: ${FACE_API_URL}/health`, 'info');
+                
+                const response = await fetch(`${FACE_API_URL}/health`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(5000)
+                });
+                
+                if (response.ok) {
+                    let data = {};
+                    try {
+                        data = await response.json();
+                    } catch (e) {
+                        data = { status: 'ok' };
+                    }
+                    isApiOnline = data.status === 'running' || data.status === 'healthy' || data.status === 'ok' || response.ok;
+                    apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
+                    apiStatusText.textContent = isApiOnline ? 
+                        '✅ InsightFace API Online' : 
+                        '⚠️ API responded but status unknown';
+                    addDebugLog(`API status: ${isApiOnline ? 'ONLINE' : 'UNKNOWN'}`, isApiOnline ? 'success' : 'error');
+                } else {
+                    isApiOnline = false;
+                    apiIndicator.className = 'status-indicator offline';
+                    apiStatusText.textContent = `❌ API Error (HTTP ${response.status})`;
+                    addDebugLog(`API status: OFFLINE (HTTP ${response.status})`, 'error');
+                    
+                    // Try to get more info
+                    try {
+                        const errorText = await response.text();
+                        addDebugLog(`API error response: ${errorText.substring(0, 200)}`, 'error');
+                    } catch (e) {}
+                }
+                
+                apiChecked = true;
+                return isApiOnline;
+            } catch (error) {
+                isApiOnline = false;
+                apiIndicator.className = 'status-indicator offline';
+                apiStatusText.textContent = '❌ Cannot connect to InsightFace API';
+                addDebugLog(`API connection error: ${error.message}`, 'error');
+                console.warn('API status check failed:', error.message);
+                apiChecked = true;
+                return false;
+            }
         }
 
-        const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            student_id: studentId,
-            image: imageData,
-            name: studentData.name || '',
-            matric: studentData.matric || '',
-            hostel: studentData.hostel_id || '',
-            room: studentData.room_id || ''
-          })
-        });
+        // ---------- API HELPERS ----------
+        async function apiCall(endpoint, options = {}) {
+            // Check API status if not checked or if offline
+            if (!apiChecked || !isApiOnline) {
+                await checkApiStatus();
+                if (!isApiOnline) {
+                    // Try one more time with a longer timeout
+                    await checkApiStatus();
+                    if (!isApiOnline) {
+                        throw new Error(`Face API is offline (${FACE_API_URL}). Please check the API URL and try again.`);
+                    }
+                }
+            }
 
-        loadingProgressFill.style.width = '60%';
+            try {
+                const url = `${FACE_API_URL}${endpoint}`;
+                addDebugLog(`Calling Face API: ${endpoint}`, 'info');
+                
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        ...(options.headers || {})
+                    }
+                });
 
-        if (!enrollResponse.ok) {
-          let errorMsg = `HTTP ${enrollResponse.status}`;
-          try {
-            const errorData = await enrollResponse.json();
-            errorMsg = errorData.message || errorData.detail || errorMsg;
-          } catch (e) {
-            errorMsg = enrollResponse.statusText || errorMsg;
-          }
-          throw new Error(`Enrollment failed: ${errorMsg}`);
+                if (!response.ok) {
+                    let errorText = '';
+                    try {
+                        errorText = await response.text();
+                    } catch (e) {
+                        errorText = response.statusText || 'Unknown error';
+                    }
+                    addDebugLog(`Face API error: ${response.status} - ${errorText}`, 'error');
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                addDebugLog(`Face API response: ${JSON.stringify(data).substring(0, 200)}...`, 'success');
+                return data;
+            } catch (error) {
+                addDebugLog(`Face API call failed: ${error.message}`, 'error');
+                console.error('API call error:', error);
+                throw error;
+            }
         }
 
-        const enrollResult = await enrollResponse.json();
-        loadingProgressFill.style.width = '75%';
+        async function nodeApiCall(endpoint, options = {}) {
+            try {
+                const url = `${NODE_API_BASE}${endpoint}`;
+                addDebugLog(`Calling Node API: ${endpoint}`, 'info');
+                
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        ...(options.headers || {})
+                    }
+                });
 
-        if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified) {
-          loadingText.textContent = 'Saving to database...';
-          loadingProgressFill.style.width = '90%';
+                if (!response.ok) {
+                    let errorText = '';
+                    try {
+                        errorText = await response.text();
+                    } catch (e) {
+                        errorText = response.statusText || 'Unknown error';
+                    }
+                    addDebugLog(`Node API error: ${response.status} - ${errorText}`, 'error');
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                addDebugLog(`Node API response: ${JSON.stringify(data).substring(0, 200)}...`, 'success');
+                return data;
+            } catch (error) {
+                addDebugLog(`Node API call failed: ${error.message}`, 'error');
+                console.error('Node API call error:', error);
+                throw error;
+            }
+        }
 
-          try {
-            const updateResponse = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ face_enrolled: true })
+        // ---------- LOAD STUDENT DATA ----------
+        function loadStudentData() {
+            try {
+                const stored = localStorage.getItem('studentForFaceID');
+                if (stored) {
+                    const data = JSON.parse(stored);
+                    studentData = data;
+                    addDebugLog(`Student data loaded: ${data.name} (${data.matric})`, 'success');
+
+                    document.getElementById('studentName').textContent = data.name || 'Unknown';
+                    document.getElementById('studentMatric').textContent = data.matric || '---';
+                    document.getElementById('studentHostel').textContent = data.hostel_name || data.hostel_id || '---';
+                    document.getElementById('studentRoomBed').textContent = 
+                        `${data.room_code || '---'} · ${data.bed_code || '---'}`;
+
+                    document.getElementById('successStudentName').textContent = data.name || 'Student';
+                    document.getElementById('successMatric').textContent = data.matric || '---';
+                    document.getElementById('successRoom').textContent = `Room: ${data.room_code || '---'}`;
+                    document.getElementById('successBed').textContent = `Bed: ${data.bed_code || '---'}`;
+
+                    console.log('✅ Student data loaded:', studentData);
+                } else {
+                    addDebugLog('No student data found in localStorage', 'error');
+                    showToast('No student data found. Please login first.', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'hub.html';
+                    }, 2000);
+                }
+            } catch (error) {
+                addDebugLog(`Error loading student data: ${error.message}`, 'error');
+                console.error('Error loading student data:', error);
+                showToast('Error loading student data', 'error');
+            }
+        }
+
+        // ---------- FACE DETECTION ----------
+        async function detectFaceWithAPI(imageData) {
+            try {
+                // Remove data URL prefix if present
+                let base64Image = imageData;
+                if (base64Image.startsWith('data:image')) {
+                    base64Image = base64Image.split(',')[1];
+                }
+                
+                const response = await fetch(`${FACE_API_URL}/detect-face`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64Image })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    addDebugLog(`Detect face error: ${response.status} - ${errorText}`, 'error');
+                    return false;
+                }
+                
+                const data = await response.json();
+                return data.success && data.faces && data.faces.length > 0;
+            } catch (error) {
+                console.warn('Face detection error:', error);
+                addDebugLog(`Face detection error: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        // ---------- CAMERA ----------
+        async function startModalCamera() {
+            try {
+                if (cameraStream && cameraStream.active) {
+                    const tracks = cameraStream.getVideoTracks();
+                    if (tracks.length > 0 && tracks[0].readyState === 'live') {
+                        video.srcObject = cameraStream;
+                        await video.play();
+                        isCameraReady = true;
+                        cameraPlaceholder.classList.add('hidden');
+                        monitorVideoQuality();
+                        updateStatus('ready', 'Camera ready - Position your face');
+                        addDebugLog('Camera ready (reused stream)', 'success');
+                        return true;
+                    }
+                }
+
+                if (cameraStream) {
+                    stopModalCamera();
+                }
+
+                const constraints = {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                };
+
+                addDebugLog('Requesting camera access...', 'info');
+                cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = cameraStream;
+                await video.play();
+                isCameraReady = true;
+                cameraPlaceholder.classList.add('hidden');
+                cameraAttempts = 0;
+
+                monitorVideoQuality();
+                updateStatus('ready', 'Camera ready - Position your face');
+                addDebugLog('Camera started successfully', 'success');
+                return true;
+            } catch (error) {
+                addDebugLog(`Camera error: ${error.message}`, 'error');
+                console.error('Camera error:', error);
+                cameraAttempts++;
+                
+                if (cameraAttempts < MAX_CAMERA_ATTEMPTS) {
+                    showToast(`Camera access attempt ${cameraAttempts + 1}/${MAX_CAMERA_ATTEMPTS}`, 'info');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return startModalCamera();
+                }
+                
+                showToast('Camera access denied. Please allow camera access in your browser settings.', 'error');
+                updateStatus('error', 'Camera unavailable');
+                cameraPlaceholder.classList.remove('hidden');
+                return false;
+            }
+        }
+
+        function stopModalCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            isCameraReady = false;
+            faceDetected = false;
+            if (captureTimer) {
+                clearInterval(captureTimer);
+                captureTimer = null;
+            }
+            video.srcObject = null;
+            addDebugLog('Camera stopped', 'info');
+        }
+
+        // ---------- REQUEST CAMERA ACCESS ----------
+        window.requestCameraAccess = async function() {
+            cameraPlaceholder.classList.add('hidden');
+            const started = await startModalCamera();
+            if (!started) {
+                cameraPlaceholder.classList.remove('hidden');
+            }
+        };
+
+        // ---------- VIDEO QUALITY MONITORING ----------
+        function monitorVideoQuality() {
+            const context = captureCanvas.getContext('2d');
+            
+            const checkFrame = async () => {
+                if (!isCameraReady || !video || video.readyState < 2) {
+                    if (isCameraReady) requestAnimationFrame(checkFrame);
+                    return;
+                }
+
+                try {
+                    captureCanvas.width = video.videoWidth || 640;
+                    captureCanvas.height = video.videoHeight || 480;
+                    context.save();
+                    context.scale(-1, 1);
+                    context.drawImage(video, -captureCanvas.width, 0, captureCanvas.width, captureCanvas.height);
+                    context.restore();
+
+                    const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
+
+                    // Only check face detection if API is online
+                    if (isApiOnline || apiChecked === false) {
+                        const hasFace = await detectFaceWithAPI(imageData);
+                        
+                        if (hasFace) {
+                            faceDetected = true;
+                            faceGuideRing.classList.add('detected');
+                            faceGuideRing.classList.remove('capturing');
+                            
+                            currentQuality = Math.min(99, currentQuality + 2);
+                            updateQualityDisplay(currentQuality);
+                            
+                            if (currentQuality < 50) {
+                                faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#fbbf24';
+                                clearTimeout(warningTimeout);
+                                warningTimeout = setTimeout(() => {
+                                    if (currentQuality < 50) {
+                                        // keep showing
+                                    } else {
+                                        faceSizeWarning.classList.remove('show');
+                                    }
+                                }, 3000);
+                            } else if (currentQuality < 70) {
+                                faceSizeWarning.textContent = '✅ Good quality, keep going!';
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#4ade80';
+                                setTimeout(() => {
+                                    faceSizeWarning.classList.remove('show');
+                                }, 1500);
+                            } else {
+                                faceSizeWarning.classList.remove('show');
+                            }
+
+                            if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
+                                updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
+                            } else {
+                                updateStatus('ready', 'Face detected ✓');
+                            }
+                        } else {
+                            faceDetected = false;
+                            faceGuideRing.classList.remove('detected');
+                            faceGuideRing.classList.remove('capturing');
+                            
+                            if (currentQuality > 10) {
+                                currentQuality = Math.max(10, currentQuality - 0.5);
+                                updateQualityDisplay(currentQuality);
+                            }
+                            
+                            if (!isSetupActive) {
+                                updateStatus('waiting', 'Position your face');
+                            }
+                            
+                            faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                            faceSizeWarning.className = 'face-size-warning show';
+                            faceSizeWarning.style.color = '#f87171';
+                            clearTimeout(warningTimeout);
+                            warningTimeout = setTimeout(() => {
+                                if (!faceDetected) {
+                                    faceSizeWarning.classList.remove('show');
+                                }
+                            }, 3000);
+                        }
+                    } else {
+                        // API offline - show warning but don't keep checking
+                        if (!isSetupActive) {
+                            updateStatus('error', 'API offline - check connection');
+                        }
+                    }
+                } catch (error) {
+                    // Silent fail
+                }
+
+                if (isCameraReady) requestAnimationFrame(checkFrame);
+            };
+
+            checkFrame();
+        }
+
+        // ---------- STATUS UPDATES ----------
+        function updateStatus(type, message) {
+            statusDot.className = 'status-dot ' + type;
+            statusText.textContent = message;
+        }
+
+        function updateQualityDisplay(quality) {
+            const clamped = Math.min(99, Math.max(0, quality));
+            qualityFill.style.width = clamped + '%';
+            qualityPercent.textContent = Math.round(clamped) + '%';
+
+            const progress = (capturedFrames.length / TOTAL_CAPTURES) * 100;
+            const circumference = 138.2;
+            const offset = circumference - (progress / 100) * circumference;
+            progressCircle.style.strokeDashoffset = offset;
+            progressText.textContent = Math.round(progress) + '%';
+            captureCount.textContent = capturedFrames.length;
+        }
+
+        function updatePositionIndicators() {
+            positionDots.forEach((dot, i) => {
+                dot.classList.remove('active', 'done');
+                if (i < capturedFrames.length) {
+                    dot.classList.add('done');
+                } else if (i === capturedFrames.length && isSetupActive) {
+                    dot.classList.add('active');
+                }
             });
-            
-            if (updateResponse.ok) {
-              console.log('✅ Student marked as face_enrolled');
+
+            if (capturedFrames.length < TOTAL_CAPTURES) {
+                const currentPos = capturedFrames.length % 5;
+                positionText.textContent = POSITIONS[currentPos];
+                positionLabel.className = 'position-label';
+                
+                if (capturedFrames.length > 0) {
+                    const prevPos = (capturedFrames.length - 1) % 5;
+                    positionDots.forEach((dot, i) => {
+                        if (i === prevPos && capturedFrames.length > 0) {
+                            dot.classList.add('done');
+                        }
+                    });
+                }
+            } else {
+                positionLabel.className = 'position-label done';
+                positionText.textContent = '✓ Complete!';
             }
-          } catch (saveError) {
-            console.warn('Save error:', saveError);
-          }
-
-          loadingText.textContent = '✅ Enrollment successful!';
-          loadingProgressFill.style.width = '100%';
-
-          setTimeout(() => {
-            loadingOverlay.classList.remove('show');
-            btnEnroll.innerHTML = '<i class="fas fa-check"></i> Enrolled ✓';
-            successOverlay.classList.add('show');
-            showToast('✅ Face enrolled successfully!', 'success');
-            
-            setTimeout(() => {
-              localStorage.removeItem('studentForFaceID');
-              window.location.href = 'hub.html';
-            }, 2500);
-          }, 1000);
-        } else {
-          throw new Error(enrollResult.message || 'Enrollment failed');
         }
-      } catch (error) {
-        console.error('Enrollment error:', error);
-        loadingOverlay.classList.remove('show');
-        errorMessage.textContent = error.message || 'An error occurred during enrollment. Please try again.';
-        errorOverlay.classList.add('show');
-        showToast('Error: ' + error.message, 'error');
-        isEnrolling = false;
-        btnEnroll.disabled = false;
-        btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll';
-      }
-    }
 
-    // =============================================
-    // RETRY ENROLLMENT
-    // =============================================
-    function retryEnrollment() {
-      errorOverlay.classList.remove('show');
-      enrollFace();
-    }
+        function updateArrows(direction) {
+            Object.values(arrows).forEach(a => a.classList.remove('visible', 'done'));
 
-    // =============================================
-    // RESET
-    // =============================================
-    function resetAll() {
-      if (captured.length > 0 && !confirm('Reset all captures?')) return;
-      if (captureInterval) {
-        clearInterval(captureInterval);
-        captureInterval = null;
-      }
-      isActive = false;
-      isEnrolling = false;
-      captured = [];
-      faceDetected = false;
-      quality = 0;
-      ring.classList.remove('detected', 'complete');
-      btnStart.disabled = false;
-      btnStart.innerHTML = '<i class="fas fa-play"></i> Start';
-      enrollGroup.style.display = 'none';
-      btnEnroll.disabled = false;
-      btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll';
-      statusDot.className = 'status-dot idle';
-      statusText.textContent = 'Position your face';
-      posBadge.classList.remove('done');
-      posLabel.textContent = 'Front';
-      errorOverlay.classList.remove('show');
-      successOverlay.classList.remove('show');
-      loadingOverlay.classList.remove('show');
-      updateUI();
-      showToast('Reset', 'info');
-    }
+            if (direction === 'up') arrows.up.classList.add('visible');
+            else if (direction === 'down') arrows.down.classList.add('visible');
+            else if (direction === 'left') arrows.left.classList.add('visible');
+            else if (direction === 'right') arrows.right.classList.add('visible');
+            else if (direction === 'done') {
+                Object.values(arrows).forEach(a => a.classList.add('done'));
+            }
+        }
 
-    // =============================================
-    // GO BACK
-    // =============================================
-    function goBack() {
-      if (captured.length > 0 && captured.length < TOTAL) {
-        if (!confirm('You have unsaved captures. Go back?')) return;
-      }
-      stopCamera();
-      if (healthCheckTimer) {
-        clearInterval(healthCheckTimer);
-        healthCheckTimer = null;
-      }
-      localStorage.removeItem('studentForFaceID');
-      window.location.href = 'hub.html';
-    }
+        function updateGuideDots(position) {
+            Object.values(dots).forEach(d => d.classList.remove('active'));
 
-    // =============================================
-    // INIT
-    // =============================================
-    async function init() {
-      loadStudentData();
-      await checkApiStatus();
-      
-      healthCheckTimer = setInterval(checkApiStatus, HEALTH_CHECK_INTERVAL);
-      
-      await startCamera();
-      updateUI();
-      
-      // Show API status
-      if (!isApiOnline) {
-        showToast('⚠️ Face API is offline. Please check the connection.', 'error');
-      }
-    }
+            if (position === 'top') dots.top.classList.add('active');
+            else if (position === 'bottom') dots.bottom.classList.add('active');
+            else if (position === 'left') dots.left.classList.add('active');
+            else if (position === 'right') dots.right.classList.add('active');
+            else if (position === 'center') dots.center.classList.add('active');
+        }
 
-    // =============================================
-    // EXPOSE GLOBALLY
-    // =============================================
-    window.startCapture = startCapture;
-    window.enrollFace = enrollFace;
-    window.resetAll = resetAll;
-    window.goBack = goBack;
-    window.requestCamera = startCamera;
-    window.retryEnrollment = retryEnrollment;
-    window.checkApiStatus = checkApiStatus;
+        // ---------- CAPTURE LOGIC ----------
+        async function performAutoCapture() {
+            if (!isSetupActive || capturedFrames.length >= TOTAL_CAPTURES) {
+                if (capturedFrames.length >= TOTAL_CAPTURES) {
+                    completeSetup();
+                }
+                return;
+            }
 
-    // =============================================
-    // START
-    // =============================================
-    document.addEventListener('DOMContentLoaded', init);
-    
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', function() {
-      if (healthCheckTimer) {
-        clearInterval(healthCheckTimer);
-        healthCheckTimer = null;
-      }
-      stopCamera();
-    });
+            if (!faceDetected || currentQuality < 40) {
+                updateStatus('waiting', faceDetected ? 'Improve quality...' : 'Position your face');
+                return;
+            }
 
-  })();
+            try {
+                const context = captureCanvas.getContext('2d');
+                captureCanvas.width = video.videoWidth || 640;
+                captureCanvas.height = video.videoHeight || 480;
+
+                context.save();
+                context.scale(-1, 1);
+                context.drawImage(video, -captureCanvas.width, 0, captureCanvas.width, captureCanvas.height);
+                context.restore();
+
+                const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
+
+                const hasFace = await detectFaceWithAPI(imageData);
+                if (!hasFace) {
+                    updateStatus('waiting', 'Face lost, reposition...');
+                    return;
+                }
+
+                faceGuideRing.classList.add('capturing');
+                setTimeout(() => faceGuideRing.classList.remove('capturing'), 300);
+
+                const currentPos = capturedFrames.length % 5;
+                const direction = POSITION_DIRECTIONS[currentPos];
+
+                capturedFrames.push({
+                    index: capturedFrames.length,
+                    timestamp: Date.now(),
+                    imageData: imageData,
+                    quality: currentQuality,
+                    direction: direction
+                });
+
+                addDebugLog(`Captured position ${currentPos + 1}: ${POSITIONS[currentPos]} (quality: ${Math.round(currentQuality)}%)`, 'success');
+
+                const dot = positionDots[currentPos];
+                if (dot) {
+                    dot.classList.add('done');
+                }
+
+                const nextPos = (capturedFrames.length) % 5;
+                if (capturedFrames.length < TOTAL_CAPTURES) {
+                    positionText.textContent = POSITIONS[nextPos];
+                    positionLabel.className = 'position-label';
+                }
+
+                const nextDirection = POSITION_DIRECTIONS[nextPos];
+                updateArrows(nextDirection);
+                updateGuideDots(nextDirection);
+
+                if (capturedFrames.length < TOTAL_CAPTURES) {
+                    instructionText.innerHTML = `
+                        <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
+                        Move head to <span class="highlight">${POSITIONS[nextPos]}</span> position
+                        <span style="color:#4ade80;font-size:0.65rem;display:block;margin-top:0.2rem;">
+                            ${capturedFrames.length}/${TOTAL_CAPTURES} captured ✅
+                        </span>
+                    `;
+                }
+
+                updateQualityDisplay(currentQuality);
+                updatePositionIndicators();
+                updateStatus('capturing', `✅ ${capturedFrames.length}/${TOTAL_CAPTURES}`);
+
+                if (capturedFrames.length >= TOTAL_CAPTURES) {
+                    completeSetup();
+                }
+            } catch (error) {
+                addDebugLog(`Capture error: ${error.message}`, 'error');
+                console.error('Capture error:', error);
+            }
+        }
+
+        function completeSetup() {
+            isSetupActive = false;
+            if (captureTimer) {
+                clearInterval(captureTimer);
+                captureTimer = null;
+            }
+
+            faceGuideRing.classList.add('complete');
+            updateArrows('done');
+            Object.values(dots).forEach(d => d.classList.add('active'));
+
+            positionLabel.className = 'position-label done';
+            positionText.textContent = '✅ All positions captured!';
+
+            instructionText.innerHTML = `
+                <i class="fas fa-check-circle" style="color:#4ade80;"></i>
+                <span class="success-highlight">All 10 positions captured!</span>
+                <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                    Ready to enroll with InsightFace
+                </span>
+            `;
+
+            updateStatus('done', '✅ All 10 positions captured!');
+
+            btnStart.disabled = true;
+            btnStart.innerHTML = '<i class="fas fa-check" style="color:#4ade80;"></i> Complete';
+            enrollGroup.style.display = 'flex';
+
+            showToast('✅ All 10 positions captured successfully!', 'success');
+            addDebugLog('All positions captured successfully!', 'success');
+        }
+
+        // ---------- START SETUP ----------
+        async function startFaceSetup() {
+            if (isSetupActive) return;
+
+            if (capturedFrames.length > 0 && capturedFrames.length < TOTAL_CAPTURES) {
+                if (!confirm('Resume from previous captures?')) {
+                    resetSetup();
+                    return;
+                }
+            }
+
+            if (capturedFrames.length >= TOTAL_CAPTURES) {
+                showToast('Already complete! Click Enroll.', 'info');
+                return;
+            }
+
+            await checkApiStatus();
+            if (!isApiOnline) {
+                showToast(`InsightFace API is offline (${FACE_API_URL}). Please check the URL and try again.`, 'error');
+                return;
+            }
+
+            isSetupActive = true;
+            btnStart.disabled = true;
+            btnStart.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing...';
+
+            updateStatus('capturing', 'Auto-capturing face...');
+
+            if (!isCameraReady) {
+                const started = await startModalCamera();
+                if (!started) {
+                    isSetupActive = false;
+                    btnStart.disabled = false;
+                    btnStart.innerHTML = '<i class="fas fa-play"></i> Start Setup';
+                    return;
+                }
+            }
+
+            if (captureTimer) clearInterval(captureTimer);
+            captureTimer = setInterval(performAutoCapture, 1500);
+
+            const firstPos = capturedFrames.length % 5;
+            instructionText.innerHTML = `
+                <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
+                Move head to <span class="highlight">${POSITIONS[firstPos]}</span> position
+                <span style="color:#94a3b8;font-size:0.65rem;display:block;margin-top:0.2rem;">
+                    Face will auto-capture when ready
+                </span>
+            `;
+
+            updateArrows(POSITION_DIRECTIONS[firstPos]);
+            updateGuideDots(POSITION_DIRECTIONS[firstPos]);
+
+            showToast('🔴 Face detection active - moving head to capture all angles', 'info');
+            addDebugLog('Face setup started', 'info');
+        }
+
+        // =============================================
+        // ENROLL WITH INSIGHTFACE - UPDATED TO SAVE TO DB
+        // =============================================
+        async function enrollFace() {
+            if (capturedFrames.length < TOTAL_CAPTURES) {
+                showToast(`Please capture all ${TOTAL_CAPTURES} positions first.`, 'error');
+                return;
+            }
+
+            if (isEnrolling) return;
+            isEnrolling = true;
+
+            if (!studentData.id && !studentData.matric) {
+                showToast('Student data not found. Please register first.', 'error');
+                isEnrolling = false;
+                return;
+            }
+
+            errorOverlay.classList.remove('show');
+            successOverlay.classList.remove('show');
+
+            showToast('Enrolling face with InsightFace...', 'info');
+            loadingOverlay.style.display = 'flex';
+            loadingText.textContent = 'Preparing enrollment...';
+            loadingProgressFill.style.width = '10%';
+            addDebugLog('Starting enrollment process...', 'info');
+
+            try {
+                // Get student ID if not set
+                let studentId = studentData.id;
+
+                if (!studentId && studentData.matric) {
+                    try {
+                        addDebugLog(`Searching for student with matric: ${studentData.matric}`, 'info');
+                        const searchRes = await nodeApiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
+                        if (searchRes.data && searchRes.data.length > 0) {
+                            studentId = searchRes.data[0].id;
+                            studentData.id = studentId;
+                            addDebugLog(`Found student ID: ${studentId}`, 'success');
+                        }
+                    } catch (e) {
+                        addDebugLog(`Student search failed: ${e.message}`, 'error');
+                        console.warn('Student search failed:', e);
+                    }
+                }
+
+                if (!studentId) {
+                    throw new Error('Student ID not found. Please complete registration first.');
+                }
+
+                loadingText.textContent = 'Selecting best face capture...';
+                loadingProgressFill.style.width = '20%';
+
+                // Find the best quality frame
+                let bestFrame = capturedFrames.reduce((best, current) => {
+                    return (current.quality || 0) > (best.quality || 0) ? current : best;
+                }, capturedFrames[0]);
+
+                addDebugLog(`Best frame quality: ${Math.round(bestFrame.quality)}%`, 'info');
+
+                loadingText.textContent = 'Enrolling with InsightFace...';
+                loadingProgressFill.style.width = '40%';
+
+                // Prepare image for API
+                let imageData = bestFrame.imageData;
+                if (imageData.startsWith('data:image')) {
+                    imageData = imageData.split(',')[1];
+                }
+
+                // STEP 1: Enroll with Face API
+                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        image: imageData,
+                        name: studentData.name || '',
+                        matric: studentData.matric || '',
+                        hostel: studentData.hostel_id || '',
+                        room: studentData.room_id || ''
+                    })
+                });
+
+                loadingProgressFill.style.width = '60%';
+
+                if (!enrollResponse.ok) {
+                    let errorMsg = `HTTP ${enrollResponse.status}`;
+                    try {
+                        const errorData = await enrollResponse.json();
+                        errorMsg = errorData.message || errorData.detail || errorMsg;
+                    } catch (e) {
+                        errorMsg = enrollResponse.statusText || errorMsg;
+                    }
+                    addDebugLog(`Enrollment failed: ${errorMsg}`, 'error');
+                    throw new Error(`Enrollment failed: ${errorMsg}`);
+                }
+
+                const enrollResult = await enrollResponse.json();
+                addDebugLog(`Enrollment result: ${JSON.stringify(enrollResult).substring(0, 200)}...`, 'success');
+
+                loadingProgressFill.style.width = '75%';
+
+                // Check if enrollment was successful
+                if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified) {
+                    
+                    // STEP 2: Save to database - UPDATE face_enrolled = true
+                    loadingText.textContent = 'Saving to database...';
+                    loadingProgressFill.style.width = '90%';
+                    
+                    try {
+                        // Update student record to mark as face enrolled
+                        const updateResponse = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                face_enrolled: true
+                            })
+                        });
+                        
+                        if (updateResponse.ok) {
+                            const updateResult = await updateResponse.json();
+                            addDebugLog(`✅ Student marked as face_enrolled: ${JSON.stringify(updateResult)}`, 'success');
+                        } else {
+                            const errorText = await updateResponse.text();
+                            addDebugLog(`⚠️ Failed to update student: ${updateResponse.status} - ${errorText}`, 'error');
+                            // Continue anyway - enrollment with InsightFace succeeded
+                        }
+                    } catch (saveError) {
+                        addDebugLog(`❌ Save error: ${saveError.message}`, 'error');
+                        // Continue anyway - enrollment with InsightFace succeeded
+                    }
+
+                    loadingText.textContent = '✅ Enrollment successful!';
+                    loadingProgressFill.style.width = '100%';
+                    addDebugLog('🎉 Face enrollment process complete!', 'success');
+
+                    showToast('✅ Face successfully enrolled with InsightFace!', 'success');
+
+                    setTimeout(() => {
+                        loadingOverlay.style.display = 'none';
+                        btnEnroll.disabled = true;
+                        btnEnroll.innerHTML = '<i class="fas fa-check"></i> Enrolled ✓';
+
+                        successOverlay.classList.add('show');
+                        document.querySelector('.camera-preview').classList.add('success-animation');
+
+                        instructionText.innerHTML = `
+                            <i class="fas fa-check-circle" style="color:#4ade80;"></i>
+                            <span class="success-highlight">Face enrolled successfully!</span>
+                            <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                                You're ready for BedCheck
+                            </span>
+                        `;
+
+                        // Clear the stored student data
+                        localStorage.removeItem('studentForFaceID');
+
+                        // Redirect after success
+                        setTimeout(() => {
+                            window.location.href = 'hub.html';
+                        }, 4000);
+                    }, 1500);
+                } else {
+                    throw new Error(enrollResult.message || 'Enrollment failed');
+                }
+            } catch (error) {
+                addDebugLog(`❌ Enrollment error: ${error.message}`, 'error');
+                console.error('Enrollment error:', error);
+                loadingOverlay.style.display = 'none';
+                
+                errorMessage.textContent = error.message || 'An error occurred during enrollment. Please try again.';
+                errorOverlay.classList.add('show');
+                
+                showToast('Error: ' + error.message, 'error');
+                isEnrolling = false;
+            }
+        }
+
+        // ---------- RETRY ENROLLMENT ----------
+        function retryEnrollment() {
+            errorOverlay.classList.remove('show');
+            addDebugLog('Retrying enrollment...', 'info');
+            enrollFace();
+        }
+
+        // ---------- RESET ----------
+        function resetSetup() {
+            if (capturedFrames.length > 0) {
+                if (!confirm('Reset all captured frames?')) return;
+            }
+
+            stopModalCamera();
+            capturedFrames = [];
+            isSetupActive = false;
+            isEnrolling = false;
+            isCameraReady = false;
+            errorOverlay.classList.remove('show');
+            successOverlay.classList.remove('show');
+
+            if (captureTimer) {
+                clearInterval(captureTimer);
+                captureTimer = null;
+            }
+
+            btnStart.disabled = false;
+            btnStart.innerHTML = '<i class="fas fa-play"></i> Start Setup';
+            enrollGroup.style.display = 'none';
+            btnEnroll.disabled = false;
+            btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll with InsightFace';
+
+            faceGuideRing.classList.remove('complete', 'detected', 'capturing');
+
+            updateStatus('waiting', 'Reset - Position your face');
+            updateQualityDisplay(0);
+            updatePositionIndicators();
+            updateArrows('center');
+            Object.values(dots).forEach(d => d.classList.remove('active'));
+
+            positionLabel.className = 'position-label';
+            positionText.textContent = 'Front';
+
+            instructionText.innerHTML = `
+                <i class="fas fa-info-circle" style="color:#d6ad4b;"></i>
+                Position your face in the guide and <strong>move your head</strong> to capture all angles
+            `;
+
+            showToast('Setup reset', 'info');
+            addDebugLog('Setup reset', 'info');
+
+            setTimeout(() => startModalCamera(), 500);
+        }
+
+        // ---------- GO BACK TO LOGIN ----------
+        function goBackToLogin() {
+            if (capturedFrames.length > 0 && capturedFrames.length < TOTAL_CAPTURES) {
+                if (!confirm('You have unsaved captures. Are you sure you want to go back?')) {
+                    return;
+                }
+            }
+            stopModalCamera();
+            localStorage.removeItem('studentForFaceID');
+            window.location.href = 'hub.html';
+        }
+
+        // ---------- INIT ----------
+        async function init() {
+            addDebugLog('Initializing Face ID Setup...', 'info');
+            addDebugLog(`Face API URL: ${FACE_API_URL}`, 'info');
+            
+            loadStudentData();
+
+            const now = new Date();
+            document.getElementById('timeDisplay').textContent =
+                `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
+
+            // Check API status with retry
+            await checkApiStatus();
+            if (!isApiOnline) {
+                // Try one more time after a delay
+                setTimeout(async () => {
+                    await checkApiStatus();
+                }, 2000);
+            }
+            
+            // Try to start camera automatically
+            cameraPlaceholder.classList.remove('hidden');
+            const started = await startModalCamera();
+            if (started) {
+                cameraPlaceholder.classList.add('hidden');
+            }
+
+            updatePositionIndicators();
+            updateQualityDisplay(0);
+
+            positionDots.forEach((dot, i) => {
+                if (i < 5) {
+                    dot.querySelector('span:last-child').textContent = ['Front', 'Right', 'Bottom', 'Left', 'Top'][i];
+                }
+            });
+
+            setInterval(checkApiStatus, 30000);
+            addDebugLog('Initialization complete', 'success');
+            
+            if (!isApiOnline) {
+                showToast(`⚠️ Face API is offline. Please check the API URL above.`, 'error');
+            }
+        }
+
+        // ---------- EXPOSE TO WINDOW ----------
+        window.startFaceSetup = startFaceSetup;
+        window.enrollFace = enrollFace;
+        window.resetSetup = resetSetup;
+        window.retryEnrollment = retryEnrollment;
+        window.startModalCamera = startModalCamera;
+        window.stopModalCamera = stopModalCamera;
+        window.goBackToLogin = goBackToLogin;
+        window.checkApiStatus = checkApiStatus;
+        window.requestCameraAccess = requestCameraAccess;
+        window.updateApiUrl = updateApiUrl;
+
+        // ---------- INIT ----------
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+    })();
 </script>
 </body>
 </html>
