@@ -524,7 +524,7 @@
     <!-- ===== CHANGE PASSWORD MODAL ===== -->
     <div class="modal-overlay" id="passwordModal">
         <div class="modal-box">
-            <button class="modal-close" onclick="closePasswordModal()">
+            <button class="modal-close" onclick="window.closePasswordModal()">
                 <i class="fas fa-times"></i>
             </button>
 
@@ -549,10 +549,10 @@
             </div>
 
             <div class="modal-actions">
-                <button class="btn-primary" onclick="changePassword()">
+                <button class="btn-primary" onclick="window.changePassword()">
                     <i class="fas fa-save"></i> Update Password
                 </button>
-                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn-outline" onclick="window.closePasswordModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -560,7 +560,7 @@
     <!-- ===== EDIT PROFILE MODAL ===== -->
     <div class="modal-overlay" id="editProfileModal">
         <div class="modal-box">
-            <button class="modal-close" onclick="closeEditProfile()"><i class="fas fa-times"></i></button>
+            <button class="modal-close" onclick="window.closeEditProfile()"><i class="fas fa-times"></i></button>
 
             <div class="modal-header">
                 <h2><i class="fas fa-user-edit text-gold"></i> Edit Profile</h2>
@@ -576,7 +576,7 @@
                     <button class="upload-btn" onclick="document.getElementById('photoInput').click()">
                         <i class="fas fa-upload"></i> Upload Photo
                     </button>
-                    <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="previewPhoto(event)" />
+                    <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="window.previewPhoto(event)" />
                     <p class="text-muted mt-1">JPG, PNG or GIF · Max 2MB</p>
                 </div>
             </div>
@@ -624,7 +624,7 @@
                 <div class="form-group">
                     <label>Role <span class="required">*</span></label>
                     <select id="editRole">
-                        <option value="HRA" selected>HRA</option>
+                        <option value="HRA">HRA</option>
                         <option value="RA">RA</option>
                         <option value="RASD">RASD</option>
                         <option value="Administrator">Administrator</option>
@@ -670,9 +670,9 @@
 
             <!-- Modal Actions -->
             <div class="modal-actions">
-                <button class="btn-primary" onclick="saveProfile()"><i class="fas fa-save"></i> Save Changes</button>
-                <button class="btn-outline" onclick="closeEditProfile()">Cancel</button>
-                <button class="btn-danger-outline" onclick="resetForm()" style="margin-left:auto;"><i class="fas fa-undo"></i> Reset</button>
+                <button class="btn-primary" onclick="window.saveProfile()"><i class="fas fa-save"></i> Save Changes</button>
+                <button class="btn-outline" onclick="window.closeEditProfile()">Cancel</button>
+                <button class="btn-danger-outline" onclick="window.resetForm()" style="margin-left:auto;"><i class="fas fa-undo"></i> Reset</button>
             </div>
         </div>
     </div>
@@ -685,7 +685,7 @@
                 <div class="brand-badge">S</div>
                 <div>
                     <div class="brand-text">BedCheck</div>
-                    <div class="brand-sub">HRA · Champions</div>
+                    <div class="brand-sub">HRA</div>
                 </div>
             </div>
             <p class="workspace-label">Workspace</p>
@@ -772,6 +772,7 @@
             let currentUser = null;
             let hostelData = null;
             let isLoading = true;
+            let staffData = null;
 
             // ---------- DOM REFS ----------
             const profileContent = document.getElementById('profileContent');
@@ -867,8 +868,9 @@
             // =============================================
             // GET HRA'S HOSTEL - FIXED
             // =============================================
-            async function loadHostelData(staffId) {
+            async function loadStaffAndHostelData() {
                 try {
+                    const staffId = getStaffId();
                     if (!staffId) {
                         return null;
                     }
@@ -876,11 +878,10 @@
                     // Get staff profile with hostel info
                     const staffResult = await apiCall(`/staff/${staffId}`);
                     if (!staffResult.success || !staffResult.data) {
-                        console.error('Failed to get staff profile');
                         return null;
                     }
 
-                    const staffData = staffResult.data;
+                    staffData = staffResult.data;
                     
                     // If staff has a hostel_id, fetch the hostel details
                     if (staffData.hostel_id) {
@@ -892,17 +893,18 @@
                     
                     return null;
                 } catch (error) {
-                    console.error('Error loading hostel data:', error);
+                    console.error('Error loading staff/hostel data:', error);
                     return null;
                 }
             }
 
             // ---------- UPDATE USER DISPLAY ----------
             function updateUserDisplay() {
-                if (currentUser) {
-                    const name = currentUser.name || 'User';
-                    const initials = currentUser.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
-                    const role = currentUser.role || 'HRA';
+                const user = staffData || currentUser;
+                if (user) {
+                    const name = user.name || 'User';
+                    const initials = user.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+                    const role = user.role || 'HRA';
 
                     profileAvatar.textContent = initials;
                     profileName.textContent = name;
@@ -952,8 +954,8 @@
                         return;
                     }
 
-                    // Get HRA's hostel
-                    const hostel = await loadHostelData(currentUser.id);
+                    // Get staff and hostel data
+                    const hostel = await loadStaffAndHostelData();
                     if (hostel) {
                         hostelData = hostel;
                     }
@@ -967,7 +969,7 @@
                     updateUserDisplay();
 
                     const hostelName = hostelData?.name || 'No Hostel';
-                    setNotice(`Welcome, ${currentUser?.name || 'User'} · ${hostelName}`);
+                    setNotice(`Welcome, ${staffData?.name || currentUser?.name || 'User'} · ${hostelName}`);
                     
                     isLoading = false;
                     renderProfile();
@@ -1005,24 +1007,28 @@
 
             // ---------- RENDER PROFILE ----------
             function renderProfile() {
-                if (!currentUser) {
+                const user = staffData || currentUser;
+                
+                if (!user) {
                     renderError();
                     return;
                 }
 
-                const user = currentUser;
                 const hostelName = hostelData?.name || 'Champions Hostel';
                 const status = user.status || 'Active';
                 const statusClass = status === 'Active' ? 'active' : 'inactive';
                 const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : new Date().toLocaleString();
+                const joinedDate = user.joined ? new Date(user.joined).toLocaleDateString() : '—';
 
                 // Get stats from hostel data
                 const stats = {
-                    students: hostelData?.total_students || hostelData?.student_count || '—',
+                    students: hostelData?.total_students || hostelData?.student_count || hostelData?.capacity || '—',
                     ras: hostelData?.ra_count || hostelData?.total_ras || '—',
-                    rooms: hostelData?.total_rooms || '—',
+                    rooms: hostelData?.total_rooms || hostelData?.room_count || '—',
                     progress: hostelData?.progress || hostelData?.completion || '0'
                 };
+
+                const initials = user.initials || user.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
                 const html = `
                     <div class="page-heading">
@@ -1043,7 +1049,7 @@
                         <!-- Left Column: Profile Card -->
                         <div class="card" style="max-width:100%;">
                             <div class="flex-center gap-4">
-                                <div class="profile-avatar-large" id="profileAvatarLarge">${user.initials || 'U'}</div>
+                                <div class="profile-avatar-large" id="profileAvatarLarge">${initials}</div>
                                 <div>
                                     <h2 class="font-serif text-2xl font-bold">${user.name || 'User'}</h2>
                                     <p class="text-sm text-muted">${user.role || 'HRA'} · ${hostelName}</p>
@@ -1052,10 +1058,10 @@
                                         <span class="badge" style="padding:0.2rem 0.8rem;font-size:0.6rem;background:#e7edf5;color:#24466f;">ID: ${user.staff_id || user.id || '—'}</span>
                                     </div>
                                     <div class="flex-center gap-2 mt-3 flex-wrap">
-                                        <button class="btn-outline" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="openEditProfile()">
+                                        <button class="btn-outline" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="window.openEditProfile()">
                                             <i class="fas fa-edit"></i> Edit Profile
                                         </button>
-                                        <button class="btn-gold" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="openPasswordModal()">
+                                        <button class="btn-gold" style="padding:0.3rem 1rem;font-size:0.75rem;" onclick="window.openPasswordModal()">
                                             <i class="fas fa-key"></i> Change Password
                                         </button>
                                     </div>
@@ -1120,7 +1126,7 @@
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">Joined</span>
-                                    <span class="info-value">${user.joined ? new Date(user.joined).toLocaleDateString() : '—'}</span>
+                                    <span class="info-value">${joinedDate}</span>
                                 </div>
                             </div>
 
@@ -1159,12 +1165,6 @@
 
                 profileContent.innerHTML = html;
                 updateUserDisplay();
-
-                // Rebind globals
-                window.showToast = showToast;
-                window.handleLogout = handleLogout;
-                window.openEditProfile = openEditProfile;
-                window.closeEditProfile = closeEditProfile;
             }
 
             // ---------- PASSWORD MODAL ----------
@@ -1219,7 +1219,7 @@
 
             // ---------- EDIT PROFILE MODAL ----------
             function openEditProfile() {
-                const user = currentUser || {};
+                const user = staffData || currentUser || {};
                 const modal = document.getElementById('editProfileModal');
                 
                 document.getElementById('editFullName').value = user.name || '';
@@ -1294,15 +1294,28 @@
                     closeEditProfile();
                     
                     // Update local user data
-                    currentUser.name = name;
-                    currentUser.email = email;
-                    currentUser.phone = phone;
-                    currentUser.gender = gender;
-                    currentUser.dob = dob;
-                    currentUser.role = role;
-                    currentUser.department = department;
-                    currentUser.assigned_floor = floor;
-                    currentUser.assigned_room = room;
+                    if (staffData) {
+                        staffData.name = name;
+                        staffData.email = email;
+                        staffData.phone = phone;
+                        staffData.gender = gender;
+                        staffData.dob = dob;
+                        staffData.role = role;
+                        staffData.department = department;
+                        staffData.assigned_floor = floor;
+                        staffData.assigned_room = room;
+                    }
+                    if (currentUser) {
+                        currentUser.name = name;
+                        currentUser.email = email;
+                        currentUser.phone = phone;
+                        currentUser.gender = gender;
+                        currentUser.dob = dob;
+                        currentUser.role = role;
+                        currentUser.department = department;
+                        currentUser.assigned_floor = floor;
+                        currentUser.assigned_room = room;
+                    }
                     
                     // Update session storage
                     const userData = sessionStorage.getItem('bedcheck_user');
@@ -1331,7 +1344,7 @@
 
             function resetForm() {
                 if (confirm('Reset all changes?')) {
-                    const user = currentUser || {};
+                    const user = staffData || currentUser || {};
                     document.getElementById('editFullName').value = user.name || '';
                     document.getElementById('editUsername').value = user.username || '';
                     document.getElementById('editEmail').value = user.email || '';

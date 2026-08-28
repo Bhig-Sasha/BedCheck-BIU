@@ -766,7 +766,6 @@
             let roomStructure = { areas: [] };
             let selectedAreaKey = null;
             let editingRAId = null;
-            let expandedAreas = {};
 
             // ---------- DOM REFS ----------
             const screenContent = document.getElementById('screenContent');
@@ -1019,7 +1018,7 @@
             function setNotice(msg) { noticeText.textContent = msg; }
 
             // =============================================
-            // ROOM STRUCTURE BUILDING - FIXED
+            // ROOM STRUCTURE BUILDING - DATABASE ONLY, NO FALLBACK
             // =============================================
             function buildRoomStructure() {
                 roomStructure = {
@@ -1027,34 +1026,12 @@
                     areas: []
                 };
 
+                // If no rooms, return empty structure
                 if (!rooms || rooms.length === 0) {
-                    // If no rooms, create default structure from hostel data
-                    if (hostelData) {
-                        const isFlat = hostelData.type === 'flat';
-                        const totalAreas = isFlat ? (hostelData.total_flats || 9) : (hostelData.total_floors || 3);
-                        const roomsPerArea = isFlat ? (hostelData.rooms_per_flat || 4) : (hostelData.rooms_per_floor || 18);
-                        const areaPrefix = isFlat ? 'F' : '';
-
-                        for (let i = 1; i <= totalAreas; i++) {
-                            const areaName = isFlat ? `Flat ${i}` : `Floor ${String.fromCharCode(64 + i)}`;
-                            const roomCodes = [];
-                            const roomIds = [];
-                            for (let r = 1; r <= roomsPerArea; r++) {
-                                const code = isFlat ? `F${i}R${r}` : `${String.fromCharCode(64 + i)}${String(r).padStart(2, '0')}`;
-                                roomCodes.push(code);
-                            }
-                            roomStructure.areas.push({
-                                name: areaName,
-                                key: areaName,
-                                rooms: roomCodes,
-                                roomIds: roomIds
-                            });
-                        }
-                    }
                     return;
                 }
 
-                // Group rooms by floor_flat_id or flat number
+                // Group rooms by floor_flat_id
                 const byArea = {};
 
                 rooms.forEach(room => {
@@ -1062,7 +1039,7 @@
 
                     let areaName = 'Unassigned';
                     
-                    // Try to find the floor/flat
+                    // Find the floor/flat
                     const floor = floors.find(f => f.id === room.floor_flat_id);
                     if (floor) {
                         areaName = floor.name || floor.code || `Area ${floor.id}`;
@@ -1096,16 +1073,13 @@
 
                 // Sort and clean up
                 Object.values(byArea).forEach(area => {
-                    // Sort rooms naturally
                     area.rooms.sort((a, b) => {
                         const numA = parseInt(String(a).replace(/\D/g, '')) || 0;
                         const numB = parseInt(String(b).replace(/\D/g, '')) || 0;
                         return numA - numB || String(a).localeCompare(String(b));
                     });
-                    // Deduplicate
                     area.rooms = [...new Set(area.rooms)];
                     
-                    // Match room IDs to sorted rooms
                     const codeToId = {};
                     rooms.forEach(r => { if (r.room_code) codeToId[r.room_code] = Number(r.id); });
                     area.roomIds = area.rooms.map(c => codeToId[c]).filter(id => id && !isNaN(id) && id > 0);
@@ -1114,7 +1088,6 @@
                     roomStructure.areas.push(area);
                 });
 
-                // Sort areas by name with numeric awareness
                 roomStructure.areas.sort((a, b) => {
                     const numA = parseInt(String(a.name).match(/\d+/)?.[0]) || 0;
                     const numB = parseInt(String(b.name).match(/\d+/)?.[0]) || 0;
@@ -1137,15 +1110,6 @@
             function getAreaByRoom(roomCode) {
                 if (!roomCode || !roomStructure?.areas?.length) return null;
                 return roomStructure.areas.find(a => (a.rooms || []).includes(roomCode)) || null;
-            }
-
-            function toggleArea(areaKey) {
-                if (expandedAreas[areaKey]) {
-                    delete expandedAreas[areaKey];
-                } else {
-                    expandedAreas[areaKey] = true;
-                }
-                renderReviewBedCheck();
             }
 
             // =============================================
@@ -1307,11 +1271,9 @@
                         return;
                     }
 
-                    // Get room IDs and codes safely
                     let roomIds = area.roomIds || [];
                     let assignedRoomCodes = area.rooms || [];
                     
-                    // If we have a range, filter the rooms
                     const startRoom = document.getElementById('assignStartRoom').value;
                     const endRoom = document.getElementById('assignEndRoom').value;
                     
@@ -1340,38 +1302,8 @@
                         }
                     }
 
-                    // Ensure we have valid room IDs
                     roomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
                     assignedRoomCodes = assignedRoomCodes.filter(code => code && code.trim() !== '');
-
-                    // If still no rooms found, try to get rooms using the floor_flat_id
-                    if (roomIds.length === 0) {
-                        const areaFloor = floors.find(f => 
-                            f.name === areaKey || 
-                            f.code === areaKey || 
-                            `${f.name}` === areaKey
-                        );
-                        if (areaFloor) {
-                            const areaRooms = rooms.filter(r => r.floor_flat_id === areaFloor.id);
-                            roomIds = areaRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
-                            assignedRoomCodes = areaRooms.map(r => r.room_code).filter(code => code);
-                        }
-                    }
-
-                    // Last resort: try to find rooms by matching room_code prefix
-                    if (roomIds.length === 0) {
-                        if (roomStructure.type === 'flat') {
-                            const flatNum = areaKey.replace('Flat ', '');
-                            const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(`F${flatNum}`));
-                            roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
-                            assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
-                        } else {
-                            const floorLetter = areaKey.replace('Floor ', '');
-                            const matchingRooms = rooms.filter(r => r.room_code && r.room_code.startsWith(floorLetter));
-                            roomIds = matchingRooms.map(r => Number(r.id)).filter(id => !isNaN(id) && id > 0);
-                            assignedRoomCodes = matchingRooms.map(r => r.room_code).filter(code => code);
-                        }
-                    }
 
                     const ra = staff.find(s => s.id == raId);
                     if (!ra) {
@@ -1379,7 +1311,6 @@
                         return;
                     }
 
-                    // Check if area is already assigned to another RA
                     const existingRA = staff.find(s => 
                         s.id != raId && 
                         (s.role === 'RA' || s.role === 'Resident Advisor') && 
@@ -1390,14 +1321,12 @@
                         if (!confirm(`${areaKey} is already assigned to ${existingRA.name}. Do you want to reassign it to ${ra.name}?`)) {
                             return;
                         }
-                        // Clear the old RA's assignment in local data
                         existingRA.assigned_floor = null;
                         existingRA.assigned_area = null;
                         existingRA.assigned_rooms = [];
                         existingRA.assigned_room_ids = [];
                     }
 
-                    // Use the HRA endpoint to assign rooms (this is allowed)
                     const numericRoomIds = roomIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
 
                     if (numericRoomIds.length > 0) {
@@ -1410,7 +1339,6 @@
                                 })
                             });
                         } catch (roomError) {
-                            console.warn('Room assignment error:', roomError);
                             showToast('Error assigning rooms: ' + roomError.message, 'error');
                             return;
                         }
@@ -1419,7 +1347,6 @@
                         return;
                     }
                     
-                    // Update local data
                     ra.assigned_floor = areaKey;
                     ra.assigned_area = areaKey;
                     ra.assigned_rooms = assignedRoomCodes;
@@ -1427,12 +1354,10 @@
                     ra.room_range_start = startRoom || null;
                     ra.room_range_end = endRoom || null;
                     
-                    // Update submission_status to 'Assigned' or 'Not Started'
                     if (ra.submission_status === 'Not Started' || !ra.submission_status) {
                         ra.submission_status = 'Assigned';
                     }
                     
-                    // Clear old assignment in local data if editing
                     if (editingRAId && editingRAId != raId) {
                         const oldRA = staff.find(s => s.id == editingRAId);
                         if (oldRA) {
@@ -1449,7 +1374,6 @@
                     const roomCount = numericRoomIds.length > 0 ? ` (${numericRoomIds.length} rooms)` : ' (area only)';
                     showToast(`${ra.name} assigned to ${areaKey}${roomCount}`, 'success');
                     closeAssignRA();
-                    // Refresh the page data
                     await loadAllData();
                 } catch (error) {
                     console.error('Save assignment error:', error);
@@ -1467,7 +1391,6 @@
                 try {
                     const ra = staff.find(s => s.id == editingRAId);
                     if (ra) {
-                        // Clear room assignments using HRA endpoint
                         if (ra.assigned_rooms && ra.assigned_rooms.length > 0) {
                             const roomIds = [];
                             for (const roomCode of ra.assigned_rooms) {
@@ -1482,13 +1405,12 @@
                                     method: 'POST',
                                     body: JSON.stringify({
                                         ra_id: Number(ra.id),
-                                        room_ids: [] // Empty array removes all assignments
+                                        room_ids: []
                                     })
                                 });
                             }
                         }
                         
-                        // Update local data only (no staff update via API)
                         ra.assigned_floor = null;
                         ra.assigned_area = null;
                         ra.assigned_rooms = [];
@@ -1767,14 +1689,12 @@
                     if (currentSession.grace_period) sessionGrace = currentSession.grace_period;
                 }
 
-                // Calculate total rooms from structure
+                // Calculate total rooms from structure (DATABASE ONLY)
                 let totalRooms = roomStructure.areas.reduce((sum, a) => sum + (a.rooms ? a.rooms.length : 0), 0);
-                if (totalRooms === 0 && rooms.length > 0) {
-                    totalRooms = rooms.length;
-                }
 
-                // Calculate capacity
+                // Calculate capacity from rooms only
                 let capacity = totalRooms * (hostelData?.beds_per_room || 4);
+                // Only use hostel data capacity if it's greater than 0
                 if (hostelData?.capacity && hostelData.capacity > 0) {
                     capacity = hostelData.capacity;
                 }
@@ -1967,7 +1887,6 @@
                 window.getRoomsForArea = getRoomsForArea;
                 window.getRoomIdsForArea = getRoomIdsForArea;
                 window.getAreaByRoom = getAreaByRoom;
-                window.toggleArea = toggleArea;
             }
 
             // =============================================
@@ -2021,13 +1940,14 @@
                     staff = (staffData.data || []).filter(s => s.hostel_id === hostelData.id);
                     floors = (floorsData.data || []).filter(f => f.hostel_id === hostelData.id);
                     
-                    // Filter rooms
+                    // Filter rooms - ONLY from database
                     rooms = (roomsData.data || []).filter(r => {
                         if (r.hostel_id != null && r.hostel_id === hostelData.id) return true;
                         const floor = floors.find(f => f.id === r.floor_flat_id);
                         return !!floor;
                     });
 
+                    // Only keep rooms with active/available status
                     rooms = rooms.filter(r => {
                         const s = String(r.status || '').toLowerCase();
                         return s === 'active' || s === 'available' || s === '' || s === 'not started';
@@ -2135,7 +2055,6 @@
             window.getRoomsForArea = getRoomsForArea;
             window.getRoomIdsForArea = getRoomIdsForArea;
             window.getAreaByRoom = getAreaByRoom;
-            window.toggleArea = toggleArea;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
