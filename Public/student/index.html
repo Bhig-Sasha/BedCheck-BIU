@@ -81,6 +81,24 @@
             color: #a77915;
         }
 
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: #a77915;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            margin-bottom: 0.75rem;
+        }
+
+        .back-link:hover {
+            color: #8a6413;
+            transform: translateX(-4px);
+        }
+
         .form-title {
             font-family: 'Merriweather', serif;
             font-size: 1.1rem;
@@ -475,6 +493,25 @@
         .btn-remove-photo.show {
             display: inline-block;
         }
+
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .nav-links a {
+            color: #68768a;
+            text-decoration: none;
+            font-size: 0.75rem;
+            transition: color 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: #a77915;
+        }
     </style>
 </head>
 <body>
@@ -745,9 +782,11 @@
 
         <div class="text-center">
             <p class="text-sm text-muted">Already registered?</p>
-            <button class="btn btn-outline" onclick="goToLogin()" style="margin-top:0.3rem;padding:0.5rem 1.5rem;width:auto;">
-                <i class="fas fa-sign-in-alt"></i> Login
-            </button>
+            <div class="nav-links">
+                <a href="../Login.html"><i class="fas fa-sign-in-alt"></i> Login</a>
+                <span class="text-muted">·</span>
+                <a href="../index.html"><i class="fas fa-home"></i> Dashboard</a>
+            </div>
         </div>
     </div>
 
@@ -766,7 +805,6 @@
             let allBedSpaces = [];
             let isSubmitting = false;
             let photoDataURL = '';
-            let formData = {};
 
             const toast = document.getElementById('toast');
 
@@ -832,7 +870,7 @@
             }
 
             // =============================================
-            // API CALLS
+            // API CALLS - Using authenticated endpoint for now
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
@@ -881,35 +919,88 @@
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING - Try both public and authenticated
             // =============================================
             async function loadData() {
                 try {
                     document.getElementById('loadingIndicator').style.display = 'block';
 
-                    allHostels = await apiCall('/public/hostels');
-                    console.log('✅ Hostels loaded:', allHostels.length);
+                    // Try public endpoint first
+                    try {
+                        allHostels = await apiCall('/public/hostels');
+                        console.log('✅ Public hostels loaded:', allHostels.length);
+                    } catch (e) {
+                        console.warn('⚠️ Public hostels failed, trying /hostels:', e);
+                        // Try authenticated endpoint
+                        allHostels = await apiCall('/hostels');
+                        console.log('✅ Authenticated hostels loaded:', allHostels.length);
+                    }
 
-                    // Load all floors, rooms, beds for all hostels
-                    for (const hostel of allHostels) {
-                        const floors = await apiCall(`/public/floors-flats?hostel_id=${hostel.id}`);
-                        allFloorsFlats = [...allFloorsFlats, ...floors];
+                    // If still no hostels, load from floors/rooms/beds
+                    if (allHostels.length === 0) {
+                        console.warn('⚠️ No hostels found, trying to load from structures...');
+                        // Try to get floors directly
+                        try {
+                            const floors = await apiCall('/public/floors-flats');
+                            allFloorsFlats = floors || [];
+                            console.log('✅ Floors loaded directly:', allFloorsFlats.length);
+                        } catch (e) {
+                            console.warn('⚠️ Could not load floors:', e);
+                        }
+                        
+                        // Try to get rooms directly
+                        try {
+                            const rooms = await apiCall('/public/rooms');
+                            allRooms = rooms || [];
+                            console.log('✅ Rooms loaded directly:', allRooms.length);
+                        } catch (e) {
+                            console.warn('⚠️ Could not load rooms:', e);
+                        }
+                        
+                        // Try to get beds directly
+                        try {
+                            const beds = await apiCall('/public/bed-spaces');
+                            allBedSpaces = beds || [];
+                            console.log('✅ Beds loaded directly:', allBedSpaces.length);
+                        } catch (e) {
+                            console.warn('⚠️ Could not load beds:', e);
+                        }
+                    } else {
+                        // Load floors, rooms, beds for each hostel
+                        for (const hostel of allHostels) {
+                            try {
+                                const floors = await apiCall(`/public/floors-flats?hostel_id=${hostel.id}`);
+                                allFloorsFlats = [...allFloorsFlats, ...(floors || [])];
+                            } catch (e) {
+                                console.warn(`⚠️ Could not load floors for hostel ${hostel.id}:`, e);
+                            }
+                        }
 
-                        for (const floor of floors) {
-                            const rooms = await apiCall(`/public/rooms?floor_flat_id=${floor.id}`);
-                            allRooms = [...allRooms, ...rooms];
+                        // Load rooms for each floor
+                        for (const floor of allFloorsFlats) {
+                            try {
+                                const rooms = await apiCall(`/public/rooms?floor_flat_id=${floor.id}`);
+                                allRooms = [...allRooms, ...(rooms || [])];
+                            } catch (e) {
+                                console.warn(`⚠️ Could not load rooms for floor ${floor.id}:`, e);
+                            }
+                        }
+
+                        // Load beds for each room
+                        for (const room of allRooms) {
+                            try {
+                                const beds = await apiCall(`/public/bed-spaces?room_id=${room.id}`);
+                                allBedSpaces = [...allBedSpaces, ...(beds || [])];
+                            } catch (e) {
+                                console.warn(`⚠️ Could not load beds for room ${room.id}:`, e);
+                            }
                         }
                     }
 
-                    // Load all bed spaces
-                    const bedPromises = allRooms.map(room => apiCall(`/public/bed-spaces?room_id=${room.id}`));
-                    const bedResults = await Promise.all(bedPromises);
-                    allBedSpaces = bedResults.flat();
+                    console.log('✅ Final counts - Hostels:', allHostels.length, 'Floors:', allFloorsFlats.length, 'Rooms:',
+                        allRooms.length, 'Beds:', allBedSpaces.length);
 
-                    console.log('✅ Floors:', allFloorsFlats.length, 'Rooms:', allRooms.length, 'Beds:', allBedSpaces
-                    .length);
-
-                    // Populate hostel dropdown initially
+                    // Populate hostel dropdown
                     updateHostelDropdown();
 
                     document.getElementById('loadingIndicator').style.display = 'none';
@@ -998,7 +1089,23 @@
                 }
 
                 if (filtered.length === 0) {
-                    select.innerHTML = '<option value="">No hostels found</option>';
+                    // If no hostels, try showing all hostels with a note
+                    if (allHostels.length > 0) {
+                        allHostels.forEach(h => {
+                            const opt = document.createElement('option');
+                            opt.value = h.id;
+                            const roomCount = allRooms.filter(r => {
+                                const floor = allFloorsFlats.find(f => f.id === r.floor_flat_id);
+                                return floor && floor.hostel_id === h.id;
+                            }).length;
+                            opt.textContent = `${h.name} (${roomCount} rooms)`;
+                            select.appendChild(opt);
+                        });
+                        showToast('Showing all hostels (campus filter applied)', 'info');
+                    } else {
+                        select.innerHTML = '<option value="">No hostels found</option>';
+                        showToast('No hostels available. Please contact administrator.', 'warning');
+                    }
                     return;
                 }
 
@@ -1092,7 +1199,11 @@
                     });
 
                     if (beds.length === 0) {
-                        bedSelect.innerHTML = '<option value="">No beds available</option>';
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'No beds available';
+                        opt.disabled = true;
+                        bedSelect.appendChild(opt);
                     }
                 }
             }
@@ -1312,17 +1423,26 @@
 
                     console.log('📝 Registering student:', studentData);
 
-                    const result = await apiCall('/public/students/register', {
-                        method: 'POST',
-                        body: JSON.stringify(studentData)
-                    });
+                    // Try public registration first
+                    let result;
+                    try {
+                        result = await apiCall('/public/students/register', {
+                            method: 'POST',
+                            body: JSON.stringify(studentData)
+                        });
+                    } catch (e) {
+                        console.warn('⚠️ Public registration failed, trying /students:', e);
+                        result = await apiCall('/students', {
+                            method: 'POST',
+                            body: JSON.stringify(studentData)
+                        });
+                    }
 
                     showToast('✅ Registration successful!', 'success');
 
                     // Reset form after successful registration
                     setTimeout(() => {
                         resetForm();
-                        // Show success message in the form
                         document.querySelector('.form-title').scrollIntoView({ behavior: 'smooth' });
                     }, 1500);
 
@@ -1367,10 +1487,6 @@
                 showToast('Form reset', 'info');
             }
 
-            function goToLogin() {
-                window.location.href = '../Login.html';
-            }
-
             // =============================================
             // EXPOSE GLOBALLY
             // =============================================
@@ -1381,7 +1497,6 @@
             window.updateBeds = updateBeds;
             window.registerStudent = registerStudent;
             window.resetForm = resetForm;
-            window.goToLogin = goToLogin;
             window.handlePhotoUpload = handlePhotoUpload;
             window.removePhoto = removePhoto;
             window.showToast = showToast;
