@@ -3216,6 +3216,144 @@ app.post('/api/public/students/register', async (req, res) => {
     }
 });
 
+// =============================================
+// PUBLIC FACE ENROLLMENT - NO AUTH REQUIRED
+// =============================================
+
+app.post('/api/public/students/:id/face/enroll', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.id);
+        const { image, name, matric, hostel, room } = req.body;
+
+        // Validate image
+        const validation = faceService.validateImage(image);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: validation.error,
+                code: 'INVALID_IMAGE'
+            });
+        }
+
+        // Get student
+        const { data: student, error: studentError } = await supabase
+            .from('students')
+            .select('id, name, matric, hostel_id, room_id, campus')
+            .eq('id', studentId)
+            .maybeSingle();
+
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found',
+                code: 'STUDENT_NOT_FOUND'
+            });
+        }
+
+        // Generate embedding
+        console.log(`📸 Public enrollment for ${student.name} (ID: ${student.id})`);
+        
+        const embeddingResult = await faceService.extractEmbedding(image);
+        
+        if (!embeddingResult.success || !embeddingResult.embedding) {
+            return res.status(400).json({
+                success: false,
+                message: embeddingResult.error || 'Failed to generate face embedding. No face detected or image quality too low.',
+                code: 'EMBEDDING_GENERATION_FAILED',
+                fallback: 'Manual verification required'
+            });
+        }
+
+        // Validate embedding dimension
+        if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== 512) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid embedding. Expected 512 dimensions, got ${embeddingResult.embedding?.length || 0}`,
+                code: 'INVALID_EMBEDDING'
+            });
+        }
+
+        console.log(`✅ Embedding generated: ${embeddingResult.embedding.length} dimensions, quality: ${embeddingResult.quality || 'N/A'}`);
+
+        // Save to student_face TABLE
+        const { data: faceData, error: faceError } = await supabase
+            .from('student_face')
+            .upsert({
+                student_id: student.id,
+                campus: student.campus || 'Legacy',
+                campus_code: student.campus === 'Legacy' ? 'LEG' : 'HER',
+                face_embedding: embeddingResult.embedding,
+                face_image_url: embeddingResult.image_url || null,
+                enrollment_status: 'enrolled',
+                enrollment_date: new Date().toISOString(),
+                is_active: true,
+                enrolled_by: null,  // Public enrollment - no staff ID
+                confidence_score: embeddingResult.confidence || 0.95,
+                embedding_quality: embeddingResult.quality || 0.8,
+                embedding_version: 1,
+                last_verified: null,
+                verification_count: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'student_id'
+            })
+            .select()
+            .single();
+
+        if (faceError) {
+            console.error('Save face error:', faceError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to save face data to database',
+                code: 'DATABASE_ERROR',
+                error: faceError.message
+            });
+        }
+
+        // Update students table
+        await supabase
+            .from('students')
+            .update({
+                face_enrolled: true,
+                embedding_quality: embeddingResult.quality || 0.8,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', student.id);
+
+        // Response
+        res.json({
+            success: true,
+            data: {
+                student: {
+                    id: student.id,
+                    name: student.name,
+                    matric: student.matric
+                },
+                face: {
+                    id: faceData.id,
+                    enrollment_status: faceData.enrollment_status,
+                    enrollment_date: faceData.enrollment_date,
+                    confidence: embeddingResult.confidence || 0.95,
+                    quality: embeddingResult.quality || 0.8,
+                    embedding_dimension: embeddingResult.embedding.length
+                },
+                message: 'Face enrolled successfully with embedding'
+            },
+            campus: student.campus || 'Legacy'
+        });
+
+    } catch (error) {
+        console.error('Public face enrollment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred during face enrollment. Please try again.',
+            code: 'SERVER_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
 // =====================================================
 // AUTHENTICATION ENDPOINTS
 // =====================================================
