@@ -114,10 +114,7 @@ face_model = None
 MODEL_LOADED = False
 
 try:
-    # Try to load the model (should already be downloaded during build)
     logger.info("Loading InsightFace model...")
-    
-    # Try antelopev2 first
     try:
         face_model = insightface.app.FaceAnalysis(
             name="antelopev2",
@@ -133,7 +130,6 @@ try:
     except Exception as e:
         logger.warning(f"antelopev2 failed: {e}")
         
-        # Try buffalo_l as fallback (smaller)
         logger.info("Trying buffalo_l model...")
         face_model = insightface.app.FaceAnalysis(
             name="buffalo_l",
@@ -216,7 +212,7 @@ def model_info():
     }
 
 # ==========================
-# STUDENT EMBEDDING ENDPOINT (NEW)
+# STUDENT EMBEDDING ENDPOINT
 # ==========================
 @app.get("/api/student/{student_id}/embedding")
 async def get_student_embedding(student_id: int):
@@ -225,7 +221,6 @@ async def get_student_embedding(student_id: int):
         if not supabase:
             raise HTTPException(status_code=503, detail="Supabase not configured")
         
-        # Query Supabase for the student
         result = supabase.table("students").select("face_embedding").eq("id", student_id).execute()
         
         if not result.data:
@@ -237,7 +232,6 @@ async def get_student_embedding(student_id: int):
         if embedding is None:
             raise HTTPException(status_code=404, detail="No face embedding found for this student")
         
-        # Return the embedding
         return {
             "success": True,
             "embedding": embedding,
@@ -253,16 +247,12 @@ async def get_student_embedding(student_id: int):
 # ==========================
 # Face Detection Endpoint
 # ==========================
-# ==========================
-# Face Detection Endpoint
-# ==========================
 @app.post("/detect-face")
 async def detect_face(request: ImageRequest):
     if not MODEL_LOADED:
         raise HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
-        # Decode image
         frame = decode_image(request.image)
         
         if frame is None:
@@ -272,7 +262,6 @@ async def detect_face(request: ImageRequest):
                 "faces": []
             }
         
-        # Detect faces
         try:
             faces = face_model.get(frame)
         except Exception as model_error:
@@ -316,7 +305,6 @@ async def detect_face(request: ImageRequest):
         raise
     except Exception as e:
         logger.error(f"Face detection error: {e}")
-        # Return a proper error response instead of raising
         return {
             "success": False,
             "detected": False,
@@ -336,12 +324,11 @@ async def enroll_face(request: EnrollmentRequest):
     try:
         frame = decode_image(request.image)
         
-        # Use lower thresholds for better enrollment success
         result = create_embedding_with_quality(
             face_model, 
             frame, 
-            min_confidence=0.35,  # LOWERED from 0.5
-            min_face_size=60      # LOWERED from 100
+            min_confidence=0.35,  
+            min_face_size=60      
         )
         
         if not result["success"]:
@@ -355,13 +342,47 @@ async def enroll_face(request: EnrollmentRequest):
         
         embedding = prepare_embedding_for_db(result["embedding"])
         
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Supabase not configured")
+
+        student_id_int = int(request.student_id)
+
+        # 1. Fetch student info for campus mapping
+        student_res = supabase.table("students").select("campus, campus_code").eq("id", student_id_int).execute()
+        
+        if not student_res.data:
+            raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
+        
+        student_info = student_res.data[0]
+
+        # 2. Insert into `student_face`
+        face_record = {
+            "student_id": student_id_int,
+            "campus": student_info.get("campus"),
+            "campus_code": student_info.get("campus_code"),
+            "face_embedding": embedding,
+            "enrollment_status": "enrolled",
+            "enrolled_by_student": True,
+            "is_active": True,
+            "confidence_score": result["confidence"]
+        }
+        supabase.table("student_face").insert(face_record).execute()
+
+        # 3. Update `students` table flags
+        supabase.table("students").update({
+            "face_enrolled": True,
+            "face_enrolled_at": "now()",
+            "face_enrolled_by_student": True,
+            "face_embedding": embedding
+        }).eq("id", student_id_int).execute()
+        
         return {
             "success": True,
             "embedding": embedding,
             "confidence": result["confidence"],
             "quality": result["quality_score"],
             "student_id": request.student_id,
-            "message": "Face enrolled successfully"
+            "message": "Face enrolled and saved to database successfully"
         }
         
     except HTTPException:
@@ -393,19 +414,17 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
         quality_scores = []
         
         for frame in frames:
-            # Use lower thresholds
             result = create_embedding_with_quality(
                 face_model, 
                 frame, 
-                min_confidence=0.35,  # LOWERED from 0.5
-                min_face_size=60      # LOWERED from 100
+                min_confidence=0.35,  
+                min_face_size=60      
             )
             if result["success"]:
                 embeddings.append(result["embedding"])
                 confidence_scores.append(result["confidence"])
                 quality_scores.append(result["quality_score"])
         
-        # Need at least 3 good frames (reduced from 5)
         if len(embeddings) < 3:
             return {
                 "success": False,
@@ -415,19 +434,53 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
             }
         
         avg_embedding = average_embeddings(embeddings, weights=quality_scores)
-        avg_confidence = np.mean(confidence_scores)
-        avg_quality = np.mean(quality_scores)
+        avg_confidence = float(np.mean(confidence_scores))
+        avg_quality = float(np.mean(quality_scores))
         
         embedding = prepare_embedding_for_db(avg_embedding)
+
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Supabase not configured")
+
+        student_id_int = int(request.student_id)
+
+        # 1. Fetch student campus info
+        student_res = supabase.table("students").select("campus, campus_code").eq("id", student_id_int).execute()
+        
+        if not student_res.data:
+            raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
+            
+        student_info = student_res.data[0]
+
+        # 2. Insert into `student_face`
+        face_record = {
+            "student_id": student_id_int,
+            "campus": student_info.get("campus"),
+            "campus_code": student_info.get("campus_code"),
+            "face_embedding": embedding,
+            "enrollment_status": "enrolled",
+            "enrolled_by_student": True,
+            "is_active": True,
+            "confidence_score": avg_confidence
+        }
+        supabase.table("student_face").insert(face_record).execute()
+
+        # 3. Update `students` table status
+        supabase.table("students").update({
+            "face_enrolled": True,
+            "face_enrolled_at": "now()",
+            "face_enrolled_by_student": True,
+            "face_embedding": embedding
+        }).eq("id", student_id_int).execute()
         
         return {
             "success": True,
             "embedding": embedding,
-            "confidence": float(avg_confidence),
-            "quality": float(avg_quality),
+            "confidence": avg_confidence,
+            "quality": avg_quality,
             "frames_used": len(embeddings),
             "student_id": request.student_id,
-            "message": f"Enrolled using {len(embeddings)} frames"
+            "message": f"Enrolled and saved using {len(embeddings)} frames"
         }
         
     except HTTPException:
@@ -446,7 +499,7 @@ async def start_smart_enrollment(request: ImageRequest):
             "success": True,
             "message": "Smart enrollment ready. Please send multiple frames to /enroll-bulk",
             "frames_needed": 10,
-            "min_frames_needed": 3  # REDUCED from 5
+            "min_frames_needed": 3
         }
         
     except Exception as e:
@@ -473,7 +526,6 @@ async def verify_face(request: VerifyRequest):
                 "reason": "Failed to decode image"
             }
         
-        # Verify student
         try:
             result = verify_student(
                 face_model,

@@ -121,8 +121,10 @@ class InsightFaceService {
         this.lastFailureTime = null;
         this.circuitTimeout = 60000;
         this.maxFailures = 5;
+        this.maxImageSize = parseInt(process.env.MAX_IMAGE_SIZE) || 10 * 1024 * 1024;
     }
 
+    // Circuit breaker methods
     _checkCircuit() {
         if (this.circuitOpen) {
             const now = Date.now();
@@ -151,13 +153,55 @@ class InsightFaceService {
         this.circuitOpen = false;
     }
 
+    // Base64 validation method
+    isValidBase64(str) {
+        if (!str || typeof str !== 'string') return false;
+        // Remove data URL prefix if present
+        const base64Str = str.replace(/^data:image\/\w+;base64,/, '');
+        // Check if it's valid base64
+        try {
+            const buffer = Buffer.from(base64Str, 'base64');
+            if (buffer.length === 0) return false;
+            // Check size
+            if (buffer.length > this.maxImageSize) return false;
+            // Verify it's valid base64 by re-encoding
+            return buffer.toString('base64') === base64Str;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    // Main request method (SINGLE version - remove the duplicate)
     async _makeRequest(endpoint, data, options = {}) {
+        // Check circuit breaker
         if (!this._checkCircuit()) {
             return { 
                 success: false, 
                 error: 'Face API service temporarily unavailable (circuit open)',
                 fallback: 'Manual verification required'
             };
+        }
+
+        // Validate image data if present
+        if (data.image && !this.isValidBase64(data.image)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        // Validate frames if present (for bulk enrollment)
+        if (data.frames && Array.isArray(data.frames)) {
+            for (const frame of data.frames) {
+                if (!this.isValidBase64(frame)) {
+                    return {
+                        success: false,
+                        error: 'Invalid base64 frame data detected',
+                        fallback: 'Manual verification required'
+                    };
+                }
+            }
         }
 
         try {
@@ -201,11 +245,27 @@ class InsightFaceService {
     }
 
     async detectFace(imageBase64) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/detect-face', { image: imageData });
     }
 
     async enrollFace(imageBase64, studentId, hostel, room, name) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/enroll-face', {
             image: imageData,
@@ -217,6 +277,16 @@ class InsightFaceService {
     }
 
     async enrollBulk(frames, studentId, hostel, room, name) {
+        // Validate all frames first
+        for (const frame of frames) {
+            if (!this.isValidBase64(frame)) {
+                return {
+                    success: false,
+                    error: 'Invalid base64 frame data detected',
+                    fallback: 'Manual verification required'
+                };
+            }
+        }
         const imageDataList = frames.map(frame => this._sanitizeImage(frame));
         return this._makeRequest('/enroll-bulk', {
             frames: imageDataList,
@@ -228,6 +298,14 @@ class InsightFaceService {
     }
 
     async verifyFace(imageBase64, storedEmbedding, threshold = FACE_VERIFICATION_THRESHOLD) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/verify-face', {
             image: imageData,
@@ -237,6 +315,14 @@ class InsightFaceService {
     }
 
     async verifyMultiple(imageBase64, embeddings, studentIds, threshold = FACE_VERIFICATION_THRESHOLD) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/verify-multiple', {
             image: imageData,
@@ -247,6 +333,14 @@ class InsightFaceService {
     }
 
     async checkLiveness(imageBase64) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         const result = await this._makeRequest('/check-liveness', { image: imageData });
         return result.is_live !== undefined ? result : { is_live: false, error: result.error };
@@ -264,6 +358,14 @@ class InsightFaceService {
     }
 
     async extractEmbedding(imageBase64) {
+        // Validate image first
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/extract-embedding', { image: imageData });
     }
@@ -364,60 +466,29 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
 
 async function createUniversityWideBedcheckSessions(sessionId) {
     try {
-        // ✅ Get ALL active hostels from ALL campuses
-        const { data: hostels, error: hostelsError } = await supabase
-            .from('hostels')
-            .select('id, campus')
-            .eq('status', 'Active');
+        // Fetch all required data in parallel
+        const [{ data: hostels }, { data: ras }] = await Promise.all([
+            supabase.from('hostels').select('id, campus').eq('status', 'Active'),
+            supabase.from('staff')
+                .select('id, hostel_id, campus')
+                .eq('role', 'RA')
+                .eq('status', 'Active')
+        ]);
 
-        if (hostelsError) {
-            console.error('Error fetching hostels:', hostelsError);
+        if (!hostels?.length) {
+            console.warn('No active hostels found for bedcheck creation');
             return;
         }
 
-        if (!hostels || hostels.length === 0) {
-            console.log('No active hostels found');
-            return;
-        }
+        const raMap = Object.fromEntries(
+            (ras || [])
+                .filter(ra => ra.hostel_id)
+                .map(ra => [ra.hostel_id, ra.id])
+        );
 
-        console.log(`📋 Creating bedcheck sessions for ${hostels.length} hostels across all campuses`);
-
-        // ✅ Get all active RAs
-        const { data: ras, error: rasError } = await supabase
-            .from('staff')
-            .select('id, hostel_id, campus')
-            .eq('role', 'RA')
-            .eq('status', 'Active');
-
-        if (rasError) {
-            console.error('Error fetching RAs:', rasError);
-            return;
-        }
-
-        // Create RA map by hostel
-        const raMap = {};
-        if (ras) {
-            ras.forEach(ra => {
-                if (ra.hostel_id) {
-                    raMap[ra.hostel_id] = ra.id;
-                }
-            });
-        }
-
-        // ✅ Create bedcheck session for each hostel
-        const bedcheckInserts = [];
         const now = new Date().toISOString();
-
-        for (const hostel of hostels) {
-            // Get student count for this hostel
-            const { count: studentCount } = await supabase
-                .from('students')
-                .select('*', { count: 'exact', head: true })
-                .eq('hostel_id', hostel.id)
-                .eq('campus', hostel.campus)
-                .eq('status', 'Active');
-
-            // Check if bedcheck session already exists
+        
+        const hostelPromises = hostels.map(async (hostel) => {
             const { data: existing } = await supabase
                 .from('bedcheck_sessions')
                 .select('id')
@@ -428,15 +499,25 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
             if (existing) {
                 console.log(`📋 Bedcheck session already exists for hostel ${hostel.id}`);
-                continue;
+                return null;
             }
 
-            const raId = raMap[hostel.id] || null;
+            const { count: studentCount, error: countError } = await supabase
+                .from('students')
+                .select('*', { count: 'exact', head: true })
+                .eq('hostel_id', hostel.id)
+                .eq('campus', hostel.campus)
+                .eq('status', 'Active');
 
-            bedcheckInserts.push({
+            if (countError) {
+                console.error(`Error counting students for hostel ${hostel.id}:`, countError);
+                return null;
+            }
+
+            return {
                 global_session_id: sessionId,
                 hostel_id: hostel.id,
-                ra_id: raId,
+                ra_id: raMap[hostel.id] || null,
                 campus: hostel.campus,
                 campus_code: hostel.campus === 'Legacy' ? 'LEG' : 'HER',
                 status: 'pending',
@@ -446,27 +527,31 @@ async function createUniversityWideBedcheckSessions(sessionId) {
                 created_by: 'system',
                 created_at: now,
                 updated_at: now
-            });
-        }
+            };
+        });
+
+        const bedcheckInserts = (await Promise.all(hostelPromises))
+            .filter(insert => insert !== null);
 
         if (bedcheckInserts.length === 0) {
             console.log('No new bedcheck sessions to create');
             return;
         }
 
-        // ✅ Insert all bedcheck sessions
         const { error: insertError } = await supabase
             .from('bedcheck_sessions')
-            .insert(bedcheckInserts);
+            .upsert(bedcheckInserts, { 
+                onConflict: 'global_session_id,hostel_id',
+                ignoreDuplicates: false
+            });
 
         if (insertError) {
             console.error('Error creating bedcheck sessions:', insertError);
-            return;
+            throw insertError;
         }
 
         console.log(`✅ Created ${bedcheckInserts.length} bedcheck sessions for session ${sessionId}`);
 
-        // ✅ Update session total_hostels
         await supabase
             .from('sessions')
             .update({ total_hostels: hostels.length })
@@ -474,6 +559,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
     } catch (error) {
         console.error('Error in createUniversityWideBedcheckSessions:', error);
+        throw error;
     }
 }
 
@@ -953,21 +1039,22 @@ class RequestValidationFirewall {
 
     protectSQLInjection() {
         return (req, res, next) => {
-            const patterns = [
-                /(\b(select|insert|update|delete|drop|alter|create|truncate|union|exec|declare|cast|convert|table|database|information_schema)\b)/gi,
-                /(['";])/g,
-                /(\b(and|or|not|where|having|group by|order by)\b)/gi
+            const dangerousPatterns = [
+                /DROP\s+TABLE/i,
+                /DROP\s+DATABASE/i,
+                /TRUNCATE\s+TABLE/i,
+                /ALTER\s+TABLE/i
             ];
-
+            
             const checkValue = (value) => {
                 if (typeof value === 'string') {
-                    for (const pattern of patterns) {
+                    for (const pattern of dangerousPatterns) {
                         if (pattern.test(value)) return true;
                     }
                 }
                 return false;
             };
-
+            
             const checkObject = (obj) => {
                 for (const [key, value] of Object.entries(obj)) {
                     if (typeof value === 'string' && checkValue(value)) return true;
@@ -977,7 +1064,7 @@ class RequestValidationFirewall {
                 }
                 return false;
             };
-
+            
             const inputs = [req.body, req.query, req.params];
             for (const input of inputs) {
                 if (input && typeof input === 'object') {
@@ -990,7 +1077,6 @@ class RequestValidationFirewall {
                     }
                 }
             }
-
             next();
         };
     }
@@ -1254,7 +1340,9 @@ const corsOptions = {
         
         const isAllowed = allOrigins.some(allowed => {
             if (allowed.includes('*')) {
-                const pattern = allowed.replace(/\*/g, '.*');
+                const pattern = allowed
+                    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\\\*/g, '.*');
                 const regex = new RegExp(`^${pattern}$`);
                 return regex.test(origin);
             }
@@ -1286,14 +1374,25 @@ const globalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();  // Take first IP
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
+
 app.use('/api', globalLimiter);
 
 const authLimiter = rateLimit({
@@ -1304,11 +1403,21 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     skipSuccessfulRequests: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
@@ -1320,11 +1429,21 @@ const faceLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
@@ -1344,7 +1463,8 @@ app.use(express.urlencoded({ extended: true, limit: `${parseInt(process.env.MAX_
 
 // Request logging
 app.use((req, res, next) => {
-    req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || 'unknown';
+    const forwarded = req.headers['x-forwarded-for'];
+    req.clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress || 'unknown';
     req.userAgent = req.headers['user-agent'] || 'unknown';
     
     authFirewall.checkAuthStatus()(req, res, (err) => {
@@ -2377,14 +2497,51 @@ const auditEvents = {
 // 🔓 PUBLIC ENDPOINTS - FIXED
 // =====================================================
 
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'healthy', 
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'production',
-        face_api_status: faceService.circuitOpen ? 'circuit_open' : 'active'
-    });
+app.get('/health', async (req, res) => {
+    try {
+        const { data: dbCheck, error: dbError } = await supabase
+            .from('hostels')
+            .select('id')
+            .limit(1)
+            .maybeSingle();
+        
+        let faceApiHealth = { status: 'unknown' };
+        try {
+            const response = await axios.get(`${FACE_API_URL}/health`, {
+                timeout: 3000,
+                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
+            });
+            if (response.status === 200) {
+                faceApiHealth = response.data;
+            } else {
+                faceApiHealth = { status: 'unhealthy' };
+            }
+        } catch (error) {
+            console.error('Face API health check error:', error.message);
+            faceApiHealth = { status: 'unhealthy', error: error.message };
+        }
+        
+        const isHealthy = !dbError && faceApiHealth.status !== 'unhealthy';
+        
+        res.status(isHealthy ? 200 : 503).json({
+            status: isHealthy ? 'healthy' : 'degraded',
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+            services: {
+                database: dbError ? 'unhealthy' : 'healthy',
+                face_api: faceApiHealth.status || 'healthy'
+            },
+            environment: process.env.NODE_ENV || 'production',
+            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
+        });
+    } catch (error) {
+        console.error('Health check error:', error);
+        res.status(503).json({
+            status: 'unhealthy',
+            error: 'Health check failed',
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 app.get('/', (req, res) => {
