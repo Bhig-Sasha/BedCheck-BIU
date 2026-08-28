@@ -1022,7 +1022,7 @@
             }
 
             // =============================================
-            // API CALL - Fixed to handle case-insensitive status
+            // FIXED API CALL - Gets ALL hostels regardless of status
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
@@ -1048,45 +1048,43 @@
                     console.log(`📦 Response from ${endpoint}:`, data);
 
                     // Handle different response formats
+                    let result = [];
+                    
                     if (data.success !== undefined) {
                         if (!data.success) {
-                            throw new Error(data.message || 'API error');
+                            // If it's not success but has data, still try to use it
+                            if (data.data && Array.isArray(data.data)) {
+                                result = data.data;
+                            } else {
+                                throw new Error(data.message || 'API error');
+                            }
+                        } else {
+                            // Success case
+                            if (data.data && Array.isArray(data.data)) {
+                                result = data.data;
+                            } else {
+                                result = [];
+                            }
                         }
-                        // If data.data exists and is an array, use it
-                        if (data.data && Array.isArray(data.data)) {
-                            // Filter by status (case-insensitive)
-                            const filtered = data.data.filter(item => {
-                                // If item has a status field, check if it's active (case-insensitive)
-                                if (item.status !== undefined) {
-                                    return item.status.toLowerCase() === 'active';
-                                }
-                                return true;
-                            });
-                            return filtered;
-                        }
-                        return data.data || [];
                     } else if (Array.isArray(data)) {
-                        // Filter by status (case-insensitive)
-                        const filtered = data.filter(item => {
-                            if (item.status !== undefined) {
-                                return item.status.toLowerCase() === 'active';
-                            }
-                            return true;
-                        });
-                        return filtered;
+                        result = data;
                     } else if (data.data && Array.isArray(data.data)) {
-                        // Filter by status (case-insensitive)
-                        const filtered = data.data.filter(item => {
-                            if (item.status !== undefined) {
-                                return item.status.toLowerCase() === 'active';
-                            }
-                            return true;
-                        });
-                        return filtered;
+                        result = data.data;
                     } else {
                         console.warn(`⚠️ Unknown response format from ${endpoint}:`, data);
-                        return [];
+                        result = [];
                     }
+
+                    // Filter active items (case-insensitive status check)
+                    return result.filter(item => {
+                        if (item.status !== undefined) {
+                            const status = String(item.status).toLowerCase();
+                            // Accept 'active' or 'Active' or any case variation
+                            return status === 'active';
+                        }
+                        return true;
+                    });
+
                 } catch (error) {
                     console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
@@ -1152,6 +1150,7 @@
                         campusHostels.forEach(h => {
                             const opt = document.createElement('option');
                             opt.value = h.id;
+                            // Count rooms for this hostel
                             const roomCount = allRooms.filter(r => {
                                 const floor = floorsFlats.find(f => f.id === r.floor_flat_id);
                                 return floor && floor.hostel_id === h.id;
@@ -1299,7 +1298,8 @@
                 bedSelect.innerHTML = '<option value="">Select Bed</option>';
 
                 if (roomId) {
-                    const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId) && b.status === 'available');
+                    const roomBeds = bedSpaces.filter(b => b.room_id == parseInt(roomId) && 
+                        (b.status === 'available' || b.status === 'Available'));
                     roomBeds.sort((a, b) => {
                         const aNum = parseInt(a.bed_code.replace(/[^0-9]/g, '')) || 0;
                         const bNum = parseInt(b.bed_code.replace(/[^0-9]/g, '')) || 0;
