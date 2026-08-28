@@ -286,6 +286,10 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* Error state */
+        .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.75rem; padding: 1rem; color: #991b1b; }
+        .error-box i { font-size: 1.5rem; margin-bottom: 0.5rem; }
     </style>
 </head>
 <body>
@@ -518,7 +522,57 @@
         }
 
         // =============================================
-        // AUTHENTICATED API HELPER
+        // CHECK AUTHENTICATION STATUS
+        // =============================================
+        async function checkAuthStatus() {
+            const token = sessionStorage.getItem('bedcheck_token');
+            const userData = sessionStorage.getItem('bedcheck_user');
+            
+            console.log('🔐 Checking authentication...');
+            console.log('Token exists:', !!token);
+            console.log('Token value:', token ? token.substring(0, 20) + '...' : 'null');
+            console.log('User data exists:', !!userData);
+            
+            if (!token || !userData) {
+                console.warn('❌ No token or user data found. Redirecting to login...');
+                window.location.replace('../Login.html');
+                return false;
+            }
+            
+            // Verify token is still valid by making a test call
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.status === 401) {
+                    console.warn('❌ Token is invalid or expired');
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    sessionStorage.removeItem('bedcheck_role');
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+                
+                if (!response.ok) {
+                    console.warn('⚠️ Token verification returned:', response.status);
+                    // Continue anyway - maybe the endpoint is down
+                }
+                
+                console.log('✅ Token appears valid');
+                return true;
+            } catch (error) {
+                console.warn('⚠️ Token verification failed:', error.message);
+                // Continue anyway - maybe the network is down
+                return true;
+            }
+        }
+
+        // =============================================
+        // AUTHENTICATED API HELPER - WITH DEBUGGING
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -545,6 +599,7 @@
                 
                 const url = `${API_BASE_URL}${fixedEndpoint}`;
                 console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
+                console.log(`🔑 Token: ${token.substring(0, 20)}...`);
                 
                 const response = await fetch(url, {
                     ...options,
@@ -555,7 +610,13 @@
                     }
                 });
                 
+                // Log response status
+                console.log(`📡 Response Status: ${response.status}`);
+                
                 if (response.status === 401) {
+                    console.error('❌ API returned 401 Unauthorized');
+                    const errorText = await response.text();
+                    console.error('Error details:', errorText);
                     showToast('Session expired. Please login again.', 'error');
                     sessionStorage.removeItem('bedcheck_token');
                     sessionStorage.removeItem('bedcheck_user');
@@ -568,6 +629,7 @@
                 
                 if (!response.ok) {
                     const errorText = await response.text();
+                    console.error(`❌ API Error ${response.status}:`, errorText);
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
@@ -637,7 +699,7 @@
         }
 
         // =============================================
-        // DATA LOADING - FIXED
+        // DATA LOADING
         // =============================================
         async function loadHostels() {
             try {
@@ -646,6 +708,7 @@
                 console.log('✅ Hostels loaded:', hostels.length);
                 return hostels;
             } catch (error) {
+                console.error('❌ Error loading hostels:', error);
                 hostels = [];
                 return hostels;
             }
@@ -657,14 +720,12 @@
                 students = data.data || [];
                 return students;
             } catch (error) {
+                console.error('❌ Error loading students:', error);
                 students = [];
                 return students;
             }
         }
 
-        // =============================================
-        // FIXED: Load floors/flats with better error handling
-        // =============================================
         async function loadFloorsFlatsForHostel(hostelId) {
             try {
                 console.log(`📋 Loading floors/flats for hostel ${hostelId}...`);
@@ -677,9 +738,6 @@
             }
         }
 
-        // =============================================
-        // FIXED: Load rooms with better error handling
-        // =============================================
         async function loadRoomsForHostel(hostelId) {
             try {
                 console.log(`📋 Loading rooms for hostel ${hostelId}...`);
@@ -692,9 +750,6 @@
             }
         }
 
-        // =============================================
-        // FIXED: Load bed spaces with better error handling
-        // =============================================
         async function loadBedSpacesForHostel(hostelId) {
             try {
                 console.log(`📋 Loading bed spaces for hostel ${hostelId}...`);
@@ -824,7 +879,7 @@
         }
 
         // =============================================
-        // SHOW HOSTEL DETAIL - FIXED
+        // SHOW HOSTEL DETAIL
         // =============================================
         async function showHostelDetail(hostelId) {
             const hostel = hostels.find(h => h.id === hostelId);
@@ -871,18 +926,15 @@
                 
                 // Enrich rooms with floor labels
                 allRooms = roomsData.map(room => {
-                    // If room has floor_flat_id, get the floor name
                     if (room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
                         room.floor_label = floorLabelMap[room.floor_flat_id];
                     }
-                    // If room already has floor, use that
                     if (!room.floor_label && room.floor) {
                         room.floor_label = room.floor;
                     }
                     if (!room.floor_label && room.floor_name) {
                         room.floor_label = room.floor_name;
                     }
-                    // If no floor label, try to get it from the full_code
                     if (!room.floor_label && room.full_code) {
                         const parts = room.full_code.split('-');
                         if (parts.length > 1) {
@@ -904,9 +956,11 @@
             } catch (error) {
                 console.error('Error loading hostel detail:', error);
                 detailContainer.innerHTML = `
-                    <div class="text-center p-4">
-                        <i class="fas fa-exclamation-triangle" style="font-size:2rem;color:#a84134;"></i>
-                        <p class="text-muted mt-3">Error loading hostel data: ${error.message}</p>
+                    <div class="text-center p-4 error-box">
+                        <i class="fas fa-exclamation-triangle" style="font-size:2rem;color:#991b1b;"></i>
+                        <p class="font-bold mt-3">Error loading hostel data</p>
+                        <p class="text-sm text-muted">${error.message}</p>
+                        <p class="text-xs text-muted mt-2">Check the console (F12) for more details.</p>
                         <button class="btn-primary mt-3" onclick="showHostelDetail(${hostelId})">Retry</button>
                     </div>
                 `;
@@ -939,6 +993,7 @@
                         <p class="text-sm text-muted">HRA ID: ${hostel.hra_id || 'Not assigned'}</p>
                         <p class="text-xs text-muted mt-1">Type: <span id="hostelTypeLabel" class="font-bold">${isFlat ? 'Flat-based' : 'Floor-based'}</span></p>
                         <p class="text-xs text-gold mt-1">${isGirls ? '🏠 Girls Hostel · 6 persons per room' : '🏠 Boys Hostel · 4 persons per room'}</p>
+                        ${allFloorsFlats.length === 0 ? '<p class="text-xs text-red-500 mt-1"><i class="fas fa-exclamation-triangle"></i> No floors/flats found in database. Click "Add Room" to create.</p>' : ''}
                     </div>
                     <div class="flex gap-2">
                         <button class="btn-outline" onclick="closeHostelConfig()"><i class="fas fa-times"></i> Close</button>
@@ -1017,7 +1072,7 @@
                     <div class="flex-between">
                         <div>
                             <h3 class="font-serif text-base font-bold">${isFlat ? 'Select a Flat' : 'Select a Floor'}</h3>
-                            <p class="text-xs text-muted">${floorsCount} ${isFlat ? 'flats' : 'floors'}</p>
+                            <p class="text-xs text-muted">${floorsCount} ${isFlat ? 'flats' : 'floors'} · ${allFloorsFlats.length} in database</p>
                         </div>
                         <button class="btn-primary btn-sm" onclick="openAddRoomModal()"><i class="fas fa-plus"></i> Add Room</button>
                     </div>
@@ -1055,7 +1110,7 @@
         }
 
         // =============================================
-        // RENDER FLOOR / FLAT SELECTOR - FIXED
+        // RENDER FLOOR / FLAT SELECTOR - NO FALLBACK
         // =============================================
         function renderFloorSelector() {
             const container = document.getElementById('floorSelector');
@@ -1067,102 +1122,45 @@
             
             let floorLabels = [];
             
-            // FIRST: Get floors from the actual rooms data
+            // ONLY use data from the database
             if (allRooms && allRooms.length > 0) {
                 floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor).filter(Boolean))].sort();
                 console.log('📋 Floor labels from rooms:', floorLabels);
             }
             
-            // SECOND: If no floors from rooms, try to get from floors_flats data
+            // If no floors from rooms, try floors_flats
             if (floorLabels.length === 0 && allFloorsFlats && allFloorsFlats.length > 0) {
                 floorLabels = allFloorsFlats.map(f => f.name).sort();
                 console.log('📋 Floor labels from floors_flats:', floorLabels);
             }
             
-            // THIRD: If still no floors, generate based on hostel type and use existing room data
+            // NO FALLBACK - if no data, show message
             if (floorLabels.length === 0) {
-                // Check if there are any rooms with floor_flat_id
-                if (allRooms && allRooms.length > 0) {
-                    // Get unique floor_flat_ids from rooms
-                    const floorFlatIds = [...new Set(allRooms.map(r => r.floor_flat_id).filter(Boolean))];
-                    if (floorFlatIds.length > 0) {
-                        // Get floor names from floors_flats
-                        const matchedFloors = allFloorsFlats.filter(f => floorFlatIds.includes(f.id));
-                        floorLabels = matchedFloors.map(f => f.name).sort();
-                        console.log('📋 Floor labels from floor_flat_ids:', floorLabels);
-                    }
-                }
+                container.innerHTML = `
+                    <div class="text-center text-muted p-3" style="grid-column:1/-1;">
+                        <i class="fas fa-exclamation-triangle" style="color:#a84134;"></i>
+                        <p class="mt-2"><strong>No floors/flats found in database</strong></p>
+                        <p class="text-xs">This hostel has ${allFloorsFlats.length} floors/flats in the database.</p>
+                        <p class="text-xs text-muted">Rooms found: ${allRooms.length}</p>
+                        <button class="btn-primary mt-3 btn-sm" onclick="openAddRoomModal()">
+                            <i class="fas fa-plus"></i> Add First Room
+                        </button>
+                        <button class="btn-outline mt-2 btn-sm" onclick="refreshHostelData()">
+                            <i class="fas fa-sync"></i> Refresh Data
+                        </button>
+                    </div>
+                `;
+                return;
             }
             
-            // FOURTH: Final fallback - generate based on hostel type
-            if (floorLabels.length === 0) {
-                if (isFlat) {
-                    // Use total_flats from hostel or rooms data
-                    let totalFlats = hostel.total_flats || 0;
-                    // If rooms exist, try to determine number of flats from room codes
-                    if (allRooms && allRooms.length > 0) {
-                        const uniqueFlats = new Set();
-                        allRooms.forEach(r => {
-                            const code = r.room_code || '';
-                            const match = code.match(/^F(\d+)/);
-                            if (match) {
-                                uniqueFlats.add(parseInt(match[1]));
-                            }
-                        });
-                        if (uniqueFlats.size > 0) {
-                            totalFlats = Math.max(...uniqueFlats);
-                        }
-                    }
-                    if (totalFlats === 0) totalFlats = 9;
-                    for (let i = 1; i <= totalFlats; i++) {
-                        floorLabels.push(`F${i}`);
-                    }
-                } else {
-                    let totalFloors = hostel.floors || hostel.total_floors || 3;
-                    if (allRooms && allRooms.length > 0) {
-                        const uniqueFloors = new Set();
-                        allRooms.forEach(r => {
-                            const code = r.room_code || '';
-                            const match = code.match(/^([A-H])/);
-                            if (match) {
-                                uniqueFloors.add(match[1]);
-                            }
-                        });
-                        if (uniqueFloors.size > 0) {
-                            totalFloors = uniqueFloors.size;
-                        }
-                    }
-                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-                    for (let i = 0; i < totalFloors && i < letters.length; i++) {
-                        floorLabels.push(letters[i]);
-                    }
-                }
-                console.log('📋 Floor labels generated (fallback):', floorLabels);
-            }
-            
-            // Build floor data with actual room counts
+            // Build floor data from actual rooms
             let floorData = [];
             
             floorLabels.forEach(label => {
-                // Find rooms that belong to this floor
-                const floorRooms = allRooms.filter(r => {
-                    const roomFloor = r.floor_label || r.floor;
-                    return roomFloor === label;
-                });
-                
-                // If no rooms found with exact match, try partial match
-                let matchedRooms = floorRooms;
-                if (floorRooms.length === 0) {
-                    matchedRooms = allRooms.filter(r => {
-                        const code = r.room_code || '';
-                        const fullCode = r.full_code || '';
-                        return code.startsWith(label) || fullCode.startsWith(label);
-                    });
-                }
-                
-                const totalBeds = matchedRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
+                const floorRooms = allRooms.filter(r => (r.floor_label || r.floor) === label);
+                const totalBeds = floorRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
                 const occupied = allBedSpaces.filter(b => 
-                    b.room_id && matchedRooms.some(r => r.id === b.room_id) && b.status === 'occupied'
+                    b.room_id && floorRooms.some(r => r.id === b.room_id) && b.status === 'occupied'
                 ).length;
                 const available = totalBeds - occupied;
                 const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
@@ -1177,7 +1175,7 @@
                 floorData.push({
                     label: displayLabel,
                     value: label,
-                    rooms: matchedRooms.length,
+                    rooms: floorRooms.length,
                     totalBeds: totalBeds,
                     occupied: occupied,
                     available: available,
@@ -1185,21 +1183,12 @@
                 });
             });
             
-            // Sort floors by number
+            // Sort by number
             floorData.sort((a, b) => {
                 const aNum = parseInt(a.value.replace('F', '')) || 0;
                 const bNum = parseInt(b.value.replace('F', '')) || 0;
                 return aNum - bNum;
             });
-            
-            if (floorData.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center text-muted p-3" style="grid-column:1/-1;">
-                        <i class="fas fa-info-circle"></i> No floors/flats found. Add a room to get started.
-                    </div>
-                `;
-                return;
-            }
             
             container.innerHTML = floorData.map(f => `
                 <div class="floor-card ${selectedFloor === f.value ? 'active' : ''}" onclick="selectFloor('${f.value}')">
@@ -1216,6 +1205,18 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        // =============================================
+        // REFRESH HOSTEL DATA
+        // =============================================
+        async function refreshHostelData() {
+            if (!editingHostelId) {
+                showToast('No hostel selected', 'warning');
+                return;
+            }
+            showToast('Refreshing data...', 'warning');
+            await showHostelDetail(editingHostelId);
         }
 
         // =============================================
@@ -1259,7 +1260,7 @@
         }
 
         // =============================================
-        // RENDER ROOM TABLE - FIXED
+        // RENDER ROOM TABLE
         // =============================================
         function renderRoomTable(floorValue) {
             const tbody = document.getElementById('roomTableBody');
@@ -1443,24 +1444,12 @@
                         floorSelect.appendChild(opt);
                     });
                 } else {
-                    if (isFlat) {
-                        const totalFlats = hostel.total_flats || 9;
-                        for (let i = 1; i <= totalFlats; i++) {
-                            const opt = document.createElement('option');
-                            opt.value = `F${i}`;
-                            opt.textContent = `Flat ${i}`;
-                            floorSelect.appendChild(opt);
-                        }
-                    } else {
-                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-                        const totalFloors = hostel.floors || hostel.total_floors || 3;
-                        for (let i = 0; i < totalFloors && i < letters.length; i++) {
-                            const opt = document.createElement('option');
-                            opt.value = letters[i];
-                            opt.textContent = `Floor ${letters[i]}`;
-                            floorSelect.appendChild(opt);
-                        }
-                    }
+                    // Show a message instead of generating fallback
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = isFlat ? 'No flats found. Please create a flat first.' : 'No floors found. Please create a floor first.';
+                    opt.disabled = true;
+                    floorSelect.appendChild(opt);
                 }
             }
             
@@ -1911,11 +1900,16 @@
         window.assignStudentToBed = assignStudentToBed;
         window.removeStudentFromBed = removeStudentFromBed;
         window.markBedMaintenance = markBedMaintenance;
+        window.refreshHostelData = refreshHostelData;
 
         // =============================================
         // INIT
         // =============================================
         async function init() {
+            // Check authentication first            const isAuthenticated = await checkAuthStatus();
+            if (!isAuthenticated) return;
+            
+            // Now load the user data
             if (!checkAuth()) return;
             setDate();
 
