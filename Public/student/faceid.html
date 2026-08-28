@@ -1541,17 +1541,23 @@
             }
         };
 
-        // ---------- VIDEO QUALITY MONITORING ----------
+        // ---------- VIDEO QUALITY MONITORING - FIXED ----------
         function monitorVideoQuality() {
             const context = captureCanvas.getContext('2d');
+            let frameCount = 0;
+            let lastDetectionTime = 0;
+            const DETECTION_INTERVAL = 500; // Check every 500ms
             
             const checkFrame = async () => {
                 if (!isCameraReady || !video || video.readyState < 2) {
-                    if (isCameraReady) requestAnimationFrame(checkFrame);
+                    if (isCameraReady) {
+                        requestAnimationFrame(checkFrame);
+                    }
                     return;
                 }
 
                 try {
+                    // Capture frame
                     captureCanvas.width = video.videoWidth || 640;
                     captureCanvas.height = video.videoHeight || 480;
                     context.save();
@@ -1560,86 +1566,195 @@
                     context.restore();
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
-
-                    // Try face detection - if it fails, just use local quality estimation
-                    let hasFace = false;
-                    try {
-                        hasFace = await detectFaceWithAPI(imageData);
-                    } catch (e) {
-                        // If API fails, use local quality estimation based on image data
-                        const imageData2 = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
-                        const data = imageData2.data;
-                        let sum = 0, sumSq = 0, n = 0;
-                        for (let i = 0; i < data.length; i += 4) {
-                            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                            sum += avg;
-                            sumSq += avg * avg;
-                            n++;
-                        }
-                        const mean = sum / n;
-                        const variance = (sumSq / n) - (mean * mean);
-                        const contrast = Math.sqrt(variance);
-                        hasFace = (mean > 40 && mean < 220 && contrast > 30);
+                    
+                    // Get image data for quality analysis
+                    const imageData2 = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+                    const data = imageData2.data;
+                    
+                    // Calculate image quality metrics
+                    let sum = 0, sumSq = 0, n = 0;
+                    let minVal = 255, maxVal = 0;
+                    
+                    for (let i = 0; i < data.length; i += 4) {
+                        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                        sum += avg;
+                        sumSq += avg * avg;
+                        n++;
+                        if (avg < minVal) minVal = avg;
+                        if (avg > maxVal) maxVal = avg;
                     }
                     
+                    const mean = sum / n;
+                    const variance = (sumSq / n) - (mean * mean);
+                    const contrast = Math.sqrt(variance);
+                    const dynamicRange = maxVal - minVal;
+                    
+                    // Detect face using multiple methods
+                    let hasFace = false;
+                    let faceQuality = 0;
+                    
+                    // Method 1: Try API face detection
+                    try {
+                        const detectionStart = Date.now();
+                        const response = await fetch(`${NODE_API_BASE}/face/detect`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                image: imageData.split(',')[1] || imageData 
+                            }),
+                            signal: AbortSignal.timeout(3000)
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            if (result.success && result.faces && result.faces.length > 0) {
+                                hasFace = true;
+                                // Use face detection confidence if available
+                                faceQuality = result.faces[0].confidence || 0.8;
+                                console.log('✅ Face detected via API, confidence:', faceQuality);
+                            }
+                        }
+                    } catch (apiError) {
+                        console.debug('Face detection API error:', apiError.message);
+                        // Fall through to local detection
+                    }
+                    
+                    // Method 2: Local face detection using image analysis
+                    if (!hasFace) {
+                        // Check for skin tones (common face color range)
+                        let skinPixels = 0;
+                        let totalPixels = 0;
+                        
+                        for (let i = 0; i < data.length; i += 16) { // Sample every 4th pixel for speed
+                            const r = data[i];
+                            const g = data[i + 1];
+                            const b = data[i + 2];
+                            totalPixels++;
+                            
+                            // Simple skin color detection (YCrCb-like)
+                            const y = 0.299 * r + 0.587 * g + 0.114 * b;
+                            const cr = r - y;
+                            const cb = b - y;
+                            
+                            // Skin color range
+                            if (y > 80 && y < 230 && cr > 10 && cr < 80 && cb > 10 && cb < 70) {
+                                skinPixels++;
+                            }
+                        }
+                        
+                        const skinRatio = totalPixels > 0 ? skinPixels / totalPixels : 0;
+                        
+                        // Face detected if enough skin pixels and good contrast
+                        if (skinRatio > 0.08 && contrast > 30 && dynamicRange > 80) {
+                            hasFace = true;
+                            faceQuality = Math.min(0.95, 0.5 + skinRatio * 0.5);
+                        }
+                    }
+                    
+                    // Method 3: Edge detection for face-like shapes
+                    if (!hasFace && contrast > 50 && dynamicRange > 100) {
+                        // Simple edge detection - look for face-like contrast patterns
+                        let edgePixels = 0;
+                        const sampleSize = Math.min(data.length, 40000);
+                        for (let i = 0; i < sampleSize; i += 16) {
+                            const idx = i * 4;
+                            if (idx + 12 < data.length) {
+                                const r1 = data[idx], r2 = data[idx + 12];
+                                const diff = Math.abs(r1 - r2);
+                                if (diff > 30) edgePixels++;
+                            }
+                        }
+                        const edgeRatio = edgePixels / (sampleSize / 16);
+                        if (edgeRatio > 0.1) {
+                            hasFace = true;
+                            faceQuality = Math.max(faceQuality, 0.5 + edgeRatio * 0.3);
+                        }
+                    }
+
+                    // Update UI based on face detection
                     if (hasFace) {
                         faceDetected = true;
                         faceGuideRing.classList.add('detected');
                         faceGuideRing.classList.remove('capturing');
                         
-                        currentQuality = Math.min(99, currentQuality + 3);
+                        // Calculate quality based on multiple factors
+                        const qualityFactors = {
+                            contrast: Math.min(1, contrast / 100),
+                            dynamicRange: Math.min(1, dynamicRange / 150),
+                            brightness: 1 - Math.abs(mean - 128) / 128,
+                            faceConfidence: faceQuality || 0.5
+                        };
+                        
+                        // Weighted quality score
+                        const rawQuality = (
+                            qualityFactors.contrast * 0.3 +
+                            qualityFactors.dynamicRange * 0.2 +
+                            qualityFactors.brightness * 0.2 +
+                            qualityFactors.faceConfidence * 0.3
+                        ) * 100;
+                        
+                        // Smooth quality updates
+                        const targetQuality = Math.min(99, Math.max(10, Math.round(rawQuality)));
+                        currentQuality = currentQuality * 0.7 + targetQuality * 0.3;
+                        
                         updateQualityDisplay(currentQuality);
                         
-                        if (currentQuality >= MIN_QUALITY_THRESHOLD && !isQualityReady) {
-                            isQualityReady = true;
-                            faceGuideRing.classList.add('quality-ready');
-                            btnStart.disabled = false;
-                            updateStatus('ready', '✅ Quality ready! Click Start Setup');
-                            showToast('✅ Face quality is excellent! Ready to capture.', 'success');
-                        } else if (currentQuality >= MIN_QUALITY_THRESHOLD) {
-                            statusText.textContent = '✅ Quality ready! Click Start Setup';
+                        // Check if quality threshold is reached
+                        if (currentQuality >= MIN_QUALITY_THRESHOLD) {
+                            if (!isQualityReady) {
+                                isQualityReady = true;
+                                faceGuideRing.classList.add('quality-ready');
+                                btnStart.disabled = false;
+                                updateStatus('ready', '✅ Quality ready! Click Start Setup');
+                                showToast('✅ Face quality is excellent! Ready to capture.', 'success');
+                            } else {
+                                updateStatus('ready', `✅ Quality: ${Math.round(currentQuality)}% - Ready to start`);
+                            }
+                        } else {
+                            isQualityReady = false;
+                            btnStart.disabled = true;
+                            updateStatus('ready', `📊 Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}%`);
+                            
+                            // Show warning if quality is too low
+                            if (currentQuality < 50) {
+                                faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#fbbf24';
+                            } else {
+                                faceSizeWarning.textContent = `📊 Quality ${Math.round(currentQuality)}% - Keep steady`;
+                                faceSizeWarning.className = 'face-size-warning show';
+                                faceSizeWarning.style.color = '#fbbf24';
+                            }
                         }
                         
-                        if (currentQuality < 50) {
-                            faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
-                            faceSizeWarning.className = 'face-size-warning show';
-                            faceSizeWarning.style.color = '#fbbf24';
-                            clearTimeout(warningTimeout);
-                            warningTimeout = setTimeout(() => {
-                                if (currentQuality < 50) {
-                                    // keep showing
-                                } else {
-                                    faceSizeWarning.classList.remove('show');
-                                }
-                            }, 3000);
-                        } else if (currentQuality < MIN_QUALITY_THRESHOLD) {
-                            faceSizeWarning.textContent = `📊 Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}% to start`;
-                            faceSizeWarning.className = 'face-size-warning show';
-                            faceSizeWarning.style.color = '#fbbf24';
-                        } else {
-                            faceSizeWarning.classList.remove('show');
-                        }
-
+                        // Show face detected status
                         if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
                             updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
-                        } else if (!isSetupActive && currentQuality >= MIN_QUALITY_THRESHOLD) {
-                            // Already handled above
-                        } else {
-                            updateStatus('ready', `Face detected - Quality: ${Math.round(currentQuality)}%`);
                         }
+                        
+                        // Hide warning after 3 seconds if quality is good
+                        clearTimeout(warningTimeout);
+                        if (currentQuality > 60) {
+                            warningTimeout = setTimeout(() => {
+                                faceSizeWarning.classList.remove('show');
+                            }, 3000);
+                        }
+                        
                     } else {
+                        // No face detected
                         faceDetected = false;
                         isQualityReady = false;
                         faceGuideRing.classList.remove('detected', 'quality-ready');
                         btnStart.disabled = true;
                         
+                        // Gradually decrease quality
                         if (currentQuality > 10) {
                             currentQuality = Math.max(10, currentQuality - 0.5);
                             updateQualityDisplay(currentQuality);
                         }
                         
                         if (!isSetupActive) {
-                            updateStatus('waiting', 'Position your face');
+                            updateStatus('waiting', '😊 Position your face in the guide');
                         }
                         
                         faceSizeWarning.textContent = '😊 Please position your face in the guide';
@@ -1652,13 +1767,18 @@
                             }
                         }, 3000);
                     }
+                    
                 } catch (error) {
-                    // Silent fail - use local quality estimation
+                    console.debug('Frame analysis error:', error.message);
                 }
 
-                if (isCameraReady) requestAnimationFrame(checkFrame);
+                // Continue monitoring
+                if (isCameraReady) {
+                    requestAnimationFrame(checkFrame);
+                }
             };
 
+            // Start monitoring
             checkFrame();
         }
 
