@@ -583,7 +583,7 @@
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
-    <script>
+<script>
         // =============================================
         // STUDENT LOGIN / RESUME - BIU BedCheck
         // =============================================
@@ -610,35 +610,11 @@
             setTimeout(() => toast.classList.remove('show'), 4000);
         }
 
-        // ---------- API HELPERS ----------
-        async function apiCall(endpoint, options = {}) {
-            try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(options.headers || {})
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error('API Error:', error);
-                throw error;
-            }
-        }
-
-        // ---------- SEARCH STUDENT ----------
+        // ---------- SEARCH STUDENT - IMPROVED ----------
         async function searchStudent() {
             const query = searchInput.value.trim();
             if (!query) {
-                showToast('Please enter a name to search', 'error');
+                showToast('Please enter a name or matric number to search', 'error');
                 return;
             }
 
@@ -652,12 +628,55 @@
             faceIdSection.classList.remove('show');
 
             try {
-                // Use the public endpoint - NO TOKEN REQUIRED
-                const result = await fetch(`${API_BASE}/public/students/search?query=${encodeURIComponent(query)}`);
-                const data = await result.json();
+                // PUBLIC ENDPOINT - No token required
+                const response = await fetch(`${API_BASE}/public/students/search?query=${encodeURIComponent(query)}`);
+                const data = await response.json();
 
-                if (data.success && data.data && data.data.length > 0) {
-                    const student = data.data[0];
+                if (!response.ok) {
+                    throw new Error(data.message || 'Search failed');
+                }
+
+                // Check if we got results
+                let students = data.data || [];
+                
+                // If no results from API, try client-side filtering as fallback
+                if (students.length === 0) {
+                    // Try to get all students and filter client-side (fallback)
+                    const allResponse = await fetch(`${API_BASE}/public/students/search?query=`);
+                    const allData = await allResponse.json();
+                    if (allData.success && allData.data) {
+                        const lowerQuery = query.toLowerCase();
+                        students = allData.data.filter(s => {
+                            const name = (s.name || '').toLowerCase();
+                            const matric = (s.matric || '').toLowerCase();
+                            // Check if query matches any part of name or matric
+                            return name.includes(lowerQuery) || 
+                                   matric.includes(lowerQuery) ||
+                                   name.split(' ').some(word => word.startsWith(lowerQuery));
+                        });
+                    }
+                }
+
+                if (students.length > 0) {
+                    // Find the best match - prioritize exact name match or matric match
+                    let student = students[0];
+                    const lowerQuery = query.toLowerCase();
+                    
+                    // Try to find a better match (exact name or matric)
+                    for (const s of students) {
+                        const name = (s.name || '').toLowerCase();
+                        const matric = (s.matric || '').toLowerCase();
+                        if (name === lowerQuery || matric === lowerQuery) {
+                            student = s;
+                            break;
+                        }
+                        // Also check if query matches matric exactly
+                        if (matric === lowerQuery) {
+                            student = s;
+                            break;
+                        }
+                    }
+                    
                     currentStudent = student;
                     displayStudent(student);
                     studentFound.classList.add('show');
@@ -672,7 +691,7 @@
                     showToast(`Welcome back, ${student.name}!`, 'success');
                 } else {
                     studentNotFound.classList.add('show');
-                    showToast('No student found with that name', 'error');
+                    showToast('No student found with that name or matric number', 'error');
                 }
 
             } catch (error) {
