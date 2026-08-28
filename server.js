@@ -2568,6 +2568,58 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
     }
 });
 
+// =============================================
+// PUBLIC STUDENT SEARCH - NO AUTH REQUIRED
+// =============================================
+
+app.get('/api/public/students/search', async (req, res) => {
+    try {
+        const { query } = req.query;
+        
+        if (!query || query.length < 2) {
+            return res.json({ 
+                success: true, 
+                data: [],
+                message: 'Please enter at least 2 characters'
+            });
+        }
+
+        const searchTerm = `%${query}%`;
+        
+        // Search students by name or matric
+        const { data, error } = await supabase
+            .from('students')
+            .select('id, name, matric, faculty, department, level, session, hostel_id, hostel_name, room_id, room_code, bed_space_id, bed_code, phone, gender, email, emergency_name, emergency_relation, emergency_phone, status, face_enrolled, campus')
+            .or(`name.ilike.${searchTerm},matric.ilike.${searchTerm}`)
+            .eq('status', 'Active')
+            .order('name', { ascending: true })
+            .limit(10);
+
+        if (error) {
+            console.error('Search error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: data || [],
+            count: data?.length || 0
+        });
+
+    } catch (error) {
+        console.error('Public search error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
 // =====================================================
 // 🔐 AUTH MIDDLEWARE
 // =====================================================
