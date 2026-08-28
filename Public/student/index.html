@@ -26,7 +26,7 @@
         }
 
         .container {
-            max-width: 560px;
+            max-width: 600px;
             width: 100%;
             background: #fffcf6;
             border-radius: 1.5rem;
@@ -451,6 +451,27 @@
             margin-top: 1rem;
         }
 
+        .campus-badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: #e7edf5;
+            color: #24466f;
+        }
+
+        .campus-badge.heritage {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .campus-badge.legacy {
+            background: #e7edf5;
+            color: #24466f;
+        }
+
         /* Photo Upload Styles */
         .photo-upload {
             border: 2px dashed #cbd2db;
@@ -616,6 +637,20 @@
             <div class="form-title"><i class="fas fa-edit" style="color:#d6ad4b;"></i> Personal Details</div>
             <div class="form-subtitle">Fill in your information to continue to Face ID enrollment</div>
 
+            <!-- Campus Selection - NEW -->
+            <div class="form-group" id="campusGroup">
+                <label>Campus <span class="required">*</span></label>
+                <select id="campusSelect" onchange="updateCampusHostels()">
+                    <option value="">Select Campus</option>
+                    <option value="Legacy">Legacy Campus</option>
+                    <option value="Heritage">Heritage Campus</option>
+                </select>
+                <div class="field-error">Please select your campus</div>
+                <div class="status-hint" style="margin-top:0.3rem;">
+                    <i class="fas fa-info-circle"></i> Your campus determines which hostels are available
+                </div>
+            </div>
+
             <!-- Personal Information -->
             <div class="form-row">
                 <div class="form-group" id="surnameGroup">
@@ -774,11 +809,11 @@
                 <div class="field-error">Please enter emergency phone number</div>
             </div>
 
-            <!-- Hostel Information -->
+            <!-- Hostel Allocation - Updated with Campus filtering -->
             <div class="form-title" style="margin-top:1.5rem;font-size:1rem;"><i class="fas fa-building" style="color:#d6ad4b;"></i> Hostel Allocation</div>
             <div class="form-subtitle" style="margin-bottom:0.75rem;">Select your allocated hostel and room</div>
 
-            <div class="form-row-3">
+            <div class="form-row">
                 <div class="form-group" id="hostelGroup">
                     <label>Hostel <span class="required">*</span></label>
                     <select id="hostelSelect" onchange="updateFloors()">
@@ -786,6 +821,16 @@
                     </select>
                     <div class="field-error">Please select a hostel</div>
                 </div>
+                <div class="form-group" id="campusDisplayGroup">
+                    <label>Campus</label>
+                    <div style="padding:0.7rem 0.75rem;border:1.5px solid #cbd2db;border-radius:0.5rem;background:#f8f6f0;font-size:0.85rem;color:#475569;" id="campusDisplay">
+                        <span id="campusDisplayText">Select campus first</span>
+                        <span class="campus-badge" id="campusBadge" style="display:none;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row-3">
                 <div class="form-group" id="floorGroup">
                     <label>Floor/Flat <span class="required">*</span></label>
                     <select id="floorSelect" onchange="updateRooms()">
@@ -800,14 +845,13 @@
                     </select>
                     <div class="field-error">Please select a room</div>
                 </div>
-            </div>
-
-            <div class="form-group" id="bedGroup">
-                <label>Bed Space <span class="required">*</span></label>
-                <select id="bedSelect">
-                    <option value="">Select Bed</option>
-                </select>
-                <div class="field-error">Please select a bed space</div>
+                <div class="form-group" id="bedGroup">
+                    <label>Bed Space <span class="required">*</span></label>
+                    <select id="bedSelect">
+                        <option value="">Select Bed</option>
+                    </select>
+                    <div class="field-error">Please select a bed space</div>
+                </div>
             </div>
 
             <div class="status-hint">
@@ -864,9 +908,9 @@
 
             const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
-            let hostels = [];
+            let allHostels = [];
             let floorsFlats = [];
-            let rooms = [];
+            let allRooms = [];
             let bedSpaces = [];
             let students = [];
             let isSubmitting = false;
@@ -948,6 +992,54 @@
                 }
             }
 
+            // ===== CAMPUS HOSTEL FILTERING =====
+            function updateCampusHostels() {
+                const campus = document.getElementById('campusSelect').value;
+                const hostelSelect = document.getElementById('hostelSelect');
+                const campusDisplayText = document.getElementById('campusDisplayText');
+                const campusBadge = document.getElementById('campusBadge');
+
+                // Reset hostel dropdown
+                hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
+                document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
+                document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
+                document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
+
+                if (!campus) {
+                    campusDisplayText.textContent = 'Select campus first';
+                    campusBadge.style.display = 'none';
+                    return;
+                }
+
+                // Update campus display
+                campusDisplayText.textContent = campus;
+                campusBadge.textContent = campus;
+                campusBadge.className = `campus-badge ${campus.toLowerCase()}`;
+                campusBadge.style.display = 'inline-block';
+
+                // Filter hostels by campus
+                const campusHostels = allHostels.filter(h => h.campus === campus);
+
+                if (campusHostels.length === 0) {
+                    hostelSelect.innerHTML = '<option value="">No hostels found for this campus</option>';
+                    showToast(`No hostels found for ${campus} campus`, 'info');
+                    return;
+                }
+
+                campusHostels.forEach(h => {
+                    const opt = document.createElement('option');
+                    opt.value = h.id;
+                    const roomCount = allRooms.filter(r => {
+                        const floor = floorsFlats.find(f => f.id === r.floor_flat_id);
+                        return floor && floor.hostel_id === h.id;
+                    }).length;
+                    opt.textContent = `${h.name} (${roomCount} rooms)`;
+                    hostelSelect.appendChild(opt);
+                });
+
+                showToast(`Found ${campusHostels.length} hostels in ${campus} campus`, 'success');
+            }
+
             async function loadData() {
                 try {
                     const [hostelsRes, floorsRes, roomsRes, bedsRes, studentsRes] = await Promise.all([
@@ -958,25 +1050,33 @@
                         apiCall('/students')
                     ]);
 
-                    hostels = hostelsRes.data || [];
+                    allHostels = hostelsRes.data || [];
                     floorsFlats = floorsRes.data || [];
-                    rooms = roomsRes.data || [];
+                    allRooms = roomsRes.data || [];
                     bedSpaces = bedsRes.data || [];
                     students = studentsRes.data || [];
 
                     console.log(
-                        `✅ Loaded: ${hostels.length} hostels, ${floorsFlats.length} floors, ${rooms.length} rooms, ${bedSpaces.length} beds, ${students.length} students`);
+                        `✅ Loaded: ${allHostels.length} hostels, ${floorsFlats.length} floors, ${allRooms.length} rooms, ${bedSpaces.length} beds, ${students.length} students`);
 
+                    // Initial hostel dropdown (will be filtered by campus)
                     const hostelSelect = document.getElementById('hostelSelect');
                     hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
-                    hostels.forEach(h => {
-                        const opt = document.createElement('option');
-                        opt.value = h.id;
-                        opt.textContent = h.name;
-                        hostelSelect.appendChild(opt);
-                    });
 
                     updateDepartments();
+
+                    // Check if campus is already selected from draft
+                    const draft = localStorage.getItem('studentDetailsDraft');
+                    if (draft) {
+                        try {
+                            const data = JSON.parse(draft);
+                            if (data.campusSelect) {
+                                document.getElementById('campusSelect').value = data.campusSelect;
+                                updateCampusHostels();
+                            }
+                        } catch (e) {}
+                    }
+
                 } catch (error) {
                     console.error('Load error:', error);
                     showToast('Error loading data: ' + error.message, 'error');
@@ -1000,10 +1100,14 @@
                     hostelFloors.forEach(floor => {
                         const opt = document.createElement('option');
                         opt.value = floor.id;
-                        const roomCount = rooms.filter(r => r.floor_flat_id === floor.id).length;
+                        const roomCount = allRooms.filter(r => r.floor_flat_id === floor.id).length;
                         opt.textContent = `${floor.name} (${roomCount} rooms)`;
                         floorSelect.appendChild(opt);
                     });
+
+                    if (hostelFloors.length === 0) {
+                        floorSelect.innerHTML = '<option value="">No floors found</option>';
+                    }
                 }
             }
 
@@ -1014,7 +1118,7 @@
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
 
                 if (floorId) {
-                    const floorRooms = rooms.filter(r => r.floor_flat_id == parseInt(floorId));
+                    const floorRooms = allRooms.filter(r => r.floor_flat_id == parseInt(floorId));
                     floorRooms.sort((a, b) => {
                         const aNum = parseInt(a.room_code.replace(/[^0-9]/g, '')) || 0;
                         const bNum = parseInt(b.room_code.replace(/[^0-9]/g, '')) || 0;
@@ -1027,6 +1131,10 @@
                         opt.textContent = `${room.room_code} (${bedCount} beds)`;
                         roomSelect.appendChild(opt);
                     });
+
+                    if (floorRooms.length === 0) {
+                        roomSelect.innerHTML = '<option value="">No rooms found</option>';
+                    }
                 }
             }
 
@@ -1064,14 +1172,12 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
-                // Check file size (max 5MB)
                 if (file.size > 5 * 1024 * 1024) {
                     showToast('Photo size should be less than 5MB', 'error');
                     event.target.value = '';
                     return;
                 }
 
-                // Check file type
                 if (!file.type.match(/image\/(jpeg|png|gif|webp)/)) {
                     showToast('Please upload a JPG, PNG, or GIF image', 'error');
                     event.target.value = '';
@@ -1083,21 +1189,17 @@
                     photoDataURL = e.target.result;
                     document.getElementById('photo').value = photoDataURL;
 
-                    // Show preview
                     const preview = document.getElementById('photoPreview');
                     preview.src = photoDataURL;
                     preview.classList.add('show');
 
-                    // Update upload area
                     const uploadArea = document.getElementById('photoUpload');
                     uploadArea.classList.add('has-image');
 
-                    // Show photo name
                     const nameDisplay = document.getElementById('photoName');
                     nameDisplay.textContent = `📷 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
                     nameDisplay.classList.add('show');
 
-                    // Show remove button
                     document.getElementById('btnRemovePhoto').classList.add('show');
 
                     showToast('Photo uploaded successfully!', 'success');
@@ -1126,6 +1228,7 @@
             function validateForm() {
                 let isValid = true;
                 const requiredFields = [
+                    { id: 'campusSelect', group: 'campusGroup' },
                     { id: 'surname', group: 'surnameGroup' },
                     { id: 'firstName', group: 'firstNameGroup' },
                     { id: 'matric', group: 'matricGroup' },
@@ -1199,9 +1302,10 @@
                 document.getElementById('loadingIndicator').style.display = 'block';
 
                 try {
-                    const hostel = hostels.find(h => h.id == document.getElementById('hostelSelect').value);
+                    const campus = document.getElementById('campusSelect').value;
+                    const hostel = allHostels.find(h => h.id == document.getElementById('hostelSelect').value);
                     const floor = floorsFlats.find(f => f.id == document.getElementById('floorSelect').value);
-                    const room = rooms.find(r => r.id == document.getElementById('roomSelect').value);
+                    const room = allRooms.find(r => r.id == document.getElementById('roomSelect').value);
                     const bed = bedSpaces.find(b => b.id == document.getElementById('bedSelect').value);
 
                     const fullName = `${document.getElementById('surname').value.trim()} ${document.getElementById('firstName').value.trim()} ${document.getElementById('middleName').value.trim()}`.trim();
@@ -1225,6 +1329,8 @@
                         bed_space_id: parseInt(document.getElementById('bedSelect').value),
                         bed_code: bed?.bed_code || null,
                         status: 'Present',
+                        campus: campus,
+                        campus_code: campus === 'Legacy' ? 'LEG' : 'HER',
                         photo: document.getElementById('photo').value.trim() || null,
                         emergency_name: document.getElementById('emergencyName').value.trim(),
                         emergency_relation: document.getElementById('emergencyRelation').value,
@@ -1243,7 +1349,6 @@
                         showToast('Student already registered. Updating details...', 'info');
                         studentId = existing.id;
 
-                        // Use PUT instead of PATCH - FIXED!
                         const updateResponse = await apiCall(`/students/${studentId}`, {
                             method: 'PUT',
                             body: JSON.stringify({
@@ -1264,10 +1369,15 @@
                                 method: 'PATCH',
                                 body: JSON.stringify({
                                     status: 'occupied',
-                                    student_id: studentId
+                                    student_id: studentId,
+                                    campus: campus,
+                                    campus_code: studentData.campus_code
                                 })
                             });
                         }
+
+                        // Add to local students list
+                        students.push({ id: studentId, matric: studentData.matric });
                     }
 
                     const studentForFaceID = {
@@ -1280,7 +1390,8 @@
                         room_code: studentData.room_code,
                         bed_space_id: studentData.bed_space_id,
                         bed_code: studentData.bed_code,
-                        status: 'Present'
+                        status: 'Present',
+                        campus: campus
                     };
 
                     localStorage.setItem('studentForFaceID', JSON.stringify(studentForFaceID));
@@ -1324,10 +1435,16 @@
                 document.getElementById('declarationError').style.display = 'none';
                 removePhoto();
 
+                document.getElementById('campusDisplayText').textContent = 'Select campus first';
+                document.getElementById('campusBadge').style.display = 'none';
+
                 updateDepartments();
+                document.getElementById('hostelSelect').innerHTML = '<option value="">Select Hostel</option>';
                 document.getElementById('floorSelect').innerHTML = '<option value="">Select Floor</option>';
                 document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
                 document.getElementById('bedSelect').innerHTML = '<option value="">Select Bed</option>';
+
+                localStorage.removeItem('studentDetailsDraft');
 
                 showToast('Form reset', 'info');
             }
@@ -1341,12 +1458,18 @@
                             const el = document.getElementById(key);
                             if (el) el.value = data[key];
                         });
+                        // Update campus display if campus is set
+                        if (data.campusSelect) {
+                            document.getElementById('campusSelect').value = data.campusSelect;
+                            updateCampusHostels();
+                        }
                     }
                 } catch (e) {}
             }
 
             function saveDraft() {
                 const data = {
+                    campusSelect: document.getElementById('campusSelect').value,
                     surname: document.getElementById('surname').value,
                     firstName: document.getElementById('firstName').value,
                     middleName: document.getElementById('middleName').value,
@@ -1389,6 +1512,12 @@
                         saveAndContinue();
                     }
                 });
+
+                // Initial campus hostels update if campus is pre-selected
+                const campusSelect = document.getElementById('campusSelect');
+                if (campusSelect.value) {
+                    updateCampusHostels();
+                }
             }
 
             window.saveAndContinue = saveAndContinue;
@@ -1397,6 +1526,7 @@
             window.updateFloors = updateFloors;
             window.updateRooms = updateRooms;
             window.updateBeds = updateBeds;
+            window.updateCampusHostels = updateCampusHostels;
             window.goBack = goBack;
             window.handlePhotoUpload = handlePhotoUpload;
             window.removePhoto = removePhoto;
