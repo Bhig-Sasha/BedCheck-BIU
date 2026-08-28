@@ -1295,8 +1295,6 @@
         const TOTAL_CAPTURES = 10;
         let isSetupActive = false;
         let captureTimer = null;
-        let isApiOnline = false;
-        let apiChecked = false;
 
         let warningTimeout = null;
         let cameraAttempts = 0;
@@ -1368,35 +1366,6 @@
             setTimeout(() => toast.classList.remove('show'), 4000);
         }
 
-        // ---------- API STATUS CHECK ----------
-        async function checkApiStatus() {
-            try {
-                const response = await fetch(`${NODE_API_BASE}/health`, {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(5000)
-                });
-                
-                if (response.ok) {
-                    let data = {};
-                    try {
-                        data = await response.json();
-                    } catch (e) {
-                        data = { status: 'ok' };
-                    }
-                    isApiOnline = data.status === 'running' || data.status === 'healthy' || data.status === 'ok' || response.ok;
-                } else {
-                    isApiOnline = false;
-                }
-                
-                apiChecked = true;
-                return isApiOnline;
-            } catch (error) {
-                isApiOnline = false;
-                apiChecked = true;
-                return false;
-            }
-        }
-
         // ---------- API HELPERS ----------
         async function nodeApiCall(endpoint, options = {}) {
             try {
@@ -1424,7 +1393,7 @@
                 const data = await response.json();
                 return data;
             } catch (error) {
-                console.error('Node API call error:', error);
+                console.error('API call error:', error);
                 throw error;
             }
         }
@@ -1593,86 +1562,99 @@
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
 
-                    if (isApiOnline || apiChecked === false) {
-                        const hasFace = await detectFaceWithAPI(imageData);
+                    // Try face detection - if it fails, just use local quality estimation
+                    let hasFace = false;
+                    try {
+                        hasFace = await detectFaceWithAPI(imageData);
+                    } catch (e) {
+                        // If API fails, use local quality estimation based on image data
+                        const imageData2 = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+                        const data = imageData2.data;
+                        let sum = 0, sumSq = 0, n = 0;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                            sum += avg;
+                            sumSq += avg * avg;
+                            n++;
+                        }
+                        const mean = sum / n;
+                        const variance = (sumSq / n) - (mean * mean);
+                        const contrast = Math.sqrt(variance);
+                        hasFace = (mean > 40 && mean < 220 && contrast > 30);
+                    }
+                    
+                    if (hasFace) {
+                        faceDetected = true;
+                        faceGuideRing.classList.add('detected');
+                        faceGuideRing.classList.remove('capturing');
                         
-                        if (hasFace) {
-                            faceDetected = true;
-                            faceGuideRing.classList.add('detected');
-                            faceGuideRing.classList.remove('capturing');
-                            
-                            currentQuality = Math.min(99, currentQuality + 3);
-                            updateQualityDisplay(currentQuality);
-                            
-                            if (currentQuality >= MIN_QUALITY_THRESHOLD && !isQualityReady) {
-                                isQualityReady = true;
-                                faceGuideRing.classList.add('quality-ready');
-                                btnStart.disabled = false;
-                                updateStatus('ready', '✅ Quality ready! Click Start Setup');
-                                showToast('✅ Face quality is excellent! Ready to capture.', 'success');
-                            } else if (currentQuality >= MIN_QUALITY_THRESHOLD) {
-                                statusText.textContent = '✅ Quality ready! Click Start Setup';
-                            }
-                            
-                            if (currentQuality < 50) {
-                                faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
-                                faceSizeWarning.className = 'face-size-warning show';
-                                faceSizeWarning.style.color = '#fbbf24';
-                                clearTimeout(warningTimeout);
-                                warningTimeout = setTimeout(() => {
-                                    if (currentQuality < 50) {
-                                        // keep showing
-                                    } else {
-                                        faceSizeWarning.classList.remove('show');
-                                    }
-                                }, 3000);
-                            } else if (currentQuality < MIN_QUALITY_THRESHOLD) {
-                                faceSizeWarning.textContent = `📊 Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}% to start`;
-                                faceSizeWarning.className = 'face-size-warning show';
-                                faceSizeWarning.style.color = '#fbbf24';
-                            } else {
-                                faceSizeWarning.classList.remove('show');
-                            }
-
-                            if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
-                                updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
-                            } else if (!isSetupActive && currentQuality >= MIN_QUALITY_THRESHOLD) {
-                                // Already handled above
-                            } else {
-                                updateStatus('ready', `Face detected - Quality: ${Math.round(currentQuality)}%`);
-                            }
-                        } else {
-                            faceDetected = false;
-                            isQualityReady = false;
-                            faceGuideRing.classList.remove('detected', 'quality-ready');
-                            btnStart.disabled = true;
-                            
-                            if (currentQuality > 10) {
-                                currentQuality = Math.max(10, currentQuality - 0.5);
-                                updateQualityDisplay(currentQuality);
-                            }
-                            
-                            if (!isSetupActive) {
-                                updateStatus('waiting', 'Position your face');
-                            }
-                            
-                            faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                        currentQuality = Math.min(99, currentQuality + 3);
+                        updateQualityDisplay(currentQuality);
+                        
+                        if (currentQuality >= MIN_QUALITY_THRESHOLD && !isQualityReady) {
+                            isQualityReady = true;
+                            faceGuideRing.classList.add('quality-ready');
+                            btnStart.disabled = false;
+                            updateStatus('ready', '✅ Quality ready! Click Start Setup');
+                            showToast('✅ Face quality is excellent! Ready to capture.', 'success');
+                        } else if (currentQuality >= MIN_QUALITY_THRESHOLD) {
+                            statusText.textContent = '✅ Quality ready! Click Start Setup';
+                        }
+                        
+                        if (currentQuality < 50) {
+                            faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
                             faceSizeWarning.className = 'face-size-warning show';
-                            faceSizeWarning.style.color = '#f87171';
+                            faceSizeWarning.style.color = '#fbbf24';
                             clearTimeout(warningTimeout);
                             warningTimeout = setTimeout(() => {
-                                if (!faceDetected) {
+                                if (currentQuality < 50) {
+                                    // keep showing
+                                } else {
                                     faceSizeWarning.classList.remove('show');
                                 }
                             }, 3000);
+                        } else if (currentQuality < MIN_QUALITY_THRESHOLD) {
+                            faceSizeWarning.textContent = `📊 Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}% to start`;
+                            faceSizeWarning.className = 'face-size-warning show';
+                            faceSizeWarning.style.color = '#fbbf24';
+                        } else {
+                            faceSizeWarning.classList.remove('show');
+                        }
+
+                        if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
+                            updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
+                        } else if (!isSetupActive && currentQuality >= MIN_QUALITY_THRESHOLD) {
+                            // Already handled above
+                        } else {
+                            updateStatus('ready', `Face detected - Quality: ${Math.round(currentQuality)}%`);
                         }
                     } else {
-                        if (!isSetupActive) {
-                            updateStatus('error', 'API offline - check connection');
+                        faceDetected = false;
+                        isQualityReady = false;
+                        faceGuideRing.classList.remove('detected', 'quality-ready');
+                        btnStart.disabled = true;
+                        
+                        if (currentQuality > 10) {
+                            currentQuality = Math.max(10, currentQuality - 0.5);
+                            updateQualityDisplay(currentQuality);
                         }
+                        
+                        if (!isSetupActive) {
+                            updateStatus('waiting', 'Position your face');
+                        }
+                        
+                        faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                        faceSizeWarning.className = 'face-size-warning show';
+                        faceSizeWarning.style.color = '#f87171';
+                        clearTimeout(warningTimeout);
+                        warningTimeout = setTimeout(() => {
+                            if (!faceDetected) {
+                                faceSizeWarning.classList.remove('show');
+                            }
+                        }, 3000);
                     }
                 } catch (error) {
-                    // Silent fail
+                    // Silent fail - use local quality estimation
                 }
 
                 if (isCameraReady) requestAnimationFrame(checkFrame);
@@ -1777,7 +1759,27 @@
 
                 const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
 
-                const hasFace = await detectFaceWithAPI(imageData);
+                // Verify face still detected
+                let hasFace = false;
+                try {
+                    hasFace = await detectFaceWithAPI(imageData);
+                } catch (e) {
+                    // If API fails, use local check
+                    const imageData2 = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+                    const data = imageData2.data;
+                    let sum = 0, sumSq = 0, n = 0;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                        sum += avg;
+                        sumSq += avg * avg;
+                        n++;
+                    }
+                    const mean = sum / n;
+                    const variance = (sumSq / n) - (mean * mean);
+                    const contrast = Math.sqrt(variance);
+                    hasFace = (mean > 40 && mean < 220 && contrast > 30);
+                }
+                
                 if (!hasFace) {
                     updateStatus('waiting', 'Face lost, reposition...');
                     return;
@@ -1883,12 +1885,6 @@
 
             if (capturedFrames.length >= TOTAL_CAPTURES) {
                 showToast('Already complete! Click Enroll.', 'info');
-                return;
-            }
-
-            await checkApiStatus();
-            if (!isApiOnline) {
-                showToast(`API is offline. Please check your connection.`, 'error');
                 return;
             }
 
@@ -2131,13 +2127,6 @@
             const now = new Date();
             document.getElementById('timeDisplay').textContent =
                 `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
-
-            await checkApiStatus();
-            if (!isApiOnline) {
-                setTimeout(async () => {
-                    await checkApiStatus();
-                }, 2000);
-            }
             
             cameraPlaceholder.classList.remove('hidden');
             btnStart.disabled = true;
@@ -2158,10 +2147,6 @@
                     dot.querySelector('span:last-child').textContent = ['Front', 'Right', 'Bottom', 'Left', 'Top'][i];
                 }
             });
-
-            if (!isApiOnline) {
-                showToast(`⚠️ API is offline. Please check your connection.`, 'error');
-            }
         }
 
         // ---------- EXPOSE TO WINDOW ----------
@@ -2183,5 +2168,6 @@
 
     })();
 </script>
+
 </body>
 </html>
