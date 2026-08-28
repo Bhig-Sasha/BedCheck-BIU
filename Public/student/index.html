@@ -637,7 +637,7 @@
             <div class="form-title"><i class="fas fa-edit" style="color:#d6ad4b;"></i> Personal Details</div>
             <div class="form-subtitle">Fill in your information to continue to Face ID enrollment</div>
 
-            <!-- Campus Selection - NEW -->
+            <!-- Campus Selection -->
             <div class="form-group" id="campusGroup">
                 <label>Campus <span class="required">*</span></label>
                 <select id="campusSelect" onchange="updateCampusHostels()">
@@ -809,7 +809,7 @@
                 <div class="field-error">Please enter emergency phone number</div>
             </div>
 
-            <!-- Hostel Allocation - Updated with Campus filtering -->
+            <!-- Hostel Allocation -->
             <div class="form-title" style="margin-top:1.5rem;font-size:1rem;"><i class="fas fa-building" style="color:#d6ad4b;"></i> Hostel Allocation</div>
             <div class="form-subtitle" style="margin-bottom:0.75rem;">Select your allocated hostel and room</div>
 
@@ -939,17 +939,43 @@
                 setTimeout(() => toast.classList.remove('show'), 4000);
             }
 
+            // =============================================
+            // PUBLIC API CALL - NO AUTH REQUIRED
+            // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
-                    let fixedEndpoint = endpoint;
-                    if (endpoint.includes('/bed_spaces')) {
-                        fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
-                    }
-                    if (endpoint.includes('/floors_flats')) {
-                        fixedEndpoint = endpoint.replace('/floors_flats', '/floors-flats');
+                    // Map to public endpoints
+                    let publicEndpoint = endpoint;
+                    
+                    if (endpoint === '/hostels' || endpoint.includes('/hostels')) {
+                        publicEndpoint = '/public/hostels';
+                    } else if (endpoint === '/floors-flats' || endpoint.includes('/floors-flats')) {
+                        publicEndpoint = '/public/floors-flats';
+                    } else if (endpoint === '/rooms' || endpoint.includes('/rooms')) {
+                        publicEndpoint = '/public/rooms';
+                    } else if (endpoint === '/bed-spaces' || endpoint.includes('/bed-spaces')) {
+                        publicEndpoint = '/public/bed-spaces';
+                    } else if (endpoint === '/students' || endpoint.includes('/students')) {
+                        // For registration, use the public register endpoint
+                        if (options.method === 'POST' || options.method === 'PUT') {
+                            publicEndpoint = '/public/students/register';
+                        } else {
+                            publicEndpoint = '/public/students/check';
+                        }
                     }
 
-                    const url = `${API_BASE}${fixedEndpoint}`;
+                    // Remove any query params from the endpoint path
+                    const baseEndpoint = publicEndpoint.split('?')[0];
+                    const queryString = publicEndpoint.includes('?') ? '?' + publicEndpoint.split('?')[1] : '';
+                    
+                    // Build URL with query params
+                    let url = `${API_BASE}${baseEndpoint}`;
+                    
+                    // If there are query params in the original endpoint, add them
+                    if (queryString) {
+                        url += queryString;
+                    }
+
                     console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
 
                     const response = await fetch(url, {
@@ -1042,22 +1068,21 @@
 
             async function loadData() {
                 try {
-                    const [hostelsRes, floorsRes, roomsRes, bedsRes, studentsRes] = await Promise.all([
-                        apiCall('/hostels'),
-                        apiCall('/floors-flats'),
-                        apiCall('/rooms'),
-                        apiCall('/bed-spaces'),
-                        apiCall('/students')
+                    // Use public endpoints
+                    const [hostelsRes, floorsRes, roomsRes, bedsRes] = await Promise.all([
+                        apiCall('/public/hostels'),
+                        apiCall('/public/floors-flats'),
+                        apiCall('/public/rooms'),
+                        apiCall('/public/bed-spaces')
                     ]);
 
                     allHostels = hostelsRes.data || [];
                     floorsFlats = floorsRes.data || [];
                     allRooms = roomsRes.data || [];
                     bedSpaces = bedsRes.data || [];
-                    students = studentsRes.data || [];
 
                     console.log(
-                        `✅ Loaded: ${allHostels.length} hostels, ${floorsFlats.length} floors, ${allRooms.length} rooms, ${bedSpaces.length} beds, ${students.length} students`);
+                        `✅ Loaded: ${allHostels.length} hostels, ${floorsFlats.length} floors, ${allRooms.length} rooms, ${bedSpaces.length} beds`);
 
                     // Initial hostel dropdown (will be filtered by campus)
                     const hostelSelect = document.getElementById('hostelSelect');
@@ -1341,44 +1366,13 @@
                         updated_at: new Date().toISOString()
                     };
 
-                    // Check if student already exists
-                    const existing = students.find(s => s.matric === studentData.matric);
-                    let studentId = null;
+                    // Use the public register endpoint
+                    const result = await apiCall('/public/students/register', {
+                        method: 'POST',
+                        body: JSON.stringify(studentData)
+                    });
 
-                    if (existing) {
-                        showToast('Student already registered. Updating details...', 'info');
-                        studentId = existing.id;
-
-                        const updateResponse = await apiCall(`/students/${studentId}`, {
-                            method: 'PUT',
-                            body: JSON.stringify({
-                                ...studentData,
-                                updated_at: new Date().toISOString()
-                            })
-                        });
-                        console.log('✅ Student updated:', updateResponse);
-                    } else {
-                        const createResult = await apiCall('/students', {
-                            method: 'POST',
-                            body: JSON.stringify(studentData)
-                        });
-                        studentId = createResult.data.id;
-
-                        if (studentData.bed_space_id) {
-                            await apiCall(`/bed-spaces/${studentData.bed_space_id}`, {
-                                method: 'PATCH',
-                                body: JSON.stringify({
-                                    status: 'occupied',
-                                    student_id: studentId,
-                                    campus: campus,
-                                    campus_code: studentData.campus_code
-                                })
-                            });
-                        }
-
-                        // Add to local students list
-                        students.push({ id: studentId, matric: studentData.matric });
-                    }
+                    const studentId = result.data.id;
 
                     const studentForFaceID = {
                         id: studentId,
@@ -1458,7 +1452,6 @@
                             const el = document.getElementById(key);
                             if (el) el.value = data[key];
                         });
-                        // Update campus display if campus is set
                         if (data.campusSelect) {
                             document.getElementById('campusSelect').value = data.campusSelect;
                             updateCampusHostels();
@@ -1513,7 +1506,6 @@
                     }
                 });
 
-                // Initial campus hostels update if campus is pre-selected
                 const campusSelect = document.getElementById('campusSelect');
                 if (campusSelect.value) {
                     updateCampusHostels();

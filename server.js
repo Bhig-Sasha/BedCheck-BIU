@@ -2753,6 +2753,337 @@ app.get('/api/public/students/search', async (req, res) => {
     }
 });
 
+// =============================================
+// PUBLIC REGISTRATION ENDPOINTS - NO AUTH REQUIRED
+// =============================================
+
+// Public - Get all hostels (filtered by campus)
+app.get('/api/public/hostels', async (req, res) => {
+    try {
+        const { campus } = req.query;
+        
+        let query = supabase
+            .from('hostels')
+            .select('*')
+            .eq('status', 'Active')
+            .order('name', { ascending: true });
+        
+        if (campus) {
+            query = query.eq('campus', campus);
+        }
+        
+        const { data, error } = await query;
+        
+        if (error) {
+            console.error('Public hostels error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: data || [],
+            count: data?.length || 0
+        });
+    } catch (error) {
+        console.error('Public hostels error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// Public - Get all floors/flats for a hostel
+app.get('/api/public/floors-flats', async (req, res) => {
+    try {
+        const { hostel_id } = req.query;
+        
+        if (!hostel_id) {
+            return res.json({
+                success: true,
+                data: [],
+                message: 'hostel_id is required'
+            });
+        }
+        
+        const { data, error } = await supabase
+            .from('floors_flats')
+            .select('*')
+            .eq('hostel_id', parseInt(hostel_id))
+            .order('name', { ascending: true });
+        
+        if (error) {
+            console.error('Public floors error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: data || [],
+            count: data?.length || 0
+        });
+    } catch (error) {
+        console.error('Public floors error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// Public - Get all rooms for a floor/flat
+app.get('/api/public/rooms', async (req, res) => {
+    try {
+        const { floor_flat_id } = req.query;
+        
+        if (!floor_flat_id) {
+            return res.json({
+                success: true,
+                data: [],
+                message: 'floor_flat_id is required'
+            });
+        }
+        
+        const { data, error } = await supabase
+            .from('rooms')
+            .select('*')
+            .eq('floor_flat_id', parseInt(floor_flat_id))
+            .in('status', ['active', 'available'])
+            .order('room_code', { ascending: true });
+        
+        if (error) {
+            console.error('Public rooms error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: data || [],
+            count: data?.length || 0
+        });
+    } catch (error) {
+        console.error('Public rooms error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// Public - Get all bed spaces for a room
+app.get('/api/public/bed-spaces', async (req, res) => {
+    try {
+        const { room_id } = req.query;
+        
+        if (!room_id) {
+            return res.json({
+                success: true,
+                data: [],
+                message: 'room_id is required'
+            });
+        }
+        
+        const { data, error } = await supabase
+            .from('bed_spaces')
+            .select('*')
+            .eq('room_id', parseInt(room_id))
+            .eq('status', 'available')
+            .order('bed_code', { ascending: true });
+        
+        if (error) {
+            console.error('Public bed spaces error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: data || [],
+            count: data?.length || 0
+        });
+    } catch (error) {
+        console.error('Public bed spaces error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// Public - Check if student exists (by matric)
+app.get('/api/public/students/check', async (req, res) => {
+    try {
+        const { matric } = req.query;
+        
+        if (!matric) {
+            return res.json({
+                success: true,
+                exists: false,
+                message: 'matric is required'
+            });
+        }
+        
+        const { data, error } = await supabase
+            .from('students')
+            .select('id, name, matric, status, face_enrolled')
+            .eq('matric', matric.toUpperCase())
+            .maybeSingle();
+        
+        if (error) {
+            console.error('Public student check error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        res.json({
+            success: true,
+            exists: !!data,
+            data: data || null
+        });
+    } catch (error) {
+        console.error('Public student check error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// Public - Create/Update student (registration)
+app.post('/api/public/students/register', async (req, res) => {
+    try {
+        const studentData = req.body;
+        
+        // Validate required fields
+        const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
+        for (const field of required) {
+            if (!studentData[field]) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Missing required field: ${field}`,
+                    code: 'MISSING_FIELD'
+                });
+            }
+        }
+        
+        // Check if student already exists
+        const { data: existing, error: checkError } = await supabase
+            .from('students')
+            .select('id')
+            .eq('matric', studentData.matric.toUpperCase())
+            .maybeSingle();
+        
+        if (checkError) {
+            console.error('Check existing error:', checkError);
+            return res.status(500).json({
+                success: false,
+                message: 'Database error',
+                code: 'DB_ERROR'
+            });
+        }
+        
+        let result;
+        let isUpdate = false;
+        
+        if (existing) {
+            // Update existing student
+            isUpdate = true;
+            const { data, error } = await supabase
+                .from('students')
+                .update({
+                    ...studentData,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existing.id)
+                .select()
+                .single();
+            
+            if (error) {
+                console.error('Update student error:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to update student',
+                    code: 'UPDATE_ERROR'
+                });
+            }
+            result = data;
+        } else {
+            // Create new student
+            const { data, error } = await supabase
+                .from('students')
+                .insert({
+                    ...studentData,
+                    status: 'Present',
+                    face_enrolled: false,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+            
+            if (error) {
+                console.error('Create student error:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to create student',
+                    code: 'CREATE_ERROR'
+                });
+            }
+            result = data;
+        }
+        
+        // Update bed space if provided
+        if (studentData.bed_space_id) {
+            await supabase
+                .from('bed_spaces')
+                .update({
+                    status: 'occupied',
+                    student_id: result.id,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', parseInt(studentData.bed_space_id));
+        }
+        
+        res.json({
+            success: true,
+            data: result,
+            is_update: isUpdate,
+            message: isUpdate ? 'Student updated successfully' : 'Student registered successfully'
+        });
+        
+    } catch (error) {
+        console.error('Public registration error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
 // =====================================================
 // 🔐 AUTH MIDDLEWARE
 // =====================================================
