@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
-        /* All your existing styles remain the same */
+        /* ... (all your existing styles remain the same) ... */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
 
@@ -342,6 +342,23 @@
         .border-t { border-top: 1px solid #ded6c9; }
         .flex-wrap { flex-wrap: wrap; }
         .gap-2 { gap: 0.5rem; }
+
+        .face-status-not-enrolled {
+            background: rgba(217,83,79,0.12);
+            color: #d9534f;
+            padding: 0.3rem 0.8rem;
+            border-radius: 0.5rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
+        .face-status-enrolled {
+            background: rgba(53,168,102,0.12);
+            color: #35a866;
+            padding: 0.3rem 0.8rem;
+            border-radius: 0.5rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -363,6 +380,7 @@
                 <div class="badge-row">
                     <span class="mini-badge"><i class="fas fa-door-open"></i> <span id="modalRoomLabel">G4</span></span>
                     <span class="mini-badge"><i class="fas fa-bed"></i> <span id="modalBedLabel">BS1</span></span>
+                    <span class="mini-badge" id="modalFaceStatus"><i class="fas fa-face-smile"></i> <span id="modalFaceStatusText">Checking...</span></span>
                 </div>
             </div>
 
@@ -532,6 +550,7 @@
         let completedRooms = [];
         let roomStructure = {};
         let sessionCheckerInterval = null;
+        let studentFaceStatus = {};
 
         // Face verification modal state
         let selectedStudent = null;
@@ -681,6 +700,29 @@
         }
 
         // =============================================
+        // CHECK IF STUDENT HAS FACE ENROLLED
+        // =============================================
+        async function checkStudentFaceStatus(studentId) {
+            try {
+                const result = await apiCall(`/students/${studentId}/face-status`);
+                if (result && result.data) {
+                    const enrolled = result.data.face_enrolled === true;
+                    const status = result.data.enrollment_status || 'pending';
+                    return {
+                        enrolled: enrolled,
+                        status: status,
+                        has_embedding: result.data.has_embedding || false,
+                        verification_count: result.data.verification_count || 0
+                    };
+                }
+                return { enrolled: false, status: 'pending', has_embedding: false, verification_count: 0 };
+            } catch (error) {
+                console.warn('Could not check face status:', error);
+                return { enrolled: false, status: 'unknown', has_embedding: false, verification_count: 0 };
+            }
+        }
+
+        // =============================================
         // FACE API FUNCTIONS - THROUGH BACKEND
         // =============================================
 
@@ -744,8 +786,6 @@
 
         // Simple face detection using canvas (no browser API dependency)
         function checkForFaceInFrame(video) {
-            // We'll just return true if video has data and is playing
-            // This is a simplified approach - the actual detection happens on the server
             if (video && video.readyState >= 2 && !video.paused && video.videoWidth > 0) {
                 modalFaceDetected = true;
                 document.getElementById('modalFaceGuide').className = 'face-guide detected';
@@ -772,7 +812,6 @@
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 480;
             const ctx = canvas.getContext('2d');
-            // Mirror the image to match the video display
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -836,7 +875,6 @@
                     document.getElementById('statusDot').className = 'status-dot-live';
                     document.getElementById('faceInstruction').classList.remove('hidden');
                     
-                    // Just check if video is live, not actual face detection
                     if (captureInterval) clearInterval(captureInterval);
                     isFaceDetectionRunning = true;
                     captureInterval = setInterval(() => {
@@ -875,7 +913,7 @@
         // =============================================
         // VERIFICATION MODAL
         // =============================================
-        function openVerifyModal(studentId) {
+        async function openVerifyModal(studentId) {
             const student = hostelStudents.find(s => s.id === parseInt(studentId));
             if (!student) {
                 showToast('Student not found', 'error');
@@ -904,9 +942,28 @@
             document.getElementById('modalRoomLabel').textContent = currentRoom || '—';
             document.getElementById('modalBedLabel').textContent = getStudentBed(student.id) || '—';
 
+            // Check if student has face enrolled
+            const faceStatus = await checkStudentFaceStatus(student.id);
+            studentFaceStatus[student.id] = faceStatus;
+            
+            const faceStatusEl = document.getElementById('modalFaceStatusText');
+            const faceStatusContainer = document.getElementById('modalFaceStatus');
+            
+            if (faceStatus.enrolled) {
+                faceStatusEl.textContent = '✅ Face Enrolled';
+                faceStatusContainer.className = 'mini-badge face-status-enrolled';
+                document.getElementById('modalVerifyBtn').disabled = false;
+                document.getElementById('modalVerifyBtn').title = '';
+            } else {
+                faceStatusEl.textContent = '❌ No Face Enrolled';
+                faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
+                document.getElementById('modalVerifyBtn').disabled = true;
+                document.getElementById('modalVerifyBtn').title = 'Student has not enrolled their face. Please contact student to enroll first.';
+                showToast('⚠️ This student has not enrolled their face. Please ask them to enroll first.', 'error');
+            }
+
             document.getElementById('modalResult').className = 'modal-result';
-            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-camera"></i> Start Verification';
-            document.getElementById('modalVerifyBtn').disabled = false;
+            document.getElementById('modalVerifyBtn').innerHTML = faceStatus.enrolled ? '<i class="fas fa-camera"></i> Start Verification' : '❌ Face Not Enrolled';
             document.getElementById('modalCameraStatus').textContent = 'Initializing...';
             document.getElementById('statusDot').className = 'status-dot-live inactive';
             document.getElementById('modalFaceGuide').className = 'face-guide';
@@ -946,6 +1003,16 @@
                 showToast('No student selected', 'error');
                 return;
             }
+            
+            // Check face enrollment again
+            const faceStatus = studentFaceStatus[selectedStudent.id];
+            if (!faceStatus || !faceStatus.enrolled) {
+                showToast('❌ This student has not enrolled their face. Please ask them to enroll first.', 'error');
+                document.getElementById('modalVerifyBtn').disabled = true;
+                document.getElementById('modalVerifyBtn').innerHTML = '❌ Face Not Enrolled';
+                return;
+            }
+
             if (bedScanStatus[selectedStudent.id]?.verified) {
                 showToast(`${selectedStudent.name} is already verified!`, 'info');
                 closeVerifyModal();
@@ -1043,7 +1110,7 @@
                     if (faceBox) {
                         faceBox.className = 'face-box matched';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `✅ Verified`;
+                        if (label) label.textContent = `✅ Verified (${confidencePercent}%)`;
                     }
                     if (faceGuide) {
                         faceGuide.className = 'face-guide verified';
@@ -1078,7 +1145,7 @@
                     if (faceBox) {
                         faceBox.className = 'face-box unknown';
                         const label = faceBox.querySelector('.label');
-                        if (label) label.textContent = `❌ Failed`;
+                        if (label) label.textContent = `❌ Failed (${confidencePercent}%)`;
                     }
                     if (faceGuide) {
                         faceGuide.className = 'face-guide failed';
@@ -1555,17 +1622,22 @@
                     const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
                     const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                     const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
+                    
+                    // Check face enrollment status
+                    const faceStatus = studentFaceStatus[s.id];
+                    const hasFace = faceStatus?.enrolled || false;
+                    const faceLabel = hasFace ? '📸 Face OK' : '⚠️ No Face';
 
                     return `
                         <div class="student-card ${isVerified ? 'verified' : ''}">
                             <div class="student-info">
                                 <div class="name">${s.name}</div>
-                                <div class="matric">${s.matric || '—'} · Bed ${bedLabel}</div>
+                                <div class="matric">${s.matric || '—'} · Bed ${bedLabel} <span style="font-size:0.6rem;color:${hasFace ? '#2d6545' : '#a84134'};margin-left:0.3rem;">${faceLabel}</span></div>
                                 ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
                             </div>
                             <span class="status-tag ${statusClass}">${statusLabel}</span>
                             ${canVerify ? `
-                                <button class="verify-btn" onclick="openVerifyModal('${s.id}')">
+                                <button class="verify-btn" onclick="openVerifyModal('${s.id}')" ${!hasFace ? 'disabled title="Student has not enrolled face"' : ''}>
                                     <i class="fas fa-camera"></i> Verify
                                 </button>
                             ` : ''}
