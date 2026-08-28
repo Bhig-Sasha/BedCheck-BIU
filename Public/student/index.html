@@ -466,24 +466,6 @@
             margin-top: 0.75rem;
         }
 
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            color: #a77915;
-            font-weight: 600;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            margin-bottom: 0.75rem;
-        }
-
-        .back-link:hover {
-            color: #8a6413;
-            transform: translateX(-4px);
-        }
-
         .nav-links {
             display: flex;
             justify-content: center;
@@ -881,16 +863,37 @@
                     }
 
                     const data = await response.json();
+                    console.log(`📦 Response from ${endpoint}:`, data);
 
-                    // Handle response format
+                    // Handle different response formats
                     if (data.success !== undefined && !data.success) {
+                        // If it's a "message" response with empty data, return empty array
+                        if (data.message && data.data && Array.isArray(data.data)) {
+                            return data.data;
+                        }
                         throw new Error(data.message || 'API error');
                     }
 
+                    // If data.data exists and is an array, use it
                     if (data.data && Array.isArray(data.data)) {
                         return data.data;
                     }
-                    return data.data || [];
+                    
+                    // If data is an array, use it
+                    if (Array.isArray(data)) {
+                        return data;
+                    }
+                    
+                    // If data has a data property that's not an array but has items
+                    if (data.data && typeof data.data === 'object') {
+                        // If it's an object with properties, return it as an array of one
+                        if (Object.keys(data.data).length > 0) {
+                            return [data.data];
+                        }
+                        return [];
+                    }
+                    
+                    return [];
                 } catch (error) {
                     console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
@@ -915,35 +918,50 @@
                         return;
                     }
 
-                    // Load floors for each hostel
-                    for (const hostel of allHostels) {
-                        try {
-                            const floors = await publicApiCall(`/public/floors-flats?hostel_id=${hostel.id}`);
-                            allFloorsFlats = [...allFloorsFlats, ...floors];
-                        } catch (e) {
-                            console.warn(`Could not load floors for hostel ${hostel.id}:`, e);
-                        }
-                    }
+                    // Load floors for each hostel - wait for all to complete
+                    const floorPromises = allHostels.map(hostel => 
+                        publicApiCall(`/public/floors-flats?hostel_id=${hostel.id}`)
+                            .then(floors => {
+                                if (floors && floors.length > 0) {
+                                    allFloorsFlats = [...allFloorsFlats, ...floors];
+                                    console.log(`✅ Hostel ${hostel.id} (${hostel.name}): ${floors.length} floors`);
+                                }
+                            })
+                            .catch(e => console.warn(`Could not load floors for hostel ${hostel.id}:`, e))
+                    );
+                    
+                    await Promise.all(floorPromises);
+                    console.log('✅ Total floors loaded:', allFloorsFlats.length);
 
-                    // Load rooms for each floor
-                    for (const floor of allFloorsFlats) {
-                        try {
-                            const rooms = await publicApiCall(`/public/rooms?floor_flat_id=${floor.id}`);
-                            allRooms = [...allRooms, ...rooms];
-                        } catch (e) {
-                            console.warn(`Could not load rooms for floor ${floor.id}:`, e);
-                        }
-                    }
+                    // Load rooms for each floor - wait for all to complete
+                    const roomPromises = allFloorsFlats.map(floor => 
+                        publicApiCall(`/public/rooms?floor_flat_id=${floor.id}`)
+                            .then(rooms => {
+                                if (rooms && rooms.length > 0) {
+                                    allRooms = [...allRooms, ...rooms];
+                                    console.log(`✅ Floor ${floor.id} (${floor.name}): ${rooms.length} rooms`);
+                                }
+                            })
+                            .catch(e => console.warn(`Could not load rooms for floor ${floor.id}:`, e))
+                    );
+                    
+                    await Promise.all(roomPromises);
+                    console.log('✅ Total rooms loaded:', allRooms.length);
 
-                    // Load beds for each room
-                    for (const room of allRooms) {
-                        try {
-                            const beds = await publicApiCall(`/public/bed-spaces?room_id=${room.id}`);
-                            allBedSpaces = [...allBedSpaces, ...beds];
-                        } catch (e) {
-                            console.warn(`Could not load beds for room ${room.id}:`, e);
-                        }
-                    }
+                    // Load beds for each room - wait for all to complete
+                    const bedPromises = allRooms.map(room => 
+                        publicApiCall(`/public/bed-spaces?room_id=${room.id}`)
+                            .then(beds => {
+                                if (beds && beds.length > 0) {
+                                    allBedSpaces = [...allBedSpaces, ...beds];
+                                    console.log(`✅ Room ${room.id} (${room.room_code}): ${beds.length} beds`);
+                                }
+                            })
+                            .catch(e => console.warn(`Could not load beds for room ${room.id}:`, e))
+                    );
+                    
+                    await Promise.all(bedPromises);
+                    console.log('✅ Total beds loaded:', allBedSpaces.length);
 
                     console.log('✅ Final counts - Hostels:', allHostels.length, 'Floors:', allFloorsFlats.length, 'Rooms:',
                         allRooms.length, 'Beds:', allBedSpaces.length);
@@ -1044,6 +1062,7 @@
                 filtered.forEach(h => {
                     const opt = document.createElement('option');
                     opt.value = h.id;
+                    // Count rooms for this hostel from already loaded data
                     const roomCount = allRooms.filter(r => {
                         const floor = allFloorsFlats.find(f => f.id === r.floor_flat_id);
                         return floor && floor.hostel_id === h.id;
