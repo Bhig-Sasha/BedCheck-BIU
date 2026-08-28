@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
+        /* ... (keep all existing styles) ... */
         * {
             margin: 0;
             padding: 0;
@@ -1282,6 +1283,7 @@
         // =============================================
         const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
         const MIN_QUALITY_THRESHOLD = 75;
+        const TOTAL_CAPTURES = 10;
 
         // ---------- STATE ----------
         let cameraStream = null;
@@ -1289,13 +1291,10 @@
         let faceDetected = false;
         let currentQuality = 0;
         let isQualityReady = false;
-
         let isEnrolling = false;
         let capturedFrames = [];
-        const TOTAL_CAPTURES = 10;
         let isSetupActive = false;
         let captureTimer = null;
-
         let warningTimeout = null;
         let cameraAttempts = 0;
         const MAX_CAMERA_ATTEMPTS = 3;
@@ -1923,7 +1922,7 @@
         }
 
         // =============================================
-        // ENROLL - THROUGH NODE API
+        // ENROLL - FULL IMPLEMENTATION WITH ALL ENDPOINTS
         // =============================================
         async function enrollFace() {
             if (capturedFrames.length < TOTAL_CAPTURES) {
@@ -1946,20 +1945,91 @@
             showToast('Enrolling face...', 'info');
             loadingOverlay.style.display = 'flex';
             loadingText.textContent = 'Preparing enrollment...';
-            loadingProgressFill.style.width = '10%';
+            loadingProgressFill.style.width = '5%';
 
             try {
                 let studentId = studentData.id;
 
+                // Try to get student ID if not available
                 if (!studentId && studentData.matric) {
+                    loadingText.textContent = 'Looking up student record...';
+                    loadingProgressFill.style.width = '10%';
+                    
                     try {
-                        const searchRes = await nodeApiCall(`/students?search=${encodeURIComponent(studentData.matric)}`);
-                        if (searchRes.data && searchRes.data.length > 0) {
-                            studentId = searchRes.data[0].id;
+                        // Use the public student search endpoint
+                        const searchRes = await nodeApiCall(`/public/students/check?matric=${encodeURIComponent(studentData.matric)}`);
+                        if (searchRes.exists && searchRes.data) {
+                            studentId = searchRes.data.id;
                             studentData.id = studentId;
+                            console.log('✅ Student ID found:', studentId);
                         }
                     } catch (e) {
                         console.warn('Student search failed:', e);
+                    }
+                }
+
+                // If still no student ID, try using the student's matric directly
+                if (!studentId) {
+                    // Try to find by matric
+                    const matric = studentData.matric;
+                    if (!matric) {
+                        throw new Error('Student matric number is required for enrollment.');
+                    }
+                    
+                    loadingText.textContent = 'Finding student by matric...';
+                    loadingProgressFill.style.width = '15%';
+                    
+                    try {
+                        const searchRes = await nodeApiCall(`/students?search=${encodeURIComponent(matric)}`);
+                        if (searchRes.data && searchRes.data.length > 0) {
+                            const found = searchRes.data.find(s => s.matric === matric);
+                            if (found) {
+                                studentId = found.id;
+                                studentData.id = studentId;
+                                console.log('✅ Student found by matric:', studentId);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Student search by matric failed:', e);
+                    }
+                    
+                    // If still not found, create the student first
+                    if (!studentId) {
+                        loadingText.textContent = 'Creating student record...';
+                        loadingProgressFill.style.width = '20%';
+                        
+                        try {
+                            const createRes = await nodeApiCall('/public/students/register', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    name: studentData.name || 'Unknown',
+                                    matric: studentData.matric,
+                                    gender: 'Male',
+                                    phone: studentData.phone || '',
+                                    faculty: studentData.faculty || 'Engineering',
+                                    department: studentData.department || 'General',
+                                    level: studentData.level || '300',
+                                    session: '2026/2027',
+                                    campus: studentData.campus || 'Legacy',
+                                    hostel_id: studentData.hostel_id || null,
+                                    hostel_name: studentData.hostel_name || '',
+                                    room_id: studentData.room_id || null,
+                                    room_code: studentData.room_code || '',
+                                    bed_space_id: studentData.bed_space_id || null,
+                                    bed_code: studentData.bed_code || ''
+                                })
+                            });
+                            
+                            if (createRes.success && createRes.data) {
+                                studentId = createRes.data.id;
+                                studentData.id = studentId;
+                                console.log('✅ Student created with ID:', studentId);
+                            } else {
+                                throw new Error('Failed to create student record: ' + (createRes.message || 'Unknown error'));
+                            }
+                        } catch (e) {
+                            throw new Error('Failed to create or find student: ' + e.message);
+                        }
                     }
                 }
 
@@ -1967,36 +2037,69 @@
                     throw new Error('Student ID not found. Please complete registration first.');
                 }
 
+                // 1. FIRST - Extract embedding from the best frame
                 loadingText.textContent = 'Selecting best face capture...';
-                loadingProgressFill.style.width = '20%';
+                loadingProgressFill.style.width = '25%';
 
                 let bestFrame = capturedFrames.reduce((best, current) => {
                     return (current.quality || 0) > (best.quality || 0) ? current : best;
                 }, capturedFrames[0]);
 
-                loadingText.textContent = 'Enrolling face...';
-                loadingProgressFill.style.width = '40%';
+                // 2. Extract embedding using the extract endpoint
+                loadingText.textContent = 'Extracting face embedding...';
+                loadingProgressFill.style.width = '35%';
 
                 let imageData = bestFrame.imageData;
                 if (imageData.startsWith('data:image')) {
                     imageData = imageData.split(',')[1];
                 }
 
-                const enrollResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face`, {
+                const extractResponse = await fetch(`${NODE_API_BASE}/face/extract`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                if (!extractResponse.ok) {
+                    let errorMsg = `HTTP ${extractResponse.status}`;
+                    try {
+                        const errorData = await extractResponse.json();
+                        errorMsg = errorData.message || errorData.detail || errorMsg;
+                    } catch (e) {
+                        errorMsg = extractResponse.statusText || errorMsg;
+                    }
+                    throw new Error(`Face extraction failed: ${errorMsg}`);
+                }
+
+                const extractResult = await extractResponse.json();
+                loadingProgressFill.style.width = '50%';
+
+                if (!extractResult.success || !extractResult.data || !extractResult.data.embedding) {
+                    throw new Error('Failed to extract face embedding from the captured image.');
+                }
+
+                const embedding = extractResult.data.embedding;
+                const quality = extractResult.data.quality || 0.8;
+                console.log('✅ Embedding extracted:', embedding.length, 'dimensions, quality:', quality);
+
+                // 3. Enroll the face with the extracted embedding
+                loadingText.textContent = 'Enrolling face with embedding...';
+                loadingProgressFill.style.width = '60%';
+
+                // Use the student face endpoint to save the embedding
+                const enrollResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face/enroll`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        image: imageData,
+                        image: imageData, // Send the image for any additional processing
                         name: studentData.name || '',
                         matric: studentData.matric || '',
                         hostel: studentData.hostel_id || '',
-                        room: studentData.room_id || ''
+                        room: studentData.room_code || ''
                     })
                 });
 
-                loadingProgressFill.style.width = '60%';
+                loadingProgressFill.style.width = '70%';
 
                 if (!enrollResponse.ok) {
                     let errorMsg = `HTTP ${enrollResponse.status}`;
@@ -2010,10 +2113,9 @@
                 }
 
                 const enrollResult = await enrollResponse.json();
-                loadingProgressFill.style.width = '75%';
+                loadingProgressFill.style.width = '85%';
 
-                if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified || enrollResult.data?.success) {
-                    
+                if (enrollResult.success) {
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
 
@@ -2031,6 +2133,9 @@
                             <i class="fas fa-check-circle" style="color:#4ade80;"></i>
                             <span class="success-highlight">Face enrolled successfully!</span>
                             <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                                Embedding: ${embedding.length} dimensions · Quality: ${Math.round(quality * 100)}%
+                            </span>
+                            <span style="color:#64748b;display:block;margin-top:0.2rem;font-size:0.6rem;">
                                 You're ready for BedCheck
                             </span>
                         `;
@@ -2042,7 +2147,39 @@
                         }, 4000);
                     }, 1500);
                 } else {
-                    throw new Error(enrollResult.message || 'Enrollment failed');
+                    // Check if it was actually successful but with a different structure
+                    if (enrollResult.data && enrollResult.data.face && enrollResult.data.face.enrollment_status === 'enrolled') {
+                        // Success!
+                        loadingText.textContent = '✅ Enrollment successful!';
+                        loadingProgressFill.style.width = '100%';
+
+                        showToast('✅ Face successfully enrolled!', 'success');
+
+                        setTimeout(() => {
+                            loadingOverlay.style.display = 'none';
+                            btnEnroll.disabled = true;
+                            btnEnroll.innerHTML = '<i class="fas fa-check"></i> Enrolled ✓';
+
+                            successOverlay.classList.add('show');
+                            document.querySelector('.camera-preview').classList.add('success-animation');
+
+                            instructionText.innerHTML = `
+                                <i class="fas fa-check-circle" style="color:#4ade80;"></i>
+                                <span class="success-highlight">Face enrolled successfully!</span>
+                                <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
+                                    You're ready for BedCheck
+                                </span>
+                            `;
+
+                            localStorage.removeItem('studentForFaceID');
+
+                            setTimeout(() => {
+                                window.location.href = 'hub.html';
+                            }, 4000);
+                        }, 1500);
+                    } else {
+                        throw new Error(enrollResult.message || 'Enrollment failed');
+                    }
                 }
             } catch (error) {
                 console.error('Enrollment error:', error);
