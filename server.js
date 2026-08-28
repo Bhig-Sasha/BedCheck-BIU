@@ -2420,156 +2420,8 @@ app.get('/api/security/status', (req, res) => {
     });
 });
 
-// =====================================================
-// AUTHENTICATION ENDPOINTS
-// =====================================================
-
-app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
-    const { username, password } = req.body;
-    const identifier = req.ip || req.connection.remoteAddress;
-    
-    try {
-        if (authFirewall.isAuthenticationBlocked(identifier)) {
-            return res.status(429).json({
-                success: false,
-                message: 'Too many login attempts. Please try again later.',
-                code: 'AUTH_BLOCKED'
-            });
-        }
-
-        const { data, error } = await supabase
-            .from('staff')
-            .select(`
-                id, 
-                username, 
-                role, 
-                name, 
-                initials, 
-                scope, 
-                hostel_id,
-                assigned_floor, 
-                assigned_room, 
-                is_admin, 
-                email, 
-                phone, 
-                department, 
-                staff_id, 
-                joined, 
-                status, 
-                password, 
-                campus, 
-                campus_code,
-                hostels!hostel_id (
-                    id,
-                    name,
-                    type
-                )
-            `)
-            .eq('username', username)
-            .maybeSingle();
-        
-        if (error) {
-            console.error('Login error:', error);
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred during login. Please try again.',
-                code: 'LOGIN_ERROR'
-            });
-        }
-        
-        if (!data) {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Invalid username or password',
-                code: 'INVALID_CREDENTIALS'
-            });
-        }
-
-        const user = data;
-
-        let validPassword = false;
-        try {
-            validPassword = await bcrypt.compare(password, user.password);
-        } catch (e) {
-            console.error('Password verification error:', e);
-            validPassword = false;
-        }
-
-        if (!validPassword) {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Invalid username or password',
-                code: 'INVALID_CREDENTIALS'
-            });
-        }
-
-        if (user.status !== 'Active') {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Account is inactive. Please contact administrator.',
-                code: 'ACCOUNT_INACTIVE'
-            });
-        }
-
-        authFirewall.resetFailedAttempts(identifier);
-
-        req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
-
-        await supabase
-            .from('staff')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', user.id);
-
-        const token = generateToken(user);
-
-        await auditEvents.loginSuccess(user, req);
-
-        const { password: _, ...userWithoutPassword } = user;
-
-        const formattedUser = {
-            ...userWithoutPassword,
-            hostel: user.hostels?.name || null,
-            hostel_name: user.hostels?.name || null,
-            hostel_type: user.hostels?.type || null,
-            assigned_floor: user.assigned_floor,
-            assigned_room: user.assigned_room,
-            hostels: undefined
-        };
-
-        const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
-
-        res.json({ 
-            success: true, 
-            data: {
-                user: formattedUser,
-                token: token,
-                expiresIn: process.env.JWT_EXPIRY || '8h',
-                campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
-                redirect: redirectUrl
-            },
-            role: user.role
-        });
-    } catch (error) {
-        console.error('Login error:', error);
-        authFirewall.recordFailedAttempt(identifier);
-        res.status(500).json({ 
-            success: false, 
-            message: 'An unexpected error occurred. Please try again.',
-            code: 'SERVER_ERROR'
-        });
-    }
-});
-
 // =============================================
-// PUBLIC STUDENT SEARCH
+// PUBLIC STUDENT SEARCH - NO AUTH REQUIRED
 // =============================================
 
 app.get('/api/public/students/search', async (req, res) => {
@@ -2589,11 +2441,10 @@ app.get('/api/public/students/search', async (req, res) => {
         const cleanQuery = query.trim();
         const searchTerm = `%${cleanQuery}%`;
         const lowerQuery = cleanQuery.toLowerCase();
-        const upperQuery = cleanQuery.toUpperCase();
 
         console.log('🔍 Searching for:', cleanQuery);
 
-        // Build multiple search conditions for better matching
+        // Build search conditions for better matching
         let { data, error } = await supabase
             .from('students')
             .select(`
@@ -3079,6 +2930,154 @@ app.post('/api/public/students/register', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// =====================================================
+// AUTHENTICATION ENDPOINTS
+// =====================================================
+
+app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
+    const { username, password } = req.body;
+    const identifier = req.ip || req.connection.remoteAddress;
+    
+    try {
+        if (authFirewall.isAuthenticationBlocked(identifier)) {
+            return res.status(429).json({
+                success: false,
+                message: 'Too many login attempts. Please try again later.',
+                code: 'AUTH_BLOCKED'
+            });
+        }
+
+        const { data, error } = await supabase
+            .from('staff')
+            .select(`
+                id, 
+                username, 
+                role, 
+                name, 
+                initials, 
+                scope, 
+                hostel_id,
+                assigned_floor, 
+                assigned_room, 
+                is_admin, 
+                email, 
+                phone, 
+                department, 
+                staff_id, 
+                joined, 
+                status, 
+                password, 
+                campus, 
+                campus_code,
+                hostels!hostel_id (
+                    id,
+                    name,
+                    type
+                )
+            `)
+            .eq('username', username)
+            .maybeSingle();
+        
+        if (error) {
+            console.error('Login error:', error);
+            authFirewall.recordFailedAttempt(identifier);
+            await auditEvents.loginFailed(username, req);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred during login. Please try again.',
+                code: 'LOGIN_ERROR'
+            });
+        }
+        
+        if (!data) {
+            authFirewall.recordFailedAttempt(identifier);
+            await auditEvents.loginFailed(username, req);
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid username or password',
+                code: 'INVALID_CREDENTIALS'
+            });
+        }
+
+        const user = data;
+
+        let validPassword = false;
+        try {
+            validPassword = await bcrypt.compare(password, user.password);
+        } catch (e) {
+            console.error('Password verification error:', e);
+            validPassword = false;
+        }
+
+        if (!validPassword) {
+            authFirewall.recordFailedAttempt(identifier);
+            await auditEvents.loginFailed(username, req);
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid username or password',
+                code: 'INVALID_CREDENTIALS'
+            });
+        }
+
+        if (user.status !== 'Active') {
+            authFirewall.recordFailedAttempt(identifier);
+            await auditEvents.loginFailed(username, req);
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Account is inactive. Please contact administrator.',
+                code: 'ACCOUNT_INACTIVE'
+            });
+        }
+
+        authFirewall.resetFailedAttempts(identifier);
+
+        req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
+
+        await supabase
+            .from('staff')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', user.id);
+
+        const token = generateToken(user);
+
+        await auditEvents.loginSuccess(user, req);
+
+        const { password: _, ...userWithoutPassword } = user;
+
+        const formattedUser = {
+            ...userWithoutPassword,
+            hostel: user.hostels?.name || null,
+            hostel_name: user.hostels?.name || null,
+            hostel_type: user.hostels?.type || null,
+            assigned_floor: user.assigned_floor,
+            assigned_room: user.assigned_room,
+            hostels: undefined
+        };
+
+        const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
+
+        res.json({ 
+            success: true, 
+            data: {
+                user: formattedUser,
+                token: token,
+                expiresIn: process.env.JWT_EXPIRY || '8h',
+                campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
+                redirect: redirectUrl
+            },
+            role: user.role
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        authFirewall.recordFailedAttempt(identifier);
+        res.status(500).json({ 
+            success: false, 
+            message: 'An unexpected error occurred. Please try again.',
             code: 'SERVER_ERROR'
         });
     }
