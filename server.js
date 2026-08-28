@@ -2374,7 +2374,7 @@ const auditEvents = {
 };
 
 // =====================================================
-// 🔓 PUBLIC ENDPOINTS
+// 🔓 PUBLIC ENDPOINTS - FIXED
 // =====================================================
 
 app.get('/health', (req, res) => {
@@ -2428,7 +2428,6 @@ app.get('/api/public/students/search', async (req, res) => {
     try {
         const { query } = req.query;
         
-        // If no query, return empty
         if (!query || query.length < 1) {
             return res.json({ 
                 success: true, 
@@ -2437,14 +2436,12 @@ app.get('/api/public/students/search', async (req, res) => {
             });
         }
 
-        // Clean the query - remove extra spaces
         const cleanQuery = query.trim();
         const searchTerm = `%${cleanQuery}%`;
         const lowerQuery = cleanQuery.toLowerCase();
 
         console.log('🔍 Searching for:', cleanQuery);
 
-        // Build search conditions for better matching
         let { data, error } = await supabase
             .from('students')
             .select(`
@@ -2488,11 +2485,9 @@ app.get('/api/public/students/search', async (req, res) => {
 
         let results = data || [];
 
-        // If no results, try more flexible matching
         if (results.length === 0) {
             console.log('🔄 No ILIKE results, trying flexible search...');
             
-            // Get all active students
             const { data: allStudents, error: allError } = await supabase
                 .from('students')
                 .select(`
@@ -2530,15 +2525,10 @@ app.get('/api/public/students/search', async (req, res) => {
                     const name = (s.name || '').toLowerCase();
                     const matric = (s.matric || '').toLowerCase();
                     
-                    // Check if any search word matches
                     return queryWords.some(word => {
-                        // Exact word match in name
                         if (name.includes(word)) return true;
-                        // Matric contains the word
                         if (matric.includes(word)) return true;
-                        // Name starts with the word
                         if (name.split(' ').some(part => part.startsWith(word))) return true;
-                        // First letter of each name part matches
                         const initials = name.split(' ').map(p => p[0]).join('');
                         if (initials.includes(word)) return true;
                         return false;
@@ -2549,7 +2539,6 @@ app.get('/api/public/students/search', async (req, res) => {
             }
         }
 
-        // Sort by relevance
         results.sort((a, b) => {
             const aName = (a.name || '').toLowerCase();
             const bName = (b.name || '').toLowerCase();
@@ -2557,25 +2546,21 @@ app.get('/api/public/students/search', async (req, res) => {
             const bMatric = (b.matric || '').toLowerCase();
             const lq = lowerQuery;
             
-            // Exact name match
             const aExact = aName === lq;
             const bExact = bName === lq;
             if (aExact && !bExact) return -1;
             if (!aExact && bExact) return 1;
             
-            // Name starts with query
             const aStarts = aName.startsWith(lq);
             const bStarts = bName.startsWith(lq);
             if (aStarts && !bStarts) return -1;
             if (!aStarts && bStarts) return 1;
             
-            // Matric match
             const aMatricMatch = aMatric.includes(lq);
             const bMatricMatch = bMatric.includes(lq);
             if (aMatricMatch && !bMatricMatch) return -1;
             if (!aMatricMatch && bMatricMatch) return 1;
             
-            // Name contains query
             const aContains = aName.includes(lq);
             const bContains = bName.includes(lq);
             if (aContains && !bContains) return -1;
@@ -2606,9 +2591,10 @@ app.get('/api/public/students/search', async (req, res) => {
 
 // =============================================
 // PUBLIC REGISTRATION ENDPOINTS - NO AUTH REQUIRED
+// FIXED: Case-insensitive status matching
 // =============================================
 
-// Public - Get all hostels (filtered by campus)
+// Public - Get all hostels (filtered by campus) - FIXED
 app.get('/api/public/hostels', async (req, res) => {
     try {
         const { campus } = req.query;
@@ -2616,9 +2602,10 @@ app.get('/api/public/hostels', async (req, res) => {
         let query = supabase
             .from('hostels')
             .select('*')
-            .eq('status', 'Active')
             .order('name', { ascending: true });
         
+        // ✅ FIX: Case-insensitive status check
+        // Instead of eq('status', 'Active'), filter in JavaScript
         if (campus) {
             query = query.eq('campus', campus);
         }
@@ -2634,10 +2621,15 @@ app.get('/api/public/hostels', async (req, res) => {
             });
         }
         
+        // ✅ Filter active hostels (case-insensitive)
+        const activeHostels = (data || []).filter(h => 
+            h.status && h.status.toLowerCase() === 'active'
+        );
+        
         res.json({
             success: true,
-            data: data || [],
-            count: data?.length || 0
+            data: activeHostels,
+            count: activeHostels.length
         });
     } catch (error) {
         console.error('Public hostels error:', error);
@@ -2649,7 +2641,7 @@ app.get('/api/public/hostels', async (req, res) => {
     }
 });
 
-// Public - Get all floors/flats for a hostel
+// Public - Get all floors/flats for a hostel - FIXED
 app.get('/api/public/floors-flats', async (req, res) => {
     try {
         const { hostel_id } = req.query;
@@ -2677,10 +2669,15 @@ app.get('/api/public/floors-flats', async (req, res) => {
             });
         }
         
+        // ✅ Filter active floors (case-insensitive)
+        const activeFloors = (data || []).filter(f => 
+            f.status && f.status.toLowerCase() === 'active'
+        );
+        
         res.json({
             success: true,
-            data: data || [],
-            count: data?.length || 0
+            data: activeFloors,
+            count: activeFloors.length
         });
     } catch (error) {
         console.error('Public floors error:', error);
@@ -2692,7 +2689,7 @@ app.get('/api/public/floors-flats', async (req, res) => {
     }
 });
 
-// Public - Get all rooms for a floor/flat
+// Public - Get all rooms for a floor/flat - FIXED
 app.get('/api/public/rooms', async (req, res) => {
     try {
         const { floor_flat_id } = req.query;
@@ -2709,7 +2706,6 @@ app.get('/api/public/rooms', async (req, res) => {
             .from('rooms')
             .select('*')
             .eq('floor_flat_id', parseInt(floor_flat_id))
-            .in('status', ['active', 'available'])
             .order('room_code', { ascending: true });
         
         if (error) {
@@ -2721,10 +2717,15 @@ app.get('/api/public/rooms', async (req, res) => {
             });
         }
         
+        // ✅ Filter active rooms (case-insensitive)
+        const activeRooms = (data || []).filter(r => 
+            r.status && (r.status.toLowerCase() === 'active' || r.status.toLowerCase() === 'available')
+        );
+        
         res.json({
             success: true,
-            data: data || [],
-            count: data?.length || 0
+            data: activeRooms,
+            count: activeRooms.length
         });
     } catch (error) {
         console.error('Public rooms error:', error);
@@ -2736,7 +2737,7 @@ app.get('/api/public/rooms', async (req, res) => {
     }
 });
 
-// Public - Get all bed spaces for a room
+// Public - Get all bed spaces for a room - FIXED
 app.get('/api/public/bed-spaces', async (req, res) => {
     try {
         const { room_id } = req.query;
@@ -2753,7 +2754,6 @@ app.get('/api/public/bed-spaces', async (req, res) => {
             .from('bed_spaces')
             .select('*')
             .eq('room_id', parseInt(room_id))
-            .eq('status', 'available')
             .order('bed_code', { ascending: true });
         
         if (error) {
@@ -2765,10 +2765,15 @@ app.get('/api/public/bed-spaces', async (req, res) => {
             });
         }
         
+        // ✅ Filter available beds (case-insensitive)
+        const availableBeds = (data || []).filter(b => 
+            b.status && (b.status.toLowerCase() === 'available')
+        );
+        
         res.json({
             success: true,
-            data: data || [],
-            count: data?.length || 0
+            data: availableBeds,
+            count: availableBeds.length
         });
     } catch (error) {
         console.error('Public bed spaces error:', error);
