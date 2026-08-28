@@ -660,6 +660,7 @@
             let sessionCheckerInterval = null;
             let isSessionActive = false;
             let currentSession = null;
+            let expandedFloor = null;
 
             const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
@@ -957,12 +958,26 @@
             function toggleDropdown(element) {
                 const content = element.nextElementSibling;
                 const chevron = element.querySelector('.chevron');
+                const floorName = element.querySelector('span:first-child')?.textContent?.trim() || '';
+                
+                // Close all dropdowns first
+                document.querySelectorAll('.floor-dropdown .dropdown-content').forEach(el => {
+                    if (el !== content) {
+                        el.classList.remove('open');
+                        const parentChevron = el.parentElement?.querySelector('.chevron');
+                        if (parentChevron) parentChevron.classList.remove('open');
+                    }
+                });
+                
+                // Toggle the clicked one
                 if (content.classList.contains('open')) {
                     content.classList.remove('open');
                     chevron.classList.remove('open');
+                    expandedFloor = null;
                 } else {
                     content.classList.add('open');
                     chevron.classList.add('open');
+                    expandedFloor = floorName;
                 }
             }
 
@@ -1068,7 +1083,6 @@
                 const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                 const absent = students.filter(s => s.status === 'Absent').length;
                 
-                // ===== FIX: Calculate capacity from rooms/beds =====
                 let capacity = 0;
                 let totalRooms = 0;
                 
@@ -1078,7 +1092,6 @@
                     capacity = totalRooms * bedsPerRoom;
                 }
                 
-                // Fallback to hostel data fields if available
                 if (hostelData?.capacity && hostelData.capacity > 0) {
                     capacity = hostelData.capacity;
                 }
@@ -1091,7 +1104,6 @@
                 
                 const occupied = totalStudents;
                 const vacant = capacity - occupied;
-                // ===== END FIX =====
 
                 const roomStudents = selectedRoom ? getRoomStudents(selectedRoom) : [];
                 const selectedStudentData = selectedStudent || roomStudents[0] || null;
@@ -1105,8 +1117,12 @@
                     const isFlat = hostelData.type === 'flat';
                     const icon = isFlat ? 'fa-building' : 'fa-layer-group';
                     
+                    if (!expandedFloor && hostelStructure.floors.length > 0) {
+                        expandedFloor = hostelStructure.floors[0].name;
+                    }
+                    
                     treeHtml = hostelStructure.floors.map((floor, index) => {
-                        const isOpen = index === 0;
+                        const isOpen = expandedFloor === floor.name || (expandedFloor === null && index === 0);
                         const floorRooms = floor.rooms || [];
                         const roomCounts = floorRooms.map(room => {
                             const count = getRoomStudents(room).length;
