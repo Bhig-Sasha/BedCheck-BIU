@@ -2569,53 +2569,186 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 });
 
 // =============================================
-// PUBLIC STUDENT SEARCH - NO AUTH REQUIRED
+// PUBLIC STUDENT SEARCH
 // =============================================
 
 app.get('/api/public/students/search', async (req, res) => {
     try {
         const { query } = req.query;
         
-        if (!query || query.length < 2) {
+        // If no query, return empty
+        if (!query || query.length < 1) {
             return res.json({ 
                 success: true, 
                 data: [],
-                message: 'Please enter at least 2 characters'
+                message: 'Please enter at least 1 character'
             });
         }
 
-        const searchTerm = `%${query}%`;
-        
-        // Search students by name or matric
-        const { data, error } = await supabase
+        // Clean the query - remove extra spaces
+        const cleanQuery = query.trim();
+        const searchTerm = `%${cleanQuery}%`;
+        const lowerQuery = cleanQuery.toLowerCase();
+        const upperQuery = cleanQuery.toUpperCase();
+
+        console.log('🔍 Searching for:', cleanQuery);
+
+        // Build multiple search conditions for better matching
+        let { data, error } = await supabase
             .from('students')
-            .select('id, name, matric, faculty, department, level, session, hostel_id, hostel_name, room_id, room_code, bed_space_id, bed_code, phone, gender, email, emergency_name, emergency_relation, emergency_phone, status, face_enrolled, campus')
+            .select(`
+                id, 
+                name, 
+                matric, 
+                faculty, 
+                department, 
+                level, 
+                session, 
+                hostel_id, 
+                hostel_name, 
+                room_id, 
+                room_code, 
+                bed_space_id, 
+                bed_code, 
+                phone, 
+                gender, 
+                email, 
+                emergency_name, 
+                emergency_relation, 
+                emergency_phone, 
+                status, 
+                face_enrolled, 
+                campus,
+                registration_date
+            `)
             .or(`name.ilike.${searchTerm},matric.ilike.${searchTerm}`)
-            .eq('status', 'Active')
+            .in('status', ['Active', 'Present'])
             .order('name', { ascending: true })
-            .limit(10);
+            .limit(20);
 
         if (error) {
-            console.error('Search error:', error);
+            console.error('Search DB error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Database error',
+                message: 'Database error: ' + error.message,
                 code: 'DB_ERROR'
             });
         }
 
+        let results = data || [];
+
+        // If no results, try more flexible matching
+        if (results.length === 0) {
+            console.log('🔄 No ILIKE results, trying flexible search...');
+            
+            // Get all active students
+            const { data: allStudents, error: allError } = await supabase
+                .from('students')
+                .select(`
+                    id, 
+                    name, 
+                    matric, 
+                    faculty, 
+                    department, 
+                    level, 
+                    session, 
+                    hostel_id, 
+                    hostel_name, 
+                    room_id, 
+                    room_code, 
+                    bed_space_id, 
+                    bed_code, 
+                    phone, 
+                    gender, 
+                    email, 
+                    emergency_name, 
+                    emergency_relation, 
+                    emergency_phone, 
+                    status, 
+                    face_enrolled, 
+                    campus,
+                    registration_date
+                `)
+                .in('status', ['Active', 'Present'])
+                .limit(100);
+
+            if (!allError && allStudents) {
+                const queryWords = cleanQuery.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
+                
+                results = allStudents.filter(s => {
+                    const name = (s.name || '').toLowerCase();
+                    const matric = (s.matric || '').toLowerCase();
+                    
+                    // Check if any search word matches
+                    return queryWords.some(word => {
+                        // Exact word match in name
+                        if (name.includes(word)) return true;
+                        // Matric contains the word
+                        if (matric.includes(word)) return true;
+                        // Name starts with the word
+                        if (name.split(' ').some(part => part.startsWith(word))) return true;
+                        // First letter of each name part matches
+                        const initials = name.split(' ').map(p => p[0]).join('');
+                        if (initials.includes(word)) return true;
+                        return false;
+                    });
+                });
+                
+                console.log(`🔍 Flexible search found ${results.length} results`);
+            }
+        }
+
+        // Sort by relevance
+        results.sort((a, b) => {
+            const aName = (a.name || '').toLowerCase();
+            const bName = (b.name || '').toLowerCase();
+            const aMatric = (a.matric || '').toLowerCase();
+            const bMatric = (b.matric || '').toLowerCase();
+            const lq = lowerQuery;
+            
+            // Exact name match
+            const aExact = aName === lq;
+            const bExact = bName === lq;
+            if (aExact && !bExact) return -1;
+            if (!aExact && bExact) return 1;
+            
+            // Name starts with query
+            const aStarts = aName.startsWith(lq);
+            const bStarts = bName.startsWith(lq);
+            if (aStarts && !bStarts) return -1;
+            if (!aStarts && bStarts) return 1;
+            
+            // Matric match
+            const aMatricMatch = aMatric.includes(lq);
+            const bMatricMatch = bMatric.includes(lq);
+            if (aMatricMatch && !bMatricMatch) return -1;
+            if (!aMatricMatch && bMatricMatch) return 1;
+            
+            // Name contains query
+            const aContains = aName.includes(lq);
+            const bContains = bName.includes(lq);
+            if (aContains && !bContains) return -1;
+            if (!aContains && bContains) return 1;
+            
+            return aName.localeCompare(bName);
+        });
+
+        console.log(`✅ Search results: ${results.length} students found for "${cleanQuery}"`);
+
         res.json({
             success: true,
-            data: data || [],
-            count: data?.length || 0
+            data: results.slice(0, 10),
+            count: results.length,
+            query: cleanQuery
         });
 
     } catch (error) {
-        console.error('Public search error:', error);
+        console.error('❌ Public search error:', error);
         res.status(500).json({
             success: false,
             message: 'An error occurred. Please try again.',
-            code: 'SERVER_ERROR'
+            code: 'SERVER_ERROR',
+            error: error.message
         });
     }
 });
