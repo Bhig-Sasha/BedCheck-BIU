@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
+        /* ... (keep all existing styles - they remain the same) ... */
         * {
             margin: 0;
             padding: 0;
@@ -1425,28 +1426,31 @@
             }
         }
 
-        // ---------- FACE DETECTION ----------
+        // ---------- SIMPLIFIED FACE DETECTION ----------
         function detectFaceInFrame(imageData) {
             try {
+                // Create an image from the data
                 const img = new Image();
                 img.src = imageData;
                 
                 const ctx = captureCanvas.getContext('2d');
                 const canvas = captureCanvas;
                 
+                // Clear and draw the image
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 
+                // Get pixel data
                 const imageDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imageDataObj.data;
                 
                 let totalPixels = 0;
-                let faceLikePixels = 0;
+                let skinToneCount = 0;
                 let brightnessSum = 0;
                 let contrastSum = 0;
-                let skinToneCount = 0;
                 
-                const sampleStep = 4;
+                // Sample pixels for face detection
+                const sampleStep = 6;
                 for (let i = 0; i < data.length; i += sampleStep * 4) {
                     const r = data[i];
                     const g = data[i + 1];
@@ -1456,17 +1460,16 @@
                     const avg = (r + g + b) / 3;
                     brightnessSum += avg;
                     
-                    const y = 0.299 * r + 0.587 * g + 0.114 * b;
-                    const cr = r - y;
-                    const cb = b - y;
+                    // Simple skin tone detection
+                    const isSkinTone = (r > 60 && g > 40 && b > 30 && 
+                                       r > g && r > b && 
+                                       Math.abs(r - g) < 60 && Math.abs(g - b) < 60);
                     
-                    const isSkin = (y > 40 && y < 230 && cr > -20 && cr < 80 && cb > -20 && cb < 80);
-                    
-                    if (isSkin) {
+                    if (isSkinTone) {
                         skinToneCount++;
-                        faceLikePixels++;
                     }
                     
+                    // Calculate contrast
                     if (i + sampleStep * 4 < data.length) {
                         const r2 = data[i + sampleStep * 4];
                         const g2 = data[i + sampleStep * 4 + 1];
@@ -1480,18 +1483,21 @@
                 const avgContrast = totalPixels > 0 ? contrastSum / totalPixels : 0;
                 const skinRatio = totalPixels > 0 ? skinToneCount / totalPixels : 0;
                 
-                const hasSkin = skinRatio > 0.02;
+                // Face detection criteria - more forgiving
+                const hasSkin = skinRatio > 0.015;
                 const goodBrightness = avgBrightness > 40 && avgBrightness < 230;
-                const goodContrast = avgContrast > 15;
+                const goodContrast = avgContrast > 10;
                 
+                // Combined detection
                 const isFace = (hasSkin && goodBrightness) || (goodBrightness && goodContrast);
                 
+                // Calculate quality
                 let quality = 0;
                 if (isFace) {
                     quality = Math.min(95, 
-                        (Math.min(1, skinRatio * 20) * 30) + 
+                        (Math.min(1, skinRatio * 25) * 30) + 
                         (Math.min(1, avgBrightness / 128) * 25) + 
-                        (Math.min(1, avgContrast / 30) * 25) + 
+                        (Math.min(1, avgContrast / 25) * 25) + 
                         20
                     );
                 }
@@ -1613,6 +1619,7 @@
                         faceGuideRing.classList.add('detected');
                         faceGuideRing.classList.remove('capturing');
                         
+                        // Smooth quality updates
                         currentQuality = currentQuality * 0.7 + detection.quality * 0.3;
                         if (currentQuality < 5) currentQuality = 5;
                         
