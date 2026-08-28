@@ -1101,7 +1101,7 @@
             <span class="info-item"><span class="label">🛏️</span> <strong id="studentRoomBed">---</strong></span>
         </div>
 
-        <div class="time-display" id="timeDisplay">⏱️ Face enrollment · 10 positions</div>
+        <div class="time-display" id="timeDisplay">⏱️ Face enrollment · 5 positions</div>
 
         <!-- Camera Preview -->
         <div class="camera-preview" id="cameraPreview">
@@ -1174,7 +1174,7 @@
                     <span class="status-text" id="modalCameraStatus">Position your face</span>
                 </div>
                 <span class="status-count">
-                    <span class="count-num" id="captureCount">0</span>/10
+                    <span class="count-num" id="captureCount">0</span>/5
                 </span>
             </div>
 
@@ -1279,8 +1279,8 @@
         // API CONFIGURATION
         // =============================================
         const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
-        const MIN_QUALITY_THRESHOLD = 50; // Lower threshold for better detection
-        const TOTAL_CAPTURES = 10;
+        const MIN_QUALITY_THRESHOLD = 40;
+        const TOTAL_CAPTURES = 5;
 
         // ---------- STATE ----------
         let cameraStream = null;
@@ -1293,6 +1293,7 @@
         let isSetupActive = false;
         let captureTimer = null;
         let warningTimeout = null;
+        let frameProcessing = false;
 
         const POSITIONS = ['Front', 'Right', 'Bottom', 'Left', 'Top'];
         const POSITION_DIRECTIONS = ['center', 'right', 'down', 'left', 'up'];
@@ -1424,8 +1425,8 @@
             }
         }
 
-        // ---------- SIMPLE FACE DETECTION ----------
-        function detectFaceSimple(imageData) {
+        // ---------- FACE DETECTION ----------
+        function detectFaceInFrame(imageData) {
             try {
                 const img = new Image();
                 img.src = imageData;
@@ -1436,45 +1437,61 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 
-                const imageData2 = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData2.data;
+                const imageDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageDataObj.data;
                 
                 let totalPixels = 0;
                 let faceLikePixels = 0;
-                let brightness = 0;
+                let brightnessSum = 0;
+                let contrastSum = 0;
+                let skinToneCount = 0;
                 
-                // Sample pixels for face detection
-                for (let i = 0; i < data.length; i += 12) {
+                const sampleStep = 4;
+                for (let i = 0; i < data.length; i += sampleStep * 4) {
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
                     totalPixels++;
                     
                     const avg = (r + g + b) / 3;
-                    brightness += avg;
+                    brightnessSum += avg;
                     
-                    // Face detection: look for skin tones and contrast
-                    const isSkinTone = (r > 60 && g > 40 && b > 30 && 
-                                       r > g && r > b && 
-                                       Math.abs(r - g) < 60 && Math.abs(g - b) < 60);
+                    const y = 0.299 * r + 0.587 * g + 0.114 * b;
+                    const cr = r - y;
+                    const cb = b - y;
                     
-                    if (isSkinTone) {
+                    const isSkin = (y > 40 && y < 230 && cr > -20 && cr < 80 && cb > -20 && cb < 80);
+                    
+                    if (isSkin) {
+                        skinToneCount++;
                         faceLikePixels++;
+                    }
+                    
+                    if (i + sampleStep * 4 < data.length) {
+                        const r2 = data[i + sampleStep * 4];
+                        const g2 = data[i + sampleStep * 4 + 1];
+                        const b2 = data[i + sampleStep * 4 + 2];
+                        const avg2 = (r2 + g2 + b2) / 3;
+                        contrastSum += Math.abs(avg - avg2);
                     }
                 }
                 
-                const avgBrightness = totalPixels > 0 ? brightness / totalPixels : 0;
-                const skinRatio = totalPixels > 0 ? faceLikePixels / totalPixels : 0;
+                const avgBrightness = totalPixels > 0 ? brightnessSum / totalPixels : 0;
+                const avgContrast = totalPixels > 0 ? contrastSum / totalPixels : 0;
+                const skinRatio = totalPixels > 0 ? skinToneCount / totalPixels : 0;
                 
-                // More forgiving detection
-                const isFace = skinRatio > 0.02 && avgBrightness > 50 && avgBrightness < 230;
+                const hasSkin = skinRatio > 0.02;
+                const goodBrightness = avgBrightness > 40 && avgBrightness < 230;
+                const goodContrast = avgContrast > 15;
                 
-                // Calculate quality
+                const isFace = (hasSkin && goodBrightness) || (goodBrightness && goodContrast);
+                
                 let quality = 0;
                 if (isFace) {
                     quality = Math.min(95, 
-                        (skinRatio * 20) + 
-                        (avgBrightness > 80 && avgBrightness < 200 ? 30 : 10) +
+                        (Math.min(1, skinRatio * 20) * 30) + 
+                        (Math.min(1, avgBrightness / 128) * 25) + 
+                        (Math.min(1, avgContrast / 30) * 25) + 
                         20
                     );
                 }
@@ -1483,7 +1500,8 @@
                     isFace: isFace,
                     quality: quality,
                     skinRatio: skinRatio,
-                    brightness: avgBrightness
+                    brightness: avgBrightness,
+                    contrast: avgContrast
                 };
             } catch (error) {
                 console.debug('Face detection error:', error);
@@ -1566,7 +1584,7 @@
             }
         };
 
-        // ---------- VIDEO QUALITY MONITORING - SIMPLIFIED ----------
+        // ---------- VIDEO QUALITY MONITORING ----------
         function monitorVideoQuality() {
             const context = captureCanvas.getContext('2d');
             
@@ -1588,21 +1606,18 @@
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
                     
-                    // Detect face
-                    const detection = detectFaceSimple(imageData);
+                    const detection = detectFaceInFrame(imageData);
                     
                     if (detection.isFace) {
                         faceDetected = true;
                         faceGuideRing.classList.add('detected');
                         faceGuideRing.classList.remove('capturing');
                         
-                        // Smooth quality updates
-                        currentQuality = currentQuality * 0.6 + detection.quality * 0.4;
+                        currentQuality = currentQuality * 0.7 + detection.quality * 0.3;
                         if (currentQuality < 5) currentQuality = 5;
                         
                         updateQualityDisplay(currentQuality);
                         
-                        // Check if quality threshold is reached
                         if (currentQuality >= MIN_QUALITY_THRESHOLD) {
                             if (!isQualityReady) {
                                 isQualityReady = true;
@@ -1708,8 +1723,12 @@
             });
 
             if (capturedFrames.length < TOTAL_CAPTURES) {
-                const currentPos = capturedFrames.length % 5;
-                positionText.textContent = POSITIONS[currentPos];
+                const currentPos = capturedFrames.length;
+                if (currentPos < POSITIONS.length) {
+                    positionText.textContent = POSITIONS[currentPos];
+                } else {
+                    positionText.textContent = 'Front';
+                }
                 positionLabel.className = 'position-label';
             } else {
                 positionLabel.className = 'position-label done';
@@ -1753,6 +1772,11 @@
                 return;
             }
 
+            if (frameProcessing) {
+                return;
+            }
+            frameProcessing = true;
+
             try {
                 const context = captureCanvas.getContext('2d');
                 captureCanvas.width = video.videoWidth || 640;
@@ -1765,9 +1789,10 @@
 
                 const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
 
-                const detection = detectFaceSimple(imageData);
+                const detection = detectFaceInFrame(imageData);
                 
                 if (!detection.isFace) {
+                    frameProcessing = false;
                     updateStatus('waiting', 'Face lost, reposition...');
                     return;
                 }
@@ -1775,8 +1800,8 @@
                 faceGuideRing.classList.add('capturing');
                 setTimeout(() => faceGuideRing.classList.remove('capturing'), 300);
 
-                const currentPos = capturedFrames.length % 5;
-                const direction = POSITION_DIRECTIONS[currentPos];
+                const currentPos = capturedFrames.length;
+                const direction = currentPos < POSITION_DIRECTIONS.length ? POSITION_DIRECTIONS[currentPos] : 'center';
 
                 capturedFrames.push({
                     index: capturedFrames.length,
@@ -1791,20 +1816,27 @@
                     dot.classList.add('done');
                 }
 
-                const nextPos = (capturedFrames.length) % 5;
-                if (capturedFrames.length < TOTAL_CAPTURES) {
-                    positionText.textContent = POSITIONS[nextPos];
+                const nextPos = capturedFrames.length;
+                if (nextPos < TOTAL_CAPTURES) {
+                    if (nextPos < POSITIONS.length) {
+                        positionText.textContent = POSITIONS[nextPos];
+                    } else {
+                        positionText.textContent = 'Complete';
+                    }
                     positionLabel.className = 'position-label';
                 }
 
-                const nextDirection = POSITION_DIRECTIONS[nextPos];
-                updateArrows(nextDirection);
-                updateGuideDots(nextDirection);
+                const nextDirection = nextPos < POSITION_DIRECTIONS.length ? POSITION_DIRECTIONS[nextPos] : 'done';
+                if (nextPos < TOTAL_CAPTURES) {
+                    updateArrows(nextDirection);
+                    updateGuideDots(nextDirection);
+                }
 
                 if (capturedFrames.length < TOTAL_CAPTURES) {
+                    const nextPosDisplay = capturedFrames.length < POSITIONS.length ? POSITIONS[capturedFrames.length] : 'Complete';
                     instructionText.innerHTML = `
                         <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
-                        Move head to <span class="highlight">${POSITIONS[nextPos]}</span> position
+                        Move head to <span class="highlight">${nextPosDisplay}</span> position
                         <span style="color:#4ade80;font-size:0.65rem;display:block;margin-top:0.2rem;">
                             ${capturedFrames.length}/${TOTAL_CAPTURES} captured ✅
                         </span>
@@ -1820,6 +1852,8 @@
                 }
             } catch (error) {
                 console.error('Capture error:', error);
+            } finally {
+                frameProcessing = false;
             }
         }
 
@@ -1839,19 +1873,19 @@
 
             instructionText.innerHTML = `
                 <i class="fas fa-check-circle" style="color:#4ade80;"></i>
-                <span class="success-highlight">All 10 positions captured!</span>
+                <span class="success-highlight">All ${TOTAL_CAPTURES} positions captured!</span>
                 <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
                     Ready to enroll
                 </span>
             `;
 
-            updateStatus('done', '✅ All 10 positions captured!');
+            updateStatus('done', '✅ All positions captured!');
 
             btnStart.disabled = true;
             btnStart.innerHTML = '<i class="fas fa-check" style="color:#4ade80;"></i> Complete';
             enrollGroup.style.display = 'flex';
 
-            showToast('✅ All 10 positions captured successfully!', 'success');
+            showToast('✅ All positions captured successfully!', 'success');
         }
 
         // ---------- START SETUP ----------
@@ -1894,23 +1928,24 @@
             if (captureTimer) clearInterval(captureTimer);
             captureTimer = setInterval(performAutoCapture, 1500);
 
-            const firstPos = capturedFrames.length % 5;
+            const firstPos = capturedFrames.length < POSITIONS.length ? POSITIONS[capturedFrames.length] : 'Complete';
             instructionText.innerHTML = `
                 <i class="fas fa-arrow-right" style="color:#d6ad4b;"></i>
-                Move head to <span class="highlight">${POSITIONS[firstPos]}</span> position
+                Move head to <span class="highlight">${firstPos}</span> position
                 <span style="color:#94a3b8;font-size:0.65rem;display:block;margin-top:0.2rem;">
                     Face will auto-capture when ready
                 </span>
             `;
 
-            updateArrows(POSITION_DIRECTIONS[firstPos]);
-            updateGuideDots(POSITION_DIRECTIONS[firstPos]);
+            const firstDir = capturedFrames.length < POSITION_DIRECTIONS.length ? POSITION_DIRECTIONS[capturedFrames.length] : 'center';
+            updateArrows(firstDir);
+            updateGuideDots(firstDir);
 
             showToast('🔴 Face detection active - moving head to capture all angles', 'info');
         }
 
         // =============================================
-        // ENROLL - FULL IMPLEMENTATION
+        // ENROLL - COMPLETE IMPLEMENTATION
         // =============================================
         async function enrollFace() {
             if (capturedFrames.length < TOTAL_CAPTURES) {
@@ -2027,44 +2062,13 @@
                     return (current.quality || 0) > (best.quality || 0) ? current : best;
                 }, capturedFrames[0]);
 
-                loadingText.textContent = 'Extracting face embedding...';
-                loadingProgressFill.style.width = '35%';
-
                 let imageData = bestFrame.imageData;
                 if (imageData.startsWith('data:image')) {
                     imageData = imageData.split(',')[1];
                 }
 
-                const extractResponse = await fetch(`${NODE_API_BASE}/face/extract`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: imageData })
-                });
-
-                if (!extractResponse.ok) {
-                    let errorMsg = `HTTP ${extractResponse.status}`;
-                    try {
-                        const errorData = await extractResponse.json();
-                        errorMsg = errorData.message || errorData.detail || errorMsg;
-                    } catch (e) {
-                        errorMsg = extractResponse.statusText || errorMsg;
-                    }
-                    throw new Error(`Face extraction failed: ${errorMsg}`);
-                }
-
-                const extractResult = await extractResponse.json();
-                loadingProgressFill.style.width = '50%';
-
-                if (!extractResult.success || !extractResult.data || !extractResult.data.embedding) {
-                    throw new Error('Failed to extract face embedding from the captured image.');
-                }
-
-                const embedding = extractResult.data.embedding;
-                const quality = extractResult.data.quality || 0.8;
-                console.log('✅ Embedding extracted:', embedding.length, 'dimensions, quality:', quality);
-
-                loadingText.textContent = 'Enrolling face with embedding...';
-                loadingProgressFill.style.width = '60%';
+                loadingText.textContent = 'Sending to enrollment...';
+                loadingProgressFill.style.width = '40%';
 
                 const enrollResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face/enroll`, {
                     method: 'POST',
@@ -2112,7 +2116,7 @@
                             <i class="fas fa-check-circle" style="color:#4ade80;"></i>
                             <span class="success-highlight">Face enrolled successfully!</span>
                             <span style="color:#94a3b8;display:block;margin-top:0.2rem;font-size:0.7rem;">
-                                Embedding: ${embedding.length} dimensions · Quality: ${Math.round(quality * 100)}%
+                                ${TOTAL_CAPTURES} positions captured · Quality: ${Math.round(bestFrame.quality)}%
                             </span>
                             <span style="color:#64748b;display:block;margin-top:0.2rem;font-size:0.6rem;">
                                 You're ready for BedCheck
@@ -2246,6 +2250,8 @@
             console.log('currentQuality:', currentQuality);
             console.log('isQualityReady:', isQualityReady);
             console.log('capturedFrames:', capturedFrames.length);
+            console.log('TOTAL_CAPTURES:', TOTAL_CAPTURES);
+            console.log('MIN_QUALITY_THRESHOLD:', MIN_QUALITY_THRESHOLD);
             console.log('===================');
         };
 
@@ -2279,7 +2285,7 @@
 
             console.log('🔍 Face detection initialized.');
             console.log('📊 Quality threshold:', MIN_QUALITY_THRESHOLD + '%');
-            console.log('💡 If face is not detected, try better lighting.');
+            console.log('📸 Total captures:', TOTAL_CAPTURES);
             console.log('🔧 Run debugCamera() in console for diagnostics.');
         }
 
