@@ -526,6 +526,10 @@
             <p class="subtitle"><i class="fas fa-user-graduate"></i> Complete your details to register</p>
         </div>
 
+        <a class="back-link" onclick="goBack()">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+
         <!-- Loading -->
         <div id="loadingIndicator" style="display:none;text-align:center;padding:2rem;">
             <div class="loading-spinner">
@@ -870,9 +874,19 @@
             }
 
             // =============================================
-            // API CALLS - Using authenticated endpoint for now
+            // API CALL - AUTHENTICATED ONLY
             // =============================================
             async function apiCall(endpoint, options = {}) {
+                const token = sessionStorage.getItem('bedcheck_token');
+                
+                if (!token) {
+                    showToast('Please login first', 'error');
+                    setTimeout(() => {
+                        window.location.href = '../Login.html';
+                    }, 1500);
+                    throw new Error('No authentication token');
+                }
+
                 try {
                     let url = `${API_BASE}${endpoint}`;
                     console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
@@ -881,9 +895,21 @@
                         ...options,
                         headers: {
                             'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
                             ...(options.headers || {})
                         }
                     });
+
+                    if (response.status === 401) {
+                        showToast('Session expired. Please login again.', 'error');
+                        sessionStorage.removeItem('bedcheck_token');
+                        sessionStorage.removeItem('bedcheck_user');
+                        sessionStorage.removeItem('bedcheck_role');
+                        setTimeout(() => {
+                            window.location.href = '../Login.html';
+                        }, 1500);
+                        throw new Error('Authentication required');
+                    }
 
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -891,109 +917,69 @@
                     }
 
                     const data = await response.json();
-
-                    // Handle different response formats
-                    if (data.success !== undefined) {
-                        if (!data.success) {
-                            if (data.data && Array.isArray(data.data)) {
-                                return data.data;
-                            }
-                            throw new Error(data.message || 'API error');
-                        }
-                        if (data.data && Array.isArray(data.data)) {
-                            return data.data;
-                        }
-                        return data.data || [];
-                    } else if (Array.isArray(data)) {
-                        return data;
-                    } else if (data.data && Array.isArray(data.data)) {
-                        return data.data;
-                    } else {
-                        return [];
+                    
+                    if (data.success !== undefined && !data.success) {
+                        throw new Error(data.message || 'API error');
                     }
+
+                    // Return the data array
+                    if (data.data && Array.isArray(data.data)) {
+                        return data.data;
+                    }
+                    return data.data || [];
                 } catch (error) {
                     console.error('API Error:', error);
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                     throw error;
                 }
             }
 
             // =============================================
-            // DATA LOADING - Try both public and authenticated
+            // DATA LOADING - AUTHENTICATED ONLY
             // =============================================
             async function loadData() {
                 try {
                     document.getElementById('loadingIndicator').style.display = 'block';
 
-                    // Try public endpoint first
-                    try {
-                        allHostels = await apiCall('/public/hostels');
-                        console.log('✅ Public hostels loaded:', allHostels.length);
-                    } catch (e) {
-                        console.warn('⚠️ Public hostels failed, trying /hostels:', e);
-                        // Try authenticated endpoint
-                        allHostels = await apiCall('/hostels');
-                        console.log('✅ Authenticated hostels loaded:', allHostels.length);
+                    // Load hostels - ONLY from authenticated endpoint
+                    allHostels = await apiCall('/hostels');
+                    console.log('✅ Hostels loaded:', allHostels.length);
+
+                    if (allHostels.length === 0) {
+                        showToast('No hostels found. Please contact administrator.', 'warning');
+                        document.getElementById('loadingIndicator').style.display = 'none';
+                        return;
                     }
 
-                    // If still no hostels, load from floors/rooms/beds
-                    if (allHostels.length === 0) {
-                        console.warn('⚠️ No hostels found, trying to load from structures...');
-                        // Try to get floors directly
+                    // Load floors for each hostel
+                    for (const hostel of allHostels) {
                         try {
-                            const floors = await apiCall('/public/floors-flats');
-                            allFloorsFlats = floors || [];
-                            console.log('✅ Floors loaded directly:', allFloorsFlats.length);
+                            const floors = await apiCall(`/floors-flats?hostel_id=${hostel.id}`);
+                            allFloorsFlats = [...allFloorsFlats, ...floors];
                         } catch (e) {
-                            console.warn('⚠️ Could not load floors:', e);
+                            console.warn(`Could not load floors for hostel ${hostel.id}:`, e);
                         }
-                        
-                        // Try to get rooms directly
-                        try {
-                            const rooms = await apiCall('/public/rooms');
-                            allRooms = rooms || [];
-                            console.log('✅ Rooms loaded directly:', allRooms.length);
-                        } catch (e) {
-                            console.warn('⚠️ Could not load rooms:', e);
-                        }
-                        
-                        // Try to get beds directly
-                        try {
-                            const beds = await apiCall('/public/bed-spaces');
-                            allBedSpaces = beds || [];
-                            console.log('✅ Beds loaded directly:', allBedSpaces.length);
-                        } catch (e) {
-                            console.warn('⚠️ Could not load beds:', e);
-                        }
-                    } else {
-                        // Load floors, rooms, beds for each hostel
-                        for (const hostel of allHostels) {
-                            try {
-                                const floors = await apiCall(`/public/floors-flats?hostel_id=${hostel.id}`);
-                                allFloorsFlats = [...allFloorsFlats, ...(floors || [])];
-                            } catch (e) {
-                                console.warn(`⚠️ Could not load floors for hostel ${hostel.id}:`, e);
-                            }
-                        }
+                    }
 
-                        // Load rooms for each floor
-                        for (const floor of allFloorsFlats) {
-                            try {
-                                const rooms = await apiCall(`/public/rooms?floor_flat_id=${floor.id}`);
-                                allRooms = [...allRooms, ...(rooms || [])];
-                            } catch (e) {
-                                console.warn(`⚠️ Could not load rooms for floor ${floor.id}:`, e);
-                            }
+                    // Load rooms for each floor
+                    for (const floor of allFloorsFlats) {
+                        try {
+                            const rooms = await apiCall(`/rooms?floor_flat_id=${floor.id}`);
+                            allRooms = [...allRooms, ...rooms];
+                        } catch (e) {
+                            console.warn(`Could not load rooms for floor ${floor.id}:`, e);
                         }
+                    }
 
-                        // Load beds for each room
-                        for (const room of allRooms) {
-                            try {
-                                const beds = await apiCall(`/public/bed-spaces?room_id=${room.id}`);
-                                allBedSpaces = [...allBedSpaces, ...(beds || [])];
-                            } catch (e) {
-                                console.warn(`⚠️ Could not load beds for room ${room.id}:`, e);
-                            }
+                    // Load beds for each room
+                    for (const room of allRooms) {
+                        try {
+                            const beds = await apiCall(`/bed-spaces?room_id=${room.id}`);
+                            allBedSpaces = [...allBedSpaces, ...beds];
+                        } catch (e) {
+                            console.warn(`Could not load beds for room ${room.id}:`, e);
                         }
                     }
 
@@ -1008,7 +994,9 @@
                 } catch (error) {
                     console.error('Load error:', error);
                     document.getElementById('loadingIndicator').style.display = 'none';
-                    showToast('Error loading data: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
                 }
             }
 
@@ -1089,23 +1077,7 @@
                 }
 
                 if (filtered.length === 0) {
-                    // If no hostels, try showing all hostels with a note
-                    if (allHostels.length > 0) {
-                        allHostels.forEach(h => {
-                            const opt = document.createElement('option');
-                            opt.value = h.id;
-                            const roomCount = allRooms.filter(r => {
-                                const floor = allFloorsFlats.find(f => f.id === r.floor_flat_id);
-                                return floor && floor.hostel_id === h.id;
-                            }).length;
-                            opt.textContent = `${h.name} (${roomCount} rooms)`;
-                            select.appendChild(opt);
-                        });
-                        showToast('Showing all hostels (campus filter applied)', 'info');
-                    } else {
-                        select.innerHTML = '<option value="">No hostels found</option>';
-                        showToast('No hostels available. Please contact administrator.', 'warning');
-                    }
+                    select.innerHTML = `<option value="">No hostels found for ${campusFilter} campus</option>`;
                     return;
                 }
 
@@ -1369,6 +1341,15 @@
                     return;
                 }
 
+                const token = sessionStorage.getItem('bedcheck_token');
+                if (!token) {
+                    showToast('Please login first', 'error');
+                    setTimeout(() => {
+                        window.location.href = '../Login.html';
+                    }, 1500);
+                    return;
+                }
+
                 isSubmitting = true;
                 const btn = document.getElementById('btnRegister');
                 const loading = document.getElementById('submitLoading');
@@ -1423,20 +1404,10 @@
 
                     console.log('📝 Registering student:', studentData);
 
-                    // Try public registration first
-                    let result;
-                    try {
-                        result = await apiCall('/public/students/register', {
-                            method: 'POST',
-                            body: JSON.stringify(studentData)
-                        });
-                    } catch (e) {
-                        console.warn('⚠️ Public registration failed, trying /students:', e);
-                        result = await apiCall('/students', {
-                            method: 'POST',
-                            body: JSON.stringify(studentData)
-                        });
-                    }
+                    const result = await apiCall('/students', {
+                        method: 'POST',
+                        body: JSON.stringify(studentData)
+                    });
 
                     showToast('✅ Registration successful!', 'success');
 
@@ -1448,7 +1419,9 @@
 
                 } catch (error) {
                     console.error('Registration error:', error);
-                    showToast('Error: ' + error.message, 'error');
+                    if (!error.message.includes('Authentication required')) {
+                        showToast('Error: ' + error.message, 'error');
+                    }
                 } finally {
                     isSubmitting = false;
                     btn.disabled = false;
@@ -1487,6 +1460,10 @@
                 showToast('Form reset', 'info');
             }
 
+            function goBack() {
+                window.location.href = '../index.html';
+            }
+
             // =============================================
             // EXPOSE GLOBALLY
             // =============================================
@@ -1497,6 +1474,7 @@
             window.updateBeds = updateBeds;
             window.registerStudent = registerStudent;
             window.resetForm = resetForm;
+            window.goBack = goBack;
             window.handlePhotoUpload = handlePhotoUpload;
             window.removePhoto = removePhoto;
             window.showToast = showToast;
@@ -1505,6 +1483,16 @@
             // INIT
             // =============================================
             async function init() {
+                // Check authentication
+                const token = sessionStorage.getItem('bedcheck_token');
+                if (!token) {
+                    showToast('Please login first', 'error');
+                    setTimeout(() => {
+                        window.location.href = '../Login.html';
+                    }, 1500);
+                    return;
+                }
+
                 await loadData();
 
                 // Auto-detect campus if faculty and level are pre-filled
