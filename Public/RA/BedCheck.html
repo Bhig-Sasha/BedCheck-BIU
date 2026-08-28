@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
         /* ===== ALL YOUR EXISTING STYLES GO HERE ===== */
-        /* (Copy all your styles from the previous version) */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; }
 
@@ -710,11 +709,21 @@
                     if (result && result.data) {
                         const enrolled = result.data.face_enrolled === true;
                         const status = result.data.enrollment_status || 'pending';
+                        const hasEmbedding = result.data.has_embedding === true;
+                        const verificationCount = result.data.verification_count || 0;
+                        
+                        console.log(`📊 Student ${studentId} face status:`, {
+                            enrolled,
+                            hasEmbedding,
+                            status,
+                            verificationCount
+                        });
+                        
                         return {
                             enrolled: enrolled,
                             status: status,
-                            has_embedding: result.data.has_embedding || false,
-                            verification_count: result.data.verification_count || 0,
+                            has_embedding: hasEmbedding,
+                            verification_count: verificationCount,
                             confidence_score: result.data.confidence_score || null,
                             last_verified: result.data.last_verified || null
                         };
@@ -759,6 +768,8 @@
             // Verify face through backend - embedding stays on server
             async function verifyFaceWithAPI(imageDataUrl, studentId, threshold = 0.55) {
                 try {
+                    console.log(`🔐 Verifying student ${studentId} with threshold ${threshold}`);
+                    
                     const result = await apiCall('/face/verify', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -768,13 +779,18 @@
                         })
                     });
 
+                    console.log('📊 Verification result:', result);
+
                     const verified = !!(result.data && result.data.verified);
+                    const confidence = result.data?.confidence || 0;
+                    
                     return {
                         success: verified,
-                        verified,
-                        confidence: result.data?.confidence || 0,
+                        verified: verified,
+                        confidence: confidence,
                         reason: result.data?.message || null,
-                        threshold: result.data?.threshold || threshold
+                        threshold: result.data?.threshold || threshold,
+                        student: result.data?.student || null
                     };
                 } catch (error) {
                     console.error('Face verification API error:', error);
@@ -969,7 +985,7 @@
                 const faceStatusEl = document.getElementById('modalFaceStatusText');
                 const faceStatusContainer = document.getElementById('modalFaceStatus');
                 
-                if (faceStatus.enrolled) {
+                if (faceStatus.enrolled && faceStatus.has_embedding) {
                     faceStatusEl.textContent = '✅ Face Enrolled';
                     faceStatusContainer.className = 'mini-badge face-status-enrolled';
                     document.getElementById('modalVerifyBtn').disabled = false;
@@ -979,6 +995,15 @@
                     if (faceStatus.verification_count > 0) {
                         faceStatusEl.textContent += ` (${faceStatus.verification_count} verified)`;
                     }
+                    if (faceStatus.confidence_score) {
+                        faceStatusEl.textContent += ` · ${Math.round(faceStatus.confidence_score * 100)}%`;
+                    }
+                } else if (faceStatus.enrolled && !faceStatus.has_embedding) {
+                    faceStatusEl.textContent = '⚠️ Partial Face Data';
+                    faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
+                    document.getElementById('modalVerifyBtn').disabled = true;
+                    document.getElementById('modalVerifyBtn').title = 'Student has face enrolled but no embedding found. Please re-enroll.';
+                    showToast('⚠️ Student has partial face data. Please re-enroll.', 'error');
                 } else {
                     faceStatusEl.textContent = '❌ No Face Enrolled';
                     faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
@@ -988,7 +1013,7 @@
                 }
 
                 document.getElementById('modalResult').className = 'modal-result';
-                document.getElementById('modalVerifyBtn').innerHTML = faceStatus.enrolled ? '<i class="fas fa-camera"></i> Start Verification' : '❌ Face Not Enrolled';
+                document.getElementById('modalVerifyBtn').innerHTML = (faceStatus.enrolled && faceStatus.has_embedding) ? '<i class="fas fa-camera"></i> Start Verification' : '❌ Face Not Enrolled';
                 document.getElementById('modalCameraStatus').textContent = 'Initializing...';
                 document.getElementById('statusDot').className = 'status-dot-live inactive';
                 document.getElementById('modalFaceGuide').className = 'face-guide';
@@ -1032,8 +1057,8 @@
                 
                 // Check face enrollment again
                 const faceStatus = studentFaceStatus[selectedStudent.id];
-                if (!faceStatus || !faceStatus.enrolled) {
-                    showToast('❌ This student has not enrolled their face. Please ask them to enroll first.', 'error');
+                if (!faceStatus || !faceStatus.enrolled || !faceStatus.has_embedding) {
+                    showToast('❌ This student has not enrolled their face properly. Please ask them to re-enroll.', 'error');
                     document.getElementById('modalVerifyBtn').disabled = true;
                     document.getElementById('modalVerifyBtn').innerHTML = '❌ Face Not Enrolled';
                     return;
@@ -1109,6 +1134,8 @@
                     const confidence = result.confidence || 0;
                     const confidencePercent = Math.round(confidence * 100);
 
+                    console.log(`📊 Verification result: ${result.verified ? '✅' : '❌'} ${confidencePercent}% confidence`);
+
                     if (result.verified || result.success) {
                         const student = selectedStudent;
 
@@ -1178,18 +1205,16 @@
                         }, 2000);
 
                     } else {
-                        // If confidence is between 40-55% and we haven't tried too many times, retry
+                        // If confidence is between 40-54% and we haven't tried too many times, retry with lower threshold
                         if (confidence >= 0.40 && confidence < 0.55 && currentVerificationAttempts < 3) {
-                            showToast(`🔄 ${confidencePercent}% confidence. Retrying with adjusted settings...`, 'info');
+                            showToast(`🔄 ${confidencePercent}% confidence. Retrying with lower threshold...`, 'info');
                             setTimeout(() => {
                                 if (isVerifying) {
-                                    // Capture a new frame and retry
                                     const video = document.getElementById('modalCamera');
                                     if (video && video.readyState >= 2) {
                                         const newImageData = captureFrame(video);
                                         performVerificationWithAPI(newImageData);
                                     } else {
-                                        // If camera not ready, reset
                                         isVerifying = false;
                                         document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
                                         document.getElementById('modalVerifyBtn').disabled = false;
@@ -1198,10 +1223,18 @@
                                     }
                                 }
                             }, 1500);
-                            return; // Don't show failure yet
+                            return;
                         }
                         
-                        const reason = result.reason || 'Face does not match. Please try again with better lighting.';
+                        // Check if student has face embedding but verification failed
+                        const faceStatus = studentFaceStatus[selectedStudent.id];
+                        let reason = result.reason || 'Face does not match. Please try again with better lighting.';
+                        
+                        if (faceStatus && faceStatus.has_embedding && confidence < 0.30) {
+                            reason = 'Face detected but does not match the enrolled face. Please ensure you are looking directly at the camera with good lighting.';
+                        } else if (faceStatus && faceStatus.has_embedding && confidence >= 0.30 && confidence < 0.55) {
+                            reason = `Low confidence match (${confidencePercent}%). Please try again with better lighting and look directly at the camera.`;
+                        }
                         
                         if (faceBox) {
                             faceBox.className = 'face-box unknown';
@@ -1686,7 +1719,7 @@
                         
                         // Check face enrollment status
                         const faceStatus = studentFaceStatus[s.id];
-                        const hasFace = faceStatus?.enrolled || false;
+                        const hasFace = faceStatus?.enrolled && faceStatus?.has_embedding || false;
                         const faceLabel = hasFace ? '📸 Face OK' : '⚠️ No Face';
 
                         return `
