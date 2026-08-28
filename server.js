@@ -3370,29 +3370,36 @@ app.post('/api/public/students/:id/face/enroll', async (req, res) => {
 
 // =============================================
 // PUBLIC FACE ENROLLMENT - NO AUTH REQUIRED
+// (single handler — remove any duplicate of this route)
 // =============================================
-
 app.post('/api/public/students/:id/face/enroll', async (req, res) => {
     try {
-        const studentId = parseInt(req.params.id);
+        const studentId = parseInt(req.params.id, 10);
         const { image, name, matric, hostel, room } = req.body;
+
+        if (!studentId || Number.isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID',
+                code: 'INVALID_STUDENT_ID'
+            });
+        }
 
         console.log(`📸 Public face enrollment request for student ID: ${studentId}`);
 
-        // 1. VALIDATE IMAGE FORMAT
+        // 1. Normalize image to data-URL (validateImage requires prefix)
         let imageData = image;
-        
-        // If image doesn't have data URL prefix, add it
-        if (imageData && !imageData.startsWith('data:image')) {
-            try {
-                Buffer.from(imageData, 'base64');
-                imageData = `data:image/jpeg;base64,${imageData}`;
-            } catch (e) {
-                console.warn('Image format warning:', e.message);
-            }
+        if (!imageData || typeof imageData !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'No image provided',
+                code: 'INVALID_IMAGE'
+            });
+        }
+        if (!imageData.startsWith('data:image')) {
+            imageData = `data:image/jpeg;base64,${imageData}`;
         }
 
-        // Validate image using faceService
         const validation = faceService.validateImage(imageData);
         if (!validation.valid) {
             return res.status(400).json({
@@ -3402,7 +3409,7 @@ app.post('/api/public/students/:id/face/enroll', async (req, res) => {
             });
         }
 
-        // 2. GET STUDENT
+        // 2. Load student
         const { data: student, error: studentError } = await supabase
             .from('students')
             .select('id, name, matric, hostel_id, room_id, campus')
@@ -3417,21 +3424,20 @@ app.post('/api/public/students/:id/face/enroll', async (req, res) => {
             });
         }
 
-        // 3. GENERATE EMBEDDING
+        // 3. Generate embedding via Face API
         console.log(`📸 Generating embedding for ${student.name} (ID: ${student.id})`);
-        
         const embeddingResult = await faceService.extractEmbedding(imageData);
-        
+
         if (!embeddingResult.success || !embeddingResult.embedding) {
             return res.status(400).json({
                 success: false,
-                message: embeddingResult.error || 'Failed to generate face embedding. No face detected or image quality too low.',
+                message: embeddingResult.error ||
+                    'Failed to generate face embedding. No face detected or image quality too low.',
                 code: 'EMBEDDING_GENERATION_FAILED',
-                fallback: 'Manual verification required'
+                fallback: embeddingResult.fallback || 'Manual verification required'
             });
         }
 
-        // Validate embedding dimension
         if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== 512) {
             return res.status(400).json({
                 success: false,
@@ -3440,178 +3446,155 @@ app.post('/api/public/students/:id/face/enroll', async (req, res) => {
             });
         }
 
-        console.log(`✅ Embedding generated: ${embeddingResult.embedding.length} dimensions, quality: ${embeddingResult.quality || 'N/A'}`);
+        console.log(`✅ Embedding generated: ${embeddingResult.embedding.length} dims`);
 
-        // 4. SAVE TO student_face TABLE - MATCHING YOUR EXACT SCHEMA
+        // 4. Save to student_face (check → update or insert)
         const now = new Date().toISOString();
         const campus = student.campus || 'Legacy';
         const campusCode = campus === 'Legacy' ? 'LEG' : 'HER';
 
-        const faceDataToInsert = {
+        const facePayload = {
             student_id: student.id,
-            campus: campus,
+            campus,
             campus_code: campusCode,
-            face_embedding: embeddingResult.embedding,  // JSONB field
+            face_embedding: embeddingResult.embedding,
             face_image_url: embeddingResult.image_url || null,
-            face_image_path: null,  // Not using this
             enrollment_status: 'enrolled',
             enrollment_date: now,
-            last_verified: null,
-            verification_count: 0,
-            confidence_score: embeddingResult.confidence || 0.95,
             is_active: true,
-            notes: null,
-            created_at: now,
+            confidence_score: embeddingResult.confidence ?? 0.95,
+            verification_count: 0,
             updated_at: now,
-            enrolled_by: null,  // Public enrollment - no staff ID
-            enrolled_by_student: true,  // ✅ Added - matches your schema
-            enrollment_ip: req.ip || req.connection?.remoteAddress || null,
+            enrolled_by: null,
+            enrolled_by_student: true,
+            enrollment_ip: req.ip || req.headers['x-forwarded-for'] || null,
             enrollment_device: req.headers['user-agent'] || null
         };
 
-        console.log('📝 Inserting face data:', {
-            student_id: faceDataToInsert.student_id,
-            campus: faceDataToInsert.campus,
-            campus_code: faceDataToInsert.campus_code,
-            embedding_length: faceDataToInsert.face_embedding?.length || 0,
-            enrolled_by_student: faceDataToInsert.enrolled_by_student
-        });
+        // Optional columns — only include if your table has them
+        // facePayload.embedding_quality = embeddingResult.quality ?? 0.8;
+        // facePayload.embedding_version = 1;
+        // facePayload.notes = null;
+        // facePayload.face_image_path = null;
+        // facePayload.last_verified = null;
 
-        // Check if a record already exists for this student
         const { data: existingFace, error: checkError } = await supabase
             .from('student_face')
-            .select('id, enrollment_status')
+            .select('id')
             .eq('student_id', student.id)
             .eq('campus', campus)
             .maybeSingle();
 
         if (checkError) {
-            console.warn('⚠️ Error checking existing face:', checkError);
+            console.warn('⚠️ Check existing face:', checkError.message);
         }
 
-        let faceData;
-        let faceError;
+        let faceData, faceError;
 
-        if (existingFace) {
-            // Update existing record
-            console.log(`🔄 Updating existing face record for student ${student.id}`);
+        if (existingFace?.id) {
+            console.log(`🔄 Updating face record id=${existingFace.id}`);
             const result = await supabase
                 .from('student_face')
-                .update(faceDataToInsert)
+                .update(facePayload)
                 .eq('id', existingFace.id)
                 .select()
                 .single();
-            
             faceData = result.data;
             faceError = result.error;
         } else {
-            // Insert new record
-            console.log(`🆕 Creating new face record for student ${student.id}`);
+            console.log(`🆕 Inserting face record for student ${student.id}`);
+            facePayload.created_at = now;
             const result = await supabase
                 .from('student_face')
-                .insert(faceDataToInsert)
+                .insert(facePayload)
                 .select()
                 .single();
-            
             faceData = result.data;
             faceError = result.error;
         }
 
         if (faceError) {
-            console.error('❌ Save face error:', faceError);
-            console.error('❌ Error details:', {
+            console.error('❌ Save face error:', {
                 code: faceError.code,
                 message: faceError.message,
                 details: faceError.details,
                 hint: faceError.hint
             });
-            
-            // Check for specific error types
+
+            // Helpful responses for common Supabase errors
             if (faceError.code === '42P01') {
                 return res.status(500).json({
                     success: false,
-                    message: 'Database table "student_face" does not exist. Please run the database migration.',
+                    message: 'Table student_face does not exist. Run migrations.',
                     code: 'TABLE_NOT_FOUND',
                     error: faceError.message
                 });
             }
-            
             if (faceError.code === '23502') {
                 return res.status(500).json({
                     success: false,
-                    message: 'Database column mismatch. Please check the student_face table schema.',
-                    code: 'COLUMN_MISMATCH',
-                    error: faceError.message
+                    message: 'Missing required column when saving face data',
+                    code: 'NOT_NULL_VIOLATION',
+                    error: faceError.message,
+                    details: faceError.details
                 });
             }
-
-            if (faceError.code === '23505') {
-                return res.status(409).json({
+            if (faceError.code === '42703') {
+                return res.status(500).json({
                     success: false,
-                    message: 'A face record already exists for this student.',
-                    code: 'DUPLICATE_RECORD',
-                    error: faceError.message
+                    message: 'Unknown column in student_face (schema mismatch)',
+                    code: 'UNDEFINED_COLUMN',
+                    error: faceError.message,
+                    hint: faceError.hint
                 });
             }
 
             return res.status(500).json({
                 success: false,
-                message: 'Failed to save face data to database: ' + faceError.message,
+                message: 'Failed to save face data to database',
                 code: 'DATABASE_ERROR',
-                error: faceError
+                error: faceError.message,
+                details: faceError.details,
+                hint: faceError.hint
             });
         }
 
-        // 5. UPDATE students table
-        console.log(`📝 Updating student ${student.id} face_enrolled status`);
-        
-        const { data: updatedStudent, error: updateError } = await supabase
+        // 5. Mark student as face-enrolled
+        await supabase
             .from('students')
             .update({
                 face_enrolled: true,
-                embedding_quality: embeddingResult.quality || 0.8,
                 updated_at: now
             })
-            .eq('id', student.id)
-            .select()
-            .single();
+            .eq('id', student.id);
 
-        if (updateError) {
-            console.error('⚠️ Update student error (non-critical):', updateError);
-            // Non-critical, continue
-        }
-
-        // 6. RETURN RESPONSE
-        res.json({
+        return res.json({
             success: true,
             data: {
                 student: {
                     id: student.id,
-                    name: updatedStudent?.name || student.name,
-                    matric: updatedStudent?.matric || student.matric
+                    name: student.name,
+                    matric: student.matric
                 },
                 face: {
-                    id: faceData?.id || null,
-                    enrollment_status: faceData?.enrollment_status || 'enrolled',
-                    enrollment_date: faceData?.enrollment_date || now,
-                    confidence: embeddingResult.confidence || 0.95,
-                    quality: embeddingResult.quality || 0.8,
-                    embedding_dimension: embeddingResult.embedding.length,
-                    enrolled_by_student: true
+                    id: faceData.id,
+                    enrollment_status: faceData.enrollment_status,
+                    enrollment_date: faceData.enrollment_date,
+                    confidence: embeddingResult.confidence ?? 0.95,
+                    quality: embeddingResult.quality ?? 0.8,
+                    embedding_dimension: embeddingResult.embedding.length
                 },
-                message: 'Face enrolled successfully with embedding'
+                message: 'Face enrolled successfully'
             },
-            campus: campus
+            campus
         });
-
     } catch (error) {
-        console.error('❌ Public face enrollment error:', error);
-        res.status(500).json({
+        console.error('Public face enrollment error:', error);
+        return res.status(500).json({
             success: false,
             message: 'An error occurred during face enrollment. Please try again.',
             code: 'SERVER_ERROR',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
