@@ -1067,14 +1067,31 @@
                 const totalStudents = students.length;
                 const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                 const absent = students.filter(s => s.status === 'Absent').length;
-                const capacity = hostelData?.capacity || 0;
-                const occupied = students.length;
-                const vacant = capacity - occupied;
                 
+                // ===== FIX: Calculate capacity from rooms/beds =====
+                let capacity = 0;
                 let totalRooms = 0;
+                
                 if (hostelStructure && hostelStructure.floors) {
                     totalRooms = hostelStructure.floors.reduce((sum, f) => sum + (f.rooms?.length || 0), 0);
+                    const bedsPerRoom = hostelData?.beds_per_room || 4;
+                    capacity = totalRooms * bedsPerRoom;
                 }
+                
+                // Fallback to hostel data fields if available
+                if (hostelData?.capacity && hostelData.capacity > 0) {
+                    capacity = hostelData.capacity;
+                }
+                if (hostelData?.max_capacity && hostelData.max_capacity > 0) {
+                    capacity = hostelData.max_capacity;
+                }
+                if (hostelData?.total_beds && hostelData.total_beds > 0) {
+                    capacity = hostelData.total_beds;
+                }
+                
+                const occupied = totalStudents;
+                const vacant = capacity - occupied;
+                // ===== END FIX =====
 
                 const roomStudents = selectedRoom ? getRoomStudents(selectedRoom) : [];
                 const selectedStudentData = selectedStudent || roomStudents[0] || null;
@@ -1164,7 +1181,7 @@
                     <div class="metric-grid">
                         ${metric('Students', totalStudents, 'Registered', 'navy', 'fa-users')}
                         ${metric('Occupied', occupied, 'Beds filled', 'green', 'fa-bed')}
-                        ${metric('Vacant', vacant, 'Available beds', 'gold', 'fa-chair')}
+                        ${metric('Vacant', vacant < 0 ? 0 : vacant, 'Available beds', 'gold', 'fa-chair')}
                         ${metric('Rooms', totalRooms, 'Total rooms', 'gray', 'fa-door-open')}
                     </div>
 
