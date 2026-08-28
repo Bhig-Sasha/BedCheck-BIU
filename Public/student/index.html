@@ -1031,36 +1031,11 @@
             }
 
             // =============================================
-            // PUBLIC API CALL - NO AUTH REQUIRED
+            // API CALL - Check response format
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 try {
-                    let publicEndpoint = endpoint;
-
-                    if (endpoint === '/hostels' || endpoint.includes('/hostels')) {
-                        publicEndpoint = '/public/hostels';
-                    } else if (endpoint === '/floors-flats' || endpoint.includes('/floors-flats')) {
-                        publicEndpoint = '/public/floors-flats';
-                    } else if (endpoint === '/rooms' || endpoint.includes('/rooms')) {
-                        publicEndpoint = '/public/rooms';
-                    } else if (endpoint === '/bed-spaces' || endpoint.includes('/bed-spaces')) {
-                        publicEndpoint = '/public/bed-spaces';
-                    } else if (endpoint === '/students' || endpoint.includes('/students')) {
-                        if (options.method === 'POST' || options.method === 'PUT') {
-                            publicEndpoint = '/public/students/register';
-                        } else {
-                            publicEndpoint = '/public/students/check';
-                        }
-                    }
-
-                    const baseEndpoint = publicEndpoint.split('?')[0];
-                    const queryString = publicEndpoint.includes('?') ? '?' + publicEndpoint.split('?')[1] : '';
-
-                    let url = `${API_BASE}${baseEndpoint}`;
-
-                    if (queryString) {
-                        url += queryString;
-                    }
+                    let url = `${API_BASE}${endpoint}`;
 
                     console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
 
@@ -1078,10 +1053,30 @@
                     }
 
                     const data = await response.json();
-                    if (!data.success) {
-                        throw new Error(data.message || 'API error');
+                    
+                    // Log the full response to see what we're getting
+                    console.log(`📦 Response from ${endpoint}:`, data);
+
+                    // Check if the response has the expected structure
+                    // Some APIs return { success: true, data: [...] }
+                    // Others return the array directly
+                    if (data.success !== undefined) {
+                        // It's a wrapped response
+                        if (!data.success) {
+                            throw new Error(data.message || 'API error');
+                        }
+                        return data.data || [];
+                    } else if (Array.isArray(data)) {
+                        // It's a direct array response
+                        return data;
+                    } else if (data.data && Array.isArray(data.data)) {
+                        // It has a data property that's an array
+                        return data.data;
+                    } else {
+                        // Unknown format, return empty array
+                        console.warn(`⚠️ Unknown response format from ${endpoint}:`, data);
+                        return [];
                     }
-                    return data;
                 } catch (error) {
                     console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
@@ -1147,7 +1142,7 @@
 
                     if (campusHostels.length === 0) {
                         hostelSelect.innerHTML = '<option value="">No hostels found for this campus</option>';
-                        showToast(`No hostels found for ${campusInfo.campus} campus`, 'info');
+                        showToast(`No hostels found for ${campusInfo.campus} campus. Please add hostels in the admin panel.`, 'info');
                     } else {
                         campusHostels.forEach(h => {
                             const opt = document.createElement('option');
@@ -1191,21 +1186,27 @@
             async function loadData() {
                 try {
                     console.log('🔄 Loading data...');
-                    const [hostelsRes, floorsRes, roomsRes, bedsRes] = await Promise.all([
-                        apiCall('/public/hostels'),
-                        apiCall('/public/floors-flats'),
-                        apiCall('/public/rooms'),
-                        apiCall('/public/bed-spaces')
-                    ]);
+                    
+                    // Try each endpoint individually to see which ones work
+                    const hostelsData = await apiCall('/public/hostels');
+                    const floorsData = await apiCall('/public/floors-flats');
+                    const roomsData = await apiCall('/public/rooms');
+                    const bedsData = await apiCall('/public/bed-spaces');
 
-                    allHostels = hostelsRes.data || [];
-                    floorsFlats = floorsRes.data || [];
-                    allRooms = roomsRes.data || [];
-                    bedSpaces = bedsRes.data || [];
+                    allHostels = Array.isArray(hostelsData) ? hostelsData : [];
+                    floorsFlats = Array.isArray(floorsData) ? floorsData : [];
+                    allRooms = Array.isArray(roomsData) ? roomsData : [];
+                    bedSpaces = Array.isArray(bedsData) ? bedsData : [];
 
                     console.log(
                         `✅ Loaded: ${allHostels.length} hostels, ${floorsFlats.length} floors, ${allRooms.length} rooms, ${bedSpaces.length} beds`);
-                    console.log('📋 Hostels:', allHostels.map(h => `${h.name} (${h.campus})`).join(', '));
+                    
+                    if (allHostels.length > 0) {
+                        console.log('📋 Hostels:', allHostels.map(h => `${h.name} (${h.campus})`).join(', '));
+                    } else {
+                        console.warn('⚠️ No hostels found in the database. Please add hostels via the admin panel.');
+                        showToast('No hostels found. Please add hostels in the admin panel.', 'info');
+                    }
 
                     const hostelSelect = document.getElementById('hostelSelect');
                     hostelSelect.innerHTML = '<option value="">Select Hostel</option>';
@@ -1512,7 +1513,11 @@
                         body: JSON.stringify(studentData)
                     });
 
-                    const studentId = result.data.id;
+                    const studentId = result.id || result.data?.id;
+
+                    if (!studentId) {
+                        throw new Error('Student ID not returned from server');
+                    }
 
                     const studentForFaceID = {
                         id: studentId,
