@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Face ID Setup · BedCheck</title>
+    <title>Face ID Setup · BIU BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -236,22 +236,6 @@
             box-shadow: 0 0 60px rgba(74, 222, 128, 0.3);
         }
 
-        .face-guide-ring.quality-ready {
-            border-color: #4ade80;
-            border-style: solid;
-            box-shadow: 0 0 60px rgba(74, 222, 128, 0.25);
-            animation: quality-pulse 1.5s ease infinite;
-        }
-
-        @keyframes quality-pulse {
-            0%, 100% {
-                box-shadow: 0 0 40px rgba(74, 222, 128, 0.2);
-            }
-            50% {
-                box-shadow: 0 0 80px rgba(74, 222, 128, 0.4);
-            }
-        }
-
         @keyframes capture-pulse {
             0%,
             100% {
@@ -449,10 +433,6 @@
         .capture-status-overlay .status-dot.error {
             background: #f87171;
         }
-        .capture-status-overlay .status-dot.ready {
-            background: #4ade80;
-            animation: pulse-dot 0.8s infinite;
-        }
 
         @keyframes pulse-dot {
             0%,
@@ -634,11 +614,6 @@
         .btn-primary:disabled {
             opacity: 0.4;
             cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-primary:disabled:hover {
-            background: #d6ad4b;
             transform: none;
         }
 
@@ -1146,47 +1121,6 @@
         .debug-info .log-entry.info {
             color: #d6ad4b;
         }
-
-        .api-url-config {
-            margin-top: 0.5rem;
-            display: flex;
-            gap: 0.3rem;
-            align-items: center;
-            font-size: 0.6rem;
-            color: #64748b;
-        }
-
-        .api-url-config input {
-            flex: 1;
-            padding: 0.2rem 0.4rem;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 0.3rem;
-            color: #94a3b8;
-            font-size: 0.55rem;
-            font-family: monospace;
-            outline: none;
-        }
-
-        .api-url-config input:focus {
-            border-color: #d6ad4b;
-        }
-
-        .api-url-config .btn-config {
-            padding: 0.2rem 0.5rem;
-            background: #d6ad4b;
-            border: none;
-            border-radius: 0.3rem;
-            color: #0a0a15;
-            font-weight: 700;
-            font-size: 0.55rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .api-url-config .btn-config:hover {
-            background: #c49a3a;
-        }
     </style>
 </head>
 <body>
@@ -1353,7 +1287,7 @@
             </div>
 
             <div class="btn-group">
-                <button class="btn btn-primary" id="btnStart" onclick="startFaceSetup()" disabled>
+                <button class="btn btn-primary" id="btnStart" onclick="startFaceSetup()">
                     <i class="fas fa-play"></i> Start Setup
                 </button>
                 <button class="btn btn-outline" onclick="resetSetup()">
@@ -1378,13 +1312,6 @@
             <span id="apiStatusText">Checking API connection...</span>
         </div>
 
-        <!-- API URL Configuration -->
-        <div class="api-url-config">
-            <span>🔗 Face API:</span>
-            <input type="text" id="faceApiUrl" value="https://face-api-f9k5.onrender.com" />
-            <button class="btn-config" onclick="updateApiUrl()">Update</button>
-        </div>
-
         <!-- Debug Info -->
         <div class="debug-info" id="debugInfo">
             <div id="debugLogs"></div>
@@ -1404,15 +1331,14 @@
         // =============================================
         // API CONFIGURATION
         // =============================================
+        const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
         const NODE_API_BASE = 'https://bedcheck-biu.onrender.com/api';
-        const MIN_QUALITY_THRESHOLD = 75; // Quality must be at least 75% to start
 
         // ---------- STATE ----------
         let cameraStream = null;
         let isCameraReady = false;
         let faceDetected = false;
         let currentQuality = 0;
-        let isQualityReady = false;
 
         let isEnrolling = false;
         let capturedFrames = [];
@@ -1420,7 +1346,6 @@
         let isSetupActive = false;
         let captureTimer = null;
         let isApiOnline = false;
-        let apiChecked = false;
 
         let warningTimeout = null;
         let cameraAttempts = 0;
@@ -1501,6 +1426,40 @@
             console.log(`[FaceSetup] ${message}`);
         }
 
+        // ---------- API STATUS CHECK ----------
+        async function checkApiStatus() {
+            try {
+                apiIndicator.className = 'status-indicator checking';
+                apiStatusText.textContent = 'Checking InsightFace API...';
+                addDebugLog('Checking API status...', 'info');
+                
+                const response = await fetch(`${FACE_API_URL}/health`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    isApiOnline = data.status === 'running' || data.status === 'healthy';
+                    apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
+                    apiStatusText.textContent = isApiOnline ? 
+                        '✅ InsightFace API Online' : 
+                        '⚠️ API Online but not healthy';
+                    addDebugLog(`API status: ${isApiOnline ? 'ONLINE' : 'UNHEALTHY'}`, isApiOnline ? 'success' : 'error');
+                } else {
+                    isApiOnline = false;
+                    apiIndicator.className = 'status-indicator offline';
+                    apiStatusText.textContent = '❌ InsightFace API Offline';
+                    addDebugLog(`API status: OFFLINE (HTTP ${response.status})`, 'error');
+                }
+            } catch (error) {
+                isApiOnline = false;
+                apiIndicator.className = 'status-indicator offline';
+                apiStatusText.textContent = '❌ Cannot connect to InsightFace API';
+                addDebugLog(`API connection error: ${error.message}`, 'error');
+                console.warn('API status check failed:', error.message);
+            }
+        }
+
         // ---------- TOAST ----------
         function showToast(message, type = 'info') {
             toast.textContent = message;
@@ -1510,51 +1469,43 @@
             addDebugLog(`Toast: ${message} (${type})`, type);
         }
 
-        // ---------- API STATUS CHECK - NODE API ----------
-        async function checkApiStatus() {
+        // ---------- API HELPERS ----------
+        async function apiCall(endpoint, options = {}) {
+            if (!isApiOnline) {
+                await checkApiStatus();
+                if (!isApiOnline) {
+                    throw new Error('Face API is offline. Please try again later.');
+                }
+            }
+
             try {
-                apiIndicator.className = 'status-indicator checking';
-                apiStatusText.textContent = 'Checking API connection...';
-                addDebugLog(`Checking Node API at: ${NODE_API_BASE}/health`, 'info');
+                const url = `${FACE_API_URL}${endpoint}`;
+                addDebugLog(`Calling Face API: ${endpoint}`, 'info');
                 
-                const response = await fetch(`${NODE_API_BASE}/health`, {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(5000)
-                });
-                
-                if (response.ok) {
-                    let data = {};
-                    try {
-                        data = await response.json();
-                    } catch (e) {
-                        data = { status: 'ok' };
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(options.headers || {})
                     }
-                    isApiOnline = data.status === 'running' || data.status === 'healthy' || data.status === 'ok' || response.ok;
-                    apiIndicator.className = `status-indicator ${isApiOnline ? 'online' : 'offline'}`;
-                    apiStatusText.textContent = isApiOnline ? 
-                        '✅ API Online' : 
-                        '⚠️ API responded but status unknown';
-                    addDebugLog(`API status: ${isApiOnline ? 'ONLINE' : 'UNKNOWN'}`, isApiOnline ? 'success' : 'error');
-                } else {
-                    isApiOnline = false;
-                    apiIndicator.className = 'status-indicator offline';
-                    apiStatusText.textContent = `❌ API Error (HTTP ${response.status})`;
-                    addDebugLog(`API status: OFFLINE (HTTP ${response.status})`, 'error');
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    addDebugLog(`Face API error: ${response.status} - ${errorText}`, 'error');
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
-                apiChecked = true;
-                return isApiOnline;
+                const data = await response.json();
+                addDebugLog(`Face API response: ${JSON.stringify(data).substring(0, 100)}...`, 'success');
+                return data;
             } catch (error) {
-                isApiOnline = false;
-                apiIndicator.className = 'status-indicator offline';
-                apiStatusText.textContent = '❌ Cannot connect to API';
-                addDebugLog(`API connection error: ${error.message}`, 'error');
-                apiChecked = true;
-                return false;
+                addDebugLog(`Face API call failed: ${error.message}`, 'error');
+                console.error('API call error:', error);
+                throw error;
             }
         }
 
-        // ---------- API HELPERS ----------
         async function nodeApiCall(endpoint, options = {}) {
             try {
                 const url = `${NODE_API_BASE}${endpoint}`;
@@ -1564,24 +1515,18 @@
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',
-                        'Accept': 'application/json',
                         ...(options.headers || {})
                     }
                 });
 
                 if (!response.ok) {
-                    let errorText = '';
-                    try {
-                        errorText = await response.text();
-                    } catch (e) {
-                        errorText = response.statusText || 'Unknown error';
-                    }
+                    const errorText = await response.text();
                     addDebugLog(`Node API error: ${response.status} - ${errorText}`, 'error');
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
                 const data = await response.json();
-                addDebugLog(`Node API response: ${JSON.stringify(data).substring(0, 200)}...`, 'success');
+                addDebugLog(`Node API response: ${JSON.stringify(data).substring(0, 100)}...`, 'success');
                 return data;
             } catch (error) {
                 addDebugLog(`Node API call failed: ${error.message}`, 'error');
@@ -1625,24 +1570,16 @@
             }
         }
 
-        // ---------- FACE DETECTION - THROUGH NODE API ----------
+        // ---------- FACE DETECTION ----------
         async function detectFaceWithAPI(imageData) {
             try {
-                let base64Image = imageData;
-                if (base64Image.startsWith('data:image')) {
-                    base64Image = base64Image.split(',')[1];
-                }
-                
-                const response = await fetch(`${NODE_API_BASE}/face/detect`, {
+                const response = await fetch(`${FACE_API_URL}/detect-face`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64Image })
+                    body: JSON.stringify({ image: imageData })
                 });
                 
-                if (!response.ok) {
-                    return false;
-                }
-                
+                if (!response.ok) return false;
                 const data = await response.json();
                 return data.success && data.faces && data.faces.length > 0;
             } catch (error) {
@@ -1672,12 +1609,6 @@
                     stopModalCamera();
                 }
 
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    showToast('Your browser does not support camera access.', 'error');
-                    cameraPlaceholder.classList.remove('hidden');
-                    return false;
-                }
-
                 const constraints = {
                     video: {
                         facingMode: 'user',
@@ -1702,17 +1633,15 @@
             } catch (error) {
                 addDebugLog(`Camera error: ${error.message}`, 'error');
                 console.error('Camera error:', error);
+                cameraAttempts++;
                 
-                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                    showToast('Camera access denied. Please click "Enable Camera" to allow access.', 'error');
-                } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-                    showToast('No camera found. Please connect a camera and try again.', 'error');
-                } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-                    showToast('Camera is in use by another application.', 'error');
-                } else {
-                    showToast('Camera error: ' + error.message, 'error');
+                if (cameraAttempts < MAX_CAMERA_ATTEMPTS) {
+                    showToast(`Camera access attempt ${cameraAttempts + 1}/${MAX_CAMERA_ATTEMPTS}`, 'info');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return startModalCamera();
                 }
                 
+                showToast('Camera access denied. Please allow camera access in your browser settings.', 'error');
                 updateStatus('error', 'Camera unavailable');
                 cameraPlaceholder.classList.remove('hidden');
                 return false;
@@ -1726,7 +1655,6 @@
             }
             isCameraReady = false;
             faceDetected = false;
-            isQualityReady = false;
             if (captureTimer) {
                 clearInterval(captureTimer);
                 captureTimer = null;
@@ -1737,7 +1665,7 @@
 
         // ---------- REQUEST CAMERA ACCESS ----------
         window.requestCameraAccess = async function() {
-            addDebugLog('User requested camera access...', 'info');
+            cameraPlaceholder.classList.add('hidden');
             const started = await startModalCamera();
             if (!started) {
                 cameraPlaceholder.classList.remove('hidden');
@@ -1764,86 +1692,67 @@
 
                     const imageData = captureCanvas.toDataURL('image/jpeg', 0.8);
 
-                    if (isApiOnline || apiChecked === false) {
-                        const hasFace = await detectFaceWithAPI(imageData);
+                    const hasFace = await detectFaceWithAPI(imageData);
+                    
+                    if (hasFace) {
+                        faceDetected = true;
+                        faceGuideRing.classList.add('detected');
+                        faceGuideRing.classList.remove('capturing');
                         
-                        if (hasFace) {
-                            faceDetected = true;
-                            faceGuideRing.classList.add('detected');
-                            faceGuideRing.classList.remove('capturing');
-                            
-                            currentQuality = Math.min(99, currentQuality + 3);
-                            updateQualityDisplay(currentQuality);
-                            
-                            // Check if quality meets threshold
-                            if (currentQuality >= MIN_QUALITY_THRESHOLD && !isQualityReady) {
-                                isQualityReady = true;
-                                faceGuideRing.classList.add('quality-ready');
-                                btnStart.disabled = false;
-                                updateStatus('ready', '✅ Quality ready! Click Start Setup');
-                                showToast('✅ Face quality is excellent! Ready to capture.', 'success');
-                                addDebugLog(`Quality reached ${Math.round(currentQuality)}% - ready to start`, 'success');
-                            } else if (currentQuality >= MIN_QUALITY_THRESHOLD) {
-                                // Keep showing ready status
-                                statusText.textContent = '✅ Quality ready! Click Start Setup';
-                            }
-                            
-                            if (currentQuality < 50) {
-                                faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
-                                faceSizeWarning.className = 'face-size-warning show';
-                                faceSizeWarning.style.color = '#fbbf24';
-                                clearTimeout(warningTimeout);
-                                warningTimeout = setTimeout(() => {
-                                    if (currentQuality < 50) {
-                                        // keep showing
-                                    } else {
-                                        faceSizeWarning.classList.remove('show');
-                                    }
-                                }, 3000);
-                            } else if (currentQuality < MIN_QUALITY_THRESHOLD) {
-                                faceSizeWarning.textContent = `📊 Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}% to start`;
-                                faceSizeWarning.className = 'face-size-warning show';
-                                faceSizeWarning.style.color = '#fbbf24';
-                            } else {
-                                faceSizeWarning.classList.remove('show');
-                            }
-
-                            if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
-                                updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
-                            } else if (!isSetupActive && currentQuality >= MIN_QUALITY_THRESHOLD) {
-                                // Already handled above
-                            } else {
-                                updateStatus('ready', `Face detected - Quality: ${Math.round(currentQuality)}%`);
-                            }
-                        } else {
-                            faceDetected = false;
-                            isQualityReady = false;
-                            faceGuideRing.classList.remove('detected', 'quality-ready');
-                            btnStart.disabled = true;
-                            
-                            if (currentQuality > 10) {
-                                currentQuality = Math.max(10, currentQuality - 0.5);
-                                updateQualityDisplay(currentQuality);
-                            }
-                            
-                            if (!isSetupActive) {
-                                updateStatus('waiting', 'Position your face');
-                            }
-                            
-                            faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                        currentQuality = Math.min(99, currentQuality + 2);
+                        updateQualityDisplay(currentQuality);
+                        
+                        if (currentQuality < 50) {
+                            faceSizeWarning.textContent = '📏 Move closer to camera for better quality';
                             faceSizeWarning.className = 'face-size-warning show';
-                            faceSizeWarning.style.color = '#f87171';
+                            faceSizeWarning.style.color = '#fbbf24';
                             clearTimeout(warningTimeout);
                             warningTimeout = setTimeout(() => {
-                                if (!faceDetected) {
+                                if (currentQuality < 50) {
+                                    // keep showing
+                                } else {
                                     faceSizeWarning.classList.remove('show');
                                 }
                             }, 3000);
+                        } else if (currentQuality < 70) {
+                            faceSizeWarning.textContent = '✅ Good quality, keep going!';
+                            faceSizeWarning.className = 'face-size-warning show';
+                            faceSizeWarning.style.color = '#4ade80';
+                            setTimeout(() => {
+                                faceSizeWarning.classList.remove('show');
+                            }, 1500);
+                        } else {
+                            faceSizeWarning.classList.remove('show');
+                        }
+
+                        if (isSetupActive && capturedFrames.length < TOTAL_CAPTURES) {
+                            updateStatus('capturing', `Capturing ${capturedFrames.length + 1}/${TOTAL_CAPTURES}`);
+                        } else {
+                            updateStatus('ready', 'Face detected ✓');
                         }
                     } else {
-                        if (!isSetupActive) {
-                            updateStatus('error', 'API offline - check connection');
+                        faceDetected = false;
+                        faceGuideRing.classList.remove('detected');
+                        faceGuideRing.classList.remove('capturing');
+                        
+                        if (currentQuality > 10) {
+                            currentQuality = Math.max(10, currentQuality - 0.5);
+                            updateQualityDisplay(currentQuality);
                         }
+                        
+                        if (!isSetupActive) {
+                            updateStatus('waiting', 'Position your face');
+                        }
+                        
+                        faceSizeWarning.textContent = '😊 Please position your face in the guide';
+                        faceSizeWarning.className = 'face-size-warning show';
+                        faceSizeWarning.style.color = '#f87171';
+                        clearTimeout(warningTimeout);
+                        warningTimeout = setTimeout(() => {
+                            if (!faceDetected) {
+                                faceSizeWarning.classList.remove('show');
+                            }
+                        }, 3000);
                     }
                 } catch (error) {
                     // Silent fail
@@ -1934,8 +1843,8 @@
                 return;
             }
 
-            if (!faceDetected || currentQuality < MIN_QUALITY_THRESHOLD) {
-                updateStatus('waiting', faceDetected ? `Quality ${Math.round(currentQuality)}% - Need ${MIN_QUALITY_THRESHOLD}%` : 'Position your face');
+            if (!faceDetected || currentQuality < 40) {
+                updateStatus('waiting', faceDetected ? 'Improve quality...' : 'Position your face');
                 return;
             }
 
@@ -2047,11 +1956,6 @@
         async function startFaceSetup() {
             if (isSetupActive) return;
 
-            if (!isQualityReady || currentQuality < MIN_QUALITY_THRESHOLD) {
-                showToast(`Please wait for quality to reach ${MIN_QUALITY_THRESHOLD}%`, 'info');
-                return;
-            }
-
             if (capturedFrames.length > 0 && capturedFrames.length < TOTAL_CAPTURES) {
                 if (!confirm('Resume from previous captures?')) {
                     resetSetup();
@@ -2066,7 +1970,7 @@
 
             await checkApiStatus();
             if (!isApiOnline) {
-                showToast(`API is offline. Please check your connection.`, 'error');
+                showToast('InsightFace API is offline. Please try again later.', 'error');
                 return;
             }
 
@@ -2106,7 +2010,7 @@
         }
 
         // =============================================
-        // ENROLL WITH INSIGHTFACE - THROUGH NODE API
+        // ENROLL WITH INSIGHTFACE - UPDATED
         // =============================================
         async function enrollFace() {
             if (capturedFrames.length < TOTAL_CAPTURES) {
@@ -2126,13 +2030,14 @@
             errorOverlay.classList.remove('show');
             successOverlay.classList.remove('show');
 
-            showToast('Enrolling face...', 'info');
+            showToast('Enrolling face with InsightFace...', 'info');
             loadingOverlay.style.display = 'flex';
             loadingText.textContent = 'Preparing enrollment...';
             loadingProgressFill.style.width = '10%';
             addDebugLog('Starting enrollment process...', 'info');
 
             try {
+                // Get student ID if not set
                 let studentId = studentData.id;
 
                 if (!studentId && studentData.matric) {
@@ -2146,6 +2051,7 @@
                         }
                     } catch (e) {
                         addDebugLog(`Student search failed: ${e.message}`, 'error');
+                        console.warn('Student search failed:', e);
                     }
                 }
 
@@ -2156,30 +2062,23 @@
                 loadingText.textContent = 'Selecting best face capture...';
                 loadingProgressFill.style.width = '20%';
 
+                // Find the best quality frame
                 let bestFrame = capturedFrames.reduce((best, current) => {
                     return (current.quality || 0) > (best.quality || 0) ? current : best;
                 }, capturedFrames[0]);
 
                 addDebugLog(`Best frame quality: ${Math.round(bestFrame.quality)}%`, 'info');
 
-                loadingText.textContent = 'Enrolling face...';
+                loadingText.textContent = 'Enrolling with InsightFace...';
                 loadingProgressFill.style.width = '40%';
 
-                let imageData = bestFrame.imageData;
-                if (imageData.startsWith('data:image')) {
-                    imageData = imageData.split(',')[1];
-                }
-
-                // =============================================
-                // SEND TO NODE API - NOT DIRECTLY TO FACE API
-                // =============================================
-                const enrollResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face`, {
+                // STEP 1: Enroll with Face API
+                const enrollResponse = await fetch(`${FACE_API_URL}/enroll-face`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        image: imageData,
+                        student_id: studentId,
+                        image: bestFrame.imageData,
                         name: studentData.name || '',
                         matric: studentData.matric || '',
                         hostel: studentData.hostel_id || '',
@@ -2207,13 +2106,134 @@
                 loadingProgressFill.style.width = '75%';
 
                 // Check if enrollment was successful
-                if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified || enrollResult.data?.success) {
+                if (enrollResult.success || enrollResult.status === 'success' || enrollResult.verified) {
                     
+                    // STEP 2: Extract embedding from the image
+                    loadingText.textContent = 'Extracting face embedding...';
+                    loadingProgressFill.style.width = '80%';
+                    
+                    let embedding = null;
+                    
+                    // Try to get embedding from the enroll response first
+                    if (enrollResult.embedding) {
+                        embedding = enrollResult.embedding;
+                        addDebugLog(`✅ Embedding found in enrollment response (dimension: ${embedding.length})`, 'success');
+                    } else {
+                        // Use the extract-embedding endpoint
+                        try {
+                            addDebugLog('Extracting embedding from best frame...', 'info');
+                            
+                            // Prepare base64 image (remove data URL prefix if present)
+                            let imageData = bestFrame.imageData;
+                            if (imageData.startsWith('data:image')) {
+                                imageData = imageData.split(',')[1];
+                            }
+                            
+                            const extractResponse = await fetch(`${FACE_API_URL}/extract-embedding`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ image: imageData })
+                            });
+                            
+                            if (extractResponse.ok) {
+                                const extractData = await extractResponse.json();
+                                if (extractData.embedding) {
+                                    embedding = extractData.embedding;
+                                    addDebugLog(`✅ Embedding extracted successfully (dimension: ${embedding.length})`, 'success');
+                                } else {
+                                    addDebugLog(`⚠️ Extract response missing embedding: ${JSON.stringify(extractData)}`, 'error');
+                                }
+                            } else {
+                                const errorText = await extractResponse.text();
+                                addDebugLog(`⚠️ Extract embedding failed: ${extractResponse.status} - ${errorText}`, 'error');
+                            }
+                        } catch (e) {
+                            addDebugLog(`❌ Could not extract embedding: ${e.message}`, 'error');
+                        }
+                    }
+
+                    // STEP 3: Save to your database
+                    loadingText.textContent = 'Saving to database...';
+                    loadingProgressFill.style.width = '90%';
+                    
+                    let saveSuccess = false;
+                    
+                    if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+                        // Save embedding using the face endpoint
+                        try {
+                            addDebugLog(`💾 Saving embedding (${embedding.length} dimensions) to database...`, 'info');
+                            
+                            const saveResponse = await fetch(`${NODE_API_BASE}/students/${studentId}/face`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    embedding: embedding,
+                                    image_data: bestFrame.imageData
+                                })
+                            });
+                            
+                            if (saveResponse.ok) {
+                                const saveResult = await saveResponse.json();
+                                addDebugLog(`✅ Database save successful: ${JSON.stringify(saveResult).substring(0, 150)}`, 'success');
+                                saveSuccess = true;
+                            } else {
+                                const errorText = await saveResponse.text();
+                                addDebugLog(`⚠️ Database save failed: ${saveResponse.status} - ${errorText}`, 'error');
+                                
+                                // Try alternative: update student directly
+                                addDebugLog('Attempting alternative save method...', 'info');
+                                const altResponse = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        face_enrolled: true,
+                                        face_embedding: embedding
+                                    })
+                                });
+                                
+                                if (altResponse.ok) {
+                                    const altResult = await altResponse.json();
+                                    addDebugLog(`✅ Alternative save successful: ${JSON.stringify(altResult).substring(0, 150)}`, 'success');
+                                    saveSuccess = true;
+                                } else {
+                                    const altError = await altResponse.text();
+                                    addDebugLog(`❌ Alternative save failed: ${altResponse.status} - ${altError}`, 'error');
+                                }
+                            }
+                        } catch (saveError) {
+                            addDebugLog(`❌ Save error: ${saveError.message}`, 'error');
+                        }
+                    } else {
+                        // No embedding available, just mark as enrolled
+                        addDebugLog('⚠️ No embedding available, marking as enrolled only', 'warning');
+                        try {
+                            const response = await fetch(`${NODE_API_BASE}/students/${studentId}`, {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    face_enrolled: true
+                                })
+                            });
+                            if (response.ok) {
+                                saveSuccess = true;
+                                addDebugLog('✅ Student marked as face_enrolled', 'success');
+                            }
+                        } catch (e) {
+                            addDebugLog(`❌ Failed to update student: ${e.message}`, 'error');
+                        }
+                    }
+
                     loadingText.textContent = '✅ Enrollment successful!';
                     loadingProgressFill.style.width = '100%';
                     addDebugLog('🎉 Face enrollment process complete!', 'success');
 
-                    showToast('✅ Face successfully enrolled!', 'success');
+                    showToast('✅ Face successfully enrolled with InsightFace!', 'success');
 
                     setTimeout(() => {
                         loadingOverlay.style.display = 'none';
@@ -2231,8 +2251,10 @@
                             </span>
                         `;
 
+                        // Clear the stored student data
                         localStorage.removeItem('studentForFaceID');
 
+                        // Redirect after success
                         setTimeout(() => {
                             window.location.href = 'hub.html';
                         }, 4000);
@@ -2271,7 +2293,6 @@
             isSetupActive = false;
             isEnrolling = false;
             isCameraReady = false;
-            isQualityReady = false;
             errorOverlay.classList.remove('show');
             successOverlay.classList.remove('show');
 
@@ -2280,13 +2301,13 @@
                 captureTimer = null;
             }
 
-            btnStart.disabled = true;
+            btnStart.disabled = false;
             btnStart.innerHTML = '<i class="fas fa-play"></i> Start Setup';
             enrollGroup.style.display = 'none';
             btnEnroll.disabled = false;
             btnEnroll.innerHTML = '<i class="fas fa-check-circle"></i> Enroll with InsightFace';
 
-            faceGuideRing.classList.remove('complete', 'detected', 'capturing', 'quality-ready');
+            faceGuideRing.classList.remove('complete', 'detected', 'capturing');
 
             updateStatus('waiting', 'Reset - Position your face');
             updateQualityDisplay(0);
@@ -2299,13 +2320,13 @@
 
             instructionText.innerHTML = `
                 <i class="fas fa-info-circle" style="color:#d6ad4b;"></i>
-                Position your face in the guide and wait for quality to reach ${MIN_QUALITY_THRESHOLD}%
+                Position your face in the guide and <strong>move your head</strong> to capture all angles
             `;
 
             showToast('Setup reset', 'info');
             addDebugLog('Setup reset', 'info');
 
-            cameraPlaceholder.classList.remove('hidden');
+            setTimeout(() => startModalCamera(), 500);
         }
 
         // ---------- GO BACK TO LOGIN ----------
@@ -2323,7 +2344,6 @@
         // ---------- INIT ----------
         async function init() {
             addDebugLog('Initializing Face ID Setup...', 'info');
-            
             loadStudentData();
 
             const now = new Date();
@@ -2331,23 +2351,13 @@
                 `⏱️ ${now.toLocaleTimeString()} · Face enrollment · ${TOTAL_CAPTURES} positions`;
 
             await checkApiStatus();
-            if (!isApiOnline) {
-                setTimeout(async () => {
-                    await checkApiStatus();
-                }, 2000);
-            }
             
-            // Show camera placeholder - wait for user to click
+            // Try to start camera automatically
             cameraPlaceholder.classList.remove('hidden');
-            btnStart.disabled = true;
-            updateStatus('waiting', 'Click "Enable Camera" to start');
-            statusDot.className = 'status-dot idle';
-
-            instructionText.innerHTML = `
-                <i class="fas fa-info-circle" style="color:#d6ad4b;"></i>
-                Click "Enable Camera" then position your face.
-                Quality must reach <strong>${MIN_QUALITY_THRESHOLD}%</strong> to start capturing.
-            `;
+            const started = await startModalCamera();
+            if (started) {
+                cameraPlaceholder.classList.add('hidden');
+            }
 
             updatePositionIndicators();
             updateQualityDisplay(0);
@@ -2359,11 +2369,7 @@
             });
 
             setInterval(checkApiStatus, 30000);
-            addDebugLog('Initialization complete - waiting for camera permission', 'info');
-            
-            if (!isApiOnline) {
-                showToast(`⚠️ API is offline. Please check your connection.`, 'error');
-            }
+            addDebugLog('Initialization complete', 'success');
         }
 
         // ---------- EXPOSE TO WINDOW ----------
@@ -2386,6 +2392,5 @@
 
     })();
 </script>
-
 </body>
 </html>
