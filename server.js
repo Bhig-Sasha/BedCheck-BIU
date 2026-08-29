@@ -4886,12 +4886,17 @@ app.post('/api/face/extract',
 // STUDENT FACE ENDPOINTS (authenticated, both campuses)
 // =====================================================
 
+// =============================================
+// FIXED: GET FACE STATUS - ONLY CHECKS student_face TABLE
+// =============================================
 app.get('/api/students/:id/face-status',
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
         try {
             const studentId = parseInt(req.params.id);
+            
+            // 1. GET STUDENT BASIC INFO (just for name/matric)
             const { data: student, error: studentError } = await supabase
                 .from('students')
                 .select('id, name, matric, hostel_id, campus')
@@ -4907,7 +4912,9 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // Check permissions
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4915,14 +4922,47 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
+            // 2. ONLY CHECK student_face TABLE - This is the source of truth for face data
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('*')
+                .select('id, enrollment_status, face_embedding, face_image_url, last_verified, verification_count, confidence_score, embedding_quality, embedding_version, frames_used')
                 .eq('student_id', studentId)
                 .eq('campus', req.campus)
+                .eq('is_active', true)
                 .maybeSingle();
 
-            if (faceError) throw faceError;
+            if (faceError) {
+                console.error('Face table error:', faceError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Database error while checking face status',
+                    code: 'DATABASE_ERROR'
+                });
+            }
+
+            // 3. DETERMINE FACE STATUS FROM student_face TABLE ONLY
+            const hasFaceRecord = faceData !== null;
+            const isEnrolledInFaceTable = hasFaceRecord && faceData.enrollment_status === 'enrolled';
+            const hasEmbeddingInFaceTable = hasFaceRecord && 
+                                            faceData.face_embedding !== null && 
+                                            Array.isArray(faceData.face_embedding) && 
+                                            faceData.face_embedding.length > 0;
+            
+            // Student is considered enrolled ONLY if they have a record in student_face
+            // with enrollment_status = 'enrolled' AND a valid embedding
+            const enrolled = isEnrolledInFaceTable && hasEmbeddingInFaceTable;
+            const hasEmbedding = hasEmbeddingInFaceTable;
+            
+            console.log(`📊 Student ${studentId} face status (from student_face table):`, {
+                studentId: studentId,
+                studentName: student.name,
+                hasFaceRecord: hasFaceRecord,
+                isEnrolledInFaceTable: isEnrolledInFaceTable,
+                hasEmbeddingInFaceTable: hasEmbeddingInFaceTable,
+                enrollmentStatus: faceData?.enrollment_status || 'no record',
+                enrolled: enrolled,
+                embeddingDimension: hasEmbedding ? faceData.face_embedding.length : 0
+            });
 
             res.json({
                 success: true,
@@ -4932,15 +4972,21 @@ app.get('/api/students/:id/face-status',
                         name: student.name,
                         matric: student.matric
                     },
-                    face_enrolled: !!faceData && faceData.enrollment_status === 'enrolled',
+                    // FACE STATUS - FROM student_face TABLE ONLY
+                    face_enrolled: enrolled,
                     enrollment_status: faceData?.enrollment_status || 'pending',
+                    has_embedding: hasEmbedding,
+                    
+                    // Additional details from student_face
                     face_image_url: faceData?.face_image_url || null,
                     last_verified: faceData?.last_verified || null,
                     verification_count: faceData?.verification_count || 0,
                     confidence_score: faceData?.confidence_score || null,
                     embedding_quality: faceData?.embedding_quality || null,
-                    has_embedding: !!faceData?.face_embedding,
-                    embedding_dimension: faceData?.face_embedding ? faceData.face_embedding.length : 0
+                    embedding_version: faceData?.embedding_version || 1,
+                    
+                    // Embedding info
+                    embedding_dimension: hasEmbedding ? faceData.face_embedding.length : 0
                 },
                 campus: req.campus
             });
@@ -4948,7 +4994,7 @@ app.get('/api/students/:id/face-status',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while fetching face status.',
                 code: 'SERVER_ERROR'
             });
         }

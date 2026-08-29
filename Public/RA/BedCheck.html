@@ -712,45 +712,47 @@
                 try {
                     const result = await apiCall(`/students/${studentId}/face-status`);
                     
-                    if (!result || !result.success || !result.data) {
-                        console.error(`❌ No face data found for student ${studentId}`);
-                        return { 
-                            enrolled: false, 
-                            has_embedding: false, 
-                            status: 'pending', 
-                            verification_count: 0, 
-                            confidence_score: null, 
-                            last_verified: null,
-                            embedding_dimension: 0,
-                            face_image_url: null,
-                            message: 'No face enrollment data found'
+                    console.log(`📊 Face status response for student ${studentId}:`, result);
+                    
+                    if (result && result.success && result.data) {
+                        const data = result.data;
+                        
+                        // Use the data from the server (student_face table only)
+                        const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
+                        const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
+                        
+                        console.log(`📊 Student ${studentId} face status:`, {
+                            enrolled,
+                            hasEmbedding,
+                            enrollment_status: data.enrollment_status,
+                            verification_count: data.verification_count,
+                            confidence_score: data.confidence_score,
+                            embedding_dimension: data.embedding_dimension
+                        });
+                        
+                        return {
+                            enrolled: enrolled,
+                            has_embedding: hasEmbedding,
+                            status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
+                            verification_count: data.verification_count || 0,
+                            confidence_score: data.confidence_score || null,
+                            last_verified: data.last_verified || null,
+                            embedding_dimension: data.embedding_dimension || 0,
+                            face_image_url: data.face_image_url || null
                         };
                     }
                     
-                    const data = result.data;
-                    
-                    const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
-                    const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
-                    
-                    console.log(`📊 Student ${studentId} face status from server:`, {
-                        face_enrolled: data.face_enrolled,
-                        enrollment_status: data.enrollment_status,
-                        has_embedding: data.has_embedding,
-                        embedding_dimension: data.embedding_dimension,
-                        verification_count: data.verification_count,
-                        confidence_score: data.confidence_score,
-                        last_verified: data.last_verified
-                    });
-                    
-                    return {
-                        enrolled: enrolled,
-                        has_embedding: hasEmbedding,
-                        status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
-                        verification_count: data.verification_count || 0,
-                        confidence_score: data.confidence_score || null,
-                        last_verified: data.last_verified || null,
-                        embedding_dimension: data.embedding_dimension || 0,
-                        face_image_url: data.face_image_url || null
+                    // No data in student_face table = no face enrolled
+                    console.warn(`⚠️ No face data in student_face table for student ${studentId}`);
+                    return { 
+                        enrolled: false, 
+                        has_embedding: false, 
+                        status: 'pending', 
+                        verification_count: 0, 
+                        confidence_score: null, 
+                        last_verified: null,
+                        embedding_dimension: 0,
+                        face_image_url: null
                     };
                     
                 } catch (error) {
@@ -758,13 +760,12 @@
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
-                        status: 'unknown', 
+                        status: 'error', 
                         verification_count: 0, 
                         confidence_score: null, 
                         last_verified: null,
                         embedding_dimension: 0,
-                        face_image_url: null,
-                        error: error.message || 'Failed to check face status'
+                        face_image_url: null
                     };
                 }
             }
@@ -978,7 +979,7 @@
             }
 
             // =============================================
-            // VERIFICATION MODAL - NO FALLBACKS
+            // VERIFICATION MODAL
             // =============================================
             async function openVerifyModal(studentId) {
                 const student = hostelStudents.find(s => s.id === parseInt(studentId));
