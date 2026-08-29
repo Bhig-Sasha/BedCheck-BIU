@@ -4882,12 +4882,8 @@ app.post('/api/face/extract',
     }
 );
 
-// =====================================================
-// STUDENT FACE ENDPOINTS (authenticated, both campuses)
-// =====================================================
-
 // =============================================
-// FIXED: GET FACE STATUS - ONLY CHECKS student_face TABLE
+// GET FACE STATUS
 // =============================================
 app.get('/api/students/:id/face-status',
     campusIsolation,
@@ -4896,10 +4892,12 @@ app.get('/api/students/:id/face-status',
         try {
             const studentId = parseInt(req.params.id);
             
-            // 1. GET STUDENT BASIC INFO (just for name/matric)
+            // =============================================
+            // STEP 1: GET STUDENT FROM students TABLE
+            // =============================================
             const { data: student, error: studentError } = await supabase
                 .from('students')
-                .select('id, name, matric, hostel_id, campus')
+                .select('id, name, matric, hostel_id, campus, face_enrolled')
                 .eq('id', studentId)
                 .eq('campus', req.campus)
                 .single();
@@ -4922,7 +4920,16 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            // 2. ONLY CHECK student_face TABLE - This is the source of truth for face data
+            const isFaceEnrolledInStudents = student.face_enrolled === true || student.face_enrolled === 1;
+            
+            console.log(`📊 Step 1 - Student ${studentId} (${student.name}):`, {
+                face_enrolled: student.face_enrolled,
+                isFaceEnrolled: isFaceEnrolledInStudents
+            });
+
+            // =============================================
+            // STEP 2: GET FACE DATA FROM student_face TABLE
+            // =============================================
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
                 .select('id, enrollment_status, face_embedding, face_image_url, last_verified, verification_count, confidence_score, embedding_quality, embedding_version, frames_used')
@@ -4933,37 +4940,44 @@ app.get('/api/students/:id/face-status',
 
             if (faceError) {
                 console.error('Face table error:', faceError);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Database error while checking face status',
-                    code: 'DATABASE_ERROR'
-                });
             }
 
-            // 3. DETERMINE FACE STATUS FROM student_face TABLE ONLY
             const hasFaceRecord = faceData !== null;
             const isEnrolledInFaceTable = hasFaceRecord && faceData.enrollment_status === 'enrolled';
-            const hasEmbeddingInFaceTable = hasFaceRecord && 
-                                            faceData.face_embedding !== null && 
-                                            Array.isArray(faceData.face_embedding) && 
-                                            faceData.face_embedding.length > 0;
+            const hasEmbedding = hasFaceRecord && 
+                                 faceData.face_embedding !== null && 
+                                 Array.isArray(faceData.face_embedding) && 
+                                 faceData.face_embedding.length > 0;
             
-            // Student is considered enrolled ONLY if they have a record in student_face
-            // with enrollment_status = 'enrolled' AND a valid embedding
-            const enrolled = isEnrolledInFaceTable && hasEmbeddingInFaceTable;
-            const hasEmbedding = hasEmbeddingInFaceTable;
-            
-            console.log(`📊 Student ${studentId} face status (from student_face table):`, {
-                studentId: studentId,
-                studentName: student.name,
-                hasFaceRecord: hasFaceRecord,
-                isEnrolledInFaceTable: isEnrolledInFaceTable,
-                hasEmbeddingInFaceTable: hasEmbeddingInFaceTable,
+            console.log(`📊 Step 2 - Student ${studentId} face data:`, {
+                hasFaceRecord,
+                isEnrolledInFaceTable,
+                hasEmbedding,
                 enrollmentStatus: faceData?.enrollment_status || 'no record',
-                enrolled: enrolled,
-                embeddingDimension: hasEmbedding ? faceData.face_embedding.length : 0
+                embeddingLength: hasEmbedding ? faceData.face_embedding.length : 0,
+                verificationCount: faceData?.verification_count || 0
             });
 
+            // =============================================
+            // STEP 3: COMBINE THE RESULTS
+            // =============================================
+            const isFullyEnrolled = isFaceEnrolledInStudents && hasEmbedding;
+            
+            const canVerify = isFaceEnrolledInStudents && hasEmbedding;
+
+            console.log(`📊 Step 3 - Final status for ${student.name}:`, {
+                isFaceEnrolledInStudents,
+                hasEmbedding,
+                isFullyEnrolled,
+                canVerify,
+                status: isFullyEnrolled ? '✅ FULLY ENROLLED' : 
+                        isFaceEnrolledInStudents ? '⚠️ PARTIAL (no embedding)' : 
+                        '❌ NOT ENROLLED'
+            });
+
+            // =============================================
+            // STEP 4: RESPONSE
+            // =============================================
             res.json({
                 success: true,
                 data: {
@@ -4972,12 +4986,15 @@ app.get('/api/students/:id/face-status',
                         name: student.name,
                         matric: student.matric
                     },
-                    // FACE STATUS - FROM student_face TABLE ONLY
-                    face_enrolled: enrolled,
-                    enrollment_status: faceData?.enrollment_status || 'pending',
-                    has_embedding: hasEmbedding,
                     
-                    // Additional details from student_face
+                    // Primary status - combination of both tables
+                    face_enrolled: isFullyEnrolled,
+                    enrollment_status: isFullyEnrolled ? 'enrolled' : 
+                                      (isFaceEnrolledInStudents ? 'partial' : 'pending'),
+                    has_embedding: hasEmbedding,
+                    can_verify: canVerify,
+                    
+                    // Details from student_face table
                     face_image_url: faceData?.face_image_url || null,
                     last_verified: faceData?.last_verified || null,
                     verification_count: faceData?.verification_count || 0,
@@ -4986,7 +5003,20 @@ app.get('/api/students/:id/face-status',
                     embedding_version: faceData?.embedding_version || 1,
                     
                     // Embedding info
-                    embedding_dimension: hasEmbedding ? faceData.face_embedding.length : 0
+                    embedding_dimension: hasEmbedding ? faceData.face_embedding.length : 0,
+                    
+                    // Source tracking
+                    _source: {
+                        students_table: {
+                            face_enrolled: isFaceEnrolledInStudents
+                        },
+                        student_face_table: {
+                            has_record: hasFaceRecord,
+                            enrollment_status: faceData?.enrollment_status || null,
+                            has_embedding: hasEmbedding,
+                            embedding_length: hasEmbedding ? faceData.face_embedding.length : 0
+                        }
+                    }
                 },
                 campus: req.campus
             });
@@ -5002,7 +5032,7 @@ app.get('/api/students/:id/face-status',
 );
 
 /**
- * FIXED: STUDENT FACE ENROLL - REMOVED DUPLICATE CODE
+ * FIXED: STUDENT FACE ENROLL
  */
 app.post('/api/students/:id/face/enroll',
     campusIsolation,

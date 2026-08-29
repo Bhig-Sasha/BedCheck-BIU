@@ -717,36 +717,46 @@
                     if (result && result.success && result.data) {
                         const data = result.data;
                         
-                        // Use the data from the server (student_face table only)
+                        if (data._source) {
+                            console.log(`📊 Source info for student ${studentId}:`, {
+                                students_table: data._source.students_table,
+                                student_face_table: data._source.student_face_table
+                            });
+                        }
+                        
                         const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
                         const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
+                        const canVerify = data.can_verify === true;
                         
                         console.log(`📊 Student ${studentId} face status:`, {
                             enrolled,
                             hasEmbedding,
+                            canVerify,
                             enrollment_status: data.enrollment_status,
                             verification_count: data.verification_count,
-                            confidence_score: data.confidence_score,
-                            embedding_dimension: data.embedding_dimension
+                            confidence_score: data.confidence_score
                         });
                         
                         return {
                             enrolled: enrolled,
                             has_embedding: hasEmbedding,
+                            can_verify: canVerify,
                             status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
                             verification_count: data.verification_count || 0,
                             confidence_score: data.confidence_score || null,
                             last_verified: data.last_verified || null,
                             embedding_dimension: data.embedding_dimension || 0,
-                            face_image_url: data.face_image_url || null
+                            face_image_url: data.face_image_url || null,
+                            // Source info for debugging
+                            _source: data._source
                         };
                     }
                     
-                    // No data in student_face table = no face enrolled
-                    console.warn(`⚠️ No face data in student_face table for student ${studentId}`);
+                    console.warn(`⚠️ No face data for student ${studentId}`);
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
+                        can_verify: false,
                         status: 'pending', 
                         verification_count: 0, 
                         confidence_score: null, 
@@ -760,6 +770,7 @@
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
+                        can_verify: false,
                         status: 'error', 
                         verification_count: 0, 
                         confidence_score: null, 
