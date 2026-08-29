@@ -4883,7 +4883,7 @@ app.post('/api/face/extract',
 );
 
 // =============================================
-// GET FACE STATUS
+// FIXED: GET FACE STATUS
 // =============================================
 app.get('/api/students/:id/face-status',
     campusIsolation,
@@ -4892,9 +4892,7 @@ app.get('/api/students/:id/face-status',
         try {
             const studentId = parseInt(req.params.id);
             
-            // =============================================
-            // STEP 1: GET STUDENT FROM students TABLE
-            // =============================================
+            // STEP 1: Get student from students table
             const { data: student, error: studentError } = await supabase
                 .from('students')
                 .select('id, name, matric, hostel_id, campus, face_enrolled')
@@ -4920,19 +4918,31 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            const isFaceEnrolledInStudents = student.face_enrolled === true || student.face_enrolled === 1;
-            
-            console.log(`📊 Step 1 - Student ${studentId} (${student.name}):`, {
-                face_enrolled: student.face_enrolled,
-                isFaceEnrolled: isFaceEnrolledInStudents
-            });
-
-            // =============================================
-            // STEP 2: GET FACE DATA FROM student_face TABLE
-            // =============================================
+            // STEP 2: Get face data from student_face table
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('id, enrollment_status, face_embedding, face_image_url, last_verified, verification_count, confidence_score, embedding_quality, embedding_version, frames_used')
+                .select(`
+                    id, 
+                    student_id,
+                    campus,
+                    campus_code,
+                    face_embedding, 
+                    face_image_url, 
+                    face_image_path,
+                    enrollment_status, 
+                    enrollment_date,
+                    last_verified, 
+                    verification_count, 
+                    confidence_score,
+                    is_active,
+                    notes,
+                    created_at,
+                    updated_at,
+                    enrolled_by,
+                    enrolled_by_student,
+                    enrollment_ip,
+                    enrollment_device
+                `)
                 .eq('student_id', studentId)
                 .eq('campus', req.campus)
                 .eq('is_active', true)
@@ -4942,42 +4952,29 @@ app.get('/api/students/:id/face-status',
                 console.error('Face table error:', faceError);
             }
 
-            const hasFaceRecord = faceData !== null;
-            const isEnrolledInFaceTable = hasFaceRecord && faceData.enrollment_status === 'enrolled';
+            // STEP 3: Check if student has face data
+            const hasFaceRecord = faceData !== null && faceData.is_active === true;
+            const isEnrolled = hasFaceRecord && faceData.enrollment_status === 'enrolled';
             const hasEmbedding = hasFaceRecord && 
                                  faceData.face_embedding !== null && 
                                  Array.isArray(faceData.face_embedding) && 
                                  faceData.face_embedding.length > 0;
             
-            console.log(`📊 Step 2 - Student ${studentId} face data:`, {
-                hasFaceRecord,
-                isEnrolledInFaceTable,
-                hasEmbedding,
-                enrollmentStatus: faceData?.enrollment_status || 'no record',
-                embeddingLength: hasEmbedding ? faceData.face_embedding.length : 0,
-                verificationCount: faceData?.verification_count || 0
-            });
-
-            // =============================================
-            // STEP 3: COMBINE THE RESULTS
-            // =============================================
-            const isFullyEnrolled = isFaceEnrolledInStudents && hasEmbedding;
+            const studentFaceEnrolled = student.face_enrolled === true || student.face_enrolled === 1;
+            const enrolled = studentFaceEnrolled && isEnrolled && hasEmbedding;
             
-            const canVerify = isFaceEnrolledInStudents && hasEmbedding;
-
-            console.log(`📊 Step 3 - Final status for ${student.name}:`, {
-                isFaceEnrolledInStudents,
-                hasEmbedding,
-                isFullyEnrolled,
-                canVerify,
-                status: isFullyEnrolled ? '✅ FULLY ENROLLED' : 
-                        isFaceEnrolledInStudents ? '⚠️ PARTIAL (no embedding)' : 
-                        '❌ NOT ENROLLED'
+            console.log(`📊 Student ${studentId} (${student.name}) face status:`, {
+                studentId,
+                studentName: student.name,
+                studentFaceEnrolled: studentFaceEnrolled,
+                hasFaceRecord: hasFaceRecord,
+                isEnrolled: isEnrolled,
+                hasEmbedding: hasEmbedding,
+                enrollmentStatus: faceData?.enrollment_status || null,
+                isActive: faceData?.is_active || false,
+                enrolled: enrolled
             });
 
-            // =============================================
-            // STEP 4: RESPONSE
-            // =============================================
             res.json({
                 success: true,
                 data: {
@@ -4987,34 +4984,31 @@ app.get('/api/students/:id/face-status',
                         matric: student.matric
                     },
                     
-                    // Primary status - combination of both tables
-                    face_enrolled: isFullyEnrolled,
-                    enrollment_status: isFullyEnrolled ? 'enrolled' : 
-                                      (isFaceEnrolledInStudents ? 'partial' : 'pending'),
+                    face_enrolled: enrolled,
+                    enrollment_status: enrolled ? 'enrolled' : 
+                                      (studentFaceEnrolled ? 'partial' : 'pending'),
                     has_embedding: hasEmbedding,
-                    can_verify: canVerify,
+                    can_verify: enrolled && hasEmbedding,
                     
-                    // Details from student_face table
                     face_image_url: faceData?.face_image_url || null,
                     last_verified: faceData?.last_verified || null,
                     verification_count: faceData?.verification_count || 0,
                     confidence_score: faceData?.confidence_score || null,
-                    embedding_quality: faceData?.embedding_quality || null,
-                    embedding_version: faceData?.embedding_version || 1,
                     
-                    // Embedding info
                     embedding_dimension: hasEmbedding ? faceData.face_embedding.length : 0,
                     
-                    // Source tracking
                     _source: {
                         students_table: {
-                            face_enrolled: isFaceEnrolledInStudents
+                            face_enrolled: studentFaceEnrolled,
+                            campus: student.campus
                         },
                         student_face_table: {
                             has_record: hasFaceRecord,
+                            is_active: faceData?.is_active || false,
                             enrollment_status: faceData?.enrollment_status || null,
                             has_embedding: hasEmbedding,
-                            embedding_length: hasEmbedding ? faceData.face_embedding.length : 0
+                            embedding_length: hasEmbedding ? faceData.face_embedding.length : 0,
+                            campus: faceData?.campus || null
                         }
                     }
                 },
