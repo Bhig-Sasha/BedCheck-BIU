@@ -64,6 +64,8 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
 
+      cd ..
+
       echo "=========================================="
       echo "Downloading InsightFace antelopev2 model"
       echo "=========================================="
@@ -74,23 +76,24 @@ services:
       import zipfile
       import requests
 
-      from pathlib import Path
-
-      model_root = '../models'
-      model_dir = os.path.join(model_root, 'models', 'antelopev2')
+      model_root = './models'
+      model_dir = os.path.join(
+          model_root,
+          'models',
+          'antelopev2'
+      )
 
       os.makedirs(model_dir, exist_ok=True)
 
-      # -------------------------------------------------
-      # Check if model already exists
-      # -------------------------------------------------
       required_models = [
           'glintr100.onnx',
           'scrfd_10g_bnkps.onnx'
       ]
 
       model_ready = all(
-          os.path.exists(os.path.join(model_dir, filename))
+          os.path.exists(
+              os.path.join(model_dir, filename)
+          )
           for filename in required_models
       )
 
@@ -100,8 +103,10 @@ services:
           print('📥 Downloading antelopev2 model...')
 
           model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
-
-          zip_path = os.path.join(model_root, 'antelopev2.zip')
+          zip_path = os.path.join(
+              model_root,
+              'antelopev2.zip'
+          )
 
           response = requests.get(
               model_url,
@@ -112,7 +117,10 @@ services:
           response.raise_for_status()
 
           total_size = int(
-              response.headers.get('content-length', 0)
+              response.headers.get(
+                  'content-length',
+                  0
+              )
           )
 
           downloaded = 0
@@ -131,7 +139,10 @@ services:
                               downloaded / total_size * 100
                           )
 
-                          if progress != last_progress and progress % 10 == 0:
+                          if (
+                              progress != last_progress
+                              and progress % 10 == 0
+                          ):
                               print(
                                   f'Download progress: {progress}%'
                               )
@@ -153,7 +164,9 @@ services:
               zip_path,
               'r'
           ) as zip_ref:
-              zip_ref.extractall(extract_path)
+              zip_ref.extractall(
+                  extract_path
+              )
 
           os.remove(zip_path)
 
@@ -161,51 +174,41 @@ services:
               '✅ Model downloaded and extracted successfully'
           )
 
-      # -------------------------------------------------
-      # Verify model
-      # -------------------------------------------------
       print('🔍 Verifying antelopev2 model...')
 
-      try:
-          model = insightface.app.FaceAnalysis(
-              name='antelopev2',
-              root=model_root,
-              providers=['CPUExecutionProvider'],
-              allowed_modules=[
-                  'detection',
-                  'recognition'
-              ]
-          )
+      model = insightface.app.FaceAnalysis(
+          name='antelopev2',
+          root=model_root,
+          providers=['CPUExecutionProvider'],
+          allowed_modules=[
+              'detection',
+              'recognition'
+          ]
+      )
 
-          model.prepare(
-              ctx_id=0,
-              det_size=(640, 640)
-          )
+      model.prepare(
+          ctx_id=0,
+          det_size=(640, 640)
+      )
 
-          print('✅ Model verified and ready')
-
-      except Exception as e:
-          print(
-              f'❌ Model verification failed: {e}'
-          )
-          raise
+      print('✅ Model verified and ready')
       "
 
-      # -------------------------------------------------
-      # Optional cleanup
-      # -------------------------------------------------
       rm -rf /opt/render/project/src/.venv/lib/python3.11/site-packages/tensorflow* 2>/dev/null || true
 
 
-    # ===================================================
-    # IMPORTANT:
-    # Start from repository root so python is a package.
-    # ===================================================
+    # =====================================================
+    # START PYTHON FACE API
+    # =====================================================
     startCommand: |
       export PYTHONUNBUFFERED=1
       export TF_CPP_MIN_LOG_LEVEL=3
       uvicorn python.app:app --host 0.0.0.0 --port $PORT
 
+
+    # =====================================================
+    # ENVIRONMENT VARIABLES
+    # =====================================================
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -228,6 +231,7 @@ services:
       - key: UVICORN_TIMEOUT
         value: "120"
 
+
     healthCheckPath: /health
     autoDeploy: true
     numReplicas: 1
@@ -235,9 +239,11 @@ services:
     buildFilter:
       paths:
         - python/app.py
-        - python/requirements.txt
+        - python/__init__.py
         - python/embeddings.py
         - python/verify.py
         - python/liveness.py
         - python/matcher.py
+        - python/requirements.txt
+        - models/**/*
         - render.yaml
