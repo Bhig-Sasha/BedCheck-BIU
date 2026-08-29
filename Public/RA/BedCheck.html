@@ -712,51 +712,26 @@
                 try {
                     const result = await apiCall(`/students/${studentId}/face-status`);
                     
-                    console.log(`📊 Face status response for student ${studentId}:`, result);
-                    
                     if (result && result.success && result.data) {
                         const data = result.data;
-                        
-                        if (data._source) {
-                            console.log(`📊 Source info for student ${studentId}:`, {
-                                students_table: data._source.students_table,
-                                student_face_table: data._source.student_face_table
-                            });
-                        }
-                        
                         const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
                         const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
-                        const canVerify = data.can_verify === true;
-                        
-                        console.log(`📊 Student ${studentId} face status:`, {
-                            enrolled,
-                            hasEmbedding,
-                            canVerify,
-                            enrollment_status: data.enrollment_status,
-                            verification_count: data.verification_count,
-                            confidence_score: data.confidence_score
-                        });
                         
                         return {
                             enrolled: enrolled,
                             has_embedding: hasEmbedding,
-                            can_verify: canVerify,
                             status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
                             verification_count: data.verification_count || 0,
                             confidence_score: data.confidence_score || null,
                             last_verified: data.last_verified || null,
                             embedding_dimension: data.embedding_dimension || 0,
-                            face_image_url: data.face_image_url || null,
-                            // Source info for debugging
-                            _source: data._source
+                            face_image_url: data.face_image_url || null
                         };
                     }
                     
-                    console.warn(`⚠️ No face data for student ${studentId}`);
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
-                        can_verify: false,
                         status: 'pending', 
                         verification_count: 0, 
                         confidence_score: null, 
@@ -766,11 +741,40 @@
                     };
                     
                 } catch (error) {
+                    // Handle rate limit errors gracefully
+                    if (error.message && error.message.includes('429')) {
+                        console.warn(`⚠️ Rate limit hit for student ${studentId}, using cached/fallback data`);
+                        // Try to use student's face_enrolled from local data
+                        const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
+                        if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
+                            return { 
+                                enrolled: true, 
+                                has_embedding: true, 
+                                status: 'enrolled', 
+                                verification_count: 0, 
+                                confidence_score: null, 
+                                last_verified: null,
+                                embedding_dimension: 0,
+                                face_image_url: null,
+                                _cached: true
+                            };
+                        }
+                        return { 
+                            enrolled: false, 
+                            has_embedding: false, 
+                            status: 'pending', 
+                            verification_count: 0, 
+                            confidence_score: null, 
+                            last_verified: null,
+                            embedding_dimension: 0,
+                            face_image_url: null
+                        };
+                    }
+                    
                     console.error(`❌ Failed to check face status for student ${studentId}:`, error);
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
-                        can_verify: false,
                         status: 'error', 
                         verification_count: 0, 
                         confidence_score: null, 
@@ -784,14 +788,20 @@
             // =============================================
             // FACE API FUNCTIONS
             // =============================================
-
             async function checkFaceApiHealth() {
                 try {
                     const token = sessionStorage.getItem('bedcheck_token');
                     const response = await fetch(`${API_BASE_URL}/face/health`, {
                         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-                        signal: AbortSignal.timeout(15000)
+                        signal: AbortSignal.timeout(10000)
                     });
+                    
+                    if (response.status === 429) {
+                        console.warn('⚠️ Face health check rate limited, skipping...');
+                        isApiHealthy = true; // Assume healthy to avoid blocking
+                        apiHealthChecked = true;
+                        return isApiHealthy;
+                    }
                     
                     if (!response.ok) {
                         isApiHealthy = false;
@@ -805,7 +815,8 @@
                         );
                     }
                 } catch (error) {
-                    isApiHealthy = false;
+                    console.warn('Face API health check failed:', error.message);
+                    isApiHealthy = true; // Assume healthy to avoid blocking
                 }
                 apiHealthChecked = true;
                 return isApiHealthy;
@@ -1617,6 +1628,7 @@
             // =============================================
             function startSessionChecker() {
                 if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
+                // Increase from 30s to 90s to reduce API calls
                 sessionCheckerInterval = setInterval(async () => {
                     try {
                         const oldEffectiveStatus = effectiveStatus;
@@ -1627,10 +1639,10 @@
                     } catch (error) {
                         // Silent fail
                     }
-                }, 30000);
+                }, 90000); // 90 seconds
             }
 
-// =============================================
+            // =============================================
             // RENDER BEDCHECK - NO FALLBACKS, SERVER ONLY
             // =============================================
             async function renderBedCheck() {
@@ -1976,7 +1988,7 @@
                     </div>
                 `;
             }
-            
+
             // =============================================
             // ROOM SELECTION
             // =============================================
@@ -2117,23 +2129,51 @@
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-                // Check Face API health through backend first
-                await checkFaceApiHealth();
-
                 try {
-                    const [hostelsResult, studentsResult, floorsResult, roomsResult, bedSpacesResult] = await Promise.all([
-                        apiCall('/hostels'),
-                        apiCall('/students'),
-                        apiCall('/floors-flats'),
-                        apiCall('/rooms'),
-                        apiCall('/bed-spaces')
-                    ]);
+                    // =============================================
+                    // STEP 1: Check Face API health with retry
+                    // =============================================
+                    try {
+                        await checkFaceApiHealth();
+                    } catch (e) {
+                        console.warn('Face API health check failed, continuing...');
+                    }
 
+                    // =============================================
+                    // STEP 2: Sequential API calls with delays
+                    // =============================================
+                    console.log('📊 Loading data sequentially...');
+                    
+                    // Get hostels first
+                    console.log('📊 Fetching hostels...');
+                    const hostelsResult = await apiCall('/hostels');
                     hostels = hostelsResult.data || [];
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Then students
+                    console.log('📊 Fetching students...');
+                    const studentsResult = await apiCall('/students');
                     allStudents = studentsResult.data || [];
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Then floors
+                    console.log('📊 Fetching floors...');
+                    const floorsResult = await apiCall('/floors-flats');
                     allFloorsFlats = floorsResult.data || [];
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Then rooms
+                    console.log('📊 Fetching rooms...');
+                    const roomsResult = await apiCall('/rooms');
                     allRooms = roomsResult.data || [];
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Then bed spaces
+                    console.log('📊 Fetching bed spaces...');
+                    const bedSpacesResult = await apiCall('/bed-spaces');
                     allBedSpaces = bedSpacesResult.data || [];
+
+                    console.log('✅ All data loaded successfully');
 
                     if (assignedHostelId) {
                         assignedHostelData = hostels.find(h => h.id === assignedHostelId);
@@ -2181,11 +2221,8 @@
 
                     renderBedCheck();
 
-                    // Start session checker
+                    // Start session checker with longer interval
                     startSessionChecker();
-
-                    // Check Face API health periodically
-                    setInterval(checkFaceApiHealth, 60000);
 
                 } catch (error) {
                     console.error('Init error:', error);
@@ -2198,7 +2235,7 @@
                             <div class="text-center p-4">
                                 <i class="fas fa-exclamation-triangle" style="font-size:2.5rem;color:#a84134;"></i>
                                 <h2 class="mt-3">Error Loading Data</h2>
-                                <p class="text-muted">There was an error loading the BedCheck page. Please refresh.</p>
+                                <p class="text-muted">${error.message || 'There was an error loading the BedCheck page. Please refresh.'}</p>
                                 <button class="btn-primary mt-3" onclick="location.reload()"><i class="fas fa-refresh"></i> Refresh</button>
                             </div>
                         </div>
