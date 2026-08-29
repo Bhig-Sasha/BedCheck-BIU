@@ -15,28 +15,54 @@ import supabase as supabase_
 # Load environment variables
 dotenv.load_dotenv()
 
+# ==========================
 # Import our modules
-from .embeddings import (
-    create_embedding,
-    create_embedding_with_quality,
-    smart_enrollment,
-    prepare_embedding_for_db,
-    validate_embedding,
-    capture_frames_for_enrollment,
-    average_embeddings
-)
+# ==========================
+try:
+    from .embeddings import (
+        create_embedding,
+        create_embedding_with_quality,
+        smart_enrollment,
+        prepare_embedding_for_db,
+        validate_embedding,
+        capture_frames_for_enrollment,
+        average_embeddings
+    )
 
-from .verify import (
-    get_face_embedding,
-    cosine_similarity,
-    verify_student,
-    verify_against_multiple,
-    verify_with_confidence_tracking,
-    verify_multiple_with_tracking
-)
+    from .verify import (
+        get_face_embedding,
+        cosine_similarity,
+        verify_student,
+        verify_against_multiple,
+        verify_with_confidence_tracking,
+        verify_multiple_with_tracking
+    )
 
-from .liveness import LivenessDetector
-from .matcher import FaceMatcher, OrganizationFaceMatcher
+    from .liveness import LivenessDetector
+    from .matcher import FaceMatcher, OrganizationFaceMatcher
+
+except ImportError:
+    from embeddings import (
+        create_embedding,
+        create_embedding_with_quality,
+        smart_enrollment,
+        prepare_embedding_for_db,
+        validate_embedding,
+        capture_frames_for_enrollment,
+        average_embeddings
+    )
+
+    from verify import (
+        get_face_embedding,
+        cosine_similarity,
+        verify_student,
+        verify_against_multiple,
+        verify_with_confidence_tracking,
+        verify_multiple_with_tracking
+    )
+
+    from liveness import LivenessDetector
+    from matcher import FaceMatcher, OrganizationFaceMatcher
 
 # ==========================
 # Logging Configuration
