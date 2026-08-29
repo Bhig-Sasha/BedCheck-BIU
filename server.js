@@ -4450,7 +4450,8 @@ app.post('/api/face/verify',
  * VERIFY FACE - Room/Group
  * Compares captured face against all students in a room
  */
-app.post('/api/face/verify-room', 
+app.post(
+    '/api/face/verify-room',
     campusIsolation,
     faceLimiter,
     validate([
@@ -4461,10 +4462,27 @@ app.post('/api/face/verify-room',
     ]),
     async (req, res) => {
         try {
-            const { image, room_id, hostel_id, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
+            const {
+                image,
+                room_id,
+                hostel_id,
+                threshold = FACE_VERIFICATION_THRESHOLD
+            } = req.body;
 
+            console.log('\n========================================');
+            console.log('🔍 ROOM FACE VERIFICATION STARTED');
+            console.log('Campus:', req.campus);
+            console.log('Room ID:', room_id || 'N/A');
+            console.log('Hostel ID:', hostel_id || 'N/A');
+            console.log('Threshold:', threshold);
+            console.log('========================================\n');
+
+
+            // ========================================
             // 1. VALIDATE IMAGE
+            // ========================================
             const validation = faceService.validateImage(image);
+
             if (!validation.valid) {
                 return res.status(400).json({
                     success: false,
@@ -4473,7 +4491,10 @@ app.post('/api/face/verify-room',
                 });
             }
 
+
+            // ========================================
             // 2. CHECK PARAMETERS
+            // ========================================
             if (!room_id && !hostel_id) {
                 return res.status(400).json({
                     success: false,
@@ -4482,27 +4503,63 @@ app.post('/api/face/verify-room',
                 });
             }
 
+
+            // ========================================
             // 3. GET STUDENTS IN ROOM/HOSTEL
-            let query = supabase.from('students')
-                .select('id, name, matric, face_enrolled, hostel_id, room_id, room_code, campus')
+            // ========================================
+            let query = supabase
+                .from('students')
+                .select(`
+                    id,
+                    name,
+                    matric,
+                    face_enrolled,
+                    hostel_id,
+                    room_id,
+                    room_code,
+                    campus
+                `)
                 .eq('campus', req.campus)
-                .eq('face_enrolled', true);
-            
+                .eq('face_enrolled', true)
+                .eq('is_archived', false);
+
             if (room_id) {
                 query = query.eq('room_id', room_id);
             } else if (hostel_id) {
                 query = query.eq('hostel_id', hostel_id);
             }
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
-                req.user.role !== 'Administrator' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
+
+
+            // Restrict RA/HRA to their assigned hostel
+            const adminRoles = [
+                'Admin',
+                'Administrator',
+                'Developer'
+            ];
+
+            if (
+                !adminRoles.includes(req.user.role) &&
+                req.user.hostel_id
+            ) {
+                query = query.eq(
+                    'hostel_id',
+                    req.user.hostel_id
+                );
             }
-            
-            const { data: students, error: studentsError } = await query;
-            
+
+
+            const {
+                data: students,
+                error: studentsError
+            } = await query;
+
+
             if (studentsError) {
-                console.error('Fetch students error:', studentsError);
+                console.error(
+                    '❌ Fetch students error:',
+                    studentsError
+                );
+
                 return res.status(500).json({
                     success: false,
                     message: 'An error occurred while fetching students.',
@@ -4510,138 +4567,600 @@ app.post('/api/face/verify-room',
                 });
             }
 
+
             if (!students || students.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No students found with face enrolled in this room/hostel',
+                    message:
+                        'No students found with face enrolled in this room/hostel',
                     code: 'NO_STUDENTS_FOUND'
                 });
             }
 
-            // 4. GET ALL EMBEDDINGS
-            const studentIds = students.map(s => s.id);
-            const { data: faceData, error: faceError } = await supabase
+
+            console.log(
+                `👥 Students found: ${students.length}`
+            );
+
+
+            // ========================================
+            // 4. GET ALL FACE EMBEDDINGS
+            // ========================================
+            const studentIds = students.map(student => student.id);
+
+
+            const {
+                data: faceData,
+                error: faceError
+            } = await supabase
                 .from('student_face')
-                .select('student_id, face_embedding, verification_count, confidence_score')
+                .select(`
+                    student_id,
+                    face_embedding,
+                    verification_count,
+                    confidence_score,
+                    is_active,
+                    campus
+                `)
                 .in('student_id', studentIds)
                 .eq('campus', req.campus)
-                .eq('is_active', true);
+                .eq('is_active', true)
+                .eq('enrollment_status', 'enrolled');
 
-            if (faceError || !faceData || faceData.length === 0) {
+
+            if (faceError) {
+                console.error(
+                    '❌ Fetch face embeddings error:',
+                    faceError
+                );
+
+                return res.status(500).json({
+                    success: false,
+                    message:
+                        'An error occurred while fetching face embeddings.',
+                    code: 'SERVER_ERROR'
+                });
+            }
+
+
+            if (!faceData || faceData.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face embeddings found for students in this room',
+                    message:
+                        'No active face embeddings found for students in this room',
                     code: 'NO_FACE_EMBEDDINGS'
                 });
             }
 
-            // 5. EXTRACT CAPTURED EMBEDDING
-            console.log(`📸 Verifying face against ${faceData.length} students`);
-            
-            const capturedEmbedding = await faceService.extractEmbedding(image);
-            
-            if (!capturedEmbedding.success || !capturedEmbedding.embedding) {
+
+            console.log(
+                `🧠 Face embeddings found: ${faceData.length}`
+            );
+
+
+            // ========================================
+            // 5. EXTRACT CAPTURED FACE EMBEDDING
+            // ========================================
+            console.log(
+                `📸 Extracting captured face embedding...`
+            );
+
+
+            const capturedResult =
+                await faceService.extractEmbedding(image);
+
+
+            if (
+                !capturedResult.success ||
+                !capturedResult.embedding
+            ) {
+                console.error(
+                    '❌ Face extraction failed:',
+                    capturedResult.error
+                );
+
                 return res.status(400).json({
                     success: false,
-                    message: capturedEmbedding.error || 'Failed to extract face from captured image',
+                    message:
+                        capturedResult.error ||
+                        'Failed to extract face from captured image',
                     code: 'EXTRACTION_FAILED'
                 });
             }
 
-            // 6. COMPARE AGAINST ALL STUDENTS
-            let bestMatch = null;
-            let bestSimilarity = 0;
 
-            for (const face of faceData) {
-                const comparison = await faceService.compareEmbeddings(
-                    capturedEmbedding.embedding,
-                    face.face_embedding
-                );
+            let capturedEmbedding =
+                capturedResult.embedding;
 
-                if (comparison.success && comparison.similarity > bestSimilarity) {
-                    bestSimilarity = comparison.similarity;
-                    bestMatch = {
-                        ...face,
-                        similarity: comparison.similarity
-                    };
+
+            // Convert captured embedding if somehow returned as string
+            if (typeof capturedEmbedding === 'string') {
+                try {
+                    capturedEmbedding =
+                        JSON.parse(capturedEmbedding);
+                } catch (error) {
+                    console.error(
+                        '❌ Failed to parse captured embedding:',
+                        error
+                    );
+
+                    return res.status(400).json({
+                        success: false,
+                        message:
+                            'Captured face embedding is invalid',
+                        code: 'INVALID_CAPTURED_EMBEDDING'
+                    });
                 }
             }
 
-            const isMatch = bestMatch && bestSimilarity >= threshold;
+
+            // Validate captured embedding
+            if (!Array.isArray(capturedEmbedding)) {
+                console.error(
+                    '❌ Captured embedding is not an array'
+                );
+
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        'Captured face embedding is not a valid array',
+                    code: 'INVALID_CAPTURED_EMBEDDING'
+                });
+            }
+
+
+            if (capturedEmbedding.length !== 512) {
+                console.error(
+                    `❌ Invalid captured embedding dimension: ${capturedEmbedding.length}`
+                );
+
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        `Invalid captured embedding dimension. Expected 512, got ${capturedEmbedding.length}`,
+                    code: 'INVALID_CAPTURED_EMBEDDING'
+                });
+            }
+
+
+            console.log(
+                `✅ Captured embedding valid: ${capturedEmbedding.length} dimensions`
+            );
+
+
+            // ========================================
+            // 6. NORMALIZE STORED EMBEDDINGS
+            // ========================================
+            console.log(
+                '🔄 Preparing stored face embeddings...'
+            );
+
+
+            const validFaces = [];
+
+
+            for (const face of faceData) {
+
+                let storedEmbedding =
+                    face.face_embedding;
+
+
+                console.log(
+                    `Student ID ${face.student_id} embedding type:`,
+                    typeof storedEmbedding
+                );
+
+
+                // Convert string JSON embedding to array
+                if (typeof storedEmbedding === 'string') {
+                    try {
+                        storedEmbedding =
+                            JSON.parse(storedEmbedding);
+
+                        console.log(
+                            `✅ Parsed embedding for student ${face.student_id}`
+                        );
+
+                    } catch (error) {
+                        console.error(
+                            `❌ Invalid JSON embedding for student ${face.student_id}`,
+                            error
+                        );
+
+                        continue;
+                    }
+                }
+
+
+                // Validate embedding is array
+                if (!Array.isArray(storedEmbedding)) {
+                    console.error(
+                        `❌ Embedding is not array for student ${face.student_id}`
+                    );
+
+                    continue;
+                }
+
+
+                // Validate dimensions
+                if (storedEmbedding.length !== 512) {
+                    console.error(
+                        `❌ Invalid embedding dimension for student ${face.student_id}: ${storedEmbedding.length}`
+                    );
+
+                    continue;
+                }
+
+
+                validFaces.push({
+                    ...face,
+                    face_embedding: storedEmbedding
+                });
+            }
+
+
+            if (validFaces.length === 0) {
+                console.error(
+                    '❌ No valid face embeddings available'
+                );
+
+                return res.status(500).json({
+                    success: false,
+                    message:
+                        'No valid face embeddings found. Please re-enroll the affected students.',
+                    code: 'INVALID_FACE_EMBEDDINGS'
+                });
+            }
+
+
+            console.log(
+                `✅ Valid embeddings ready: ${validFaces.length}/${faceData.length}`
+            );
+
+
+            // ========================================
+            // 7. COMPARE AGAINST ALL STUDENTS
+            // ========================================
+            console.log(
+                `🔍 Comparing captured face against ${validFaces.length} students...`
+            );
+
+
+            let bestMatch = null;
+            let bestSimilarity = -1;
+
+
+            for (const face of validFaces) {
+
+                try {
+
+                    const comparison =
+                        await faceService.compareEmbeddings(
+                            capturedEmbedding,
+                            face.face_embedding
+                        );
+
+
+                    if (!comparison.success) {
+                        console.warn(
+                            `⚠️ Comparison failed for student ${face.student_id}:`,
+                            comparison.error
+                        );
+
+                        continue;
+                    }
+
+
+                    const similarity =
+                        Number(comparison.similarity);
+
+
+                    console.log(
+                        `Student ${face.student_id} similarity:`,
+                        similarity
+                    );
+
+
+                    if (
+                        Number.isFinite(similarity) &&
+                        similarity > bestSimilarity
+                    ) {
+                        bestSimilarity = similarity;
+
+                        bestMatch = {
+                            ...face,
+                            similarity
+                        };
+                    }
+
+                } catch (comparisonError) {
+
+                    console.error(
+                        `❌ Comparison error for student ${face.student_id}:`,
+                        comparisonError
+                    );
+
+                }
+            }
+
+
+            // ========================================
+            // 8. CHECK IF BEST MATCH PASSES THRESHOLD
+            // ========================================
+            const isMatch =
+                bestMatch &&
+                bestSimilarity >= Number(threshold);
+
+
             let matchedStudent = null;
 
+
             if (isMatch && bestMatch) {
-                matchedStudent = students.find(s => s.id === bestMatch.student_id);
-                
+
+                matchedStudent =
+                    students.find(
+                        student =>
+                            student.id === bestMatch.student_id
+                    );
+
+
+                console.log(
+                    `🎯 Best match: ${matchedStudent?.name}`
+                );
+
+                console.log(
+                    `📊 Similarity: ${bestSimilarity}`
+                );
+
+                console.log(
+                    `🎯 Threshold: ${threshold}`
+                );
+
+
                 if (matchedStudent) {
-                    // Update verification stats
-                    const newVerificationCount = (bestMatch.verification_count || 0) + 1;
-                    await supabase
+
+                    const newVerificationCount =
+                        (bestMatch.verification_count || 0) + 1;
+
+
+                    // Update face verification statistics
+                    const {
+                        error: faceUpdateError
+                    } = await supabase
                         .from('student_face')
                         .update({
-                            last_verified: new Date().toISOString(),
-                            verification_count: newVerificationCount,
-                            confidence_score: bestSimilarity,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('student_id', matchedStudent.id);
+                            last_verified:
+                                new Date().toISOString(),
 
-                    await supabase
+                            verification_count:
+                                newVerificationCount,
+
+                            confidence_score:
+                                bestSimilarity,
+
+                            updated_at:
+                                new Date().toISOString()
+                        })
+                        .eq(
+                            'student_id',
+                            matchedStudent.id
+                        )
+                        .eq(
+                            'campus',
+                            req.campus
+                        );
+
+
+                    if (faceUpdateError) {
+                        console.error(
+                            '⚠️ Failed to update verification stats:',
+                            faceUpdateError
+                        );
+                    }
+
+
+                    // Update student verification status
+                    const {
+                        error: studentUpdateError
+                    } = await supabase
                         .from('students')
                         .update({
                             status: 'Verified',
-                            updated_at: new Date().toISOString()
+                            updated_at:
+                                new Date().toISOString()
                         })
-                        .eq('id', matchedStudent.id);
+                        .eq(
+                            'id',
+                            matchedStudent.id
+                        )
+                        .eq(
+                            'campus',
+                            req.campus
+                        );
+
+
+                    if (studentUpdateError) {
+                        console.error(
+                            '⚠️ Failed to update student status:',
+                            studentUpdateError
+                        );
+                    }
                 }
             }
 
-            // 7. AUDIT LOG
+
+            // ========================================
+            // 9. LOG RESULT
+            // ========================================
+            console.log('\n========================================');
+
+            if (matchedStudent) {
+
+                console.log('✅ FACE MATCH FOUND');
+                console.log(
+                    'Student:',
+                    matchedStudent.name
+                );
+                console.log(
+                    'Matric:',
+                    matchedStudent.matric
+                );
+                console.log(
+                    'Similarity:',
+                    bestSimilarity
+                );
+                console.log(
+                    'Threshold:',
+                    threshold
+                );
+
+            } else {
+
+                console.log('❌ NO FACE MATCH');
+
+                console.log(
+                    'Best similarity:',
+                    bestSimilarity
+                );
+
+                console.log(
+                    'Required threshold:',
+                    threshold
+                );
+            }
+
+            console.log('========================================\n');
+
+
+            // ========================================
+            // 10. AUDIT LOG
+            // ========================================
             await auditService.log({
-                actor: req.user.name || req.user.username,
-                actor_id: req.user.id,
-                actor_role: req.user.role,
-                action: matchedStudent ? 'Room Face Verified' : 'Room Face Verification Failed',
+                actor:
+                    req.user?.name ||
+                    req.user?.username ||
+                    'System',
+
+                actor_id:
+                    req.user?.id || null,
+
+                actor_role:
+                    req.user?.role || null,
+
+                action:
+                    matchedStudent
+                        ? 'Room Face Verified'
+                        : 'Room Face Verification Failed',
+
                 module: 'face',
-                details: matchedStudent 
-                    ? `${matchedStudent.name} (${matchedStudent.matric}) verified in room ${matchedStudent.room_code || 'N/A'} with ${(bestSimilarity * 100).toFixed(1)}% confidence`
-                    : `No match found in room ${room_id || hostel_id}`,
-                context: `Threshold: ${threshold}, Students checked: ${students.length}`,
-                result: matchedStudent ? 'success' : 'failed',
+
+                details:
+                    matchedStudent
+                        ? `${matchedStudent.name} (${matchedStudent.matric}) verified in room ${
+                            matchedStudent.room_code || 'N/A'
+                        } with ${(bestSimilarity * 100).toFixed(1)}% similarity`
+                        : `No match found in ${
+                            room_id
+                                ? `room ${room_id}`
+                                : `hostel ${hostel_id}`
+                        }`,
+
+                context:
+                    `Threshold: ${threshold}, Students checked: ${students.length}, Valid embeddings: ${validFaces.length}`,
+
+                result:
+                    matchedStudent
+                        ? 'success'
+                        : 'failed',
+
                 category: 'face',
-                tone: matchedStudent ? 'green' : 'red',
-                hostel_id: hostel_id || matchedStudent?.hostel_id,
-                room_id: room_id || matchedStudent?.room_id,
-                student_id: matchedStudent?.id || null,
-                campus: req.campus,
-                ip_address: req.clientIp,
-                user_agent: req.userAgent
+
+                tone:
+                    matchedStudent
+                        ? 'green'
+                        : 'red',
+
+                hostel_id:
+                    hostel_id ||
+                    matchedStudent?.hostel_id ||
+                    null,
+
+                room_id:
+                    room_id ||
+                    matchedStudent?.room_id ||
+                    null,
+
+                student_id:
+                    matchedStudent?.id || null,
+
+                campus:
+                    req.campus,
+
+                ip_address:
+                    req.clientIp,
+
+                user_agent:
+                    req.userAgent
             });
 
-            // 8. RESPONSE
-            res.json({
+
+            // ========================================
+            // 11. RESPONSE
+            // ========================================
+            return res.json({
                 success: true,
+
                 data: {
-                    matched_student: matchedStudent ? {
-                        id: matchedStudent.id,
-                        name: matchedStudent.name,
-                        matric: matchedStudent.matric,
-                        room_code: matchedStudent.room_code
-                    } : null,
-                    verified: !!matchedStudent,
-                    similarity: bestSimilarity,
-                    threshold: threshold,
-                    students_checked: students.length,
-                    message: matchedStudent ? 'Match found' : 'No match found'
+                    matched_student:
+                        matchedStudent
+                            ? {
+                                id: matchedStudent.id,
+                                name: matchedStudent.name,
+                                matric: matchedStudent.matric,
+                                room_code:
+                                    matchedStudent.room_code
+                            }
+                            : null,
+
+                    verified:
+                        !!matchedStudent,
+
+                    similarity:
+                        bestSimilarity > -1
+                            ? bestSimilarity
+                            : 0,
+
+                    threshold:
+                        Number(threshold),
+
+                    students_checked:
+                        students.length,
+
+                    valid_embeddings:
+                        validFaces.length,
+
+                    message:
+                        matchedStudent
+                            ? 'Face match found'
+                            : 'No face match found'
                 },
-                campus: req.campus
+
+                campus:
+                    req.campus
             });
+
 
         } catch (error) {
-            console.error('Room verification error:', error);
-            res.status(500).json({
+
+            console.error(
+                '❌ Room verification error:',
+                error
+            );
+
+            return res.status(500).json({
                 success: false,
-                message: 'An error occurred during room verification. Please try again.',
+                message:
+                    'An error occurred during room verification. Please try again.',
                 code: 'SERVER_ERROR'
             });
         }
@@ -7076,13 +7595,15 @@ app.post('/api/attendance/verify',
                 FACE_VERIFICATION_THRESHOLD
             );
             
-            if (!verificationResult.success) {
+            if (!verificationResult.success || !verificationResult.verified) {
                 return res.status(400).json({
                     success: false,
-                    message: verificationResult.error || 'Face verification failed',
+                    message: verificationResult.error || 'Face verification failed - face does not match',
                     code: 'FACE_VERIFICATION_FAILED',
                     data: {
+                        verified: false,
                         confidence: verificationResult.confidence || 0,
+                        similarity: verificationResult.similarity || 0,
                         threshold: FACE_VERIFICATION_THRESHOLD
                     }
                 });
