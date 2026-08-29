@@ -216,18 +216,20 @@ def model_info():
 # ==========================
 @app.get("/api/student/{student_id}/embedding")
 async def get_student_embedding(student_id: int):
-    """Get a student's stored face embedding from Supabase"""
+    """Get student's face embedding from student_face (not students)"""
     try:
         if not supabase:
             raise HTTPException(status_code=503, detail="Supabase not configured")
         
-        result = supabase.table("students").select("face_embedding").eq("id", student_id).execute()
+        result = supabase.table("student_face").select(
+            "face_embedding, confidence_score, enrollment_status, is_active"
+        ).eq("student_id", student_id).eq("is_active", True).execute()
         
         if not result.data:
-            raise HTTPException(status_code=404, detail="Student not found")
+            raise HTTPException(status_code=404, detail="No face embedding found for this student")
         
-        student = result.data[0]
-        embedding = student.get("face_embedding")
+        row = result.data[0]
+        embedding = row.get("face_embedding")
         
         if embedding is None:
             raise HTTPException(status_code=404, detail="No face embedding found for this student")
@@ -235,7 +237,9 @@ async def get_student_embedding(student_id: int):
         return {
             "success": True,
             "embedding": embedding,
-            "student_id": student_id
+            "student_id": student_id,
+            "confidence_score": row.get("confidence_score"),
+            "enrollment_status": row.get("enrollment_status")
         }
         
     except HTTPException:
@@ -340,50 +344,75 @@ async def enroll_face(request: EnrollmentRequest):
                 "quality": 0.0
             }
         
-        embedding = prepare_embedding_for_db(result["embedding"])
+            embedding = prepare_embedding_for_db(result["embedding"])
         
-        if not supabase:
-            raise HTTPException(status_code=503, detail="Supabase not configured")
+            if not supabase:
+                raise HTTPException(status_code=503, detail="Supabase not configured")
 
-        student_id_int = int(request.student_id)
+            student_id_int = int(request.student_id)
 
-        # 1. Fetch student info for campus mapping
-        student_res = supabase.table("students").select("campus, campus_code").eq("id", student_id_int).execute()
-        
-        if not student_res.data:
-            raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
-        
-        student_info = student_res.data[0]
+            # 1. Student details only (for campus)
+            student_res = supabase.table("students").select(
+                "id, campus, campus_code"
+            ).eq("id", student_id_int).execute()
+            
+            if not student_res.data:
+                raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
+            
+            student_info = student_res.data[0]
+            campus = student_info.get("campus") or "Legacy"
+            campus_code = student_info.get("campus_code") or ("LEG" if campus == "Legacy" else "HER")
 
-        # 2. Insert into `student_face`
-        face_record = {
-            "student_id": student_id_int,
-            "campus": student_info.get("campus"),
-            "campus_code": student_info.get("campus_code"),
-            "face_embedding": embedding,
-            "enrollment_status": "enrolled",
-            "enrolled_by_student": True,
-            "is_active": True,
-            "confidence_score": result["confidence"]
-        }
-        supabase.table("student_face").insert(face_record).execute()
+            # 2. Face record — ONLY student_face (matches your schema)
+            face_record = {
+                "student_id": student_id_int,
+                "campus": campus,
+                "campus_code": campus_code,
+                "face_embedding": embedding,
+                "face_image_url": None,
+                "face_image_path": None,
+                "enrollment_status": "enrolled",
+                "enrollment_date": "now()",
+                "last_verified": None,
+                "verification_count": 0,
+                "confidence_score": float(result["confidence"]),
+                "is_active": True,
+                "notes": None,
+                "enrolled_by": None,
+                "enrolled_by_student": True,
+                "enrollment_ip": None,
+                "enrollment_device": None,
+            }
 
-        # 3. Update `students` table flags
-        supabase.table("students").update({
-            "face_enrolled": True,
-            "face_enrolled_at": "now()",
-            "face_enrolled_by_student": True,
-            "face_embedding": embedding
-        }).eq("id", student_id_int).execute()
-        
-        return {
-            "success": True,
-            "embedding": embedding,
-            "confidence": result["confidence"],
-            "quality": result["quality_score"],
-            "student_id": request.student_id,
-            "message": "Face enrolled and saved to database successfully"
-        }
+            # Upsert-style: update if row exists for this student+campus
+            existing = supabase.table("student_face").select("id").eq(
+                "student_id", student_id_int
+            ).eq("campus", campus).execute()
+
+            if existing.data:
+                face_res = supabase.table("student_face").update(face_record).eq(
+                    "id", existing.data[0]["id"]
+                ).execute()
+            else:
+                face_res = supabase.table("student_face").insert(face_record).execute()
+
+            if not face_res.data:
+                raise HTTPException(status_code=500, detail="Failed to save face data to student_face")
+
+            # 3. Optional flag ONLY on students (no embedding)
+            supabase.table("students").update({
+                "face_enrolled": True,
+                "updated_at": "now()"
+            }).eq("id", student_id_int).execute()
+            
+            return {
+                "success": True,
+                "embedding": embedding,
+                "confidence": result["confidence"],
+                "quality": result["quality_score"],
+                "student_id": request.student_id,
+                "message": "Face enrolled and saved to student_face successfully"
+            }
         
     except HTTPException:
         raise
@@ -445,7 +474,10 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
         student_id_int = int(request.student_id)
 
         # 1. Fetch student campus info
-        student_res = supabase.table("students").select("campus, campus_code").eq("id", student_id_int).execute()
+        student_res = supabase.table("students").update({
+            "face_enrolled": True,
+            "updated_at": "now()"
+        }).eq("id", student_id_int).execute()
         
         if not student_res.data:
             raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
