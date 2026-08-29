@@ -4006,7 +4006,7 @@ app.post('/api/face/enroll',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
@@ -4203,7 +4203,7 @@ app.post('/api/face/enroll-bulk',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
@@ -4883,7 +4883,7 @@ app.post('/api/face/extract',
 );
 
 // =====================================================
-// STUDENT FACE ENDPOINTS (Legacy) - COMPLETE FIX
+// STUDENT FACE ENDPOINTS (authenticated, both campuses)
 // =====================================================
 
 app.get('/api/students/:id/face-status',
@@ -5049,7 +5049,7 @@ app.post('/api/students/:id/face/enroll',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
