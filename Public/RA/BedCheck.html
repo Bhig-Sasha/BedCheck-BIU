@@ -510,7 +510,7 @@
 
     <canvas id="captureCanvas"></canvas>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -665,43 +665,67 @@
                     throw new Error('No authentication token');
                 }
 
-                try {
-                    const headers = {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                        ...(options.headers || {})
-                    };
-                    
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
-                    
-                    if (response.status === 401) {
-                        showToast('Session expired. Please login again.', 'error');
-                        sessionStorage.removeItem('bedcheck_token');
-                        sessionStorage.removeItem('bedcheck_user');
-                        sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => {
-                            window.location.replace('../Login.html');
-                        }, 1500);
-                        throw new Error('Authentication required');
+                // Add retry logic for rate limits
+                let retries = 3;
+                let delay = 1000;
+                
+                while (retries > 0) {
+                    try {
+                        const headers = {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                            ...(options.headers || {})
+                        };
+                        
+                        const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+                        
+                        if (response.status === 429) {
+                            const data = await response.json();
+                            console.warn(`⚠️ Rate limit hit (${retries} retries left):`, data.message);
+                            
+                            if (retries > 1) {
+                                const waitTime = delay * (4 - retries);
+                                console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+                                await new Promise(resolve => setTimeout(resolve, waitTime));
+                                retries--;
+                                continue;
+                            } else {
+                                showToast('Too many requests. Please wait a moment and try again.', 'error');
+                                throw new Error('Rate limit exceeded');
+                            }
+                        }
+                        
+                        if (response.status === 401) {
+                            showToast('Session expired. Please login again.', 'error');
+                            sessionStorage.removeItem('bedcheck_token');
+                            sessionStorage.removeItem('bedcheck_user');
+                            sessionStorage.removeItem('bedcheck_role');
+                            setTimeout(() => {
+                                window.location.replace('../Login.html');
+                            }, 1500);
+                            throw new Error('Authentication required');
+                        }
+                        
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`HTTP ${response.status}: ${errorText}`);
+                        }
+                        const data = await response.json();
+                        
+                        if (data.success === false) {
+                            throw new Error(data.message || 'API error');
+                        }
+                        
+                        return data;
+                        
+                    } catch (error) {
+                        if (error.message.includes('429') || error.message.includes('Rate limit')) {
+                            retries--;
+                            if (retries === 0) throw error;
+                            continue;
+                        }
+                        throw error;
                     }
-                    
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${errorText}`);
-                    }
-                    const data = await response.json();
-                    
-                    // Check if the response indicates success
-                    if (data.success === false) {
-                        throw new Error(data.message || 'API error');
-                    }
-                    
-                    return data;
-                } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        showToast('Error: ' + error.message, 'error');
-                    }
-                    throw error;
                 }
             }
 
@@ -744,7 +768,6 @@
                     // Handle rate limit errors gracefully
                     if (error.message && error.message.includes('429')) {
                         console.warn(`⚠️ Rate limit hit for student ${studentId}, using cached/fallback data`);
-                        // Try to use student's face_enrolled from local data
                         const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
                         if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
                             return { 
@@ -798,7 +821,7 @@
                     
                     if (response.status === 429) {
                         console.warn('⚠️ Face health check rate limited, skipping...');
-                        isApiHealthy = true; // Assume healthy to avoid blocking
+                        isApiHealthy = true;
                         apiHealthChecked = true;
                         return isApiHealthy;
                     }
@@ -816,13 +839,13 @@
                     }
                 } catch (error) {
                     console.warn('Face API health check failed:', error.message);
-                    isApiHealthy = true; // Assume healthy to avoid blocking
+                    isApiHealthy = true;
                 }
                 apiHealthChecked = true;
                 return isApiHealthy;
             }
 
-            async function verifyFaceWithAPI(imageDataUrl, studentId, threshold = 0.55) {
+            async function verifyFaceWithAPI(imageDataUrl, studentId, threshold = 0.45) {
                 try {
                     console.log(`🔐 Verifying student ${studentId} with threshold ${threshold}`);
                     
@@ -838,7 +861,7 @@
                     console.log('📊 Verification result:', result);
 
                     const verified = !!(result.data && result.data.verified);
-                    const confidence = result.data?.confidence || 0;
+                    const confidence = result.data?.similarity || result.data?.confidence || 0;
                     
                     return {
                         success: verified,
@@ -895,6 +918,65 @@
                     return true;
                 }
                 return false;
+            }
+
+            // =============================================
+            // CAPTURE BEST FRAME - Take multiple frames and pick the best
+            // =============================================
+            function captureBestFrame(video) {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                
+                let bestImageData = null;
+                let bestQuality = 0;
+                
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    if (attempt > 0) {
+                        const start = Date.now();
+                        while (Date.now() - start < 100) {}
+                    }
+                    
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    let brightness = 0;
+                    let contrast = 0;
+                    
+                    for (let i = 0; i < data.length; i += 4) {
+                        brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+                    }
+                    brightness /= (data.length / 4);
+                    
+                    let variance = 0;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const pixelBrightness = (data[i] + data[i+1] + data[i+2]) / 3;
+                        variance += Math.pow(pixelBrightness - brightness, 2);
+                    }
+                    variance /= (data.length / 4);
+                    contrast = Math.sqrt(variance);
+                    
+                    let qualityScore = 0;
+                    if (brightness > 80 && brightness < 220) qualityScore += 50;
+                    if (contrast > 30) qualityScore += 50;
+                    qualityScore = Math.min(100, qualityScore + (brightness - 127) * 0.2);
+                    
+                    console.log(`📸 Frame ${attempt + 1}: brightness=${Math.round(brightness)}, contrast=${Math.round(contrast)}, quality=${Math.round(qualityScore)}`);
+                    
+                    if (qualityScore > bestQuality) {
+                        bestQuality = qualityScore;
+                        bestImageData = canvas.toDataURL('image/jpeg', 0.95);
+                    }
+                    
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                }
+                
+                console.log(`📸 Best frame quality: ${Math.round(bestQuality)}%`);
+                return bestImageData;
             }
 
             function captureFrame(video) {
@@ -1034,7 +1116,6 @@
                 document.getElementById('modalRoomLabel').textContent = currentRoom || '—';
                 document.getElementById('modalBedLabel').textContent = getStudentBed(student.id) || '—';
 
-                // Check face status using ONLY the proper endpoint
                 const faceStatus = await checkStudentFaceStatus(student.id);
                 studentFaceStatus[student.id] = faceStatus;
                 
@@ -1044,14 +1125,12 @@
                 
                 console.log(`Face status for ${student.name} (ID: ${student.id}):`, faceStatus);
                 
-                // Determine if student has a valid face enrollment based ONLY on server data
                 const hasEnrollment = faceStatus.enrolled === true;
                 const hasEmbedding = faceStatus.has_embedding === true;
                 const isPartial = hasEnrollment && !hasEmbedding;
                 const hasError = faceStatus.error !== undefined;
                 
                 if (hasError) {
-                    // Server error - couldn't check face status
                     faceStatusEl.textContent = '⚠️ Status Check Failed';
                     faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
                     verifyBtn.disabled = true;
@@ -1060,7 +1139,6 @@
                     showToast(`⚠️ Could not check face status: ${faceStatus.error || 'Unknown error'}`, 'error');
                     
                 } else if (hasEnrollment && hasEmbedding) {
-                    // Fully enrolled with embedding
                     faceStatusEl.textContent = '✅ Face Enrolled';
                     faceStatusContainer.className = 'mini-badge face-status-enrolled';
                     verifyBtn.disabled = false;
@@ -1078,7 +1156,6 @@
                     }
                     
                 } else if (isPartial) {
-                    // Student has face_enrolled=true but no embedding in student_face table
                     faceStatusEl.textContent = '⚠️ Partial Enrollment - Re-enroll Required';
                     faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
                     verifyBtn.disabled = true;
@@ -1087,7 +1164,6 @@
                     showToast('⚠️ This student needs to re-enroll their face. The embedding is missing.', 'error');
                     
                 } else if (!hasEnrollment) {
-                    // No face enrollment at all
                     faceStatusEl.textContent = '❌ No Face Enrolled';
                     faceStatusContainer.className = 'mini-badge face-status-not-enrolled';
                     verifyBtn.disabled = true;
@@ -1107,7 +1183,6 @@
 
                 document.getElementById('verifyModal').classList.add('show');
 
-                // Check Face API health
                 checkFaceApiHealth().then(() => {
                     if (!isApiHealthy) {
                         showToast('⚠️ Face verification service is offline. Please try again later.', 'error');
@@ -1131,6 +1206,9 @@
                 isVerifying = false;
             };
 
+            // =============================================
+            // START VERIFICATION - WITH BETTER FEEDBACK
+            // =============================================
             window.startVerification = function() {
                 if (isVerifying) return;
                 if (!selectedStudent) {
@@ -1138,7 +1216,6 @@
                     return;
                 }
                 
-                // Check face enrollment again
                 const faceStatus = studentFaceStatus[selectedStudent.id];
                 if (!faceStatus || !faceStatus.enrolled || !faceStatus.has_embedding) {
                     showToast('❌ This student has not enrolled their face properly. Please ask them to re-enroll.', 'error');
@@ -1174,8 +1251,17 @@
 
                 const video = document.getElementById('modalCamera');
                 if (video && video.readyState >= 2) {
-                    const imageDataUrl = captureFrame(video);
-                    performVerificationWithAPI(imageDataUrl);
+                    const imageDataUrl = captureBestFrame(video);
+                    if (imageDataUrl) {
+                        performVerificationWithAPI(imageDataUrl);
+                    } else {
+                        showToast('Could not capture a clear face. Please try again.', 'error');
+                        isVerifying = false;
+                        document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
+                        document.getElementById('modalVerifyBtn').disabled = false;
+                        document.getElementById('modalCameraStatus').textContent = 'Capture failed';
+                        document.getElementById('statusDot').className = 'status-dot-live error';
+                    }
                 } else {
                     showToast('Camera not ready. Please try again.', 'error');
                     isVerifying = false;
@@ -1186,6 +1272,9 @@
                 }
             };
 
+            // =============================================
+            // PERFORM VERIFICATION WITH API - WITH BETTER MATCHING
+            // =============================================
             async function performVerificationWithAPI(imageDataUrl) {
                 try {
                     const faceBox = document.getElementById('modalFaceBox');
@@ -1198,16 +1287,13 @@
                         if (label) label.textContent = '🔍 Verifying...';
                     }
 
-                    // Try with default threshold first
-                    let threshold = 0.55;
+                    let threshold = 0.45;
                     
-                    // If this is a retry, lower the threshold
                     if (currentVerificationAttempts > 1) {
-                        threshold = 0.45;
+                        threshold = 0.40;
                         document.getElementById('modalCameraStatus').textContent = `Retry ${currentVerificationAttempts} with lower threshold...`;
                     }
 
-                    // Call backend /face/verify endpoint
                     const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id, threshold);
                     
                     if (!result) {
@@ -1230,7 +1316,6 @@
                             confidence: confidencePercent
                         };
 
-                        // Record the scan
                         try {
                             await apiCall('/bedcheck/scans', {
                                 method: 'POST',
@@ -1288,15 +1373,22 @@
                         }, 2000);
 
                     } else {
-                        // If confidence is between 40-54% and we haven't tried too many times, retry with lower threshold
-                        if (confidence >= 0.40 && confidence < 0.55 && currentVerificationAttempts < 3) {
-                            showToast(`🔄 ${confidencePercent}% confidence. Retrying with lower threshold...`, 'info');
+                        if (confidence >= 0.30 && confidence < 0.45 && currentVerificationAttempts < 3) {
+                            showToast(`🔄 ${confidencePercent}% confidence. Please ensure you are looking directly at the camera with good lighting.`, 'info');
                             setTimeout(() => {
                                 if (isVerifying) {
                                     const video = document.getElementById('modalCamera');
                                     if (video && video.readyState >= 2) {
-                                        const newImageData = captureFrame(video);
-                                        performVerificationWithAPI(newImageData);
+                                        const newImageData = captureBestFrame(video);
+                                        if (newImageData) {
+                                            performVerificationWithAPI(newImageData);
+                                        } else {
+                                            isVerifying = false;
+                                            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
+                                            document.getElementById('modalVerifyBtn').disabled = false;
+                                            document.getElementById('modalCameraStatus').textContent = 'Capture failed';
+                                            document.getElementById('statusDot').className = 'status-dot-live error';
+                                        }
                                     } else {
                                         isVerifying = false;
                                         document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
@@ -1305,18 +1397,17 @@
                                         document.getElementById('statusDot').className = 'status-dot-live error';
                                     }
                                 }
-                            }, 1500);
+                            }, 2000);
                             return;
                         }
                         
-                        // Check if student has face embedding but verification failed
                         const faceStatus = studentFaceStatus[selectedStudent.id];
                         let reason = result.reason || 'Face does not match. Please try again with better lighting.';
                         
-                        if (faceStatus && faceStatus.has_embedding && confidence < 0.30) {
-                            reason = 'Face detected but does not match the enrolled face. Please ensure you are looking directly at the camera with good lighting.';
-                        } else if (faceStatus && faceStatus.has_embedding && confidence >= 0.30 && confidence < 0.55) {
-                            reason = `Low confidence match (${confidencePercent}%). Please try again with better lighting and look directly at the camera.`;
+                        if (faceStatus && faceStatus.has_embedding && confidence < 0.25) {
+                            reason = '❌ Face detected but does not match the enrolled face. Please ensure you are looking directly at the camera with good lighting.';
+                        } else if (faceStatus && faceStatus.has_embedding && confidence >= 0.25 && confidence < 0.45) {
+                            reason = `⚠️ Low confidence match (${confidencePercent}%). Please ensure you are looking directly at the camera with good lighting.`;
                         }
                         
                         if (faceBox) {
@@ -1517,7 +1608,6 @@
                         return;
                     }
                     
-                    // 1. Check global active session (NO CAMPUS FILTER)
                     try {
                         const globalSession = await apiCall('/sessions/active');
                         if (globalSession && globalSession.data && globalSession.is_active) {
@@ -1532,7 +1622,6 @@
                         currentSession = null;
                     }
                     
-                    // 2. Check RA session status
                     try {
                         const statusData = await apiCall('/ra/bedcheck/status');
                         
@@ -1543,7 +1632,6 @@
                             isRASessionActive = data.ra_session_active || false;
                             hasCompletedToday = data.has_completed_today || false;
                             
-                            // Clean status mapping
                             if (effectiveStatus === 'started') {
                                 sessionStatus = 'active';
                                 isSessionActive = true;
@@ -1566,7 +1654,6 @@
                                 isSessionActive = false;
                             }
                             
-                            // Get scans if there's a session
                             if (data.active_session || currentSession) {
                                 const sessionId = data.active_session?.session_id || currentSession?.id;
                                 if (sessionId) {
@@ -1596,7 +1683,6 @@
                                 }
                             }
                             
-                            // Update completed rooms
                             if (availableRooms.length > 0) {
                                 completedRooms = [];
                                 availableRooms.forEach(room => {
@@ -1628,7 +1714,6 @@
             // =============================================
             function startSessionChecker() {
                 if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
-                // Increase from 30s to 90s to reduce API calls
                 sessionCheckerInterval = setInterval(async () => {
                     try {
                         const oldEffectiveStatus = effectiveStatus;
@@ -1639,11 +1724,11 @@
                     } catch (error) {
                         // Silent fail
                     }
-                }, 90000); // 90 seconds
+                }, 90000);
             }
 
             // =============================================
-            // RENDER BEDCHECK - NO FALLBACKS, SERVER ONLY
+            // RENDER BEDCHECK
             // =============================================
             async function renderBedCheck() {
                 const container = document.getElementById('screenContent');
@@ -1651,7 +1736,6 @@
                 const nowTime = new Date();
                 const timeStr = nowTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-                // Clean session display
                 let sessionDisplay = {
                     title: 'Night BedCheck',
                     statusText: 'No session available',
@@ -1734,21 +1818,14 @@
                 const hasValidSessionData = sessionInfoParts.length > 0;
                 const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
-                // =============================================
-                // PRE-CHECK FACE STATUS - SERVER ONLY, NO FALLBACKS
-                // =============================================
+                // Pre-check face status
                 if (currentRoom && roomStudents.length > 0) {
                     for (const student of roomStudents) {
-                        // ONLY check if we don't already have the status from server
                         if (!studentFaceStatus[student.id]) {
                             try {
                                 const faceStatus = await checkStudentFaceStatus(student.id);
-                                // ONLY use what the server returns - NO FALLBACKS
                                 studentFaceStatus[student.id] = faceStatus;
-                                console.log(`📊 Face status from server for ${student.name}:`, faceStatus);
                             } catch (error) {
-                                console.error(`❌ Failed to get face status for ${student.name}:`, error);
-                                // Set to a "no enrollment" state - NO FALLBACK to local data
                                 studentFaceStatus[student.id] = {
                                     enrolled: false,
                                     has_embedding: false,
@@ -1817,9 +1894,7 @@
                     roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
                 }
 
-                // =============================================
-                // BUILD STUDENT CARDS - SERVER DATA ONLY, NO FALLBACKS
-                // =============================================
+                // Build student cards
                 let studentCardsHtml = '';
                 if (currentRoom && roomStudents.length > 0) {
                     studentCardsHtml = roomStudents.map(s => {
@@ -1833,19 +1908,12 @@
                         const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                         const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
                         
-                        // =============================================
-                        // FACE STATUS - FROM SERVER ONLY, NO FALLBACKS
-                        // =============================================
                         const faceStatus = studentFaceStatus[s.id];
-                        
-                        // Default: no face enrolled
                         let hasFace = false;
                         let faceLabel = '⚠️ No Face';
                         let faceColor = '#a84134';
                         
-                        // ONLY use server data - NO FALLBACKS to student.face_enrolled
                         if (faceStatus) {
-                            // Server returned data - use it exclusively
                             hasFace = faceStatus.enrolled === true && faceStatus.has_embedding === true;
                             
                             if (hasFace) {
@@ -1858,9 +1926,7 @@
                                 faceLabel = '⚠️ Error';
                                 faceColor = '#a84134';
                             }
-                            // else: faceLabel stays '⚠️ No Face'
                         }
-                        // If no faceStatus, student has no face enrollment (server returned nothing)
 
                         return `
                             <div class="student-card ${isVerified ? 'verified' : ''}">
@@ -2130,45 +2196,34 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
-                    // =============================================
-                    // STEP 1: Check Face API health with retry
-                    // =============================================
                     try {
                         await checkFaceApiHealth();
                     } catch (e) {
                         console.warn('Face API health check failed, continuing...');
                     }
 
-                    // =============================================
-                    // STEP 2: Sequential API calls with delays
-                    // =============================================
                     console.log('📊 Loading data sequentially...');
                     
-                    // Get hostels first
                     console.log('📊 Fetching hostels...');
                     const hostelsResult = await apiCall('/hostels');
                     hostels = hostelsResult.data || [];
                     await new Promise(resolve => setTimeout(resolve, 300));
                     
-                    // Then students
                     console.log('📊 Fetching students...');
                     const studentsResult = await apiCall('/students');
                     allStudents = studentsResult.data || [];
                     await new Promise(resolve => setTimeout(resolve, 300));
                     
-                    // Then floors
                     console.log('📊 Fetching floors...');
                     const floorsResult = await apiCall('/floors-flats');
                     allFloorsFlats = floorsResult.data || [];
                     await new Promise(resolve => setTimeout(resolve, 300));
                     
-                    // Then rooms
                     console.log('📊 Fetching rooms...');
                     const roomsResult = await apiCall('/rooms');
                     allRooms = roomsResult.data || [];
                     await new Promise(resolve => setTimeout(resolve, 300));
                     
-                    // Then bed spaces
                     console.log('📊 Fetching bed spaces...');
                     const bedSpacesResult = await apiCall('/bed-spaces');
                     allBedSpaces = bedSpacesResult.data || [];
@@ -2211,7 +2266,6 @@
                     updateHeader();
                     buildRoomStructure();
 
-                    // Load session data
                     await loadSessionData();
 
                     if (availableRooms.length > 0 && !currentRoom) {
@@ -2221,7 +2275,6 @@
 
                     renderBedCheck();
 
-                    // Start session checker with longer interval
                     startSessionChecker();
 
                 } catch (error) {
