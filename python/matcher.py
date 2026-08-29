@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import cv2
 import numpy as np
 
-from .verify import cosine_similarity, get_face_embedding
+from python.verify import cosine_similarity, get_face_embedding
 
 
 logger = logging.getLogger(__name__)
