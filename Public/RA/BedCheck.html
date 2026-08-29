@@ -1630,10 +1630,10 @@
                 }, 30000);
             }
 
+// =============================================
+            // RENDER BEDCHECK - NO FALLBACKS, SERVER ONLY
             // =============================================
-            // RENDER BEDCHECK
-            // =============================================
-            function renderBedCheck() {
+            async function renderBedCheck() {
                 const container = document.getElementById('screenContent');
                 const stats = getTotalStats();
                 const nowTime = new Date();
@@ -1722,6 +1722,36 @@
                 const hasValidSessionData = sessionInfoParts.length > 0;
                 const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
+                // =============================================
+                // PRE-CHECK FACE STATUS - SERVER ONLY, NO FALLBACKS
+                // =============================================
+                if (currentRoom && roomStudents.length > 0) {
+                    for (const student of roomStudents) {
+                        // ONLY check if we don't already have the status from server
+                        if (!studentFaceStatus[student.id]) {
+                            try {
+                                const faceStatus = await checkStudentFaceStatus(student.id);
+                                // ONLY use what the server returns - NO FALLBACKS
+                                studentFaceStatus[student.id] = faceStatus;
+                                console.log(`📊 Face status from server for ${student.name}:`, faceStatus);
+                            } catch (error) {
+                                console.error(`❌ Failed to get face status for ${student.name}:`, error);
+                                // Set to a "no enrollment" state - NO FALLBACK to local data
+                                studentFaceStatus[student.id] = {
+                                    enrolled: false,
+                                    has_embedding: false,
+                                    status: 'error',
+                                    verification_count: 0,
+                                    confidence_score: null,
+                                    last_verified: null,
+                                    embedding_dimension: 0,
+                                    face_image_url: null
+                                };
+                            }
+                        }
+                    }
+                }
+
                 // Build room list HTML
                 let roomListHtml = '';
                 if (allRooms.length > 0) {
@@ -1775,7 +1805,9 @@
                     roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
                 }
 
-                // Build student cards
+                // =============================================
+                // BUILD STUDENT CARDS - SERVER DATA ONLY, NO FALLBACKS
+                // =============================================
                 let studentCardsHtml = '';
                 if (currentRoom && roomStudents.length > 0) {
                     studentCardsHtml = roomStudents.map(s => {
@@ -1789,16 +1821,44 @@
                         const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                         const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
                         
-                        // Check face enrollment status
+                        // =============================================
+                        // FACE STATUS - FROM SERVER ONLY, NO FALLBACKS
+                        // =============================================
                         const faceStatus = studentFaceStatus[s.id];
-                        const hasFace = faceStatus?.enrolled && faceStatus?.has_embedding || false;
-                        const faceLabel = hasFace ? '📸 Face OK' : '⚠️ No Face';
+                        
+                        // Default: no face enrolled
+                        let hasFace = false;
+                        let faceLabel = '⚠️ No Face';
+                        let faceColor = '#a84134';
+                        
+                        // ONLY use server data - NO FALLBACKS to student.face_enrolled
+                        if (faceStatus) {
+                            // Server returned data - use it exclusively
+                            hasFace = faceStatus.enrolled === true && faceStatus.has_embedding === true;
+                            
+                            if (hasFace) {
+                                faceLabel = '✅ Face OK';
+                                faceColor = '#2d6545';
+                            } else if (faceStatus.enrolled === true && faceStatus.has_embedding === false) {
+                                faceLabel = '⚠️ Partial';
+                                faceColor = '#d97706';
+                            } else if (faceStatus.status === 'error') {
+                                faceLabel = '⚠️ Error';
+                                faceColor = '#a84134';
+                            }
+                            // else: faceLabel stays '⚠️ No Face'
+                        }
+                        // If no faceStatus, student has no face enrollment (server returned nothing)
 
                         return `
                             <div class="student-card ${isVerified ? 'verified' : ''}">
                                 <div class="student-info">
                                     <div class="name">${s.name}</div>
-                                    <div class="matric">${s.matric || '—'} · Bed ${bedLabel} <span style="font-size:0.6rem;color:${hasFace ? '#2d6545' : '#a84134'};margin-left:0.3rem;">${faceLabel}</span></div>
+                                    <div class="matric">${s.matric || '—'} · Bed ${bedLabel} 
+                                        <span style="font-size:0.6rem;color:${faceColor};margin-left:0.3rem;">
+                                            ${faceLabel}
+                                        </span>
+                                    </div>
                                     ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
                                 </div>
                                 <span class="status-tag ${statusClass}">${statusLabel}</span>
@@ -1916,7 +1976,7 @@
                     </div>
                 `;
             }
-
+            
             // =============================================
             // ROOM SELECTION
             // =============================================
