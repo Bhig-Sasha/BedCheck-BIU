@@ -58,132 +58,54 @@ services:
     plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
 
+    # IMPORTANT:
+    # Build from repository ROOT.
+    # Do NOT use "cd python" here.
     buildCommand: |
-      cd python
-
       pip install --upgrade pip
-      pip install -r requirements.txt
-
-      cd ..
+      pip install -r python/requirements.txt
 
       echo "=========================================="
-      echo "Downloading InsightFace antelopev2 model"
+      echo "Checking InsightFace antelopev2 model"
       echo "=========================================="
 
       python -c "
       import os
-      import insightface
-      import zipfile
-      import requests
 
-      model_root = './models'
-      model_dir = os.path.join(
-          model_root,
-          'models',
-          'antelopev2'
-      )
-
-      os.makedirs(model_dir, exist_ok=True)
+      model_dir = 'python/models/models/antelopev2'
 
       required_models = [
           'glintr100.onnx',
           'scrfd_10g_bnkps.onnx'
       ]
 
-      model_ready = all(
-          os.path.exists(
-              os.path.join(model_dir, filename)
-          )
-          for filename in required_models
-      )
+      missing = [
+          f for f in required_models
+          if not os.path.exists(os.path.join(model_dir, f))
+      ]
 
-      if model_ready:
-          print('✅ antelopev2 model already exists')
+      if missing:
+          print('WARNING: Missing model files:')
+          for f in missing:
+              print(f' - {f}')
       else:
-          print('📥 Downloading antelopev2 model...')
+          print('Model files found:')
+          for f in required_models:
+              print(f' - {f}')
+      "
 
-          model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
-          zip_path = os.path.join(
-              model_root,
-              'antelopev2.zip'
-          )
+      echo "=========================================="
+      echo "Verifying InsightFace model"
+      echo "=========================================="
 
-          response = requests.get(
-              model_url,
-              stream=True,
-              timeout=300
-          )
-
-          response.raise_for_status()
-
-          total_size = int(
-              response.headers.get(
-                  'content-length',
-                  0
-              )
-          )
-
-          downloaded = 0
-          last_progress = -1
-
-          with open(zip_path, 'wb') as f:
-              for chunk in response.iter_content(
-                  chunk_size=1024 * 1024
-              ):
-                  if chunk:
-                      f.write(chunk)
-                      downloaded += len(chunk)
-
-                      if total_size > 0:
-                          progress = int(
-                              downloaded / total_size * 100
-                          )
-
-                          if (
-                              progress != last_progress
-                              and progress % 10 == 0
-                          ):
-                              print(
-                                  f'Download progress: {progress}%'
-                              )
-                              last_progress = progress
-
-          print('📦 Extracting model...')
-
-          extract_path = os.path.join(
-              model_root,
-              'models'
-          )
-
-          os.makedirs(
-              extract_path,
-              exist_ok=True
-          )
-
-          with zipfile.ZipFile(
-              zip_path,
-              'r'
-          ) as zip_ref:
-              zip_ref.extractall(
-                  extract_path
-              )
-
-          os.remove(zip_path)
-
-          print(
-              '✅ Model downloaded and extracted successfully'
-          )
-
-      print('🔍 Verifying antelopev2 model...')
+      python -c "
+      import insightface
 
       model = insightface.app.FaceAnalysis(
           name='antelopev2',
-          root=model_root,
+          root='./python/models',
           providers=['CPUExecutionProvider'],
-          allowed_modules=[
-              'detection',
-              'recognition'
-          ]
+          allowed_modules=['detection', 'recognition']
       )
 
       model.prepare(
@@ -191,24 +113,20 @@ services:
           det_size=(640, 640)
       )
 
+      print('==========================================')
       print('✅ Model verified and ready')
+      print('==========================================')
       "
 
-      rm -rf /opt/render/project/src/.venv/lib/python3.11/site-packages/tensorflow* 2>/dev/null || true
-
-
-    # =====================================================
-    # START PYTHON FACE API
-    # =====================================================
+    # IMPORTANT:
+    # Start from repository ROOT so python is a package.
+    # This fixes:
+    # ImportError: attempted relative import with no known parent package
     startCommand: |
       export PYTHONUNBUFFERED=1
       export TF_CPP_MIN_LOG_LEVEL=3
       uvicorn python.app:app --host 0.0.0.0 --port $PORT
 
-
-    # =====================================================
-    # ENVIRONMENT VARIABLES
-    # =====================================================
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -219,8 +137,10 @@ services:
       - key: PIP_NO_CACHE_DIR
         value: "true"
 
+      # Model is inside:
+      # python/models/models/antelopev2
       - key: INSIGHTFACE_CACHE
-        value: ./models
+        value: ./python/models
 
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
@@ -231,7 +151,6 @@ services:
       - key: UVICORN_TIMEOUT
         value: "120"
 
-
     healthCheckPath: /health
     autoDeploy: true
     numReplicas: 1
@@ -239,11 +158,10 @@ services:
     buildFilter:
       paths:
         - python/app.py
-        - python/__init__.py
         - python/embeddings.py
         - python/verify.py
         - python/liveness.py
         - python/matcher.py
         - python/requirements.txt
-        - models/**/*
+        - python/models/**
         - render.yaml
