@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+import fastapi
+import fastapi.middleware.cors
+import pydantic
 import insightface
 import cv2
 import numpy as np
@@ -9,14 +9,14 @@ import time
 from typing import List, Optional, Dict, Any
 import logging
 import os
-from dotenv import load_dotenv
-from supabase import create_client, Client
+import dotenv
+import supabase as supabase_
 
 # Load environment variables
-load_dotenv()
+dotenv.load_dotenv()
 
 # Import our modules
-from embeddings import (
+from .embeddings import (
     create_embedding,
     create_embedding_with_quality,
     smart_enrollment,
@@ -25,7 +25,8 @@ from embeddings import (
     capture_frames_for_enrollment,
     average_embeddings
 )
-from verify import (
+
+from .verify import (
     get_face_embedding,
     cosine_similarity,
     verify_student,
@@ -33,7 +34,9 @@ from verify import (
     verify_with_confidence_tracking,
     verify_multiple_with_tracking
 )
-from liveness import LivenessDetector
+
+from .liveness import LivenessDetector
+from .matcher import FaceMatcher, OrganizationFaceMatcher
 
 # ==========================
 # Logging Configuration
@@ -46,12 +49,12 @@ logger = logging.getLogger(__name__)
 # ==========================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+supabase: supabase_.Client = supabase_.create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 # ==========================
 # FastAPI App
 # ==========================
-app = FastAPI(
+app = fastapi.FastAPI(
     title="BIU BedCheck Face Engine",
     description="Face Recognition API for BIU BedCheck System",
     version="1.0.0"
@@ -61,7 +64,7 @@ app = FastAPI(
 # CORS Configuration
 # ==========================
 app.add_middleware(
-    CORSMiddleware,
+    fastapi.middleware.cors.CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -71,41 +74,52 @@ app.add_middleware(
 # ==========================
 # Request/Response Models
 # ==========================
-class ImageRequest(BaseModel):
+class ImageRequest(pydantic.BaseModel):
     image: str
     student_id: Optional[str] = None
     threshold: Optional[float] = 0.55
 
-class MultipleImageRequest(BaseModel):
+class MultipleImageRequest(pydantic.BaseModel):
     image: str
     embeddings: List[List[float]]
     student_ids: List[str]
     threshold: Optional[float] = 0.55
 
-class EnrollmentRequest(BaseModel):
+class EnrollmentRequest(pydantic.BaseModel):
     image: str
     student_id: str
     hostel: str
     room: str
     name: Optional[str] = None
 
-class BulkEnrollmentRequest(BaseModel):
+class BulkEnrollmentRequest(pydantic.BaseModel):
     frames: List[str]
     student_id: str
     hostel: str
     room: str
     name: Optional[str] = None
 
-class LivenessRequest(BaseModel):
+class LivenessRequest(pydantic.BaseModel):
     image: str
 
-class VerifyRequest(BaseModel):
+class VerifyRequest(pydantic.BaseModel):
     image: str
     stored_embedding: List[float]
     threshold: Optional[float] = 0.55
 
-class StudentEmbeddingRequest(BaseModel):
+class StudentEmbeddingRequest(pydantic.BaseModel):
     student_id: int
+
+# Face Matching Request Models
+class MatchRequest(pydantic.BaseModel):
+    image: str  # Base64 encoded image
+    organization: str  # Organization ID (campus_code)
+    threshold: Optional[float] = 0.55
+
+class BatchMatchRequest(pydantic.BaseModel):
+    images: List[str]  # List of base64 images
+    organization: str
+    threshold: Optional[float] = 0.55
 
 # ==========================
 # Global Variables
@@ -150,6 +164,27 @@ except Exception as e:
 liveness_detector = LivenessDetector()
 
 # ==========================
+# Initialize Face Matchers
+# ==========================
+face_matcher = None
+org_face_matcher = None
+
+if supabase and MODEL_LOADED:
+    try:
+        face_matcher = FaceMatcher(supabase, threshold=0.55)
+        org_face_matcher = OrganizationFaceMatcher(supabase, face_model, threshold=0.55)
+        logger.info("===================================")
+        logger.info(" Face Matchers Initialized ")
+        logger.info("===================================")
+    except Exception as e:
+        logger.error(f"Failed to initialize face matchers: {e}")
+else:
+    if not supabase:
+        logger.warning("Supabase not configured - face matchers disabled")
+    if not MODEL_LOADED:
+        logger.warning("Face model not loaded - face matchers disabled")
+
+# ==========================
 # Helper Functions
 # ==========================
 def decode_image(image_data: str) -> np.ndarray:
@@ -167,7 +202,7 @@ def decode_image(image_data: str) -> np.ndarray:
         return frame
     except Exception as e:
         logger.error(f"Image decoding error: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
+        raise fastapi.HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
 
 # ==========================
 # Health and Status Endpoints
@@ -180,6 +215,7 @@ def home():
         "model": "antelopev2" if MODEL_LOADED else "not loaded",
         "version": "1.0.0",
         "message": "BIU BedCheck Face Engine is Online",
+        "matcher_ready": face_matcher is not None,
         "endpoints": {
             "health": "/health",
             "detect": "/detect-face",
@@ -190,7 +226,14 @@ def home():
             "liveness": "/check-liveness",
             "reset-liveness": "/reset-liveness",
             "compare": "/compare-embeddings",
-            "student-embedding": "/api/student/{student_id}/embedding"
+            "student-embedding": "/api/student/{student_id}/embedding",
+            "extract-embedding": "/extract-embedding",
+            "validate-embedding": "/validate-embedding",
+            "match-face": "/match-face",
+            "match-face-similar": "/match-face-similar",
+            "batch-match": "/batch-match-faces",
+            "org-embeddings": "/organization/{org_id}/embeddings",
+            "face-compare": "/face-compare"
         }
     }
 
@@ -199,6 +242,8 @@ def health():
     return {
         "status": "healthy" if MODEL_LOADED else "degraded",
         "model_loaded": MODEL_LOADED,
+        "supabase_connected": supabase is not None,
+        "matcher_ready": face_matcher is not None,
         "timestamp": time.time()
     }
 
@@ -219,20 +264,20 @@ async def get_student_embedding(student_id: int):
     """Get student's face embedding from student_face (not students)"""
     try:
         if not supabase:
-            raise HTTPException(status_code=503, detail="Supabase not configured")
+            raise fastapi.HTTPException(status_code=503, detail="Supabase not configured")
         
         result = supabase.table("student_face").select(
             "face_embedding, confidence_score, enrollment_status, is_active"
         ).eq("student_id", student_id).eq("is_active", True).execute()
         
         if not result.data:
-            raise HTTPException(status_code=404, detail="No face embedding found for this student")
+            raise fastapi.HTTPException(status_code=404, detail="No face embedding found for this student")
         
         row = result.data[0]
         embedding = row.get("face_embedding")
         
         if embedding is None:
-            raise HTTPException(status_code=404, detail="No face embedding found for this student")
+            raise fastapi.HTTPException(status_code=404, detail="No face embedding found for this student")
         
         return {
             "success": True,
@@ -242,11 +287,11 @@ async def get_student_embedding(student_id: int):
             "enrollment_status": row.get("enrollment_status")
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error retrieving embedding for student {student_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving embedding: {str(e)}")
+        raise fastapi.HTTPException(status_code=500, detail=f"Error retrieving embedding: {str(e)}")
 
 # ==========================
 # Face Detection Endpoint
@@ -254,7 +299,7 @@ async def get_student_embedding(student_id: int):
 @app.post("/detect-face")
 async def detect_face(request: ImageRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
@@ -305,7 +350,7 @@ async def detect_face(request: ImageRequest):
             "count": len(face_data)
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Face detection error: {e}")
@@ -323,7 +368,10 @@ async def detect_face(request: ImageRequest):
 @app.post("/enroll-face")
 async def enroll_face(request: EnrollmentRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not supabase:
+        raise fastapi.HTTPException(status_code=503, detail="Supabase not configured")
     
     try:
         frame = decode_image(request.image)
@@ -344,86 +392,86 @@ async def enroll_face(request: EnrollmentRequest):
                 "quality": 0.0
             }
         
-            embedding = prepare_embedding_for_db(result["embedding"])
+        embedding = prepare_embedding_for_db(result["embedding"])
         
-            if not supabase:
-                raise HTTPException(status_code=503, detail="Supabase not configured")
+        student_id_int = int(request.student_id)
 
-            student_id_int = int(request.student_id)
-
-            # 1. Student details only (for campus)
-            student_res = supabase.table("students").select(
-                "id, campus, campus_code"
-            ).eq("id", student_id_int).execute()
-            
-            if not student_res.data:
-                raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
-            
-            student_info = student_res.data[0]
-            campus = student_info.get("campus") or "Legacy"
-            campus_code = student_info.get("campus_code") or ("LEG" if campus == "Legacy" else "HER")
-
-            # 2. Face record — ONLY student_face (matches your schema)
-            face_record = {
-                "student_id": student_id_int,
-                "campus": campus,
-                "campus_code": campus_code,
-                "face_embedding": embedding,
-                "face_image_url": None,
-                "face_image_path": None,
-                "enrollment_status": "enrolled",
-                "enrollment_date": "now()",
-                "last_verified": None,
-                "verification_count": 0,
-                "confidence_score": float(result["confidence"]),
-                "is_active": True,
-                "notes": None,
-                "enrolled_by": None,
-                "enrolled_by_student": True,
-                "enrollment_ip": None,
-                "enrollment_device": None,
-            }
-
-            # Upsert-style: update if row exists for this student+campus
-            existing = supabase.table("student_face").select("id").eq(
-                "student_id", student_id_int
-            ).eq("campus", campus).execute()
-
-            if existing.data:
-                face_res = supabase.table("student_face").update(face_record).eq(
-                    "id", existing.data[0]["id"]
-                ).execute()
-            else:
-                face_res = supabase.table("student_face").insert(face_record).execute()
-
-            if not face_res.data:
-                raise HTTPException(status_code=500, detail="Failed to save face data to student_face")
-
-            # 3. Optional flag ONLY on students (no embedding)
-            supabase.table("students").update({
-                "face_enrolled": True,
-                "updated_at": "now()"
-            }).eq("id", student_id_int).execute()
-            
-            return {
-                "success": True,
-                "embedding": embedding,
-                "confidence": result["confidence"],
-                "quality": result["quality_score"],
-                "student_id": request.student_id,
-                "message": "Face enrolled and saved to student_face successfully"
-            }
+        # 1. Student details only (for campus)
+        student_res = supabase.table("students").select(
+            "id, campus, campus_code"
+        ).eq("id", student_id_int).execute()
         
-    except HTTPException:
+        if not student_res.data:
+            raise fastapi.HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
+        
+        student_info = student_res.data[0]
+        campus = student_info.get("campus") or "Legacy"
+        campus_code = student_info.get("campus_code") or ("LEG" if campus == "Legacy" else "HER")
+
+        # 2. Face record — ONLY student_face (matches your schema)
+        face_record = {
+            "student_id": student_id_int,
+            "campus": campus,
+            "campus_code": campus_code,
+            "face_embedding": embedding,
+            "face_image_url": None,
+            "face_image_path": None,
+            "enrollment_status": "enrolled",
+            "enrollment_date": "now()",
+            "last_verified": None,
+            "verification_count": 0,
+            "confidence_score": float(result["confidence"]),
+            "is_active": True,
+            "notes": None,
+            "enrolled_by": None,
+            "enrolled_by_student": True,
+            "enrollment_ip": None,
+            "enrollment_device": None,
+        }
+
+        # Upsert-style: update if row exists for this student+campus
+        existing = supabase.table("student_face").select("id").eq(
+            "student_id", student_id_int
+        ).eq("campus", campus).execute()
+
+        if existing.data:
+            face_res = supabase.table("student_face").update(face_record).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+        else:
+            face_res = supabase.table("student_face").insert(face_record).execute()
+
+        if not face_res.data:
+            raise fastapi.HTTPException(status_code=500, detail="Failed to save face data to student_face")
+
+        # 3. Optional flag ONLY on students (no embedding)
+        supabase.table("students").update({
+            "face_enrolled": True,
+            "updated_at": "now()"
+        }).eq("id", student_id_int).execute()
+        
+        return {
+            "success": True,
+            "embedding": embedding,
+            "confidence": result["confidence"],
+            "quality": result["quality_score"],
+            "student_id": request.student_id,
+            "message": "Face enrolled and saved to student_face successfully"
+        }
+        
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Enrollment error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.post("/enroll-bulk")
 async def enroll_bulk(request: BulkEnrollmentRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not supabase:
+        raise fastapi.HTTPException(status_code=503, detail="Supabase not configured")
     
     try:
         frames = []
@@ -468,19 +516,15 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
         
         embedding = prepare_embedding_for_db(avg_embedding)
 
-        if not supabase:
-            raise HTTPException(status_code=503, detail="Supabase not configured")
-
         student_id_int = int(request.student_id)
 
         # 1. Fetch student campus info
-        student_res = supabase.table("students").update({
-            "face_enrolled": True,
-            "updated_at": "now()"
-        }).eq("id", student_id_int).execute()
+        student_res = supabase.table("students").select(
+            "id, campus, campus_code"
+        ).eq("id", student_id_int).execute()
         
         if not student_res.data:
-            raise HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
+            raise fastapi.HTTPException(status_code=404, detail=f"Student {request.student_id} not found.")
             
         student_info = student_res.data[0]
 
@@ -515,16 +559,16 @@ async def enroll_bulk(request: BulkEnrollmentRequest):
             "message": f"Enrolled and saved using {len(embeddings)} frames"
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Bulk enrollment error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.post("/start-smart-enrollment")
 async def start_smart_enrollment(request: ImageRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         return {
@@ -536,7 +580,7 @@ async def start_smart_enrollment(request: ImageRequest):
         
     except Exception as e:
         logger.error(f"Smart enrollment error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 # ==========================
 # Verification Endpoints
@@ -544,7 +588,7 @@ async def start_smart_enrollment(request: ImageRequest):
 @app.post("/verify-face")
 async def verify_face(request: VerifyRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
@@ -576,7 +620,7 @@ async def verify_face(request: VerifyRequest):
                 "reason": f"Verification error: {str(verify_error)}"
             }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Verification error: {e}")
@@ -591,7 +635,7 @@ async def verify_face(request: VerifyRequest):
 @app.post("/verify-multiple")
 async def verify_multiple(request: MultipleImageRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
@@ -606,11 +650,11 @@ async def verify_multiple(request: MultipleImageRequest):
         
         return result
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Multiple verification error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.post("/compare-embeddings")
 async def compare_embeddings(request: dict):
@@ -619,7 +663,7 @@ async def compare_embeddings(request: dict):
         embedding2 = request.get("embedding2")
         
         if not embedding1 or not embedding2:
-            raise HTTPException(status_code=400, detail="Both embeddings are required")
+            raise fastapi.HTTPException(status_code=400, detail="Both embeddings are required")
         
         similarity = cosine_similarity(embedding1, embedding2)
         
@@ -629,11 +673,11 @@ async def compare_embeddings(request: dict):
             "threshold": 0.55
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Comparison error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 # ==========================
 # Liveness Detection Endpoints
@@ -641,7 +685,7 @@ async def compare_embeddings(request: dict):
 @app.post("/check-liveness")
 async def check_liveness(request: LivenessRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
@@ -656,11 +700,11 @@ async def check_liveness(request: LivenessRequest):
             "faces": len(faces)
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Liveness check error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.post("/reset-liveness")
 async def reset_liveness():
@@ -673,7 +717,7 @@ async def reset_liveness():
         }
     except Exception as e:
         logger.error(f"Reset liveness error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.get("/liveness-status")
 async def get_liveness_status():
@@ -683,6 +727,209 @@ async def get_liveness_status():
         "head_movement_detected": liveness_detector.head_movement_detected,
         "face_positions": len(liveness_detector.face_positions)
     }
+
+# ==========================
+# Face Matching Endpoints
+# ==========================
+
+@app.post("/match-face")
+async def match_face_endpoint(request: MatchRequest):
+    """
+    Match a face against stored embeddings for an organization.
+    """
+    if not MODEL_LOADED:
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not face_matcher:
+        raise fastapi.HTTPException(status_code=503, detail="Face matcher not initialized")
+    
+    try:
+        frame = decode_image(request.image)
+        
+        # Extract embedding
+        embedding = get_face_embedding(face_model, frame)
+        
+        if embedding is None:
+            return {
+                "success": False,
+                "matched": False,
+                "message": "No face detected in the image",
+                "student_id": None,
+                "similarity_score": 0.0
+            }
+        
+        # Find match
+        result = face_matcher.match_face(
+            organization=request.organization,
+            face_embedding=embedding.tolist(),
+            threshold=request.threshold or 0.55
+        )
+        
+        return result
+        
+    except fastapi.HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Face match error: {e}")
+        return {
+            "success": False,
+            "matched": False,
+            "message": str(e),
+            "student_id": None,
+            "similarity_score": 0.0
+        }
+
+@app.post("/match-face-similar")
+async def match_face_similar(request: MatchRequest):
+    """
+    Similar to match-face but uses the OrganizationFaceMatcher.
+    """
+    if not MODEL_LOADED:
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not org_face_matcher:
+        raise fastapi.HTTPException(status_code=503, detail="Organization matcher not initialized")
+    
+    try:
+        result = org_face_matcher.get_similar_person(
+            organization=request.organization,
+            image_data=request.image
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Face match error: {e}")
+        return {
+            "success": False,
+            "matched": False,
+            "message": str(e),
+            "student_id": None,
+            "similarity_score": 0.0
+        }
+
+@app.post("/batch-match-faces")
+async def batch_match_faces(request: BatchMatchRequest):
+    """
+    Match multiple faces against stored embeddings for an organization.
+    """
+    if not MODEL_LOADED:
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not face_matcher:
+        raise fastapi.HTTPException(status_code=503, detail="Face matcher not initialized")
+    
+    try:
+        embeddings = []
+        
+        for img_data in request.images:
+            frame = decode_image(img_data)
+            embedding = get_face_embedding(face_model, frame)
+            
+            if embedding is not None:
+                embeddings.append(embedding.tolist())
+        
+        if not embeddings:
+            return {
+                "success": False,
+                "message": "No valid faces found in images",
+                "matches": []
+            }
+        
+        # Batch match
+        matches = face_matcher.batch_match_faces(
+            organization=request.organization,
+            embeddings=embeddings,
+            threshold=request.threshold or 0.55
+        )
+        
+        return {
+            "success": True,
+            "total_matches": len(matches),
+            "matches": matches
+        }
+        
+    except Exception as e:
+        logger.error(f"Batch match error: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "matches": []
+        }
+
+@app.get("/organization/{org_id}/embeddings")
+async def get_organization_embeddings(org_id: str, limit: int = 100):
+    """
+    Get all embeddings for an organization.
+    """
+    if not supabase:
+        raise fastapi.HTTPException(status_code=503, detail="Supabase not configured")
+    
+    try:
+        result = supabase.table("student_face")\
+            .select("student_id, confidence_score, enrollment_status, is_active")\
+            .eq("campus_code", org_id)\
+            .eq("is_active", True)\
+            .limit(limit)\
+            .execute()
+        
+        return {
+            "success": True,
+            "organization": org_id,
+            "total": len(result.data),
+            "embeddings": result.data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching organization embeddings: {e}")
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
+
+@app.post("/face-compare")
+async def face_compare(request: MatchRequest):
+    """
+    Direct mirror of your Django face-compare endpoint.
+    """
+    if not MODEL_LOADED:
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
+    
+    if not face_matcher:
+        raise fastapi.HTTPException(status_code=503, detail="Face matcher not initialized")
+    
+    try:
+        frame = decode_image(request.image)
+        
+        embedding = get_face_embedding(face_model, frame)
+        
+        if embedding is None:
+            return {
+                "error": "No matching face found.",
+                "match": False
+            }
+        
+        # Find similar embedding
+        student_id, similarity = face_matcher.find_similar_embedding(
+            organization=request.organization,
+            query_embedding=embedding.tolist()
+        )
+        
+        if student_id is None:
+            return {
+                "error": "No matching face found.",
+                "match": False
+            }
+        
+        return {
+            "embed_id": student_id,
+            "similarity_score": similarity,
+            "match": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Face compare error: {e}")
+        return {
+            "error": str(e),
+            "match": False
+        }
 
 # ==========================
 # Utility Endpoints
@@ -701,12 +948,12 @@ async def validate_embedding_endpoint(request: dict):
         
     except Exception as e:
         logger.error(f"Validation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 @app.post("/extract-embedding")
 async def extract_embedding(request: ImageRequest):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Face model not loaded")
+        raise fastapi.HTTPException(status_code=503, detail="Face model not loaded")
     
     try:
         frame = decode_image(request.image)
@@ -726,16 +973,16 @@ async def extract_embedding(request: ImageRequest):
             "message": "Embedding extracted successfully"
         }
         
-    except HTTPException:
+    except fastapi.HTTPException:
         raise
     except Exception as e:
         logger.error(f"Extract embedding error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
 # ==========================
 # Error Handling
 # ==========================
-@app.exception_handler(HTTPException)
+@app.exception_handler(fastapi.HTTPException)
 async def http_exception_handler(request, exc):
     return {
         "error": True,
