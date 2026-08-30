@@ -409,21 +409,48 @@ class InsightFaceService {
         };
     }
 
-    async checkLiveness(imageBase64) {
+    async checkLiveness(imageBase64, sessionId = null) {
         if (!this.isValidBase64(imageBase64)) {
             return {
                 success: false,
+                is_live: false,
                 error: 'Invalid base64 image data',
                 fallback: 'Manual verification required'
             };
         }
+
         const imageData = this._sanitizeImage(imageBase64);
-        const result = await this._makeRequest('/check-liveness', { image: imageData });
-        return result.is_live !== undefined ? result : { is_live: false, error: result.error };
+        const payload = { image: imageData };
+        if (sessionId) {
+            payload.session_id = sessionId;
+        }
+
+        const result = await this._makeRequest('/check-liveness', payload);
+
+        // Normalize response so callers always get a consistent shape
+        return {
+            success: result.is_live !== undefined || result.success !== false,
+            is_live: result.is_live === true,
+            message: result.message || result.error || '',
+            progress: result.progress ?? 0,
+            session_id: result.session_id || null,
+            face_detected: result.face_detected ?? false,
+            faces: result.faces ?? 0,
+            error: result.error || null,
+            fallback: result.fallback || null
+        };
     }
 
-    async resetLiveness() {
-        return this._makeRequest('/reset-liveness', {});
+    async resetLiveness(sessionId = null) {
+        const payload = sessionId ? { session_id: sessionId } : {};
+        const result = await this._makeRequest('/reset-liveness', payload);
+
+        return {
+            success: result.success !== false,
+            message: result.message || 'Liveness detector reset',
+            session_id: result.session_id || sessionId || null,
+            error: result.error || null
+        };
     }
 
     async compareEmbeddings(embedding1, embedding2) {
