@@ -1,4 +1,21 @@
-// server.js - BIU BedCheck with Face Recognition
+// ============================================================
+// CRITICAL: WebSocket Polyfill for Node.js < 22
+// MUST BE FIRST LINE BEFORE ANY IMPORTS
+// ============================================================
+if (!global.WebSocket) {
+  try {
+    const WebSocket = require('ws');
+    global.WebSocket = WebSocket;
+    console.log('✅ WebSocket polyfill loaded successfully');
+  } catch (e) {
+    console.error('❌ Failed to load WebSocket polyfill:', e.message);
+    console.error('Please install ws: npm install ws');
+    process.exit(1);
+  }
+}
+
+// ============================================================
+// SERVER.js - BedCheck with Face Recognition
 // SECURE PRODUCTION VERSION v4.8.0
 // ============================================================
 
