@@ -1469,7 +1469,7 @@
                     </div>
 
                     <!-- ============================================
-                    FACE ID SETTINGS
+                    FACE ID SETTINGS - UPDATED WITH API STATUS
                     ============================================ -->
                     <div class="settings-section" id="section-face">
                         <div class="section-header">
@@ -1477,11 +1477,11 @@
                             <p>InsightFace recognition and biometric configuration</p>
                         </div>
                         <div class="section-body">
-                            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-radius:var(--radius-sm);background:var(--success-bg);border:1px solid var(--success);margin-bottom:1.25rem;">
-                                <span style="font-size:1.2rem;">🟢</span>
+                            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:1.25rem;background:var(--bg);">
+                                <span style="font-size:1.2rem;" id="faceStatusIcon">⏳</span>
                                 <div>
-                                    <div style="font-weight:600;font-size:0.9rem;">InsightFace Connected</div>
-                                    <div style="font-size:0.75rem;color:var(--text-secondary);">Recognition engine is operational</div>
+                                    <div style="font-weight:600;font-size:0.9rem;" id="faceStatusTitle">Checking Face API...</div>
+                                    <div style="font-size:0.75rem;color:var(--text-secondary);" id="faceStatusSub">Loading status...</div>
                                 </div>
                             </div>
 
@@ -1763,7 +1763,7 @@
     <div id="toast"></div>
 
     <!-- ================================================
-    JAVASCRIPT
+    JAVASCRIPT - LIVE API CONNECTION
     ================================================ -->
     <script>
         (function() {
@@ -1773,6 +1773,7 @@
             // CONFIGURATION
             // ============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+            const FACE_API_URL = 'https://face-api-f9k5.onrender.com';
 
             let API_TOKEN = sessionStorage.getItem('bedcheck_token') || '';
             if (!API_TOKEN) {
@@ -1783,6 +1784,7 @@
             let currentUser = null;
             let pendingAction = null;
             let currentSection = 'general';
+            let settingsCache = {};
 
             // ============================================
             // TOAST
@@ -1895,12 +1897,138 @@
 
                 const now = new Date();
                 document.getElementById('ownerLastLogin').textContent = user.last_login || now
-                .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 document.getElementById('ownerCreated').textContent = user.created_at ? new Date(user.created_at)
                     .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Aug 1, 2026';
 
                 document.getElementById('lastUpdated').textContent = now.toLocaleDateString('en-US', { month: 'short',
                     day: 'numeric', year: 'numeric' });
+            }
+
+            // ============================================
+            // LOAD SETTINGS FROM API
+            // ============================================
+            async function loadSettings() {
+                try {
+                    const response = await apiFetch('/developer/settings/all').catch(() => ({ data: [] }));
+                    const settings = response.data || [];
+
+                    // Build cache
+                    settings.forEach(s => {
+                        settingsCache[s.key] = s.value;
+                    });
+
+                    // Apply settings to UI
+                    applySettingsToUI();
+                    return settingsCache;
+                } catch (error) {
+                    console.error('Error loading settings:', error);
+                    return {};
+                }
+            }
+
+            // ============================================
+            // APPLY SETTINGS TO UI
+            // ============================================
+            function applySettingsToUI() {
+                // General
+                if (settingsCache.university_name) document.getElementById('university_name').value = settingsCache
+                    .university_name;
+                if (settingsCache.system_name) document.getElementById('system_name').value = settingsCache.system_name;
+                if (settingsCache.timezone) document.getElementById('timezone').value = settingsCache.timezone;
+                if (settingsCache.default_language) document.getElementById('default_language').value = settingsCache
+                    .default_language;
+
+                // BedCheck
+                if (settingsCache.bedcheck_start) document.getElementById('bedcheck_start').value = settingsCache
+                    .bedcheck_start;
+                if (settingsCache.bedcheck_end) document.getElementById('bedcheck_end').value = settingsCache
+                    .bedcheck_end;
+                if (settingsCache.grace_period) document.getElementById('grace_period').value = settingsCache
+                    .grace_period;
+                if (settingsCache.auto_lock) document.getElementById('auto_lock').checked = settingsCache.auto_lock ===
+                    'true';
+                if (settingsCache.auto_close) document.getElementById('auto_close').checked = settingsCache
+                    .auto_close === 'true';
+                if (settingsCache.hra_approval) document.getElementById('hra_approval').checked = settingsCache
+                    .hra_approval === 'true';
+
+                // Hostels
+                if (settingsCache.boys_hostels) document.getElementById('boys_hostels').value = settingsCache
+                    .boys_hostels;
+                if (settingsCache.girls_hostels) document.getElementById('girls_hostels').value = settingsCache
+                    .girls_hostels;
+                if (settingsCache.default_floors) document.getElementById('default_floors').value = settingsCache
+                    .default_floors;
+                if (settingsCache.default_capacity) document.getElementById('default_capacity').value = settingsCache
+                    .default_capacity;
+
+                // Face
+                if (settingsCache.auto_recognition) document.getElementById('auto_recognition').checked = settingsCache
+                    .auto_recognition === 'true';
+                if (settingsCache.liveness_detection) document.getElementById('liveness_detection').checked =
+                    settingsCache.liveness_detection === 'true';
+                if (settingsCache.recognition_threshold) {
+                    const val = parseFloat(settingsCache.recognition_threshold);
+                    document.getElementById('recognition_threshold').value = val;
+                    document.getElementById('thresholdValue').textContent = val.toFixed(2);
+                }
+
+                // Security
+                if (settingsCache.password_min_length) document.getElementById('password_min_length').value =
+                    settingsCache.password_min_length;
+                if (settingsCache.session_timeout) document.getElementById('session_timeout').value = settingsCache
+                    .session_timeout;
+                if (settingsCache.account_lockout) document.getElementById('account_lockout').checked = settingsCache
+                    .account_lockout === 'true';
+                if (settingsCache.two_factor_auth) document.getElementById('two_factor_auth').checked = settingsCache
+                    .two_factor_auth === 'true';
+
+                // Notifications
+                if (settingsCache.in_app_notifications) document.getElementById('in_app_notifications').checked =
+                    settingsCache.in_app_notifications === 'true';
+                if (settingsCache.email_notifications) document.getElementById('email_notifications').checked =
+                    settingsCache.email_notifications === 'true';
+
+                // System Owner
+                if (settingsCache.owner_2fa) document.getElementById('owner_2fa').checked = settingsCache.owner_2fa ===
+                    'true';
+            }
+
+            // ============================================
+            // CHECK FACE API STATUS
+            // ============================================
+            async function checkFaceAPIStatus() {
+                const statusIcon = document.getElementById('faceStatusIcon');
+                const statusTitle = document.getElementById('faceStatusTitle');
+                const statusSub = document.getElementById('faceStatusSub');
+
+                try {
+                    const response = await fetch(`${FACE_API_URL}/health`, {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(5000)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const isHealthy = data.status === 'running' || data.status === 'healthy' || data.status === 'ok';
+                        statusIcon.textContent = isHealthy ? '🟢' : '🟡';
+                        statusTitle.textContent = isHealthy ? 'InsightFace Connected' : 'Face API Unhealthy';
+                        statusTitle.style.color = isHealthy ? 'var(--success)' : 'var(--warning)';
+                        statusSub.textContent = isHealthy ? 'Recognition engine is operational' :
+                            'API is responding but may be degraded';
+                    } else {
+                        statusIcon.textContent = '🔴';
+                        statusTitle.textContent = 'Face API Offline';
+                        statusTitle.style.color = 'var(--danger)';
+                        statusSub.textContent = `HTTP ${response.status} - Check the API server`;
+                    }
+                } catch (error) {
+                    statusIcon.textContent = '🔴';
+                    statusTitle.textContent = 'Face API Unreachable';
+                    statusTitle.style.color = 'var(--danger)';
+                    statusSub.textContent = `Error: ${error.message}`;
+                }
             }
 
             // ============================================
@@ -1928,9 +2056,9 @@
             });
 
             // ============================================
-            // SAVE FUNCTIONS
+            // SAVE SECTION - UPDATED TO USE API
             // ============================================
-            window.saveSection = function(section) {
+            window.saveSection = async function(section) {
                 const names = {
                     'general': 'General Settings',
                     'bedcheck': 'BedCheck Settings',
@@ -1940,11 +2068,92 @@
                     'notifications': 'Notifications',
                     'system-owner': 'System Owner'
                 };
-                showToast(`✅ ${names[section] || 'Settings'} saved successfully`, 'success');
+
+                try {
+                    showToast(`Saving ${names[section] || 'Settings'}...`, 'info');
+
+                    // Collect settings for this section
+                    const settings = {};
+
+                    if (section === 'general') {
+                        settings.university_name = document.getElementById('university_name').value;
+                        settings.system_name = document.getElementById('system_name').value;
+                        settings.timezone = document.getElementById('timezone').value;
+                        settings.default_language = document.getElementById('default_language').value;
+                    } else if (section === 'bedcheck') {
+                        settings.bedcheck_start = document.getElementById('bedcheck_start').value;
+                        settings.bedcheck_end = document.getElementById('bedcheck_end').value;
+                        settings.grace_period = document.getElementById('grace_period').value;
+                        settings.auto_lock = document.getElementById('auto_lock').checked ? 'true' : 'false';
+                        settings.auto_close = document.getElementById('auto_close').checked ? 'true' : 'false';
+                        settings.hra_approval = document.getElementById('hra_approval').checked ? 'true' : 'false';
+                    } else if (section === 'hostels') {
+                        settings.boys_hostels = document.getElementById('boys_hostels').value;
+                        settings.girls_hostels = document.getElementById('girls_hostels').value;
+                        settings.default_floors = document.getElementById('default_floors').value;
+                        settings.default_capacity = document.getElementById('default_capacity').value;
+                    } else if (section === 'face') {
+                        settings.auto_recognition = document.getElementById('auto_recognition').checked ? 'true' :
+                            'false';
+                        settings.liveness_detection = document.getElementById('liveness_detection').checked ?
+                            'true' : 'false';
+                        settings.recognition_threshold = document.getElementById('recognition_threshold').value;
+                    } else if (section === 'security') {
+                        settings.password_min_length = document.getElementById('password_min_length').value;
+                        settings.session_timeout = document.getElementById('session_timeout').value;
+                        settings.account_lockout = document.getElementById('account_lockout').checked ? 'true' :
+                            'false';
+                        settings.two_factor_auth = document.getElementById('two_factor_auth').checked ? 'true' :
+                            'false';
+                    } else if (section === 'notifications') {
+                        settings.in_app_notifications = document.getElementById('in_app_notifications').checked ?
+                            'true' : 'false';
+                        settings.email_notifications = document.getElementById('email_notifications').checked ?
+                            'true' : 'false';
+                    } else if (section === 'system-owner') {
+                        settings.owner_2fa = document.getElementById('owner_2fa').checked ? 'true' : 'false';
+                    }
+
+                    // Save each setting
+                    const savePromises = Object.entries(settings).map(([key, value]) =>
+                        apiFetch(`/developer/settings/${key}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ value })
+                        }).catch(() => {})
+                    );
+
+                    await Promise.all(savePromises);
+
+                    // Update cache
+                    Object.entries(settings).forEach(([key, value]) => {
+                        settingsCache[key] = value;
+                    });
+
+                    showToast(`✅ ${names[section] || 'Settings'} saved successfully`, 'success');
+                } catch (error) {
+                    console.error('Error saving settings:', error);
+                    showToast('Error saving settings: ' + error.message, 'error');
+                }
             };
 
-            window.saveAllSettings = function() {
-                showToast('✅ All settings saved successfully', 'success');
+            window.saveAllSettings = async function() {
+                const sections = ['general', 'bedcheck', 'hostels', 'face', 'security', 'notifications', 'system-owner'];
+                let successCount = 0;
+
+                for (const section of sections) {
+                    try {
+                        await saveSection(section);
+                        successCount++;
+                    } catch (e) {
+                        console.error(`Failed to save ${section}:`, e);
+                    }
+                }
+
+                if (successCount === sections.length) {
+                    showToast('✅ All settings saved successfully', 'success');
+                } else {
+                    showToast(`⚠️ ${successCount}/${sections.length} sections saved successfully`, 'warning');
+                }
             };
 
             window.resetAllSettings = function() {
@@ -2176,10 +2385,15 @@
             console.log('✅ BIU BedCheck System Owner - Settings');
             console.log('📋 Keyboard shortcuts: Ctrl+S (Save All Settings)');
 
-            loadUserData().then(() => {
-                // Settings page doesn't need to load additional data
-            }).catch(() => {
-                // Continue even if user data fails
+            loadUserData().then(async () => {
+                await loadSettings();
+                await checkFaceAPIStatus();
+                // Check face API status every 30 seconds
+                setInterval(checkFaceAPIStatus, 30000);
+            }).catch(async () => {
+                await loadSettings();
+                await checkFaceAPIStatus();
+                setInterval(checkFaceAPIStatus, 30000);
             });
 
             // Make all toggle switches work
