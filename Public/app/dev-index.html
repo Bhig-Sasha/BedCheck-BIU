@@ -1394,36 +1394,18 @@
             }
 
             // ============================================
-            // DATA STORE - All tables mapped
+            // DATA STORE
             // ============================================
             let dataStore = {
-                // Main entities
                 students: [],
                 staff: [],
                 hostels: [],
                 floors_flats: [],
                 rooms: [],
                 bed_spaces: [],
-                
-                // Sessions & Scans
                 sessions: [],
-                bedcheck_sessions: [],
                 bedcheck_scans: [],
-                ra_bedcheck_sessions: [],
-                
-                // Occupancy & Progress
-                bed_occupancy: [],
-                floor_flat_occupancy: [],
-                hostel_progress: [],
-                hostel_structure: [],
-                room_details: [],
-                
-                // Audit & Logs
-                audit_logs: [],
-                
-                // Views
-                legacy_campus_view: [],
-                heritage_campus_view: []
+                audit_logs: []
             };
 
             let currentUser = null;
@@ -1468,7 +1450,7 @@
             }
 
             // ============================================
-            // LOAD USER DATA FROM API
+            // LOAD USER DATA
             // ============================================
             async function loadUserData() {
                 try {
@@ -1508,7 +1490,7 @@
             }
 
             // ============================================
-            // LOAD ALL DATA - Using proper table references
+            // LOAD ALL DATA
             // ============================================
             async function loadAllData() {
                 try {
@@ -1529,7 +1511,7 @@
 
                     await loadUserData();
 
-                    // Load all data from API tables
+                    // ✅ FIXED ENDPOINTS - Using server.js routes
                     const [
                         studentsData,
                         staffData,
@@ -1537,11 +1519,8 @@
                         floorsData,
                         roomsData,
                         bedSpacesData,
-                        sessionsData,
-                        bedcheckSessionsData,
-                        bedcheckScansData,
-                        bedOccupancyData,
-                        floorOccupancyData,
+                        sessionData,
+                        scansData,
                         auditData
                     ] = await Promise.all([
                         apiFetch('/students?limit=1000').catch(() => ({ data: [] })),
@@ -1551,10 +1530,7 @@
                         apiFetch('/rooms?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] })),
                         apiFetch('/sessions/active').catch(() => ({ data: null })),
-                        apiFetch('/bedcheck/sessions').catch(() => ({ data: [] })),
                         apiFetch('/bedcheck/scans?limit=50').catch(() => ({ data: [] })),
-                        apiFetch('/occupancy').catch(() => ({ data: [] })),
-                        apiFetch('/occupancy/floor-flat').catch(() => ({ data: [] })),
                         apiFetch('/audit/recent?limit=10').catch(() => ({ data: [] }))
                     ]);
 
@@ -1565,11 +1541,19 @@
                     dataStore.floors_flats = floorsData.data || [];
                     dataStore.rooms = roomsData.data || [];
                     dataStore.bed_spaces = bedSpacesData.data || [];
-                    dataStore.sessions = sessionsData.data ? [sessionsData.data] : [];
-                    dataStore.bedcheck_sessions = bedcheckSessionsData.data || [];
-                    dataStore.bedcheck_scans = bedcheckScansData.data || [];
-                    dataStore.bed_occupancy = bedOccupancyData.data || [];
-                    dataStore.floor_flat_occupancy = floorOccupancyData.data || [];
+                    
+                    // Handle session data (could be null or an array)
+                    if (sessionData && sessionData.data) {
+                        dataStore.sessions = [sessionData.data];
+                    } else if (sessionData && Array.isArray(sessionData)) {
+                        dataStore.sessions = sessionData;
+                    } else if (sessionData && !Array.isArray(sessionData)) {
+                        dataStore.sessions = [sessionData];
+                    } else {
+                        dataStore.sessions = [];
+                    }
+                    
+                    dataStore.bedcheck_scans = scansData.data || [];
                     dataStore.audit_logs = auditData.data || [];
 
                     // Update all sections
@@ -1587,7 +1571,7 @@
             }
 
             // ============================================
-            // UPDATE STATS - Using proper tables
+            // UPDATE STATS
             // ============================================
             function updateStats() {
                 const totalStudents = dataStore.students.length;
@@ -1598,8 +1582,6 @@
                 const totalRooms = dataStore.rooms.length;
                 const availableBeds = dataStore.bed_spaces.filter(b => b.status === 'available').length;
                 const occupiedBeds = dataStore.bed_spaces.filter(b => b.status === 'occupied').length;
-
-                // Get total beds from bed_spaces
                 const totalBeds = dataStore.bed_spaces.length;
 
                 document.getElementById('statStudents').textContent = totalStudents.toLocaleString();
@@ -1623,7 +1605,7 @@
             // UPDATE BEDCHECK - Using sessions table
             // ============================================
             function updateBedCheck() {
-                const session = dataStore.sessions[0] || dataStore.bedcheck_sessions[0];
+                const session = dataStore.sessions && dataStore.sessions.length > 0 ? dataStore.sessions[0] : null;
 
                 if (session) {
                     document.getElementById('bedcheckStatusDot').className = 'status-dot active';
@@ -1663,7 +1645,7 @@
             }
 
             // ============================================
-            // UPDATE HOSTEL PERFORMANCE - Using hostels + students
+            // UPDATE HOSTEL PERFORMANCE
             // ============================================
             function updateHostelPerformance() {
                 const container = document.getElementById('hostelPerformanceBody');
@@ -1723,7 +1705,7 @@
             }
 
             // ============================================
-            // UPDATE RECENT ACTIVITY - Using audit_logs + bedcheck_scans
+            // UPDATE RECENT ACTIVITY
             // ============================================
             function updateRecentActivity() {
                 const container = document.getElementById('recentActivityBody');
@@ -1731,23 +1713,25 @@
                 const activities = [];
 
                 // Use audit logs first
-                dataStore.audit_logs.slice(0, 5).forEach(log => {
-                    const time = log.created_at ? new Date(log.created_at).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) : '—';
+                if (dataStore.audit_logs && dataStore.audit_logs.length > 0) {
+                    dataStore.audit_logs.slice(0, 5).forEach(log => {
+                        const time = log.created_at ? new Date(log.created_at).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        }) : '—';
 
-                    activities.push({
-                        time: time,
-                        text: `${log.actor || 'System'} ${log.action || 'action'}`,
-                        highlight: log.action || 'Activity',
-                        status: log.result === 'success' ? 'success' : 'failed',
-                        icon: log.result === 'success' ? 'fa-check' : 'fa-times'
+                        activities.push({
+                            time: time,
+                            text: `${log.actor || 'System'} ${log.action || 'action'}`,
+                            highlight: log.action || 'Activity',
+                            status: log.result === 'success' ? 'success' : 'failed',
+                            icon: log.result === 'success' ? 'fa-check' : 'fa-times'
+                        });
                     });
-                });
+                }
 
                 // If no audit logs, use bedcheck scans
-                if (activities.length === 0) {
+                if (activities.length === 0 && dataStore.bedcheck_scans && dataStore.bedcheck_scans.length > 0) {
                     dataStore.bedcheck_scans.slice(0, 5).forEach(scan => {
                         const student = dataStore.students.find(s => s.id === scan.student_id);
                         const time = scan.created_at ? new Date(scan.created_at).toLocaleTimeString('en-US', {
@@ -1801,7 +1785,7 @@
             // UPDATE SYSTEM STATUS
             // ============================================
             function updateSystemStatus() {
-                // Face API health check
+                // Face API health check - using the correct endpoint from server.js
                 fetch(`${API_BASE_URL}/face/health`, {
                         headers: getHeaders()
                     })
