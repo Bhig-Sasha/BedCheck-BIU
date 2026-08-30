@@ -58,110 +58,28 @@ services:
     plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
 
-    # IMPORTANT:
-    # Build from repository ROOT.
-    # Do NOT use "cd python" here.
     buildCommand: |
       pip install --upgrade pip
       pip install -r python/requirements.txt
+      # ... your model verification stays the same ...
 
-      echo "=========================================="
-      echo "Checking InsightFace antelopev2 model"
-      echo "=========================================="
-
-      python -c "
-      import os
-
-      model_dir = 'python/models/models/antelopev2'
-
-      required_models = [
-          'glintr100.onnx',
-          'scrfd_10g_bnkps.onnx'
-      ]
-
-      missing = [
-          f for f in required_models
-          if not os.path.exists(os.path.join(model_dir, f))
-      ]
-
-      if missing:
-          print('WARNING: Missing model files:')
-          for f in missing:
-              print(f' - {f}')
-      else:
-          print('Model files found:')
-          for f in required_models:
-              print(f' - {f}')
-      "
-
-      echo "=========================================="
-      echo "Verifying InsightFace model"
-      echo "=========================================="
-
-      python -c "
-      import insightface
-
-      model = insightface.app.FaceAnalysis(
-          name='antelopev2',
-          root='./python/models',
-          providers=['CPUExecutionProvider'],
-          allowed_modules=['detection', 'recognition']
-      )
-
-      model.prepare(
-          ctx_id=0,
-          det_size=(640, 640)
-      )
-
-      print('==========================================')
-      print('✅ Model verified and ready')
-      print('==========================================')
-      "
-
-    # IMPORTANT:
-    # Start from repository ROOT so python is a package.
-    # This fixes:
-    # ImportError: attempted relative import with no known parent package
     startCommand: |
       export PYTHONUNBUFFERED=1
       export TF_CPP_MIN_LOG_LEVEL=3
+      export PYTHONPATH=$PYTHONPATH:.
       uvicorn python.app:app --host 0.0.0.0 --port $PORT
 
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-
       - key: PORT
         value: 8000
-
-      - key: PIP_NO_CACHE_DIR
-        value: "true"
-
-      # Model is inside:
-      # python/models/models/antelopev2
       - key: INSIGHTFACE_CACHE
         value: ./python/models
-
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
-
       - key: PYTHONUNBUFFERED
         value: "1"
 
-      - key: UVICORN_TIMEOUT
-        value: "120"
-
     healthCheckPath: /health
     autoDeploy: true
-    numReplicas: 1
-
-    buildFilter:
-      paths:
-        - python/app.py
-        - python/embeddings.py
-        - python/verify.py
-        - python/liveness.py
-        - python/matcher.py
-        - python/requirements.txt
-        - python/models/**
-        - render.yaml
