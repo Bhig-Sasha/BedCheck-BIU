@@ -1,5 +1,6 @@
-// server.js - BIU BedCheck with Face Recognition
-// SECURE PRODUCTION VERSION v4.7.0
+// ============================================================
+// SERVER.js - BedCheck with Face Recognition
+// SECURE PRODUCTION VERSION v4.8.0
 // ============================================================
 
 const express = require('express');
@@ -105,9 +106,11 @@ const getCampusContext = (req) => {
 const FACE_API_URL = process.env.FACE_API_URL || 'http://localhost:8000';
 const FACE_API_TIMEOUT = parseInt(process.env.FACE_API_TIMEOUT) || 30000;
 const FACE_VERIFICATION_THRESHOLD = parseFloat(process.env.FACE_VERIFICATION_THRESHOLD) || 0.55;
+const EMBEDDING_DIMENSION = 512;
 
 console.log('🔐 Environment:', process.env.NODE_ENV || 'production');
 console.log('🔐 Face API URL:', FACE_API_URL);
+console.log('🔐 Verification Threshold:', FACE_VERIFICATION_THRESHOLD);
 
 // =====================================================
 // FACE RECOGNITION SERVICE
@@ -121,8 +124,11 @@ class InsightFaceService {
         this.lastFailureTime = null;
         this.circuitTimeout = 60000;
         this.maxFailures = 5;
+        this.maxImageSize = parseInt(process.env.MAX_IMAGE_SIZE) || 10 * 1024 * 1024;
+        this.expectedDimension = EMBEDDING_DIMENSION;
     }
 
+    // Circuit breaker methods
     _checkCircuit() {
         if (this.circuitOpen) {
             const now = Date.now();
@@ -151,6 +157,19 @@ class InsightFaceService {
         this.circuitOpen = false;
     }
 
+    isValidBase64(str) {
+        if (!str || typeof str !== 'string') return false;
+        const base64Str = str.replace(/^data:image\/\w+;base64,/, '');
+        try {
+            const buffer = Buffer.from(base64Str, 'base64');
+            if (buffer.length === 0) return false;
+            if (buffer.length > this.maxImageSize) return false;
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async _makeRequest(endpoint, data, options = {}) {
         if (!this._checkCircuit()) {
             return { 
@@ -158,6 +177,26 @@ class InsightFaceService {
                 error: 'Face API service temporarily unavailable (circuit open)',
                 fallback: 'Manual verification required'
             };
+        }
+
+        if (data.image && !this.isValidBase64(data.image)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        if (data.frames && Array.isArray(data.frames)) {
+            for (const frame of data.frames) {
+                if (!this.isValidBase64(frame)) {
+                    return {
+                        success: false,
+                        error: 'Invalid base64 frame data detected',
+                        fallback: 'Manual verification required'
+                    };
+                }
+            }
         }
 
         try {
@@ -201,11 +240,25 @@ class InsightFaceService {
     }
 
     async detectFace(imageBase64) {
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/detect-face', { image: imageData });
     }
 
     async enrollFace(imageBase64, studentId, hostel, room, name) {
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
         return this._makeRequest('/enroll-face', {
             image: imageData,
@@ -217,6 +270,15 @@ class InsightFaceService {
     }
 
     async enrollBulk(frames, studentId, hostel, room, name) {
+        for (const frame of frames) {
+            if (!this.isValidBase64(frame)) {
+                return {
+                    success: false,
+                    error: 'Invalid base64 frame data detected',
+                    fallback: 'Manual verification required'
+                };
+            }
+        }
         const imageDataList = frames.map(frame => this._sanitizeImage(frame));
         return this._makeRequest('/enroll-bulk', {
             frames: imageDataList,
@@ -228,44 +290,246 @@ class InsightFaceService {
     }
 
     async verifyFace(imageBase64, storedEmbedding, threshold = FACE_VERIFICATION_THRESHOLD) {
-        const imageData = this._sanitizeImage(imageBase64);
-        return this._makeRequest('/verify-face', {
-            image: imageData,
-            stored_embedding: storedEmbedding,
-            threshold: threshold
-        });
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
+        
+        // Extract embedding from the captured image
+        const extracted = await this.extractEmbedding(imageBase64);
+        
+        if (!extracted.success || !extracted.embedding) {
+            return {
+                success: false,
+                error: extracted.error || 'Failed to extract face from image',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        // Validate embedding dimension
+        if (extracted.embedding.length !== this.expectedDimension) {
+            return {
+                success: false,
+                error: `Invalid embedding dimension. Expected ${this.expectedDimension}, got ${extracted.embedding.length}`,
+                fallback: 'Manual verification required'
+            };
+        }
+
+        // Compare with stored embedding
+        const comparison = await this.compareEmbeddings(
+            extracted.embedding,
+            storedEmbedding
+        );
+
+        if (!comparison.success) {
+            return {
+                success: false,
+                error: comparison.error || 'Failed to compare faces',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        const isMatch = comparison.similarity >= threshold;
+
+        return {
+            success: true,
+            verified: isMatch,
+            similarity: comparison.similarity,
+            threshold: threshold,
+            confidence: comparison.similarity,
+            message: isMatch ? 'Face verified successfully' : 'Face verification failed'
+        };
     }
 
     async verifyMultiple(imageBase64, embeddings, studentIds, threshold = FACE_VERIFICATION_THRESHOLD) {
-        const imageData = this._sanitizeImage(imageBase64);
-        return this._makeRequest('/verify-multiple', {
-            image: imageData,
-            embeddings: embeddings,
-            student_ids: studentIds,
-            threshold: threshold
-        });
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        const extracted = await this.extractEmbedding(imageBase64);
+        
+        if (!extracted.success || !extracted.embedding) {
+            return {
+                success: false,
+                error: extracted.error || 'Failed to extract face from image',
+                fallback: 'Manual verification required'
+            };
+        }
+
+        if (extracted.embedding.length !== this.expectedDimension) {
+            return {
+                success: false,
+                error: `Invalid embedding dimension. Expected ${this.expectedDimension}, got ${extracted.embedding.length}`,
+                fallback: 'Manual verification required'
+            };
+        }
+
+        let bestMatch = null;
+        let bestSimilarity = 0;
+
+        for (let i = 0; i < embeddings.length; i++) {
+            const storedEmbedding = embeddings[i];
+            
+            // Validate stored embedding
+            if (!Array.isArray(storedEmbedding) || storedEmbedding.length !== this.expectedDimension) {
+                console.warn(`Skipping invalid embedding for student ${studentIds[i]}: ${storedEmbedding?.length || 0} dimensions`);
+                continue;
+            }
+            
+            const comparison = await this.compareEmbeddings(
+                extracted.embedding,
+                storedEmbedding
+            );
+
+            if (comparison.success && comparison.similarity > bestSimilarity) {
+                bestSimilarity = comparison.similarity;
+                bestMatch = {
+                    student_id: studentIds[i],
+                    similarity: comparison.similarity
+                };
+            }
+        }
+
+        const isMatch = bestMatch && bestSimilarity >= threshold;
+
+        return {
+            success: true,
+            verified: isMatch,
+            student_id: isMatch ? bestMatch.student_id : null,
+            similarity: bestSimilarity,
+            threshold: threshold,
+            confidence: bestSimilarity,
+            message: isMatch ? 'Match found' : 'No match found'
+        };
     }
 
-    async checkLiveness(imageBase64) {
+    async checkLiveness(imageBase64, sessionId = null) {
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                is_live: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
+
         const imageData = this._sanitizeImage(imageBase64);
-        const result = await this._makeRequest('/check-liveness', { image: imageData });
-        return result.is_live !== undefined ? result : { is_live: false, error: result.error };
+        const payload = { image: imageData };
+        if (sessionId) {
+            payload.session_id = sessionId;
+        }
+
+        const result = await this._makeRequest('/check-liveness', payload);
+
+        // Normalize response so callers always get a consistent shape
+        return {
+            success: result.is_live !== undefined || result.success !== false,
+            is_live: result.is_live === true,
+            message: result.message || result.error || '',
+            progress: result.progress ?? 0,
+            session_id: result.session_id || null,
+            face_detected: result.face_detected ?? false,
+            faces: result.faces ?? 0,
+            error: result.error || null,
+            fallback: result.fallback || null
+        };
     }
 
-    async resetLiveness() {
-        return this._makeRequest('/reset-liveness', {});
+    async resetLiveness(sessionId = null) {
+        const payload = sessionId ? { session_id: sessionId } : {};
+        const result = await this._makeRequest('/reset-liveness', payload);
+
+        return {
+            success: result.success !== false,
+            message: result.message || 'Liveness detector reset',
+            session_id: result.session_id || sessionId || null,
+            error: result.error || null
+        };
     }
 
     async compareEmbeddings(embedding1, embedding2) {
-        return this._makeRequest('/compare-embeddings', {
+        if (!embedding1 || !embedding2) {
+            return {
+                success: false,
+                error: 'Both embeddings are required for comparison',
+                similarity: 0
+            };
+        }
+
+        if (!Array.isArray(embedding1) || !Array.isArray(embedding2)) {
+            return {
+                success: false,
+                error: 'Embeddings must be arrays',
+                similarity: 0
+            };
+        }
+
+        if (embedding1.length !== this.expectedDimension || embedding2.length !== this.expectedDimension) {
+            return {
+                success: false,
+                error: `Invalid embedding dimensions. Expected ${this.expectedDimension}, got ${embedding1.length} and ${embedding2.length}`,
+                similarity: 0
+            };
+        }
+
+        const result = await this._makeRequest('/compare-embeddings', {
             embedding1: embedding1,
             embedding2: embedding2
         });
+
+        if (result.success) {
+            return {
+                success: true,
+                similarity: result.similarity || 0,
+                is_match: (result.similarity || 0) >= FACE_VERIFICATION_THRESHOLD
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Failed to compare embeddings',
+            similarity: 0
+        };
     }
 
     async extractEmbedding(imageBase64) {
+        if (!this.isValidBase64(imageBase64)) {
+            return {
+                success: false,
+                error: 'Invalid base64 image data',
+                fallback: 'Manual verification required'
+            };
+        }
         const imageData = this._sanitizeImage(imageBase64);
-        return this._makeRequest('/extract-embedding', { image: imageData });
+        const result = await this._makeRequest('/extract-embedding', { image: imageData });
+        
+        if (result.success && result.embedding) {
+            // Validate embedding dimension
+            if (!Array.isArray(result.embedding) || result.embedding.length !== this.expectedDimension) {
+                return {
+                    success: false,
+                    error: `Invalid embedding dimension. Expected ${this.expectedDimension}, got ${result.embedding?.length || 0}`,
+                    fallback: 'Manual verification required'
+                };
+            }
+            
+            return {
+                success: true,
+                embedding: result.embedding,
+                confidence: result.confidence || 0.95,
+                quality: result.quality || 0.8,
+                face_count: result.face_count || 1
+            };
+        }
+        
+        return result;
     }
 
     _sanitizeImage(imageBase64) {
@@ -364,7 +628,6 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
 
 async function createUniversityWideBedcheckSessions(sessionId) {
     try {
-        // ✅ Get ALL active hostels from ALL campuses
         const { data: hostels, error: hostelsError } = await supabase
             .from('hostels')
             .select('id, campus')
@@ -375,14 +638,11 @@ async function createUniversityWideBedcheckSessions(sessionId) {
             return;
         }
 
-        if (!hostels || hostels.length === 0) {
-            console.log('No active hostels found');
+        if (!hostels?.length) {
+            console.warn('No active hostels found for bedcheck creation');
             return;
         }
 
-        console.log(`📋 Creating bedcheck sessions for ${hostels.length} hostels across all campuses`);
-
-        // ✅ Get all active RAs
         const { data: ras, error: rasError } = await supabase
             .from('staff')
             .select('id, hostel_id, campus')
@@ -391,33 +651,17 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
         if (rasError) {
             console.error('Error fetching RAs:', rasError);
-            return;
         }
 
-        // Create RA map by hostel
-        const raMap = {};
-        if (ras) {
-            ras.forEach(ra => {
-                if (ra.hostel_id) {
-                    raMap[ra.hostel_id] = ra.id;
-                }
-            });
-        }
+        const raMap = Object.fromEntries(
+            (ras || [])
+                .filter(ra => ra.hostel_id)
+                .map(ra => [ra.hostel_id, ra.id])
+        );
 
-        // ✅ Create bedcheck session for each hostel
-        const bedcheckInserts = [];
         const now = new Date().toISOString();
-
-        for (const hostel of hostels) {
-            // Get student count for this hostel
-            const { count: studentCount } = await supabase
-                .from('students')
-                .select('*', { count: 'exact', head: true })
-                .eq('hostel_id', hostel.id)
-                .eq('campus', hostel.campus)
-                .eq('status', 'Active');
-
-            // Check if bedcheck session already exists
+        
+        const hostelPromises = hostels.map(async (hostel) => {
             const { data: existing } = await supabase
                 .from('bedcheck_sessions')
                 .select('id')
@@ -428,15 +672,25 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
             if (existing) {
                 console.log(`📋 Bedcheck session already exists for hostel ${hostel.id}`);
-                continue;
+                return null;
             }
 
-            const raId = raMap[hostel.id] || null;
+            const { count: studentCount, error: countError } = await supabase
+                .from('students')
+                .select('*', { count: 'exact', head: true })
+                .eq('hostel_id', hostel.id)
+                .eq('campus', hostel.campus)
+                .eq('status', 'Active');
 
-            bedcheckInserts.push({
+            if (countError) {
+                console.error(`Error counting students for hostel ${hostel.id}:`, countError);
+                return null;
+            }
+
+            return {
                 global_session_id: sessionId,
                 hostel_id: hostel.id,
-                ra_id: raId,
+                ra_id: raMap[hostel.id] || null,
                 campus: hostel.campus,
                 campus_code: hostel.campus === 'Legacy' ? 'LEG' : 'HER',
                 status: 'pending',
@@ -446,27 +700,31 @@ async function createUniversityWideBedcheckSessions(sessionId) {
                 created_by: 'system',
                 created_at: now,
                 updated_at: now
-            });
-        }
+            };
+        });
+
+        const bedcheckInserts = (await Promise.all(hostelPromises))
+            .filter(insert => insert !== null);
 
         if (bedcheckInserts.length === 0) {
             console.log('No new bedcheck sessions to create');
             return;
         }
 
-        // ✅ Insert all bedcheck sessions
         const { error: insertError } = await supabase
             .from('bedcheck_sessions')
-            .insert(bedcheckInserts);
+            .upsert(bedcheckInserts, { 
+                onConflict: 'global_session_id,hostel_id',
+                ignoreDuplicates: false
+            });
 
         if (insertError) {
             console.error('Error creating bedcheck sessions:', insertError);
-            return;
+            throw insertError;
         }
 
         console.log(`✅ Created ${bedcheckInserts.length} bedcheck sessions for session ${sessionId}`);
 
-        // ✅ Update session total_hostels
         await supabase
             .from('sessions')
             .update({ total_hostels: hostels.length })
@@ -474,6 +732,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
     } catch (error) {
         console.error('Error in createUniversityWideBedcheckSessions:', error);
+        throw error;
     }
 }
 
@@ -483,7 +742,6 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 
 async function markUnverifiedAsAbsentUniversityWide(sessionId) {
     try {
-        // ✅ Get ALL students from ALL campuses
         const { data: allStudents, error: studentsError } = await supabase
             .from('students')
             .select('id, name, matric, hostel_id, room_code, campus')
@@ -494,7 +752,6 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             return;
         }
 
-        // ✅ Get verified students from ALL campuses
         const { data: verified, error: verifiedError } = await supabase
             .from('bedcheck_attendance')
             .select('student_id, campus')
@@ -516,12 +773,10 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 
         console.log(`📝 Marking ${unverified.length} students as absent across all campuses`);
 
-        // ✅ Mark unverified students as absent
         const absentInserts = [];
         const now = new Date().toISOString();
 
         for (const student of unverified) {
-            // Check if already marked
             const { data: existing } = await supabase
                 .from('bedcheck_attendance')
                 .select('id')
@@ -559,7 +814,6 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             }
         }
 
-        // ✅ Update student statuses
         for (const student of unverified) {
             await supabase
                 .from('students')
@@ -569,7 +823,6 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
                 })
                 .eq('id', student.id);
 
-            // Create absent scan
             await supabase
                 .from('bedcheck_scans')
                 .insert({
@@ -584,7 +837,6 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
                 });
         }
 
-        // ✅ Update session progress
         await updateSessionProgressUniversityWide(sessionId);
 
     } catch (error) {
@@ -598,7 +850,6 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 
 async function updateSessionProgressUniversityWide(sessionId) {
     try {
-        // ✅ Get all bedcheck sessions for this global session
         const { data: bedcheckSessions, error: bedcheckError } = await supabase
             .from('bedcheck_sessions')
             .select('status, campus')
@@ -613,7 +864,6 @@ async function updateSessionProgressUniversityWide(sessionId) {
         const completed = bedcheckSessions?.filter(b => b.status === 'completed').length || 0;
         const completion = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-        // ✅ Update session
         await supabase
             .from('sessions')
             .update({
@@ -623,7 +873,6 @@ async function updateSessionProgressUniversityWide(sessionId) {
             })
             .eq('id', sessionId);
 
-        // ✅ Update hostel_progress for each campus
         const campuses = ['Legacy', 'Heritage'];
         for (const campus of campuses) {
             const campusBedchecks = bedcheckSessions?.filter(b => b.campus === campus) || [];
@@ -631,7 +880,6 @@ async function updateSessionProgressUniversityWide(sessionId) {
             const campusCompleted = campusBedchecks.filter(b => b.status === 'completed').length;
             const campusCompletion = campusTotal > 0 ? Math.round((campusCompleted / campusTotal) * 100) : 0;
 
-            // Get or create hostel_progress record for this campus
             const { data: existing } = await supabase
                 .from('hostel_progress')
                 .select('id')
@@ -655,7 +903,7 @@ async function updateSessionProgressUniversityWide(sessionId) {
                     .from('hostel_progress')
                     .insert({
                         session_id: sessionId,
-                        hostel_id: null,  // Campus-level progress
+                        hostel_id: null,
                         total_students: 0,
                         verified_students: 0,
                         absent_students: 0,
@@ -953,21 +1201,22 @@ class RequestValidationFirewall {
 
     protectSQLInjection() {
         return (req, res, next) => {
-            const patterns = [
-                /(\b(select|insert|update|delete|drop|alter|create|truncate|union|exec|declare|cast|convert|table|database|information_schema)\b)/gi,
-                /(['";])/g,
-                /(\b(and|or|not|where|having|group by|order by)\b)/gi
+            const dangerousPatterns = [
+                /DROP\s+TABLE/i,
+                /DROP\s+DATABASE/i,
+                /TRUNCATE\s+TABLE/i,
+                /ALTER\s+TABLE/i
             ];
-
+            
             const checkValue = (value) => {
                 if (typeof value === 'string') {
-                    for (const pattern of patterns) {
+                    for (const pattern of dangerousPatterns) {
                         if (pattern.test(value)) return true;
                     }
                 }
                 return false;
             };
-
+            
             const checkObject = (obj) => {
                 for (const [key, value] of Object.entries(obj)) {
                     if (typeof value === 'string' && checkValue(value)) return true;
@@ -977,7 +1226,7 @@ class RequestValidationFirewall {
                 }
                 return false;
             };
-
+            
             const inputs = [req.body, req.query, req.params];
             for (const input of inputs) {
                 if (input && typeof input === 'object') {
@@ -990,7 +1239,6 @@ class RequestValidationFirewall {
                     }
                 }
             }
-
             next();
         };
     }
@@ -1254,7 +1502,9 @@ const corsOptions = {
         
         const isAllowed = allOrigins.some(allowed => {
             if (allowed.includes('*')) {
-                const pattern = allowed.replace(/\*/g, '.*');
+                const pattern = allowed
+                    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\\\*/g, '.*');
                 const regex = new RegExp(`^${pattern}$`);
                 return regex.test(origin);
             }
@@ -1286,14 +1536,25 @@ const globalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
+
 app.use('/api', globalLimiter);
 
 const authLimiter = rateLimit({
@@ -1304,11 +1565,21 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     skipSuccessfulRequests: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
@@ -1320,11 +1591,21 @@ const faceLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
     },
     validate: { xForwardedForHeader: false },
     skip: (req) => {
-        const ip = req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip;
+        if (forwarded) {
+            ip = forwarded.split(',')[0].trim();
+        } else {
+            ip = req.ip || req.connection.remoteAddress;
+        }
         return ipBlacklist.whitelist.has(ip);
     }
 });
@@ -1344,7 +1625,8 @@ app.use(express.urlencoded({ extended: true, limit: `${parseInt(process.env.MAX_
 
 // Request logging
 app.use((req, res, next) => {
-    req.clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || 'unknown';
+    const forwarded = req.headers['x-forwarded-for'];
+    req.clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress || 'unknown';
     req.userAgent = req.headers['user-agent'] || 'unknown';
     
     authFirewall.checkAuthStatus()(req, res, (err) => {
@@ -1484,39 +1766,31 @@ const requireRole = (...roles) => {
         const userRole = req.user.role;
         const userLevel = roleHierarchy[userRole] || 0;
         
-        // Check if user has the required role OR higher level access
         const isAuthorized = roles.some(requiredRole => {
-            // 1. Check direct role match (with aliases)
             const allowedRoles = roleMap[requiredRole] || [requiredRole];
             if (allowedRoles.includes(userRole)) {
                 return true;
             }
             
-            // 2. Check hierarchy - users with higher level can access lower level endpoints
             const requiredLevel = roleHierarchy[requiredRole] || 0;
             
-            // Developer has access to everything
             if (userRole === 'Developer') {
                 return true;
             }
             
-            // Admin/Administrator has access to Admin, RASD, HRA, RA
             if (['Administrator', 'Admin', 'Administration'].includes(userRole) && 
                 ['RASD', 'HRA', 'RA'].includes(requiredRole)) {
                 return true;
             }
             
-            // RASD has access to HRA and RA
             if (userRole === 'RASD' && ['HRA', 'RA'].includes(requiredRole)) {
                 return true;
             }
             
-            // HRA has access to RA
             if (userRole === 'HRA' && requiredRole === 'RA') {
                 return true;
             }
             
-            // Check by level (if both have levels defined)
             if (requiredLevel > 0 && userLevel >= requiredLevel) {
                 return true;
             }
@@ -1525,7 +1799,6 @@ const requireRole = (...roles) => {
         });
         
         if (!isAuthorized) {
-            // Log the unauthorized access attempt
             auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
@@ -1560,17 +1833,14 @@ const requireRole = (...roles) => {
 // =====================================================
 
 const campusIsolation = (req, res, next) => {
-    // Admin, Developer, and Administration can see ALL campuses
     const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
     
     if (adminRoles.includes(req.user?.role)) {
-        // Admins get the campus from header or default, but can see all
         req.campus = req.headers['x-campus'] || req.user?.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
-        req.viewAllCampuses = true;  // Flag to bypass campus filters
+        req.viewAllCampuses = true;
         return next();
     }
     
-    // For non-admin users, enforce campus isolation
     const campus = req.headers['x-campus'] || req.user?.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
     
     if (!campus || !SUPPORTED_CAMPUSES.includes(campus)) {
@@ -2377,20 +2647,57 @@ const auditEvents = {
 // 🔓 PUBLIC ENDPOINTS - FIXED
 // =====================================================
 
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'healthy', 
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'production',
-        face_api_status: faceService.circuitOpen ? 'circuit_open' : 'active'
-    });
+app.get('/health', async (req, res) => {
+    try {
+        const { data: dbCheck, error: dbError } = await supabase
+            .from('hostels')
+            .select('id')
+            .limit(1)
+            .maybeSingle();
+        
+        let faceApiHealth = { status: 'unknown' };
+        try {
+            const response = await axios.get(`${FACE_API_URL}/health`, {
+                timeout: 3000,
+                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
+            });
+            if (response.status === 200) {
+                faceApiHealth = response.data;
+            } else {
+                faceApiHealth = { status: 'unhealthy' };
+            }
+        } catch (error) {
+            console.error('Face API health check error:', error.message);
+            faceApiHealth = { status: 'unhealthy', error: error.message };
+        }
+        
+        const isHealthy = !dbError && faceApiHealth.status !== 'unhealthy';
+        
+        res.status(isHealthy ? 200 : 503).json({
+            status: isHealthy ? 'healthy' : 'degraded',
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+            services: {
+                database: dbError ? 'unhealthy' : 'healthy',
+                face_api: faceApiHealth.status || 'healthy'
+            },
+            environment: process.env.NODE_ENV || 'production',
+            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
+        });
+    } catch (error) {
+        console.error('Health check error:', error);
+        res.status(503).json({
+            status: 'unhealthy',
+            error: 'Health check failed',
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 app.get('/', (req, res) => {
     res.json({
         name: 'BIU BedCheck API',
-        version: '4.7.0',
+        version: '4.8.0',
         status: 'running',
         environment: process.env.NODE_ENV || 'production',
         security: {
@@ -2400,6 +2707,12 @@ app.get('/', (req, res) => {
             ip_blacklist: 'active',
             authentication_firewall: 'active',
             circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
+        },
+        face_recognition: {
+            enabled: true,
+            api_url: FACE_API_URL,
+            threshold: FACE_VERIFICATION_THRESHOLD,
+            embedding_dimension: EMBEDDING_DIMENSION
         }
     });
 });
@@ -2591,10 +2904,9 @@ app.get('/api/public/students/search', async (req, res) => {
 
 // =============================================
 // PUBLIC REGISTRATION ENDPOINTS - NO AUTH REQUIRED
-// FIXED: Case-insensitive status matching
 // =============================================
 
-// Public - Get all hostels (filtered by campus) - FIXED
+// Public - Get all hostels (filtered by campus)
 app.get('/api/public/hostels', async (req, res) => {
     try {
         const { campus } = req.query;
@@ -2604,8 +2916,6 @@ app.get('/api/public/hostels', async (req, res) => {
             .select('*')
             .order('name', { ascending: true });
         
-        // ✅ FIX: Case-insensitive status check
-        // Instead of eq('status', 'Active'), filter in JavaScript
         if (campus) {
             query = query.eq('campus', campus);
         }
@@ -2621,7 +2931,6 @@ app.get('/api/public/hostels', async (req, res) => {
             });
         }
         
-        // ✅ Filter active hostels (case-insensitive)
         const activeHostels = (data || []).filter(h => 
             h.status && h.status.toLowerCase() === 'active'
         );
@@ -2641,7 +2950,7 @@ app.get('/api/public/hostels', async (req, res) => {
     }
 });
 
-// Public - Get all floors/flats for a hostel - FIXED
+// Public - Get all floors/flats for a hostel
 app.get('/api/public/floors-flats', async (req, res) => {
     try {
         const { hostel_id } = req.query;
@@ -2669,7 +2978,6 @@ app.get('/api/public/floors-flats', async (req, res) => {
             });
         }
         
-        // ✅ Filter active floors (case-insensitive)
         const activeFloors = (data || []).filter(f => 
             f.status && f.status.toLowerCase() === 'active'
         );
@@ -2689,7 +2997,7 @@ app.get('/api/public/floors-flats', async (req, res) => {
     }
 });
 
-// Public - Get all rooms for a floor/flat - FIXED
+// Public - Get all rooms for a floor/flat
 app.get('/api/public/rooms', async (req, res) => {
     try {
         const { floor_flat_id } = req.query;
@@ -2717,7 +3025,6 @@ app.get('/api/public/rooms', async (req, res) => {
             });
         }
         
-        // ✅ Filter active rooms (case-insensitive)
         const activeRooms = (data || []).filter(r => 
             r.status && (r.status.toLowerCase() === 'active' || r.status.toLowerCase() === 'available')
         );
@@ -2737,7 +3044,7 @@ app.get('/api/public/rooms', async (req, res) => {
     }
 });
 
-// Public - Get all bed spaces for a room - FIXED
+// Public - Get all bed spaces for a room
 app.get('/api/public/bed-spaces', async (req, res) => {
     try {
         const { room_id } = req.query;
@@ -2765,7 +3072,6 @@ app.get('/api/public/bed-spaces', async (req, res) => {
             });
         }
         
-        // ✅ Filter available beds (case-insensitive)
         const availableBeds = (data || []).filter(b => 
             b.status && (b.status.toLowerCase() === 'available')
         );
@@ -2833,7 +3139,6 @@ app.post('/api/public/students/register', async (req, res) => {
     try {
         const studentData = req.body;
         
-        // Validate required fields
         const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
         for (const field of required) {
             if (!studentData[field]) {
@@ -2845,7 +3150,6 @@ app.post('/api/public/students/register', async (req, res) => {
             }
         }
         
-        // Check if student already exists
         const { data: existing, error: checkError } = await supabase
             .from('students')
             .select('id')
@@ -2865,7 +3169,6 @@ app.post('/api/public/students/register', async (req, res) => {
         let isUpdate = false;
         
         if (existing) {
-            // Update existing student
             isUpdate = true;
             const { data, error } = await supabase
                 .from('students')
@@ -2887,7 +3190,6 @@ app.post('/api/public/students/register', async (req, res) => {
             }
             result = data;
         } else {
-            // Create new student
             const { data, error } = await supabase
                 .from('students')
                 .insert({
@@ -2911,7 +3213,6 @@ app.post('/api/public/students/register', async (req, res) => {
             result = data;
         }
         
-        // Update bed space if provided
         if (studentData.bed_space_id) {
             await supabase
                 .from('bed_spaces')
@@ -2935,6 +3236,177 @@ app.post('/api/public/students/register', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'An error occurred. Please try again.',
+            code: 'SERVER_ERROR'
+        });
+    }
+});
+
+// =============================================
+// ✅ PUBLIC FACE ENROLLMENT - NO AUTH REQUIRED
+// =============================================
+
+app.post('/api/public/students/:id/face/enroll', async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.id, 10);
+        const { image } = req.body;
+
+        if (!studentId || Number.isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID',
+                code: 'INVALID_STUDENT_ID'
+            });
+        }
+
+        let imageData = image;
+        if (!imageData || typeof imageData !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'No image provided',
+                code: 'INVALID_IMAGE'
+            });
+        }
+        if (!imageData.startsWith('data:image')) {
+            imageData = `data:image/jpeg;base64,${imageData}`;
+        }
+
+        const validation = faceService.validateImage(imageData);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: validation.error,
+                code: 'INVALID_IMAGE'
+            });
+        }
+
+        const { data: student, error: studentError } = await supabase
+            .from('students')
+            .select('id, name, matric, hostel_id, room_id, campus')
+            .eq('id', studentId)
+            .maybeSingle();
+
+        if (studentError || !student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found',
+                code: 'STUDENT_NOT_FOUND'
+            });
+        }
+
+        const embeddingResult = await faceService.extractEmbedding(imageData);
+        if (!embeddingResult.success || !embeddingResult.embedding) {
+            return res.status(400).json({
+                success: false,
+                message: embeddingResult.error ||
+                    'Failed to generate face embedding. No face detected or image quality too low.',
+                code: 'EMBEDDING_GENERATION_FAILED',
+                fallback: 'Manual verification required'
+            });
+        }
+
+        if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== EMBEDDING_DIMENSION) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid embedding. Expected ${EMBEDDING_DIMENSION} dimensions, got ${embeddingResult.embedding?.length || 0}`,
+                code: 'INVALID_EMBEDDING'
+            });
+        }
+
+        const now = new Date().toISOString();
+        const campus = student.campus || 'Legacy';
+        const campusCode = campus === 'Legacy' ? 'LEG' : 'HER';
+
+        // ✅ SAVE TO student_face TABLE (NOT students)
+        const facePayload = {
+            student_id: student.id,
+            campus,
+            campus_code: campusCode,
+            face_embedding: embeddingResult.embedding,
+            face_image_url: null,
+            face_image_path: null,
+            enrollment_status: 'enrolled',
+            enrollment_date: now,
+            last_verified: null,
+            verification_count: 0,
+            confidence_score: embeddingResult.confidence ?? 0.95,
+            is_active: true,
+            notes: null,
+            updated_at: now,
+            enrolled_by: null,
+            enrolled_by_student: true,
+            enrollment_ip: req.ip || req.headers['x-forwarded-for'] || null,
+            enrollment_device: (req.headers['user-agent'] || '').slice(0, 500)
+        };
+
+        const { data: existingFace } = await supabase
+            .from('student_face')
+            .select('id')
+            .eq('student_id', student.id)
+            .eq('campus', campus)
+            .maybeSingle();
+
+        let faceData, faceError;
+        if (existingFace?.id) {
+            const result = await supabase
+                .from('student_face')
+                .update(facePayload)
+                .eq('id', existingFace.id)
+                .select('id, enrollment_status, enrollment_date, confidence_score')
+                .single();
+            faceData = result.data;
+            faceError = result.error;
+        } else {
+            facePayload.created_at = now;
+            const result = await supabase
+                .from('student_face')
+                .insert(facePayload)
+                .select('id, enrollment_status, enrollment_date, confidence_score')
+                .single();
+            faceData = result.data;
+            faceError = result.error;
+        }
+
+        if (faceError) {
+            console.error('Save face error:', faceError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to save face data to database',
+                code: 'DATABASE_ERROR',
+                error: faceError.message,
+                details: faceError.details,
+                hint: faceError.hint
+            });
+        }
+
+        // ✅ UPDATE students table face_enrolled flag
+        await supabase
+            .from('students')
+            .update({ face_enrolled: true, updated_at: now })
+            .eq('id', student.id);
+
+        return res.json({
+            success: true,
+            data: {
+                student: {
+                    id: student.id,
+                    name: student.name,
+                    matric: student.matric
+                },
+                face: {
+                    id: faceData.id,
+                    enrollment_status: faceData.enrollment_status,
+                    enrollment_date: faceData.enrollment_date,
+                    confidence: faceData.confidence_score
+                },
+                message: 'Face enrolled successfully'
+            },
+            campus
+        });
+    } catch (error) {
+        console.error('Public face enrollment error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred during face enrollment.',
             code: 'SERVER_ERROR'
         });
     }
@@ -3397,7 +3869,7 @@ app.get('/api/campus/stats', requireRole('Admin', 'HRA', 'Developer'), async (re
 });
 
 // =====================================================
-// INSIGHTFACE ENDPOINTS
+// INSIGHTFACE ENDPOINTS - UPDATED
 // =====================================================
 
 app.get('/api/face/health', async (req, res) => {
@@ -3468,6 +3940,14 @@ app.post('/api/face/detect',
     }
 );
 
+// =====================================================
+// FACE RECOGNITION ENDPOINTS - FIXED
+// =====================================================
+
+/**
+ * ENROLL FACE - Single Image
+ * Generates embedding and stores it in the database
+ */
 app.post('/api/face/enroll', 
     campusIsolation,
     faceLimiter,
@@ -3476,6 +3956,7 @@ app.post('/api/face/enroll',
         try {
             const { image, student_id, matric } = req.body;
 
+            // 1. VALIDATE IMAGE
             const validation = faceService.validateImage(image);
             if (!validation.valid) {
                 return res.status(400).json({
@@ -3485,6 +3966,7 @@ app.post('/api/face/enroll',
                 });
             }
 
+            // 2. FIND STUDENT
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
@@ -3510,7 +3992,9 @@ app.post('/api/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // 3. CHECK PERMISSIONS
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied. You can only enroll students in your hostel.',
@@ -3518,38 +4002,55 @@ app.post('/api/face/enroll',
                 });
             }
 
-            const result = await faceService.enrollFace(
-                image,
-                student.id,
-                student.hostel_id,
-                student.room_id,
-                student.name
-            );
+            // 4. GENERATE EMBEDDING
+            console.log(`📸 Generating embedding for ${student.name} (ID: ${student.id})`);
             
-            if (!result.success) {
-                return res.status(400).json({ 
-                    ...result, 
-                    code: 'FACE_ENROLLMENT_FAILED',
+            const embeddingResult = await faceService.extractEmbedding(image);
+            
+            if (!embeddingResult.success || !embeddingResult.embedding) {
+                return res.status(400).json({
+                    success: false,
+                    message: embeddingResult.error || 'Failed to generate face embedding. No face detected or image quality too low.',
+                    code: 'EMBEDDING_GENERATION_FAILED',
                     fallback: 'Manual verification required'
                 });
             }
 
+            // Validate embedding dimension
+            if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== EMBEDDING_DIMENSION) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid embedding. Expected ${EMBEDDING_DIMENSION} dimensions, got ${embeddingResult.embedding?.length || 0}`,
+                    code: 'INVALID_EMBEDDING'
+                });
+            }
+
+            console.log(`✅ Embedding generated: ${embeddingResult.embedding.length} dimensions, quality: ${embeddingResult.quality || 'N/A'}`);
+
+            // 5. SAVE TO student_face TABLE
+            const now = new Date().toISOString();
+            
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
                 .upsert({
                     student_id: student.id,
                     campus: student.campus || req.campus,
                     campus_code: student.campus === 'Legacy' ? 'LEG' : 'HER',
-                    face_embedding: result.embedding,
-                    face_image_url: result.image_url || null,
+                    face_embedding: embeddingResult.embedding,
+                    face_image_url: null,
                     enrollment_status: 'enrolled',
-                    enrollment_date: new Date().toISOString(),
+                    enrollment_date: now,
                     is_active: true,
                     enrolled_by: req.user.id,
-                    confidence_score: result.confidence || null,
-                    updated_at: new Date().toISOString()
+                    confidence_score: embeddingResult.confidence || 0.95,
+                    embedding_quality: embeddingResult.quality || 0.8,
+                    embedding_version: 1,
+                    last_verified: null,
+                    verification_count: 0,
+                    created_at: now,
+                    updated_at: now
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
@@ -3558,47 +4059,47 @@ app.post('/api/face/enroll',
                 console.error('Save face error:', faceError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to save face data',
-                    code: 'DATABASE_ERROR'
+                    message: 'Failed to save face data to database',
+                    code: 'DATABASE_ERROR',
+                    error: faceError.message
                 });
             }
 
-            const { data: updatedStudent, error: updateError } = await supabase
+            // 6. UPDATE students table
+            await supabase
                 .from('students')
                 .update({
                     face_enrolled: true,
-                    updated_at: new Date().toISOString()
+                    embedding_quality: embeddingResult.quality || 0.8,
+                    updated_at: now
                 })
-                .eq('id', student.id)
-                .select()
-                .single();
+                .eq('id', student.id);
 
-            if (updateError) {
-                console.error('Update student error:', updateError);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to update student record',
-                    code: 'DATABASE_ERROR'
-                });
-            }
+            // 7. AUDIT LOG
+            await auditEvents.faceEnrolled(student, {
+                success: true,
+                confidence: embeddingResult.confidence,
+                quality: embeddingResult.quality
+            }, req);
 
-            await auditEvents.faceEnrolled(student, result, req);
-
+            // 8. RESPONSE
             res.json({
                 success: true,
                 data: {
                     student: {
-                        id: updatedStudent.id,
-                        name: updatedStudent.name,
-                        matric: updatedStudent.matric
+                        id: student.id,
+                        name: student.name,
+                        matric: student.matric
                     },
                     face: {
                         id: faceData.id,
                         enrollment_status: faceData.enrollment_status,
                         enrollment_date: faceData.enrollment_date,
-                        confidence: result.confidence
+                        confidence: embeddingResult.confidence || 0.95,
+                        quality: embeddingResult.quality || 0.8,
+                        embedding_dimension: embeddingResult.embedding.length
                     },
-                    message: 'Face enrolled successfully'
+                    message: 'Face enrolled successfully with embedding'
                 },
                 campus: req.campus
             });
@@ -3607,13 +4108,17 @@ app.post('/api/face/enroll',
             console.error('Face enrollment error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
+                message: 'An error occurred during face enrollment. Please try again.',
+                code: 'SERVER_ERROR',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
 );
 
+/**
+ * ENROLL FACE - Bulk (Multiple Frames)
+ */
 app.post('/api/face/enroll-bulk', 
     campusIsolation,
     faceLimiter,
@@ -3626,6 +4131,7 @@ app.post('/api/face/enroll-bulk',
         try {
             const { frames, student_id, matric } = req.body;
 
+            // 1. VALIDATE FRAMES
             for (const frame of frames) {
                 const validation = faceService.validateImage(frame);
                 if (!validation.valid) {
@@ -3637,6 +4143,7 @@ app.post('/api/face/enroll-bulk',
                 }
             }
 
+            // 2. FIND STUDENT
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
@@ -3662,46 +4169,79 @@ app.post('/api/face/enroll-bulk',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // 3. CHECK PERMISSIONS
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Access denied. You can only enroll students in your hostel.',
+                    message: 'Access denied.',
                     code: 'PERMISSION_DENIED'
                 });
             }
 
-            const result = await faceService.enrollBulk(
-                frames,
-                student.id,
-                student.hostel_id,
-                student.room_id,
-                student.name
-            );
+            // 4. GENERATE EMBEDDINGS
+            console.log(`📸 Generating embedding from ${frames.length} frames for ${student.name}`);
             
-            if (!result.success) {
-                return res.status(400).json({ 
-                    ...result, 
-                    code: 'FACE_ENROLLMENT_FAILED',
-                    fallback: 'Manual verification required'
+            const embeddings = [];
+            let qualities = [];
+            let successfulFrames = 0;
+
+            for (let i = 0; i < frames.length; i++) {
+                try {
+                    const result = await faceService.extractEmbedding(frames[i]);
+                    if (result.success && result.embedding) {
+                        embeddings.push(result.embedding);
+                        qualities.push(result.quality || 0.7);
+                        successfulFrames++;
+                    }
+                } catch (err) {
+                    console.warn(`Frame ${i + 1} failed:`, err.message);
+                }
+            }
+
+            if (embeddings.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No valid face detected in any frame. Please try again with better lighting.',
+                    code: 'NO_VALID_FRAMES'
                 });
             }
 
+            // 5. AVERAGE EMBEDDINGS
+            const avgEmbedding = embeddings.reduce((acc, emb) => {
+                return acc.map((val, idx) => val + emb[idx]);
+            }, new Array(embeddings[0].length).fill(0))
+            .map(val => val / embeddings.length);
+
+            const avgQuality = qualities.reduce((a, b) => a + b, 0) / qualities.length;
+
+            console.log(`✅ Averaged ${embeddings.length} embeddings, quality: ${avgQuality}`);
+
+            // 6. SAVE TO DATABASE
+            const now = new Date().toISOString();
+            
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
                 .upsert({
                     student_id: student.id,
                     campus: student.campus || req.campus,
                     campus_code: student.campus === 'Legacy' ? 'LEG' : 'HER',
-                    face_embedding: result.embedding,
-                    face_image_url: result.image_url || null,
+                    face_embedding: avgEmbedding,
+                    face_image_url: null,
                     enrollment_status: 'enrolled',
-                    enrollment_date: new Date().toISOString(),
+                    enrollment_date: now,
                     is_active: true,
                     enrolled_by: req.user.id,
-                    confidence_score: result.confidence || null,
-                    updated_at: new Date().toISOString()
+                    confidence_score: 0.95,
+                    embedding_quality: avgQuality,
+                    embedding_version: 1,
+                    frames_used: embeddings.length,
+                    last_verified: null,
+                    verification_count: 0,
+                    created_at: now,
+                    updated_at: now
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
@@ -3715,43 +4255,42 @@ app.post('/api/face/enroll-bulk',
                 });
             }
 
-            const { data: updatedStudent, error: updateError } = await supabase
+            // 7. UPDATE STUDENT
+            await supabase
                 .from('students')
                 .update({
                     face_enrolled: true,
-                    updated_at: new Date().toISOString()
+                    embedding_quality: avgQuality,
+                    updated_at: now
                 })
-                .eq('id', student.id)
-                .select()
-                .single();
+                .eq('id', student.id);
 
-            if (updateError) {
-                console.error('Update student error:', updateError);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to update student record',
-                    code: 'DATABASE_ERROR'
-                });
-            }
+            // 8. AUDIT LOG
+            await auditEvents.faceEnrolled(student, {
+                success: true,
+                confidence: 0.95,
+                quality: avgQuality,
+                frames_used: embeddings.length
+            }, req);
 
-            await auditEvents.faceEnrolled(student, result, req);
-
+            // 9. RESPONSE
             res.json({
                 success: true,
                 data: {
                     student: {
-                        id: updatedStudent.id,
-                        name: updatedStudent.name,
-                        matric: updatedStudent.matric
+                        id: student.id,
+                        name: student.name,
+                        matric: student.matric
                     },
                     face: {
                         id: faceData.id,
                         enrollment_status: faceData.enrollment_status,
                         enrollment_date: faceData.enrollment_date,
-                        confidence: result.confidence
+                        quality: avgQuality,
+                        frames_used: embeddings.length,
+                        embedding_dimension: avgEmbedding.length
                     },
-                    frames_used: result.frames_used,
-                    message: 'Face enrolled successfully'
+                    message: `Face enrolled successfully using ${embeddings.length} frames`
                 },
                 campus: req.campus
             });
@@ -3760,13 +4299,16 @@ app.post('/api/face/enroll-bulk',
             console.error('Bulk enrollment error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred during bulk enrollment. Please try again.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
+/**
+ * VERIFY FACE - Single Student
+ */
 app.post('/api/face/verify', 
     campusIsolation,
     faceLimiter,
@@ -3775,6 +4317,7 @@ app.post('/api/face/verify',
         try {
             const { image, student_id, matric, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
 
+            // 1. VALIDATE IMAGE
             const validation = faceService.validateImage(image);
             if (!validation.valid) {
                 return res.status(400).json({
@@ -3784,6 +4327,7 @@ app.post('/api/face/verify',
                 });
             }
 
+            // 2. FIND STUDENT
             if (!student_id && !matric) {
                 return res.status(400).json({
                     success: false,
@@ -3794,7 +4338,7 @@ app.post('/api/face/verify',
 
             let studentQuery = supabase
                 .from('students')
-                .select('id, name, matric, face_enrolled, hostel_id, room_id, campus')
+                .select('id, name, matric, face_enrolled, hostel_id, room_id, room_code, campus')
                 .eq('campus', req.campus);
             
             if (student_id) {
@@ -3813,7 +4357,9 @@ app.post('/api/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // 3. CHECK PERMISSIONS
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied.',
@@ -3821,9 +4367,10 @@ app.post('/api/face/verify',
                 });
             }
 
+            // 4. GET STORED EMBEDDING FROM student_face
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('face_embedding, enrollment_status, verification_count')
+                .select('face_embedding, enrollment_status, verification_count, confidence_score')
                 .eq('student_id', student.id)
                 .eq('campus', req.campus)
                 .eq('is_active', true)
@@ -3837,38 +4384,82 @@ app.post('/api/face/verify',
                 });
             }
 
-            const result = await faceService.verifyFace(
-                image,
-                faceData.face_embedding,
-                threshold
+            // 5. EXTRACT EMBEDDING FROM CAPTURED IMAGE
+            console.log(`📸 Verifying face for ${student.name}`);
+            
+            const capturedEmbedding = await faceService.extractEmbedding(image);
+            
+            if (!capturedEmbedding.success || !capturedEmbedding.embedding) {
+                return res.status(400).json({
+                    success: false,
+                    message: capturedEmbedding.error || 'Failed to extract face from captured image. Please try again.',
+                    code: 'EXTRACTION_FAILED'
+                });
+            }
+
+            // 6. COMPARE EMBEDDINGS
+            const comparison = await faceService.compareEmbeddings(
+                capturedEmbedding.embedding,
+                faceData.face_embedding
             );
 
-            if (result.success) {
+            if (!comparison.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: comparison.error || 'Failed to compare face embeddings',
+                    code: 'COMPARISON_FAILED'
+                });
+            }
+
+            const isMatch = comparison.similarity >= threshold;
+
+            // 7. UPDATE STATS IF MATCH
+            if (isMatch) {
+                const newVerificationCount = (faceData.verification_count || 0) + 1;
                 await supabase
                     .from('student_face')
                     .update({
                         last_verified: new Date().toISOString(),
-                        verification_count: (faceData.verification_count || 0) + 1,
-                        confidence_score: result.confidence || null,
+                        verification_count: newVerificationCount,
+                        confidence_score: comparison.similarity,
                         updated_at: new Date().toISOString()
                     })
                     .eq('student_id', student.id);
+
+                await supabase
+                    .from('students')
+                    .update({
+                        status: 'Verified',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', student.id);
             }
 
-            await auditEvents.faceVerified(student, result, req);
+            // 8. AUDIT LOG
+            await auditEvents.faceVerified(student, {
+                success: isMatch,
+                confidence: comparison.similarity,
+                threshold: threshold
+            }, req);
 
+            // 9. RESPONSE
             res.json({
                 success: true,
                 data: {
                     student: {
                         id: student.id,
                         name: student.name,
-                        matric: student.matric
+                        matric: student.matric,
+                        room_code: student.room_code
                     },
-                    verified: result.success,
-                    confidence: result.confidence,
-                    threshold: result.threshold || threshold,
-                    message: result.success ? 'Face verified successfully' : 'Face verification failed'
+                    verified: isMatch,
+                    similarity: comparison.similarity,
+                    threshold: threshold,
+                    message: isMatch ? 'Face verified successfully' : 'Face verification failed - similarity below threshold',
+                    stats: {
+                        verification_count: (faceData.verification_count || 0) + (isMatch ? 1 : 0),
+                        previous_confidence: faceData.confidence_score
+                    }
                 },
                 campus: req.campus
             });
@@ -3877,14 +4468,19 @@ app.post('/api/face/verify',
             console.error('Face verification error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
+                message: 'An error occurred during face verification. Please try again.',
+                code: 'SERVER_ERROR',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
 );
 
-app.post('/api/face/verify-room', 
+/**
+ * VERIFY FACE - Room/Group
+ * Compares captured face against all enrolled students in a room or hostel
+ */
+app.post('/api/face/verify-room',
     campusIsolation,
     faceLimiter,
     validate([
@@ -3895,8 +4491,20 @@ app.post('/api/face/verify-room',
     ]),
     async (req, res) => {
         try {
-            const { image, room_id, hostel_id, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
+            const {
+                image,
+                room_id,
+                hostel_id,
+                threshold = FACE_VERIFICATION_THRESHOLD
+            } = req.body;
 
+            console.log('\n================ FACE VERIFICATION ================');
+            console.log('Campus:', req.campus);
+            console.log('Room ID:', room_id);
+            console.log('Hostel ID:', hostel_id);
+            console.log('Threshold:', threshold);
+
+            // 1. VALIDATE IMAGE
             const validation = faceService.validateImage(image);
             if (!validation.valid) {
                 return res.status(400).json({
@@ -3906,6 +4514,7 @@ app.post('/api/face/verify-room',
                 });
             }
 
+            // 2. CHECK PARAMETERS
             if (!room_id && !hostel_id) {
                 return res.status(400).json({
                     success: false,
@@ -3914,106 +4523,242 @@ app.post('/api/face/verify-room',
                 });
             }
 
-            let query = supabase.from('students')
-                .select('id, name, matric, face_enrolled, hostel_id, room_id, room_code, campus')
-                .eq('campus', req.campus)
+            // 3. GET STUDENTS
+            let studentQuery = supabase
+                .from('students')
+                .select(`
+                    id,
+                    name,
+                    matric,
+                    face_enrolled,
+                    hostel_id,
+                    room_id,
+                    room_code,
+                    campus
+                `)
                 .eq('face_enrolled', true);
-            
+
+            if (req.campus) {
+                studentQuery = studentQuery.eq('campus', req.campus);
+            }
+
             if (room_id) {
-                query = query.eq('room_id', room_id);
+                studentQuery = studentQuery.eq('room_id', Number(room_id));
             } else if (hostel_id) {
-                query = query.eq('hostel_id', hostel_id);
+                studentQuery = studentQuery.eq('hostel_id', Number(hostel_id));
             }
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
+
+            const adminRoles = ['Admin', 'Administrator', 'Developer'];
+            if (!adminRoles.includes(req.user.role) && req.user.hostel_id) {
+                studentQuery = studentQuery.eq('hostel_id', req.user.hostel_id);
             }
-            
-            const { data: students, error: studentsError } = await query;
-            
+
+            const { data: students, error: studentsError } = await studentQuery;
+
             if (studentsError) {
-                console.error('Fetch students error:', studentsError);
+                console.error('❌ Fetch students error:', studentsError);
                 return res.status(500).json({
                     success: false,
-                    message: 'An error occurred. Please try again.',
-                    code: 'SERVER_ERROR'
+                    message: 'Failed to fetch students.',
+                    code: 'STUDENT_FETCH_ERROR'
                 });
             }
+
+            console.log(`👥 Students found: ${students?.length || 0}`);
 
             if (!students || students.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No students found with face enrolled in this room',
+                    message: 'No face-enrolled students found in this room or hostel.',
                     code: 'NO_STUDENTS_FOUND'
                 });
             }
 
-            const studentIds = students.map(s => s.id);
-            const { data: faceData, error: faceError } = await supabase
-                .from('student_face')
-                .select('student_id, face_embedding, verification_count')
-                .in('student_id', studentIds)
-                .eq('campus', req.campus)
-                .eq('is_active', true);
+            // 4. GET FACE RECORDS
+            const studentIds = students.map(student => student.id);
 
-            if (faceError || !faceData || faceData.length === 0) {
+            let faceQuery = supabase
+                .from('student_face')
+                .select(`
+                    id,
+                    student_id,
+                    face_embedding,
+                    verification_count,
+                    confidence_score,
+                    enrollment_status,
+                    is_active,
+                    campus
+                `)
+                .in('student_id', studentIds)
+                .eq('is_active', true)
+                .eq('enrollment_status', 'enrolled');
+
+            if (req.campus) {
+                faceQuery = faceQuery.eq('campus', req.campus);
+            }
+
+            const { data: faceData, error: faceError } = await faceQuery;
+
+            if (faceError) {
+                console.error('❌ Fetch face records error:', faceError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch face records.',
+                    code: 'FACE_FETCH_ERROR'
+                });
+            }
+
+            console.log(`🧠 Face records found: ${faceData?.length || 0}`);
+
+            if (!faceData || faceData.length === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: 'No face embeddings found for students in this room',
+                    message: 'Students were found but no active face embeddings exist.',
                     code: 'NO_FACE_EMBEDDINGS'
                 });
             }
 
-            const embeddings = faceData.map(f => f.face_embedding);
-            const faceStudentIds = faceData.map(f => f.student_id);
+            // 5. EXTRACT CAPTURED FACE EMBEDDING
+            console.log('📸 Extracting captured face embedding...');
 
-            const result = await faceService.verifyMultiple(
-                image,
-                embeddings,
-                faceStudentIds,
-                threshold
-            );
+            const capturedResult = await faceService.extractEmbedding(image);
 
-            let matchedStudent = null;
-            if (result.success && result.student_id) {
-                matchedStudent = students.find(s => s.id === result.student_id);
-                
-                if (matchedStudent) {
-                    const studentFace = faceData.find(f => f.student_id === matchedStudent.id);
-                    await supabase
-                        .from('student_face')
-                        .update({
-                            last_verified: new Date().toISOString(),
-                            verification_count: (studentFace?.verification_count || 0) + 1,
-                            confidence_score: result.confidence || null,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('student_id', matchedStudent.id);
+            if (!capturedResult || !capturedResult.success || !capturedResult.embedding) {
+                console.error('❌ Face extraction failed:', capturedResult);
+                return res.status(400).json({
+                    success: false,
+                    message: capturedResult?.error || 'Could not detect a face in the captured image.',
+                    code: 'EXTRACTION_FAILED'
+                });
+            }
+
+            let capturedEmbedding = capturedResult.embedding;
+            if (typeof capturedEmbedding === 'string') {
+                try {
+                    capturedEmbedding = JSON.parse(capturedEmbedding);
+                } catch (error) {
+                    console.error('❌ Invalid captured embedding format');
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Captured face embedding format is invalid.',
+                        code: 'INVALID_CAPTURED_EMBEDDING'
+                    });
                 }
             }
 
-            await auditService.log({
-                actor: req.user.name || req.user.username,
-                actor_id: req.user.id,
-                actor_role: req.user.role,
-                action: matchedStudent ? 'Room Face Verified' : 'Room Face Verification Failed',
-                module: 'face',
-                details: matchedStudent 
-                    ? `${matchedStudent.name} (${matchedStudent.matric}) verified in room ${matchedStudent.room_code || 'N/A'} with ${(result.confidence * 100).toFixed(1)}% confidence`
-                    : `No match found in room ${room_id || hostel_id}`,
-                context: `Threshold: ${threshold}, Students checked: ${students.length}`,
-                result: matchedStudent ? 'success' : 'failed',
-                category: 'face',
-                tone: matchedStudent ? 'green' : 'red',
-                hostel_id: hostel_id || matchedStudent?.hostel_id,
-                room_id: room_id || matchedStudent?.room_id,
-                student_id: matchedStudent?.id || null,
-                campus: req.campus,
-                ip_address: req.clientIp,
-                user_agent: req.userAgent
-            });
+            console.log(`🧠 Captured embedding length: ${capturedEmbedding.length}`);
 
-            res.json({
+            // 6. COMPARE EMBEDDINGS
+            let bestMatch = null;
+            let bestSimilarity = -1;
+
+            console.log(`🔍 Comparing against ${faceData.length} enrolled faces...`);
+
+            for (const face of faceData) {
+                let storedEmbedding = face.face_embedding;
+
+                if (typeof storedEmbedding === 'string') {
+                    try {
+                        storedEmbedding = JSON.parse(storedEmbedding);
+                    } catch (error) {
+                        console.error(`❌ Invalid embedding for student ID ${face.student_id}`);
+                        continue;
+                    }
+                }
+
+                if (!Array.isArray(storedEmbedding) || storedEmbedding.length === 0) {
+                    console.error(`❌ Empty embedding for student ID ${face.student_id}`);
+                    continue;
+                }
+
+                if (storedEmbedding.length !== capturedEmbedding.length) {
+                    console.error(`❌ Embedding dimension mismatch for student ${face.student_id}`);
+                    console.log({ capturedLength: capturedEmbedding.length, storedLength: storedEmbedding.length });
+                    continue;
+                }
+
+                try {
+                    const comparison = await faceService.compareEmbeddings(capturedEmbedding, storedEmbedding);
+                    console.log(`Student ${face.student_id}:`, comparison);
+
+                    if (comparison && comparison.success && typeof comparison.similarity === 'number') {
+                        console.log(`📊 Student ${face.student_id} similarity: ${comparison.similarity}`);
+                        if (comparison.similarity > bestSimilarity) {
+                            bestSimilarity = comparison.similarity;
+                            bestMatch = { ...face, similarity: comparison.similarity };
+                        }
+                    }
+                } catch (comparisonError) {
+                    console.error(`❌ Comparison failed for student ${face.student_id}:`, comparisonError);
+                    continue;
+                }
+            }
+
+            console.log('🏆 Best similarity:', bestSimilarity);
+            console.log('🎯 Required threshold:', threshold);
+
+            const isMatch = bestMatch && bestSimilarity >= Number(threshold);
+            let matchedStudent = null;
+
+            if (isMatch) {
+                matchedStudent = students.find(student => Number(student.id) === Number(bestMatch.student_id));
+                console.log('✅ MATCH FOUND:', matchedStudent?.name);
+            } else {
+                console.log('❌ NO MATCH FOUND');
+            }
+
+            // 7. UPDATE VERIFICATION RECORD
+            if (matchedStudent && bestMatch) {
+                const newVerificationCount = (bestMatch.verification_count || 0) + 1;
+                const now = new Date().toISOString();
+
+                await supabase
+                    .from('student_face')
+                    .update({
+                        last_verified: now,
+                        verification_count: newVerificationCount,
+                        confidence_score: bestSimilarity,
+                        updated_at: now
+                    })
+                    .eq('student_id', matchedStudent.id);
+
+                await supabase
+                    .from('students')
+                    .update({
+                        status: 'Verified',
+                        updated_at: now
+                    })
+                    .eq('id', matchedStudent.id);
+            }
+
+            // 8. AUDIT LOG
+            try {
+                await auditService.log({
+                    actor: req.user.name || req.user.username || 'Unknown',
+                    actor_id: req.user.id,
+                    actor_role: req.user.role,
+                    action: matchedStudent ? 'Room Face Verified' : 'Room Face Verification Failed',
+                    module: 'face',
+                    details: matchedStudent
+                        ? `${matchedStudent.name} (${matchedStudent.matric}) verified with ${(bestSimilarity * 100).toFixed(1)}% confidence`
+                        : `No face match found`,
+                    context: `Threshold: ${threshold}, Students checked: ${students.length}`,
+                    result: matchedStudent ? 'success' : 'failed',
+                    category: 'face',
+                    tone: matchedStudent ? 'green' : 'red',
+                    hostel_id: hostel_id || matchedStudent?.hostel_id || null,
+                    room_id: room_id || matchedStudent?.room_id || null,
+                    student_id: matchedStudent?.id || null,
+                    campus: req.campus,
+                    ip_address: req.clientIp,
+                    user_agent: req.userAgent
+                });
+            } catch (auditError) {
+                console.error('⚠️ Audit log failed:', auditError);
+            }
+
+            // 9. RESPONSE
+            return res.json({
                 success: true,
                 data: {
                     matched_student: matchedStudent ? {
@@ -4023,25 +4768,31 @@ app.post('/api/face/verify-room',
                         room_code: matchedStudent.room_code
                     } : null,
                     verified: !!matchedStudent,
-                    confidence: result.confidence || 0,
-                    threshold: result.threshold || threshold,
+                    similarity: bestSimilarity,
+                    similarity_percentage: bestSimilarity >= 0 ? `${(bestSimilarity * 100).toFixed(2)}%` : '0%',
+                    threshold: Number(threshold),
+                    threshold_percentage: `${(Number(threshold) * 100).toFixed(0)}%`,
                     students_checked: students.length,
-                    message: matchedStudent ? 'Match found' : 'No match found'
+                    faces_checked: faceData.length,
+                    message: matchedStudent ? 'Face verified successfully' : 'Face does not match any enrolled student'
                 },
                 campus: req.campus
             });
 
         } catch (error) {
-            console.error('Room verification error:', error);
-            res.status(500).json({
+            console.error('❌ Room verification error:', error);
+            return res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred during face verification.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
+/**
+ * CHECK LIVENESS
+ */
 app.post('/api/face/liveness', 
     campusIsolation,
     faceLimiter,
@@ -4063,12 +4814,16 @@ app.post('/api/face/liveness',
             if (result.is_live) {
                 await auditEvents.livenessVerified(req);
             }
-            res.json({ ...result, campus: req.campus });
+            res.json({ 
+                ...result, 
+                campus: req.campus,
+                message: result.is_live ? 'Liveness check passed' : 'Liveness check failed'
+            });
         } catch (error) {
             console.error('Liveness check error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred during liveness check.',
                 code: 'SERVER_ERROR'
             });
         }
@@ -4093,15 +4848,20 @@ app.post('/api/face/liveness/reset',
     }
 );
 
+/**
+ * GET FACE STATUS
+ */
 app.get('/api/face/status/:studentId',
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
         try {
             const studentId = parseInt(req.params.id);
+            
+            // Get student
             const { data: student, error } = await supabase
                 .from('students')
-                .select('id, name, matric, face_enrolled, updated_at, hostel_id, campus')
+                .select('id, name, matric, face_enrolled, updated_at, hostel_id, campus, embedding_quality')
                 .eq('id', studentId)
                 .eq('campus', req.campus)
                 .single();
@@ -4114,7 +4874,9 @@ app.get('/api/face/status/:studentId',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // Check permissions
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4122,9 +4884,10 @@ app.get('/api/face/status/:studentId',
                 });
             }
 
+            // Get face data from student_face
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('id, enrollment_status, face_embedding, face_image_url, last_verified, verification_count, confidence_score')
+                .select('id, enrollment_status, face_embedding, face_image_url, last_verified, verification_count, confidence_score, embedding_quality, embedding_version, frames_used')
                 .eq('student_id', studentId)
                 .eq('campus', req.campus)
                 .eq('is_active', true)
@@ -4146,6 +4909,9 @@ app.get('/api/face/status/:studentId',
                     last_verified: faceData?.last_verified || null,
                     verification_count: faceData?.verification_count || 0,
                     confidence_score: faceData?.confidence_score || null,
+                    embedding_quality: faceData?.embedding_quality || student.embedding_quality || null,
+                    embedding_version: faceData?.embedding_version || 1,
+                    frames_used: faceData?.frames_used || 1,
                     has_embedding: !!faceData?.face_embedding,
                     embedding_dimension: faceData?.face_embedding ? faceData.face_embedding.length : 0,
                     updated_at: student.updated_at
@@ -4156,13 +4922,16 @@ app.get('/api/face/status/:studentId',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while fetching face status.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
+/**
+ * COMPARE TWO EMBEDDINGS
+ */
 app.post('/api/face/compare', 
     campusIsolation,
     validate([
@@ -4172,19 +4941,40 @@ app.post('/api/face/compare',
     async (req, res) => {
         try {
             const { embedding1, embedding2 } = req.body;
+            
+            if (embedding1.length !== EMBEDDING_DIMENSION || embedding2.length !== EMBEDDING_DIMENSION) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid embedding dimensions. Expected ${EMBEDDING_DIMENSION}, got ${embedding1.length} and ${embedding2.length}`,
+                    code: 'INVALID_DIMENSIONS'
+                });
+            }
+            
             const result = await faceService.compareEmbeddings(embedding1, embedding2);
-            res.json({ ...result, campus: req.campus });
+            
+            res.json({ 
+                success: true,
+                data: {
+                    similarity: result.similarity || 0,
+                    is_match: (result.similarity || 0) >= FACE_VERIFICATION_THRESHOLD,
+                    threshold: FACE_VERIFICATION_THRESHOLD
+                },
+                campus: req.campus 
+            });
         } catch (error) {
             console.error('Compare embeddings error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while comparing embeddings.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
+/**
+ * EXTRACT EMBEDDING FROM IMAGE
+ */
 app.post('/api/face/extract', 
     campusIsolation,
     faceLimiter,
@@ -4203,31 +4993,50 @@ app.post('/api/face/extract',
             }
             
             const result = await faceService.extractEmbedding(image);
-            res.json({ ...result, campus: req.campus });
+            
+            if (!result.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: result.error || 'Failed to extract face embedding',
+                    code: 'EXTRACTION_FAILED'
+                });
+            }
+            
+            res.json({ 
+                success: true,
+                data: {
+                    embedding: result.embedding,
+                    dimension: result.embedding?.length || 0,
+                    quality: result.quality || null,
+                    face_count: result.face_count || 0
+                },
+                campus: req.campus 
+            });
         } catch (error) {
             console.error('Extract embedding error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while extracting embedding.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
-// =====================================================
-// STUDENT FACE ENDPOINTS (Legacy)
-// =====================================================
-
+// =============================================
+// FIXED: GET FACE STATUS
+// =============================================
 app.get('/api/students/:id/face-status',
     campusIsolation,
     validate(validators.studentId),
     async (req, res) => {
         try {
             const studentId = parseInt(req.params.id);
+            
+            // STEP 1: Get student from students table
             const { data: student, error: studentError } = await supabase
                 .from('students')
-                .select('id, name, matric, hostel_id, campus')
+                .select('id, name, matric, hostel_id, campus, face_enrolled')
                 .eq('id', studentId)
                 .eq('campus', req.campus)
                 .single();
@@ -4240,7 +5049,9 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // Check permissions
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4248,14 +5059,62 @@ app.get('/api/students/:id/face-status',
                 });
             }
 
+            // STEP 2: Get face data from student_face table
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('*')
+                .select(`
+                    id, 
+                    student_id,
+                    campus,
+                    campus_code,
+                    face_embedding, 
+                    face_image_url, 
+                    face_image_path,
+                    enrollment_status, 
+                    enrollment_date,
+                    last_verified, 
+                    verification_count, 
+                    confidence_score,
+                    is_active,
+                    notes,
+                    created_at,
+                    updated_at,
+                    enrolled_by,
+                    enrolled_by_student,
+                    enrollment_ip,
+                    enrollment_device
+                `)
                 .eq('student_id', studentId)
                 .eq('campus', req.campus)
+                .eq('is_active', true)
                 .maybeSingle();
 
-            if (faceError) throw faceError;
+            if (faceError) {
+                console.error('Face table error:', faceError);
+            }
+
+            // STEP 3: Check if student has face data
+            const hasFaceRecord = faceData !== null && faceData.is_active === true;
+            const isEnrolled = hasFaceRecord && faceData.enrollment_status === 'enrolled';
+            const hasEmbedding = hasFaceRecord && 
+                                 faceData.face_embedding !== null && 
+                                 Array.isArray(faceData.face_embedding) && 
+                                 faceData.face_embedding.length === EMBEDDING_DIMENSION;
+            
+            const studentFaceEnrolled = student.face_enrolled === true || student.face_enrolled === 1;
+            const enrolled = studentFaceEnrolled && isEnrolled && hasEmbedding;
+            
+            console.log(`📊 Student ${studentId} (${student.name}) face status:`, {
+                studentId,
+                studentName: student.name,
+                studentFaceEnrolled: studentFaceEnrolled,
+                hasFaceRecord: hasFaceRecord,
+                isEnrolled: isEnrolled,
+                hasEmbedding: hasEmbedding,
+                enrollmentStatus: faceData?.enrollment_status || null,
+                isActive: faceData?.is_active || false,
+                enrolled: enrolled
+            });
 
             res.json({
                 success: true,
@@ -4265,14 +5124,34 @@ app.get('/api/students/:id/face-status',
                         name: student.name,
                         matric: student.matric
                     },
-                    face_enrolled: !!faceData && faceData.enrollment_status === 'enrolled',
-                    enrollment_status: faceData?.enrollment_status || 'pending',
+                    
+                    face_enrolled: enrolled,
+                    enrollment_status: enrolled ? 'enrolled' : 
+                                      (studentFaceEnrolled ? 'partial' : 'pending'),
+                    has_embedding: hasEmbedding,
+                    can_verify: enrolled && hasEmbedding,
+                    
                     face_image_url: faceData?.face_image_url || null,
                     last_verified: faceData?.last_verified || null,
                     verification_count: faceData?.verification_count || 0,
                     confidence_score: faceData?.confidence_score || null,
-                    has_embedding: !!faceData?.face_embedding,
-                    embedding_dimension: faceData?.face_embedding ? faceData.face_embedding.length : 0
+                    
+                    embedding_dimension: hasEmbedding ? faceData.face_embedding.length : 0,
+                    
+                    _source: {
+                        students_table: {
+                            face_enrolled: studentFaceEnrolled,
+                            campus: student.campus
+                        },
+                        student_face_table: {
+                            has_record: hasFaceRecord,
+                            is_active: faceData?.is_active || false,
+                            enrollment_status: faceData?.enrollment_status || null,
+                            has_embedding: hasEmbedding,
+                            embedding_length: hasEmbedding ? faceData.face_embedding.length : 0,
+                            campus: faceData?.campus || null
+                        }
+                    }
                 },
                 campus: req.campus
             });
@@ -4280,13 +5159,16 @@ app.get('/api/students/:id/face-status',
             console.error('Get face status error:', error);
             res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while fetching face status.',
                 code: 'SERVER_ERROR'
             });
         }
     }
 );
 
+/**
+ * FIXED: STUDENT FACE ENROLL
+ */
 app.post('/api/students/:id/face/enroll',
     campusIsolation,
     faceLimiter,
@@ -4296,6 +5178,7 @@ app.post('/api/students/:id/face/enroll',
             const studentId = parseInt(req.params.id);
             const { image } = req.body;
 
+            // 1. VALIDATE IMAGE
             const validation = faceService.validateImage(image);
             if (!validation.valid) {
                 return res.status(400).json({
@@ -4305,6 +5188,7 @@ app.post('/api/students/:id/face/enroll',
                 });
             }
 
+            // 2. GET STUDENT
             const { data: student, error: studentError } = await supabase
                 .from('students')
                 .select('id, name, matric, hostel_id, room_id, campus')
@@ -4320,7 +5204,9 @@ app.post('/api/students/:id/face/enroll',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // 3. CHECK PERMISSIONS
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4328,38 +5214,55 @@ app.post('/api/students/:id/face/enroll',
                 });
             }
 
-            const result = await faceService.enrollFace(
-                image,
-                student.id,
-                student.hostel_id,
-                student.room_id,
-                student.name
-            );
+            // 4. GENERATE EMBEDDING
+            console.log(`📸 Generating embedding for ${student.name} (ID: ${student.id})`);
 
-            if (!result.success) {
-                return res.status(400).json({ 
-                    ...result, 
-                    code: 'FACE_ENROLLMENT_FAILED',
+            const embeddingResult = await faceService.extractEmbedding(image);
+
+            if (!embeddingResult.success || !embeddingResult.embedding) {
+                return res.status(400).json({
+                    success: false,
+                    message: embeddingResult.error || 'Failed to generate face embedding. No face detected or image quality too low.',
+                    code: 'EMBEDDING_GENERATION_FAILED',
                     fallback: 'Manual verification required'
                 });
             }
 
+            if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== EMBEDDING_DIMENSION) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid embedding. Expected ${EMBEDDING_DIMENSION} dimensions, got ${embeddingResult.embedding?.length || 0}`,
+                    code: 'INVALID_EMBEDDING'
+                });
+            }
+
+            console.log(`✅ Embedding generated: ${embeddingResult.embedding.length} dimensions, quality: ${embeddingResult.quality || 'N/A'}`);
+
+            // 5. SAVE TO student_face TABLE
+            const now = new Date().toISOString();
+            
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
                 .upsert({
                     student_id: student.id,
                     campus: student.campus || req.campus,
                     campus_code: student.campus === 'Legacy' ? 'LEG' : 'HER',
-                    face_embedding: result.embedding,
-                    face_image_url: result.image_url || null,
+                    face_embedding: embeddingResult.embedding,
+                    face_image_url: null,
                     enrollment_status: 'enrolled',
-                    enrollment_date: new Date().toISOString(),
+                    enrollment_date: now,
                     is_active: true,
                     enrolled_by: req.user.id,
-                    confidence_score: result.confidence || null,
-                    updated_at: new Date().toISOString()
+                    confidence_score: embeddingResult.confidence || 0.95,
+                    embedding_quality: embeddingResult.quality || 0.8,
+                    embedding_version: 1,
+                    frames_used: 1,
+                    last_verified: null,
+                    verification_count: 0,
+                    created_at: now,
+                    updated_at: now
                 }, {
-                    onConflict: 'student_id'
+                    onConflict: 'student_id,campus'
                 })
                 .select()
                 .single();
@@ -4368,18 +5271,30 @@ app.post('/api/students/:id/face/enroll',
                 console.error('Save face error:', faceError);
                 return res.status(500).json({
                     success: false,
-                    message: 'Failed to save face data',
-                    code: 'DATABASE_ERROR'
+                    message: 'Failed to save face data to database',
+                    code: 'DATABASE_ERROR',
+                    error: faceError.message
                 });
             }
 
+            // 6. UPDATE students table
             await supabase
                 .from('students')
-                .update({ face_enrolled: true, updated_at: new Date().toISOString() })
+                .update({
+                    face_enrolled: true,
+                    embedding_quality: embeddingResult.quality || 0.8,
+                    updated_at: now
+                })
                 .eq('id', student.id);
 
-            await auditEvents.faceEnrolled(student, result, req);
+            // 7. AUDIT LOG
+            await auditEvents.faceEnrolled(student, {
+                success: true,
+                confidence: embeddingResult.confidence,
+                quality: embeddingResult.quality
+            }, req);
 
+            // 8. RESPONSE
             res.json({
                 success: true,
                 data: {
@@ -4392,9 +5307,11 @@ app.post('/api/students/:id/face/enroll',
                         id: faceData.id,
                         enrollment_status: faceData.enrollment_status,
                         enrollment_date: faceData.enrollment_date,
-                        confidence: result.confidence
+                        confidence: embeddingResult.confidence || 0.95,
+                        quality: embeddingResult.quality || 0.8,
+                        embedding_dimension: embeddingResult.embedding.length
                     },
-                    message: 'Face enrolled successfully'
+                    message: 'Face enrolled successfully with embedding'
                 },
                 campus: req.campus
             });
@@ -4410,6 +5327,9 @@ app.post('/api/students/:id/face/enroll',
     }
 );
 
+/**
+ * FIXED: STUDENT FACE VERIFY
+ */
 app.post('/api/students/:id/face/verify',
     campusIsolation,
     faceLimiter,
@@ -4423,6 +5343,7 @@ app.post('/api/students/:id/face/verify',
             const studentId = parseInt(req.params.id);
             const { image, threshold = FACE_VERIFICATION_THRESHOLD } = req.body;
 
+            // 1. VALIDATE IMAGE
             const validation = faceService.validateImage(image);
             if (!validation.valid) {
                 return res.status(400).json({
@@ -4432,6 +5353,7 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
+            // 2. GET STUDENT
             const { data: student, error: studentError } = await supabase
                 .from('students')
                 .select('id, name, matric, hostel_id, room_id, campus')
@@ -4447,7 +5369,9 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
+            // 3. CHECK PERMISSIONS
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -4455,9 +5379,10 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
+            // 4. GET STORED EMBEDDING FROM student_face
             const { data: faceData, error: faceError } = await supabase
                 .from('student_face')
-                .select('face_embedding, enrollment_status, verification_count')
+                .select('face_embedding, enrollment_status, verification_count, confidence_score')
                 .eq('student_id', studentId)
                 .eq('campus', req.campus)
                 .eq('is_active', true)
@@ -4471,38 +5396,82 @@ app.post('/api/students/:id/face/verify',
                 });
             }
 
-            const result = await faceService.verifyFace(
-                image,
-                faceData.face_embedding,
-                threshold
+            // 5. EXTRACT EMBEDDING FROM CAPTURED IMAGE
+            console.log(`📸 Verifying face for ${student.name}`);
+
+            const capturedEmbedding = await faceService.extractEmbedding(image);
+
+            if (!capturedEmbedding.success || !capturedEmbedding.embedding) {
+                return res.status(400).json({
+                    success: false,
+                    message: capturedEmbedding.error || 'Failed to extract face from captured image. Please try again.',
+                    code: 'EXTRACTION_FAILED'
+                });
+            }
+
+            // 6. COMPARE EMBEDDINGS
+            const comparison = await faceService.compareEmbeddings(
+                capturedEmbedding.embedding,
+                faceData.face_embedding
             );
 
-            if (result.success) {
+            if (!comparison.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: comparison.error || 'Failed to compare face embeddings',
+                    code: 'COMPARISON_FAILED'
+                });
+            }
+
+            const isMatch = comparison.similarity >= threshold;
+
+            // 7. UPDATE STATS IF MATCH
+            if (isMatch) {
+                const newVerificationCount = (faceData.verification_count || 0) + 1;
                 await supabase
                     .from('student_face')
                     .update({
                         last_verified: new Date().toISOString(),
-                        verification_count: (faceData.verification_count || 0) + 1,
-                        confidence_score: result.confidence || null,
+                        verification_count: newVerificationCount,
+                        confidence_score: comparison.similarity,
                         updated_at: new Date().toISOString()
                     })
-                    .eq('student_id', studentId);
+                    .eq('student_id', student.id);
+
+                await supabase
+                    .from('students')
+                    .update({
+                        status: 'Verified',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', student.id);
             }
 
-            await auditEvents.faceVerified(student, result, req);
+            // 8. AUDIT LOG
+            await auditEvents.faceVerified(student, {
+                success: isMatch,
+                confidence: comparison.similarity,
+                threshold: threshold
+            }, req);
 
+            // 9. RESPONSE
             res.json({
                 success: true,
                 data: {
                     student: {
                         id: student.id,
                         name: student.name,
-                        matric: student.matric
+                        matric: student.matric,
+                        room_code: student.room_code
                     },
-                    verified: result.success,
-                    confidence: result.confidence,
+                    verified: isMatch,
+                    similarity: comparison.similarity,
                     threshold: threshold,
-                    message: result.success ? 'Face verified successfully' : 'Face verification failed'
+                    message: isMatch ? 'Face verified successfully' : 'Face verification failed - similarity below threshold',
+                    stats: {
+                        verification_count: (faceData.verification_count || 0) + (isMatch ? 1 : 0),
+                        previous_confidence: faceData.confidence_score
+                    }
                 },
                 campus: req.campus
             });
@@ -4518,6 +5487,9 @@ app.post('/api/students/:id/face/verify',
     }
 );
 
+/**
+ * FIXED: GET ALL FACE STATUS
+ */
 app.get('/api/students/face-status/all',
     campusIsolation,
     async (req, res) => {
@@ -4529,7 +5501,8 @@ app.get('/api/students/face-status/all',
                 .select('id, name, matric, hostel_id, room_id, room_code, face_enrolled, campus')
                 .eq('campus', req.campus);
             
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && 
+                req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
             
@@ -4545,7 +5518,7 @@ app.get('/api/students/face-status/all',
             if (studentIds.length > 0) {
                 const { data: faces } = await supabase
                     .from('student_face')
-                    .select('student_id, enrollment_status, last_verified, verification_count')
+                    .select('student_id, enrollment_status, last_verified, verification_count, confidence_score, embedding_quality')
                     .in('student_id', studentIds)
                     .eq('campus', req.campus)
                     .eq('is_active', true);
@@ -4560,7 +5533,9 @@ app.get('/api/students/face-status/all',
                     face_enrolled: !!face && face.enrollment_status === 'enrolled',
                     enrollment_status: face?.enrollment_status || 'pending',
                     last_verified: face?.last_verified || null,
-                    verification_count: face?.verification_count || 0
+                    verification_count: face?.verification_count || 0,
+                    confidence_score: face?.confidence_score || null,
+                    embedding_quality: face?.embedding_quality || null
                 };
             });
             
@@ -6238,13 +7213,15 @@ app.post('/api/attendance/verify',
                 FACE_VERIFICATION_THRESHOLD
             );
             
-            if (!verificationResult.success) {
+            if (!verificationResult.success || !verificationResult.verified) {
                 return res.status(400).json({
                     success: false,
-                    message: verificationResult.error || 'Face verification failed',
+                    message: verificationResult.error || 'Face verification failed - face does not match',
                     code: 'FACE_VERIFICATION_FAILED',
                     data: {
+                        verified: false,
                         confidence: verificationResult.confidence || 0,
+                        similarity: verificationResult.similarity || 0,
                         threshold: FACE_VERIFICATION_THRESHOLD
                     }
                 });
@@ -13612,12 +14589,14 @@ app.use((err, req, res, next) => {
 // =====================================================
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 BIU BedCheck API v4.7.0 - Face-Only Verification`);
+    console.log(`\n🚀 BIU BedCheck API v4.8.0 - Face-Only Verification`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
     console.log(`🏢 RA Assignment System: ENABLED`);
     console.log(`📸 Verification Method: FACE ONLY`);
     console.log(`⏰ Auto-Session Management: ENABLED`);
+    console.log(`🎯 Embedding Dimension: ${EMBEDDING_DIMENSION}`);
+    console.log(`🎯 Threshold: ${FACE_VERIFICATION_THRESHOLD}`);
     
     try {
         const health = await faceService.checkHealth();

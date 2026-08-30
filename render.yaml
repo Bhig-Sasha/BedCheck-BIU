@@ -7,35 +7,51 @@ services:
     runtime: node
     plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
+
     buildCommand: |
       npm install
       npm install express-validator --save
+      npm install ws --save
+
     startCommand: node server.js
+
     envVars:
       - fromGroup: supabase-creds
+
       - key: ALLOWED_ORIGINS
-        value: https://bedcheck-biu.onrender.com,https://face-api-f9k5.onrender.com,https://your-frontend.vercel.app
+        value: https://bedcheck-biu.onrender.com,https://face-api-f9k5.onrender.com
+
       - key: FACE_API_URL
         fromService:
           name: face-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+
       - key: PORT
         value: 3000
+
       - key: NODE_ENV
         value: production
+
       - key: JWT_SECRET
         sync: false
+
+      # CHANGE THIS - Use exact Node version format
       - key: NODE_VERSION
-        value: 18.19.0
+        value: 20.18.0  # Use this instead of 22.0.0
+
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=512"
+
     healthCheckPath: /health
     autoDeploy: true
-    numReplicas: 1
+
     buildFilter:
       paths:
         - server.js
         - package.json
         - package-lock.json
+
 
   # =====================================================
   # PYTHON FACE API SERVICE
@@ -45,103 +61,91 @@ services:
     runtime: python
     plan: starter
     repo: https://github.com/Bhig-Sasha/BedCheck-BIU
+
     buildCommand: |
-      cd python
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      
-      # Download model during build (not runtime)
-      echo "Downloading face model during build..."
+      pip install --upgrade pip && \
+      pip install -r python/requirements.txt && \
       python -c "
-      import os
-      import insightface
-      import zipfile
-      import requests
-      from pathlib import Path
+      import os, zipfile, requests, insightface;
+      model_dir='./python/models';
+      os.makedirs(model_dir, exist_ok=True);
+      model_path=os.path.join(model_dir, 'models', 'antelopev2');
       
-      # Set up model directory
-      model_dir = './models'
-      os.makedirs(model_dir, exist_ok=True)
-      
-      model_path = os.path.join(model_dir, 'models', 'antelopev2')
-      
-      # Check if model already exists
       if os.path.exists(model_path) and os.listdir(model_path):
-          print('✅ Model already exists')
-          exit(0)
+          print('✅ Model already exists, skipping download');
+      else:
+          print('📥 Downloading antelopev2 model...');
+          zip_path = os.path.join(model_dir, 'antelopev2.zip');
+          try:
+              response = requests.get(
+                  'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip',
+                  timeout=300
+              );
+              response.raise_for_status();
+              with open(zip_path, 'wb') as f:
+                  f.write(response.content);
+              print('📦 Extracting model...');
+              with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                  zip_ref.extractall(os.path.join(model_dir, 'models'));
+              os.remove(zip_path);
+              print('✅ Model extracted successfully');
+          except Exception as e:
+              print(f'❌ Error downloading model: {e}');
+              raise;
       
-      print('📥 Downloading antelopev2 model...')
-      model_url = 'https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip'
-      zip_path = os.path.join(model_dir, 'antelopev2.zip')
-      
-      # Download with progress
-      response = requests.get(model_url, stream=True, timeout=300)
-      response.raise_for_status()
-      
-      total_size = int(response.headers.get('content-length', 0))
-      downloaded = 0
-      
-      with open(zip_path, 'wb') as f:
-          for chunk in response.iter_content(chunk_size=8192):
-              if chunk:
-                  f.write(chunk)
-                  downloaded += len(chunk)
-                  if total_size > 0:
-                      progress = (downloaded / total_size) * 100
-                      if int(progress) % 10 == 0:
-                          print(f'Download progress: {progress:.1f}%')
-      
-      print('📦 Extracting model...')
-      extract_path = os.path.join(model_dir, 'models')
-      os.makedirs(extract_path, exist_ok=True)
-      
-      with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-          zip_ref.extractall(extract_path)
-      
-      os.remove(zip_path)
-      print('✅ Model downloaded and extracted successfully')
-      
-      # Verify model loaded
-      try:
-          model = insightface.app.FaceAnalysis(
-              name='antelopev2',
-              root=model_dir,
-              providers=['CPUExecutionProvider'],
-              allowed_modules=['detection', 'recognition']
-          )
-          model.prepare(ctx_id=0, det_size=(640, 640))
-          print('✅ Model verified and ready')
-      except Exception as e:
-          print(f'⚠️ Model verification failed: {e}')
+      print('🔍 Verifying model...');
+      model = insightface.app.FaceAnalysis(
+          name='antelopev2',
+          root=model_dir,
+          providers=['CPUExecutionProvider'],
+          allowed_modules=['detection', 'recognition']
+      );
+      model.prepare(ctx_id=0, det_size=(640, 640));
+      print('✅ Model verified and ready');
       "
-      
-      # Clean up to save space
-      rm -rf /opt/render/project/src/.venv/lib/python3.11/site-packages/tensorflow* 2>/dev/null || true
-      
+
     startCommand: |
-      cd python
       export PYTHONUNBUFFERED=1
       export TF_CPP_MIN_LOG_LEVEL=3
-      uvicorn app:app --host 0.0.0.0 --port $PORT
+      export PYTHONPATH=$PYTHONPATH:.
+      export OMP_NUM_THREADS=1
+      uvicorn python.app:app --host 0.0.0.0 --port $PORT --workers 1 --limit-max-requests 200
+
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      
       - key: PORT
         value: 8000
-      - key: PIP_NO_CACHE_DIR
-        value: "true"
+      
       - key: INSIGHTFACE_CACHE
-        value: ./models
+        value: ./python/models
+      
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
+      
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: UVICORN_TIMEOUT
-        value: "120"
+      
+      - key: MODEL_NAME
+        value: antelopev2
+      
+      - key: DETECTION_SIZE
+        value: "640"
+      
+      - key: MAX_FACE_DETECTIONS
+        value: "10"
+      
+      - key: DETECTION_THRESHOLD
+        value: "0.5"
+      
+      - key: OMP_NUM_THREADS
+        value: "1"
+
     healthCheckPath: /health
     autoDeploy: true
-    numReplicas: 1
+    
     buildFilter:
       paths:
-        - python/app.py
-        - python/requirements.txt
+        - python/**
+        - requirements.txt
