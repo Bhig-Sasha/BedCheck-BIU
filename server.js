@@ -3662,7 +3662,12 @@ app.get('/api/me', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('staff')
-            .select('id, username, role, name, initials, scope, hostel_id, assigned_floor, assigned_room, is_admin, email, phone, department, status, campus, campus_code')
+            .select(`
+                id, username, role, name, initials, scope, hostel_id, 
+                assigned_floor, assigned_room, is_admin, email, phone, 
+                department, staff_id, joined, status, campus, campus_code,
+                hostels!hostel_id (id, name, type, gender)
+            `)
             .eq('id', req.user.id)
             .single();
         
@@ -3674,7 +3679,16 @@ app.get('/api/me', async (req, res) => {
             });
         }
         
-        res.json({ success: true, data: data });
+        // ✅ Format with hostel_name
+        const formattedData = {
+            ...data,
+            hostel_name: data.hostels?.name || null,
+            hostel_type: data.hostels?.type || null,
+            hostel_gender: data.hostels?.gender || null,
+            hostels: undefined
+        };
+        
+        res.json({ success: true, data: formattedData });
     } catch (error) {
         console.error('Error fetching user:', error);
         res.status(500).json({
@@ -5618,30 +5632,88 @@ app.get('/api/students',
     async (req, res) => {
         const { hostel, search, status, room_id } = req.query;
         try {
-            let query = supabase.from('students').select('*').eq('campus', req.campus);
+            let query = supabase.from('students').select(`
+                *,
+                bed_spaces!bed_space_id (bed_code),
+                rooms!room_id (room_code, id)
+            `).eq('campus', req.campus);
             
+            // ✅ Filter by hostel for RA users
             if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
                 query = query.eq('hostel_id', req.user.hostel_id);
+            }
+            
+            // ✅ If RA has assigned rooms, filter by them
+            if (req.user.role === 'RA' && req.user.hostel_id) {
+                // Get RA's assigned room IDs
+                const { data: assignments } = await supabase
+                    .from('ra_room_assignments')
+                    .select('room_id')
+                    .eq('ra_id', req.user.id)
+                    .eq('status', 'active')
+                    .eq('campus', req.campus);
+                
+                if (assignments && assignments.length > 0) {
+                    const roomIds = assignments.map(a => a.room_id);
+                    query = query.in('room_id', roomIds);
+                } else {
+                    // If no rooms assigned, return empty
+                    return res.json({ 
+                        success: true, 
+                        data: [],
+                        pagination: { limit: 0, offset: 0, total: 0 },
+                        campus: req.campus
+                    });
+                }
             }
             
             if (hostel && hostel !== 'all') query = query.eq('hostel', hostel);
             if (room_id) query = query.eq('room_id', parseInt(room_id));
             if (search) {
                 const searchTerm = `%${search}%`;
-                query = query.or(`name.ilike.${searchTerm},matric.ilike.${searchTerm}`);
+                query = query.or(`name.ilike.${searchTerm},matric.ilike.${searchTerm},room_code.ilike.${searchTerm}`);
             }
             if (status && status !== 'all') query = query.eq('status', status);
             
             const limit = Math.min(parseInt(req.query.limit) || 50, 100);
             const offset = parseInt(req.query.offset) || 0;
-            query = query.order('id', { ascending: true }).range(offset, offset + limit - 1);
+            query = query.order('name', { ascending: true }).range(offset, offset + limit - 1);
 
             const { data, error, count } = await query;
             if (error) throw error;
 
+            // ✅ Format response for frontend
+            const formattedData = data.map(student => ({
+                id: student.id,
+                name: student.name,
+                matric: student.matric,
+                faculty: student.faculty,
+                department: student.department,
+                level: student.level,
+                session: student.session,
+                hostel_id: student.hostel_id,
+                hostel_name: student.hostel_name,
+                room_id: student.room_id,
+                room_code: student.rooms?.room_code || student.room_code || null,
+                bed_space_id: student.bed_space_id,
+                bed_code: student.bed_spaces?.bed_code || student.bed_code || null,
+                phone: student.phone,
+                gender: student.gender,
+                email: student.email,
+                emergency_name: student.emergency_name,
+                emergency_relation: student.emergency_relation,
+                emergency_phone: student.emergency_phone,
+                status: student.status,
+                face_enrolled: student.face_enrolled || false,
+                campus: student.campus,
+                registration_date: student.registration_date,
+                created_at: student.created_at,
+                updated_at: student.updated_at
+            }));
+
             res.json({ 
                 success: true, 
-                data: data,
+                data: formattedData,
                 pagination: { limit, offset, total: count || data.length },
                 campus: req.campus
             });
@@ -5760,7 +5832,11 @@ app.get('/api/students/:id',
         try {
             const { data, error } = await supabase
                 .from('students')
-                .select('*')
+                .select(`
+                    *,
+                    bed_spaces!bed_space_id (bed_code),
+                    rooms!room_id (room_code, id)
+                `)
                 .eq('id', id)
                 .eq('campus', req.campus)
                 .single();
@@ -5781,7 +5857,36 @@ app.get('/api/students/:id',
                 });
             }
 
-            res.json({ success: true, data: data, campus: req.campus });
+            // ✅ Format response
+            const formattedData = {
+                id: data.id,
+                name: data.name,
+                matric: data.matric,
+                faculty: data.faculty,
+                department: data.department,
+                level: data.level,
+                session: data.session,
+                hostel_id: data.hostel_id,
+                hostel_name: data.hostel_name,
+                room_id: data.room_id,
+                room_code: data.rooms?.room_code || data.room_code || null,
+                bed_space_id: data.bed_space_id,
+                bed_code: data.bed_spaces?.bed_code || data.bed_code || null,
+                phone: data.phone,
+                gender: data.gender,
+                email: data.email,
+                emergency_name: data.emergency_name,
+                emergency_relation: data.emergency_relation,
+                emergency_phone: data.emergency_phone,
+                status: data.status,
+                face_enrolled: data.face_enrolled || false,
+                campus: data.campus,
+                registration_date: data.registration_date,
+                created_at: data.created_at,
+                updated_at: data.updated_at
+            };
+
+            res.json({ success: true, data: formattedData, campus: req.campus });
         } catch (error) {
             console.error('Error fetching student:', error);
             res.status(500).json({ 
