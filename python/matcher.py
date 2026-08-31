@@ -180,94 +180,102 @@ class FaceMatcher:
     # FIND BEST MATCH
     # --------------------------------------------------------
 
-    def find_similar_embedding(
-        self,
-        organization: str,
-        query_embedding: List[float],
-        limit: int = 500,
-        threshold: Optional[float] = None,
-    ) -> Tuple[Optional[int], float]:
-        """
-        Returns (student_id, similarity_percentage) or (None, 0.0).
-        """
-        active_threshold = self.threshold if threshold is None else float(threshold)
+def find_similar_embedding(
+    self,
+    organization: str,
+    query_embedding: List[float],
+    limit: int = 500,
+    threshold: Optional[float] = None,
+) -> Tuple[Optional[int], float]:
+    """
+    Returns (student_id, similarity_percentage).
+    Always returns the real best score (even if below threshold).
+    Returns (None, 0.0) only when no valid candidates exist.
+    """
+    active_threshold = self.threshold if threshold is None else float(threshold)
 
-        try:
-            if not organization:
-                logger.warning("No organization provided for face matching")
-                return None, 0.0
-
-            normalized_query = normalize_embedding(query_embedding)
-            if normalized_query is None:
-                logger.warning("Invalid query embedding")
-                return None, 0.0
-
-            if len(normalized_query) != self.expected_dimension:
-                logger.warning(
-                    f"Unexpected query embedding dimension: "
-                    f"{len(normalized_query)} (expected {self.expected_dimension})"
-                )
-                # still try – some old records might be different
-
-            records = self._get_org_records(organization, limit=limit)
-
-            if not records:
-                logger.info(f"No active face embeddings for organization: {organization}")
-                return None, 0.0
-
-            best_match_id = None
-            best_similarity = -1.0
-
-            for record in records:
-                student_id = record.get("student_id")
-                stored_embedding = record.get("face_embedding")
-
-                if student_id is None:
-                    continue
-
-                normalized_stored = normalize_embedding(stored_embedding)
-                if normalized_stored is None:
-                    continue
-
-                if len(normalized_stored) != len(normalized_query):
-                    continue
-
-                try:
-                    similarity = float(
-                        cosine_similarity(normalized_query, normalized_stored)
-                    )
-                except Exception as e:
-                    logger.warning(f"Comparison failed for student {student_id}: {e}")
-                    continue
-
-                if not np.isfinite(similarity):
-                    continue
-
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match_id = student_id
-
-            if best_match_id is None:
-                return None, 0.0
-
-            if best_similarity < active_threshold:
-                logger.info(
-                    f"No face match above threshold. "
-                    f"Best: {best_similarity:.4f}, threshold: {active_threshold:.4f}"
-                )
-                return None, 0.0
-
-            similarity_percentage = round(best_similarity * 100, 2)
-            logger.info(
-                f"Face match found: student={best_match_id}, "
-                f"similarity={similarity_percentage}%"
-            )
-            return best_match_id, similarity_percentage
-
-        except Exception as e:
-            logger.exception(f"Error finding similar embedding: {e}")
+    try:
+        if not organization:
+            logger.warning("No organization provided for face matching")
             return None, 0.0
 
+        normalized_query = normalize_embedding(query_embedding)
+        if normalized_query is None:
+            logger.warning("Invalid query embedding")
+            return None, 0.0
+
+        if len(normalized_query) != self.expected_dimension:
+            logger.warning(
+                f"Unexpected query embedding dimension: "
+                f"{len(normalized_query)} (expected {self.expected_dimension})"
+            )
+
+        records = self._get_org_records(organization, limit=limit)
+
+        if not records:
+            logger.info(f"No active face embeddings for organization: {organization}")
+            return None, 0.0
+
+        best_match_id = None
+        best_similarity = -1.0
+
+        for record in records:
+            student_id = record.get("student_id")
+            stored_embedding = record.get("face_embedding")
+
+            if student_id is None:
+                continue
+
+            normalized_stored = normalize_embedding(stored_embedding)
+            if normalized_stored is None:
+                continue
+
+            if len(normalized_stored) != len(normalized_query):
+                continue
+
+            try:
+                similarity = float(
+                    cosine_similarity(normalized_query, normalized_stored)
+                )
+            except Exception as e:
+                logger.warning(f"Comparison failed for student {student_id}: {e}")
+                continue
+
+            if not np.isfinite(similarity):
+                continue
+
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match_id = student_id
+
+        if best_match_id is None:
+            logger.info("No valid face embeddings found for comparison")
+            return None, 0.0
+
+        similarity_percentage = round(best_similarity * 100, 2)
+
+        logger.info(
+            f"Best candidate: student={best_match_id}, "
+            f"similarity={similarity_percentage}%, "
+            f"threshold={active_threshold * 100:.1f}%"
+        )
+
+        if best_similarity < active_threshold:
+            logger.info(
+                f"REJECTED: {similarity_percentage}% < {active_threshold * 100:.1f}%"
+            )
+            # Return real score so we can see it in logs / UI
+            return None, similarity_percentage
+
+        logger.info(
+            f"MATCHED: student={best_match_id}, similarity={similarity_percentage}%"
+        )
+        return best_match_id, similarity_percentage
+
+    except Exception as e:
+        logger.exception(f"Error finding similar embedding: {e}")
+        return None, 0.0
+    
     # --------------------------------------------------------
     # FIND MULTIPLE MATCHES
     # --------------------------------------------------------

@@ -783,23 +783,73 @@ async def compare_embeddings(request: dict):
         embedding1 = request.get("embedding1")
         embedding2 = request.get("embedding2")
 
-        if not embedding1 or not embedding2:
+        if embedding1 is None or embedding2 is None:
             raise fastapi.HTTPException(
-                status_code=400, detail="Both embeddings are required"
+                status_code=400,
+                detail="Both embeddings are required"
             )
 
+        embedding1 = np.asarray(embedding1, dtype=np.float32)
+        embedding2 = np.asarray(embedding2, dtype=np.float32)
+
+        logger.info(
+            f"COMPARE: embedding1 dimension={embedding1.size}, "
+            f"embedding2 dimension={embedding2.size}"
+        )
+
+        if embedding1.size != 512:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f"embedding1 must have 512 values, got {embedding1.size}"
+            )
+
+        if embedding2.size != 512:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f"embedding2 must have 512 values, got {embedding2.size}"
+            )
+
+        norm1 = float(np.linalg.norm(embedding1))
+        norm2 = float(np.linalg.norm(embedding2))
+
+        logger.info(
+            f"COMPARE: norm1={norm1:.6f}, norm2={norm2:.6f}"
+        )
+
         similarity = cosine_similarity(embedding1, embedding2)
+        percentage = round(float(similarity) * 100, 2)
+
+        matched = similarity >= 0.55
+
+        logger.info(
+            f"COMPARE RESULT: similarity={similarity:.6f}, "
+            f"percentage={percentage}%, "
+            f"threshold=55%, "
+            f"matched={matched}"
+        )
+
         return {
+            "success": True,
             "similarity": float(similarity),
-            "match": similarity > 0.55,
+            "similarity_percentage": percentage,
+            "match": matched,
             "threshold": 0.55,
+            "threshold_percentage": 55.0,
+            "embedding1_dimension": int(embedding1.size),
+            "embedding2_dimension": int(embedding2.size),
+            "embedding1_norm": norm1,
+            "embedding2_norm": norm2,
         }
+
     except fastapi.HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Comparison error: {e}")
-        raise fastapi.HTTPException(status_code=500, detail=str(e))
 
+    except Exception as e:
+        logger.exception(f"Comparison error: {e}")
+        raise fastapi.HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 # ============================================================
 # LIVENESS (session-based)

@@ -297,10 +297,10 @@ class InsightFaceService {
                 fallback: 'Manual verification required'
             };
         }
-        
-        // Extract embedding from the captured image
+
+        // 1. Extract embedding from live image
         const extracted = await this.extractEmbedding(imageBase64);
-        
+
         if (!extracted.success || !extracted.embedding) {
             return {
                 success: false,
@@ -309,7 +309,6 @@ class InsightFaceService {
             };
         }
 
-        // Validate embedding dimension
         if (extracted.embedding.length !== this.expectedDimension) {
             return {
                 success: false,
@@ -318,29 +317,60 @@ class InsightFaceService {
             };
         }
 
-        // Compare with stored embedding
+        // 2. Ensure stored embedding is a clean number array
+        let stored = storedEmbedding;
+        if (typeof stored === 'string') {
+            try { stored = JSON.parse(stored); } catch (_) {}
+        }
+        if (!Array.isArray(stored)) {
+            return {
+                success: false,
+                error: 'Stored embedding is not a valid array',
+                fallback: 'Manual verification required'
+            };
+        }
+        stored = stored.map(Number);
+
+        if (stored.length !== this.expectedDimension) {
+            return {
+                success: false,
+                error: `Stored embedding dimension mismatch. Expected ${this.expectedDimension}, got ${stored.length}`,
+                fallback: 'Manual verification required'
+            };
+        }
+
+        // 3. Compare
         const comparison = await this.compareEmbeddings(
             extracted.embedding,
-            storedEmbedding
+            stored
         );
 
         if (!comparison.success) {
             return {
                 success: false,
                 error: comparison.error || 'Failed to compare faces',
-                fallback: 'Manual verification required'
+                fallback: 'Manual verification required',
+                code: 'COMPARISON_FAILED'
             };
         }
 
         const isMatch = comparison.similarity >= threshold;
 
+        console.log(
+            `VERIFY: similarity=${(comparison.similarity * 100).toFixed(1)}% ` +
+            `threshold=${(threshold * 100).toFixed(1)}% → ${isMatch ? 'PASS' : 'FAIL'}`
+        );
+
         return {
             success: true,
             verified: isMatch,
             similarity: comparison.similarity,
+            similarity_percentage: Math.round(comparison.similarity * 10000) / 100,
             threshold: threshold,
             confidence: comparison.similarity,
-            message: isMatch ? 'Face verified successfully' : 'Face verification failed'
+            message: isMatch
+                ? 'Face verified successfully'
+                : `Face detected but does not match (similarity ${(comparison.similarity * 100).toFixed(1)}%)`
         };
     }
 
@@ -463,7 +493,11 @@ class InsightFaceService {
             };
         }
 
-        if (!Array.isArray(embedding1) || !Array.isArray(embedding2)) {
+        // Ensure we have plain number arrays (Supabase JSONB can be tricky)
+        const emb1 = Array.isArray(embedding1) ? embedding1.map(Number) : null;
+        const emb2 = Array.isArray(embedding2) ? embedding2.map(Number) : null;
+
+        if (!emb1 || !emb2) {
             return {
                 success: false,
                 error: 'Embeddings must be arrays',
@@ -471,31 +505,42 @@ class InsightFaceService {
             };
         }
 
-        if (embedding1.length !== this.expectedDimension || embedding2.length !== this.expectedDimension) {
+        if (emb1.length !== this.expectedDimension || emb2.length !== this.expectedDimension) {
             return {
                 success: false,
-                error: `Invalid embedding dimensions. Expected ${this.expectedDimension}, got ${embedding1.length} and ${embedding2.length}`,
+                error: `Invalid embedding dimensions. Expected ${this.expectedDimension}, got ${emb1.length} and ${emb2.length}`,
                 similarity: 0
             };
         }
 
         const result = await this._makeRequest('/compare-embeddings', {
-            embedding1: embedding1,
-            embedding2: embedding2
+            embedding1: emb1,
+            embedding2: emb2
         });
 
-        if (result.success) {
+        // Be defensive: accept several possible response shapes
+        const similarity = 
+            typeof result.similarity === 'number' ? result.similarity :
+            typeof result.similarity_score === 'number' ? result.similarity_score :
+            typeof result.score === 'number' ? result.score :
+            typeof result.confidence === 'number' ? result.confidence :
+            null;
+
+        if (similarity === null) {
+            console.error('COMPARE: Unexpected response from Face API:', JSON.stringify(result));
             return {
-                success: true,
-                similarity: result.similarity || 0,
-                is_match: (result.similarity || 0) >= FACE_VERIFICATION_THRESHOLD
+                success: false,
+                error: result.error || result.detail || 'Failed to compare embeddings',
+                similarity: 0
             };
         }
 
+        console.log(`COMPARE RESULT: similarity=${similarity.toFixed(4)} (${(similarity * 100).toFixed(1)}%)`);
+
         return {
-            success: false,
-            error: result.error || 'Failed to compare embeddings',
-            similarity: 0
+            success: true,
+            similarity: similarity,
+            is_match: similarity >= FACE_VERIFICATION_THRESHOLD
         };
     }
 
