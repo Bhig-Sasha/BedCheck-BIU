@@ -454,6 +454,7 @@
             <nav id="desktopNav">
                 <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="BedCheck.html" class="nav-item active"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+                <a href="student.html" class="nav-item"><i class="fas fa-users"></i> Students</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
@@ -2210,39 +2211,29 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
-                    try {
-                        await checkFaceApiHealth();
-                    } catch (e) {
-                        console.warn('Face API health check failed, continuing...');
+                    // Face health check – non-blocking
+                    checkFaceApiHealth().catch(() => {});
+
+                    // Load all independent data in parallel (no artificial delays)
+                    const results = await Promise.allSettled([
+                        apiCall('/hostels'),
+                        apiCall('/students'),
+                        apiCall('/floors-flats'),
+                        apiCall('/rooms'),
+                        apiCall('/bed-spaces')
+                    ]);
+
+                    hostels        = results[0].status === 'fulfilled' ? (results[0].value.data || []) : [];
+                    allStudents    = results[1].status === 'fulfilled' ? (results[1].value.data || []) : [];
+                    allFloorsFlats = results[2].status === 'fulfilled' ? (results[2].value.data || []) : [];
+                    allRooms       = results[3].status === 'fulfilled' ? (results[3].value.data || []) : [];
+                    allBedSpaces   = results[4].status === 'fulfilled' ? (results[4].value.data || []) : [];
+
+                    // Soft-fail: if any critical endpoint failed, still continue with what we have
+                    const failed = results.filter(r => r.status === 'rejected');
+                    if (failed.length > 0) {
+                        showToast(`Some data could not be loaded (${failed.length} endpoint(s)). Showing available data.`, 'info');
                     }
-
-                    console.log('📊 Loading data sequentially...');
-                    
-                    console.log('📊 Fetching hostels...');
-                    const hostelsResult = await apiCall('/hostels');
-                    hostels = hostelsResult.data || [];
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    console.log('📊 Fetching students...');
-                    const studentsResult = await apiCall('/students');
-                    allStudents = studentsResult.data || [];
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    console.log('📊 Fetching floors...');
-                    const floorsResult = await apiCall('/floors-flats');
-                    allFloorsFlats = floorsResult.data || [];
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    console.log('📊 Fetching rooms...');
-                    const roomsResult = await apiCall('/rooms');
-                    allRooms = roomsResult.data || [];
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    console.log('📊 Fetching bed spaces...');
-                    const bedSpacesResult = await apiCall('/bed-spaces');
-                    allBedSpaces = bedSpacesResult.data || [];
-
-                    console.log('✅ All data loaded successfully');
 
                     if (assignedHostelId) {
                         assignedHostelData = hostels.find(h => h.id === assignedHostelId);
@@ -2288,11 +2279,9 @@
                     }
 
                     renderBedCheck();
-
                     startSessionChecker();
 
                 } catch (error) {
-                    console.error('Init error:', error);
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
