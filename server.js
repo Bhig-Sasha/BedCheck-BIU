@@ -11916,14 +11916,13 @@ app.get('/api/bed-spaces',
                 .from('hostels')
                 .select('id');
 
-            // Only filter by campus if NOT an admin viewing all campuses
-            if (!req.viewAllCampuses) {
+            // ✅ Only filter by campus if NOT admin
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
                 hostelQuery = hostelQuery.eq('campus', req.campus);
-            }
-
-            // Non-admins with a specific hostel are further restricted
-            if (!req.viewAllCampuses && req.user.hostel_id) {
-                hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                if (req.user.hostel_id) {
+                    hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                }
             }
 
             const { data: hostels, error: hostelError } = await hostelQuery;
