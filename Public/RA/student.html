@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Students · RA Dashboard · BedCheck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
+    <style>
+        /* ===== ROOT ===== */
+        :root {
+            --bg-deep: #0a0a15;
+            --bg-card: #12121f;
+            --bg-elevated: #1a1a2e;
+            --gold: #d6ad4b;
+            --gold-dim: rgba(214, 173, 75, 0.12);
+            --gold-border: rgba(214, 173, 75, 0.2);
+            --green: #4ade80;
+            --green-dim: rgba(74, 222, 128, 0.12);
+            --red: #f87171;
+            --amber: #fbbf24;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --radius: 1rem;
+            --radius-sm: 0.6rem;
+            --shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: #f5f1e8;
+            color: #17233c;
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            position: fixed;
+            inset: 0 0 0 0;
+            width: 16rem;
+            background-color: #10233f;
+            color: white;
+            padding: 1.5rem 1rem;
+            display: none;
+            flex-direction: column;
+            z-index: 30;
+            overflow-y: auto;
+        }
+        @media (min-width: 1024px) { .sidebar { display: flex; } }
+
+        .sidebar .brand { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar .brand-logo {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 0.5rem;
+            background: #d6ad4b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(225,189,101,0.5);
+            flex-shrink: 0;
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: #10233f;
+        }
+        .sidebar .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .sidebar .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar .workspace-label { margin-top: 2.25rem; padding: 0 0.75rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .sidebar nav { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .nav-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.6rem 0.75rem; border: none; border-radius: 0.5rem; background: transparent; color: #dce5f2; font-size: 0.9rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .nav-item i { width: 1.2rem; text-align: center; font-size: 1rem; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); }
+        .nav-item.active { background: #d6ad4b; color: #10233f; }
+
+        .sidebar .role-card { margin-top: auto; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 0.75rem; padding: 0.75rem; }
+        .sidebar .role-card .role-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        .sidebar .role-card .role-title i { color: #e1bd65; }
+        .sidebar .role-card .role-scope { margin-top: 0.25rem; font-size: 0.75rem; color: #b9c7db; line-height: 1.4; }
+
+        /* ===== MOBILE DRAWER ===== */
+        .mobile-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 18rem; background-color: #10233f; color: white; padding: 1.5rem 1rem; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+        .mobile-drawer.open { transform: translateX(0); }
+        .mobile-drawer .close-btn { align-self: flex-end; background: transparent; border: none; color: white; padding: 0.5rem; cursor: pointer; font-size: 1.2rem; }
+        .mobile-drawer .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .mobile-drawer .brand-logo {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 0.5rem;
+            background: #d6ad4b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(225,189,101,0.5);
+            flex-shrink: 0;
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: #10233f;
+        }
+        .mobile-drawer .brand-text { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.1rem; line-height: 1.2; color: white; }
+        .mobile-drawer .brand-sub { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #b9c7db; }
+        .mobile-drawer nav { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .mobile-drawer .drawer-footer { margin-top: auto; padding: 0.75rem 0; font-size: 0.8rem; color: #c7d3e4; border-top: 1px solid rgba(255,255,255,0.1); }
+
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(16,35,63,0.5); z-index: 40; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .drawer-overlay.show { display: block; opacity: 1; }
+        @media (min-width: 1024px) { .drawer-overlay { display: none !important; } }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content { flex: 1; min-height: 100vh; padding-bottom: 2rem; }
+        @media (min-width: 1024px) { .main-content { margin-left: 16rem; } }
+
+        .main-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #dfd8cb; background: rgba(245,241,232,0.95); backdrop-filter: blur(4px); padding: 0.75rem 1rem; }
+        @media (min-width: 640px) { .main-header { padding: 0.75rem 1.75rem; } }
+        .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 0.75rem; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.5rem; cursor: pointer; font-size: 1.1rem; color: #17233c; }
+        .menu-toggle:hover { background: rgba(0,0,0,0.05); }
+        @media (min-width: 1024px) { .menu-toggle { display: none; } }
+        .header-date { font-size: 0.7rem; font-weight: 600; color: #6b778b; }
+        .header-title { font-family: 'Merriweather',serif; font-size: 1.2rem; font-weight: 700; }
+
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        @media (min-width: 640px) { .header-right { gap: 0.75rem; } }
+        .profile-btn { display: flex; align-items: center; gap: 0.5rem; border: 1px solid #d8d0c2; border-radius: 0.5rem; background: #fffcf6; padding: 0.25rem 0.5rem 0.25rem 0.25rem; cursor: pointer; text-decoration: none; }
+        .profile-btn:hover { background: #f5f1e8; }
+        .profile-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #d6ad4b; font-size: 0.6rem; font-weight: 700; color: #10233f; }
+        .profile-name { display: none; font-weight: 700; font-size: 0.9rem; color: #17233c; }
+        .profile-role { display: none; font-size: 0.6rem; color: #68768a; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 1.1rem; padding: 0.5rem; }
+        .logout-btn:hover { color: #17233c; }
+        @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
+
+        .content-container { max-width: 1280px; margin: 0 auto; padding: 1rem; }
+        @media (min-width: 640px) { .content-container { padding: 1.75rem; } }
+        @media (max-width: 480px) { .content-container { padding: 0.75rem; } }
+
+        /* ===== BUTTONS ===== */
+        .btn-success { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #2d6545; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
+        .btn-success:hover { background: #1f4a32; }
+        .btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-danger { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #a84134; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; justify-content: center; }
+        .btn-danger:hover { background: #8a3328; }
+        .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: transparent; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.15s; text-decoration: none; color: #17233c; justify-content: center; }
+        .btn-outline:hover { background: #f5f1e8; border-color: #a77915; }
+        .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
+        .btn-ghost i { margin-right: 0.25rem; }
+
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; text-decoration: none; justify-content: center; }
+        .btn-primary:hover { background: #18345a; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ===== BADGES ===== */
+        .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .badge-present { background: #e1f0e5; color: #2d6545; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-pending { background: #e8edf2; color: #536274; }
+        .badge-verified { background: #e1f0e5; color: #2d6545; }
+        .badge-enrolled { background: #e1f0e5; color: #2d6545; }
+        .badge-not-enrolled { background: #f8e1dc; color: #9b3c31; }
+
+        /* ===== CARDS ===== */
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
+        @media (max-width: 480px) { .card { padding: 0.75rem; } }
+        .card-title { font-family: 'Merriweather',serif; font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+        .card-title .icon { color: #a77915; }
+
+        .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
+        .page-heading .eyebrow { font-size: 0.8rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
+        .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
+        @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
+        @media (max-width: 480px) { .page-heading h1 { font-size: 1.4rem; } }
+        .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
+        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .assigned-hostel-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem; background: #e7edf5; border-radius: 0.5rem; font-size: 0.8rem; font-weight: 600; color: #10233f; }
+
+        .metric-grid { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 480px) { .metric-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem; } }
+        .metric-card { padding: 0.75rem 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        @media (max-width: 480px) { .metric-card { padding: 0.5rem 0.75rem; } }
+        .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
+        .metric-icon.navy { background: #e7edf5; color: #24466f; }
+        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+        .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+        .metric-icon.red { background: #f9e2de; color: #9c3e32; }
+        .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-value { margin-top: 0.4rem; font-size: 1.5rem; font-weight: 700; }
+        @media (max-width: 480px) { .metric-value { font-size: 1.2rem; } }
+        .metric-title { margin-top: 0.1rem; font-weight: 700; font-size: 0.85rem; }
+        @media (max-width: 480px) { .metric-title { font-size: 0.75rem; } }
+        .metric-detail { margin-top: 0.1rem; font-size: 0.7rem; color: #6b778b; }
+
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1.25rem; }
+        .text-sm { font-size: 0.85rem; }
+        .text-xs { font-size: 0.7rem; }
+        .text-muted { color: #68768a; }
+        .text-gold { color: #a77915; }
+        .font-bold { font-weight: 700; }
+        .border-t { border-top: 1px solid #ded6c9; }
+        .text-center { text-align: center; }
+        .gap-2 { gap: 0.5rem; }
+        .mt-6 { margin-top: 1.5rem; }
+
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; }
+        .table-wrap table { width: 100%; min-width: 500px; border-collapse: collapse; font-size: 0.9rem; text-align: left; }
+        @media (max-width: 480px) { .table-wrap table { font-size: 0.75rem; min-width: 400px; } }
+        .table-wrap thead { background: #fbf7ef; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
+        .table-wrap th { padding: 0.5rem 0.75rem; }
+        @media (max-width: 480px) { .table-wrap th { padding: 0.3rem 0.5rem; } }
+        .table-wrap td { padding: 0.5rem 0.75rem; border-top: 1px solid #eee8de; }
+        @media (max-width: 480px) { .table-wrap td { padding: 0.3rem 0.5rem; } }
+        .table-wrap .avatar { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #e7edf5; font-size: 0.6rem; font-weight: 700; flex-shrink: 0; }
+        @media (max-width: 480px) { .table-wrap .avatar { width: 1.6rem; height: 1.6rem; font-size: 0.5rem; } }
+
+        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+        .status-dot.green { background: #2d6545; }
+        .status-dot.gold { background: #d4af37; }
+        .status-dot.red { background: #8a3328; }
+        .status-dot.gray { background: #b9c7db; }
+
+        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; border-top: 1px solid #eee8de; flex-wrap: wrap; gap: 0.5rem; }
+        @media (max-width: 480px) { .pagination { flex-direction: column; align-items: center; } }
+        .pagination .info { font-size: 0.8rem; color: #6b778b; }
+        @media (max-width: 480px) { .pagination .info { font-size: 0.65rem; } }
+        .pagination .pages { display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: center; }
+        .pagination .pages button { padding: 0.2rem 0.6rem; border: 1px solid #ded6c9; border-radius: 0.3rem; background: white; font-size: 0.75rem; cursor: pointer; transition: all 0.15s; color: #17233c; }
+        .pagination .pages button:hover { border-color: #a77915; }
+        .pagination .pages button.active { background: #10233f; color: white; border-color: #10233f; }
+        .pagination .pages button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .search-section { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.5rem; }
+        .search-section .search-wrap { flex: 1; min-width: 200px; display: flex; align-items: center; background: #fffcf6; border-radius: 0.5rem; border: 1px solid #ded6c9; padding: 0 0.75rem; transition: border-color 0.2s; }
+        .search-section .search-wrap:focus-within { border-color: #a77915; }
+        .search-section .search-wrap i { color: #6b778b; font-size: 0.8rem; }
+        .search-section .search-wrap input { background: transparent; border: none; padding: 0.6rem 0.65rem; color: #17233c; font-size: 0.85rem; width: 100%; outline: none; font-family: inherit; }
+        .search-section .search-wrap input::placeholder { color: #6b778b; }
+        .search-section .btn-search { padding: 0.6rem 1.4rem; background: #10233f; color: white; border: none; border-radius: 0.5rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
+        .search-section .btn-search:hover { background: #18345a; }
+        .search-section .btn-reset { padding: 0.6rem 1rem; background: transparent; border: 1px solid #ded6c9; border-radius: 0.5rem; color: #6b778b; cursor: pointer; transition: all 0.2s; font-size: 0.8rem; font-family: inherit; }
+        .search-section .btn-reset:hover { background: #f5f1e8; }
+
+        .field { display: flex; flex-direction: column; gap: 0.2rem; }
+        .field label { font-weight: 700; font-size: 0.75rem; color: #2c3e5a; }
+        .field select { padding: 0.4rem 0.6rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.8rem; outline: none; width: 100%; font-family: inherit; }
+        .field select:focus { border-color: #a77915; }
+
+        .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
+        .loading-spinner i { font-size: 2rem; color: #a77915; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 0.75rem; background: #10233f; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 100; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; max-width: 400px; }
+        @media (max-width: 480px) { .toast { bottom: 1rem; right: 1rem; left: 1rem; max-width: none; padding: 0.75rem 1rem; font-size: 0.85rem; } }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #3f755d; }
+        .toast.error { background: #a84134; }
+        .toast.info { background: #1e3a5f; }
+
+        .error-container { text-align: center; padding: 3rem 1rem; }
+        .error-container .error-icon { font-size: 3rem; color: #a84134; margin-bottom: 1rem; }
+        .error-container h2 { margin-bottom: 0.5rem; }
+        .error-container p { color: #68768a; max-width: 400px; margin: 0 auto 1.5rem; }
+
+        .status-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 600; }
+        .status-badge.enrolled { background: #e1f0e5; color: #2d6545; border: 1px solid rgba(45,101,69,0.2); }
+        .status-badge.pending { background: #fef9e7; color: #8b6513; border: 1px solid rgba(139,101,19,0.2); }
+
+        .btn-action { padding: 0.35rem 0.9rem; border: none; border-radius: 0.5rem; font-weight: 600; font-size: 0.7rem; cursor: pointer; transition: all 0.2s; font-family: inherit; display: inline-flex; align-items: center; gap: 0.3rem; }
+        .btn-enroll { background: #d6ad4b; color: #10233f; }
+        .btn-enroll:hover:not(:disabled) { background: #c49a3a; transform: translateY(-1px); }
+        .btn-enroll:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-view { background: rgba(0,0,0,0.06); color: #6b778b; }
+        .btn-view:hover { background: rgba(0,0,0,0.1); color: #17233c; }
+
+        .no-students { padding: 3rem 1rem; text-align: center; color: #6b778b; }
+        .no-students .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .no-students .title { font-weight: 600; color: #2c3e5a; font-size: 0.95rem; }
+        .no-students .sub { font-size: 0.8rem; margin-top: 0.25rem; }
+
+        /* ============================================================ */
+        /* ===== MODAL ===== */
+        /* ============================================================ */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #fffcf6;
+            border: 1px solid #ded6c9;
+            border-radius: 1.5rem;
+            max-width: 560px;
+            width: 100%;
+            max-height: 95vh;
+            overflow-y: auto;
+            padding: 1.5rem;
+            position: relative;
+            animation: modalIn 0.3s ease;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #ded6c9;
+        }
+        .modal-header .title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #17233c;
+        }
+        .modal-header .title small {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 400;
+            color: #6b778b;
+            margin-top: 0.1rem;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #6b778b;
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 0.2rem;
+            transition: color 0.2s;
+            line-height: 1;
+        }
+        .modal-close:hover { color: #17233c; }
+
+        .modal-student-summary {
+            background: #fbf7ef;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem 1rem;
+            border: 1px solid #ded6c9;
+        }
+        .modal-student-summary .item {
+            font-size: 0.75rem;
+            color: #6b778b;
+        }
+        .modal-student-summary .item strong {
+            color: #17233c;
+            font-weight: 600;
+        }
+
+        .modal-camera-wrap {
+            position: relative;
+            background: #05050c;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+            min-height: 240px;
+            border: 1px solid #ded6c9;
+        }
+        .modal-camera-wrap video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+        }
+        #modalOverlayCanvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+
+        .modal-face-guide {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 55%;
+            aspect-ratio: 1/1;
+            border-radius: 50%;
+            border: 2.5px dashed rgba(214,173,75,0.3);
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+        .modal-face-guide.detected { border-color: #d4af37; border-style: solid; }
+        .modal-face-guide.good { border-color: #2d6545; border-style: solid; box-shadow: 0 0 40px rgba(45,101,69,0.15); }
+        .modal-face-guide.capturing { border-color: #d6ad4b; animation: capturePulse 0.5s ease; }
+        @keyframes capturePulse {
+            0%,100% { transform: translate(-50%,-50%) scale(1); }
+            50% { transform: translate(-50%,-50%) scale(1.06); }
+        }
+
+        .modal-status-pill {
+            position: absolute;
+            bottom: 0.75rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.72);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 99px;
+            padding: 0.3rem 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            z-index: 6;
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #dce5f2;
+            white-space: nowrap;
+        }
+        .modal-status-pill .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .modal-status-pill .dot.waiting { background: #d4af37; animation: pulse 1.2s infinite; }
+        .modal-status-pill .dot.good { background: #2d6545; }
+        .modal-status-pill .dot.capturing { background: #d6ad4b; animation: pulse 0.5s infinite; }
+        .modal-status-pill .dot.error { background: #a84134; }
+        @keyframes pulse {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        .modal-pose-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.3rem;
+            margin-top: 0.75rem;
+        }
+        .modal-pose-item {
+            text-align: center;
+            padding: 0.3rem 0.1rem;
+            border-radius: 0.5rem;
+            font-size: 0.55rem;
+            font-weight: 600;
+            color: #6b778b;
+            background: rgba(0,0,0,0.03);
+            border: 1px solid transparent;
+            transition: all 0.3s;
+        }
+        .modal-pose-item .icon {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 0.1rem;
+            line-height: 1.2;
+        }
+        .modal-pose-item.active {
+            background: #fff1c9;
+            border-color: #d6ad4b;
+            color: #8b6513;
+        }
+        .modal-pose-item.done {
+            background: #e1f0e5;
+            border-color: #2d6545;
+            color: #2d6545;
+        }
+
+        .modal-instruction {
+            text-align: center;
+            font-size: 0.75rem;
+            color: #6b778b;
+            padding: 0.5rem;
+            margin-top: 0.65rem;
+            background: rgba(0,0,0,0.02);
+            border-radius: 0.5rem;
+            border: 1px solid #ded6c9;
+            line-height: 1.4;
+            min-height: 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+        }
+        .modal-instruction .hl { color: #8b6513; font-weight: 700; }
+        .modal-instruction .ok { color: #2d6545; font-weight: 700; }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .modal-actions button {
+            flex: 1;
+            min-width: 100px;
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .modal-actions button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .btn-modal-primary {
+            background: #10233f;
+            color: white;
+        }
+        .btn-modal-primary:hover:not(:disabled) { background: #18345a; }
+        .btn-modal-success {
+            background: #2d6545;
+            color: white;
+        }
+        .btn-modal-success:hover:not(:disabled) { background: #1f4a32; }
+        .btn-modal-ghost {
+            background: transparent;
+            color: #6b778b;
+            border: 1px solid #ded6c9;
+        }
+        .btn-modal-ghost:hover:not(:disabled) {
+            background: #f5f1e8;
+            border-color: #a77915;
+        }
+
+        .modal-overlay-inner {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: 0.75rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s;
+            backdrop-filter: blur(6px);
+        }
+        .modal-overlay-inner.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-overlay-inner.loading { background: rgba(0,0,0,0.85); }
+        .modal-overlay-inner.success { background: rgba(45,101,69,0.08); }
+        .modal-overlay-inner.error { background: rgba(168,65,52,0.08); }
+        .modal-spinner {
+            width: 36px; height: 36px;
+            border: 3px solid rgba(214,173,75,0.2);
+            border-top-color: #d6ad4b;
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+        }
+        .modal-overlay-inner .big-icon { font-size: 3rem; line-height: 1; }
+        .modal-overlay-inner .title { font-size: 1rem; font-weight: 700; margin-top: 0.4rem; }
+        .modal-overlay-inner.success .title { color: #2d6545; }
+        .modal-overlay-inner.error .title { color: #a84134; }
+        .modal-overlay-inner .sub {
+            font-size: 0.75rem;
+            color: #6b778b;
+            margin-top: 0.15rem;
+            text-align: center;
+            max-width: 80%;
+        }
+        .modal-overlay-inner .btn-retry {
+            margin-top: 0.75rem;
+            padding: 0.4rem 1.2rem;
+            background: #d6ad4b;
+            color: #10233f;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .modal-overlay-inner .progress-track {
+            margin-top: 0.5rem;
+            width: 60%;
+            height: 3px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .modal-overlay-inner .progress-track .fill {
+            height: 100%;
+            background: linear-gradient(90deg, #d6ad4b, #2d6545);
+            border-radius: 99px;
+            transition: width 0.3s;
+            width: 0%;
+        }
+        .modal-overlay-inner .msg {
+            font-size: 0.8rem;
+            color: #b9c7db;
+            margin-top: 0.5rem;
+        }
+
+        #modalCaptureCanvas { display: none; }
+
+        .night-session-footer {
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #ded6c9;
+            text-align: center;
+            font-size: 0.7rem;
+            color: #6b778b;
+        }
+
+        @media (max-width: 768px) {
+            .modal-pose-row { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 480px) {
+            .modal { padding: 1rem; max-width: 100%; margin: 0.5rem; }
+            .modal-camera-wrap { min-height: 180px; }
+            .modal-actions button { min-width: 80px; font-size: 0.7rem; padding: 0.5rem 0.8rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="brand-logo" id="sidebarLogo">S</div>
+            <div>
+                <div class="brand-text">BedCheck</div>
+                <div class="brand-sub">Management System</div>
+            </div>
+        </div>
+        <p class="workspace-label">Workspace</p>
+        <nav id="desktopNav">
+            <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+            <a href="student.html" class="nav-item active"><i class="fas fa-users"></i> Students</a>
+            <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+        </nav>
+        <div class="role-card">
+            <div class="role-title"><i class="fas fa-user-tag"></i> <span id="roleLabel">RA</span></div>
+            <div class="role-scope" id="roleScope">Assigned hostel · Loading...</div>
+        </div>
+    </aside>
+
+    <!-- ===== MOBILE DRAWER ===== -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <aside class="mobile-drawer" id="mobileDrawer">
+        <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
+        <div class="brand">
+            <div class="brand-logo" id="mobileLogo">S</div>
+            <div>
+                <div class="brand-text">BedCheck</div>
+                <div class="brand-sub">Management System</div>
+            </div>
+        </div>
+        <nav id="mobileNav">
+            <a href="ra-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="BedCheck.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck</a>
+            <a href="student.html" class="nav-item active"><i class="fas fa-users"></i> Students</a>
+            <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
+        </nav>
+        <div class="drawer-footer" id="mobileRoleFooter">RA · Loading...</div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="main-content">
+        <header class="main-header">
+            <div class="header-inner">
+                <div class="header-left">
+                    <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                    <div>
+                        <p class="header-date" id="currentDate">Loading...</p>
+                        <p class="header-title">Students</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <a href="#" class="profile-btn" id="profileBtn">
+                        <span class="profile-avatar" id="profileAvatar">U</span>
+                        <span class="profile-name" id="profileName">User</span>
+                        <span class="profile-role" id="profileRoleLabel">RA</span>
+                    </a>
+                    <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
+                </div>
+            </div>
+        </header>
+
+        <div class="content-container">
+            <div id="screenContent">
+                <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ===== TOAST ===== -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ============================================================ -->
+    <!-- ===== FACE ENROLLMENT MODAL ===== -->
+    <!-- ============================================================ -->
+    <div class="modal-overlay" id="enrollmentModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div>
+                    <div class="title">
+                        📸 Face ID Enrollment
+                        <small id="modalStudentInfo">Loading student...</small>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+
+            <div class="modal-student-summary">
+                <span class="item"><strong id="modalStudentName">—</strong></span>
+                <span class="item">🎓 <strong id="modalStudentMatric">—</strong></span>
+                <span class="item">🏠 <strong id="modalStudentRoom">—</strong></span>
+                <span class="item">🛏️ Bed <strong id="modalStudentBed">—</strong></span>
+            </div>
+
+            <div class="modal-camera-wrap" id="modalCameraWrap">
+                <video id="modalVideo" autoplay playsinline muted></video>
+                <canvas id="modalOverlayCanvas"></canvas>
+
+                <div class="modal-face-guide" id="modalFaceGuide"></div>
+
+                <div class="modal-status-pill">
+                    <span class="dot waiting" id="modalStatusDot"></span>
+                    <span id="modalStatusTxt">Waiting for camera…</span>
+                </div>
+
+                <div class="modal-overlay-inner loading" id="modalLoadingOverlay">
+                    <div class="modal-spinner"></div>
+                    <div class="msg" id="modalLoadingMsg">Preparing…</div>
+                    <div class="progress-track"><div class="fill" id="modalLoadingBar"></div></div>
+                </div>
+
+                <div class="modal-overlay-inner success" id="modalSuccessOverlay">
+                    <div class="big-icon">✅</div>
+                    <div class="title">Face Enrolled!</div>
+                    <div class="sub">Face ID is ready for BedCheck</div>
+                    <div style="margin-top:0.5rem;font-size:0.7rem;color:#6b778b;">
+                        <span id="modalSuccessName">—</span> · <span id="modalSuccessMatric">—</span>
+                    </div>
+                </div>
+
+                <div class="modal-overlay-inner error" id="modalErrorOverlay">
+                    <div class="big-icon">❌</div>
+                    <div class="title">Enrollment Failed</div>
+                    <div class="sub" id="modalErrorMsg">Something went wrong</div>
+                    <button class="btn-retry" onclick="retryEnroll()">🔄 Try Again</button>
+                </div>
+            </div>
+
+            <div class="modal-pose-row" id="modalPoseRow">
+                <div class="modal-pose-item" data-i="0"><span class="icon">👤</span>Front</div>
+                <div class="modal-pose-item" data-i="1"><span class="icon">➡️</span>Right</div>
+                <div class="modal-pose-item" data-i="2"><span class="icon">⬇️</span>Down</div>
+                <div class="modal-pose-item" data-i="3"><span class="icon">⬅️</span>Left</div>
+                <div class="modal-pose-item" data-i="4"><span class="icon">⬆️</span>Up</div>
+            </div>
+
+            <div class="modal-instruction" id="modalInstruction">
+                <i class="fas fa-info-circle" style="color:#8b6513;"></i>
+                Enable camera and center your face in the oval
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-modal-primary" id="modalStartBtn" onclick="modalStartCapture()" disabled>
+                    <i class="fas fa-play"></i> Start Capture
+                </button>
+                <button class="btn-modal-ghost" onclick="modalReset()">
+                    <i class="fas fa-undo"></i> Reset
+                </button>
+            </div>
+            <div class="modal-actions" id="modalEnrollRow" style="display:none;">
+                <button class="btn-modal-success" id="modalEnrollBtn" onclick="modalDoEnroll()" style="flex:1">
+                    <i class="fas fa-check-circle"></i> Enroll Face
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== HIDDEN CANVAS ===== -->
+    <canvas id="modalCaptureCanvas"></canvas>
+
+    <script>
+        // ============================================================
+        // CONFIGURATION
+        // ============================================================
+        const CONFIG = {
+            API_BASE: 'https://bedcheck-biu.onrender.com/api',
+            // API_BASE: window.location.origin + '/api', // For local development
+            TOTAL_POSES: 5,
+            MIN_SCORE: 0.60,
+            MIN_FACE_RATIO: 0.15,
+            MAX_FACE_RATIO: 0.60,
+            STABLE_FRAMES: 20,
+            CAPTURE_INTERVAL: 2000,
+            ITEMS_PER_PAGE: 10,
+        };
+
+        const POSES = [
+            { id: 'front', label: 'Front', cue: '👤', instruction: 'Look straight at the camera' },
+            { id: 'right', label: 'Right', cue: '➡️', instruction: 'Turn your head slightly to the <span class="hl">right</span>' },
+            { id: 'down', label: 'Down', cue: '⬇️', instruction: 'Tilt your chin slightly <span class="hl">down</span>' },
+            { id: 'left', label: 'Left', cue: '⬅️', instruction: 'Turn your head slightly to the <span class="hl">left</span>' },
+            { id: 'up', label: 'Up', cue: '⬆️', instruction: 'Tilt your chin slightly <span class="hl">up</span>' }
+        ];
+
+        // ============================================================
+        // STATE
+        // ============================================================
+        const state = {
+            token: null,
+            user: null,
+            students: [],
+            filtered: [],
+            currentPage: 1,
+            pageSize: CONFIG.ITEMS_PER_PAGE,
+            selectedStudent: null,
+            assignedHostelId: null,
+            assignedHostelName: '',
+            assignedFloor: '',
+            assignedFloorName: '',
+            assignedArea: '',
+            assignedRooms: [],
+            hostels: [],
+            staffMembers: [],
+            // Modal state
+            modalStream: null,
+            modalCapturing: false,
+            modalEnrolling: false,
+            modalFrames: [],
+            modalStableCount: 0,
+            modalCaptureCooldown: false,
+            modalAnimId: null,
+            modalModelsReady: false,
+            modalCameraReady: false,
+        };
+
+        // ============================================================
+        // DOM REFS
+        // ============================================================
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => document.querySelectorAll(s);
+
+        const container = $('#screenContent');
+        const toastEl = $('#toast');
+
+        // Modal
+        const modal = $('#enrollmentModal');
+        const modalVideo = $('#modalVideo');
+        const modalOverlayCanvas = $('#modalOverlayCanvas');
+        const modalCtx = modalOverlayCanvas.getContext('2d');
+        const modalFaceGuide = $('#modalFaceGuide');
+        const modalStatusDot = $('#modalStatusDot');
+        const modalStatusTxt = $('#modalStatusTxt');
+        const modalInstruction = $('#modalInstruction');
+        const modalStartBtn = $('#modalStartBtn');
+        const modalEnrollRow = $('#modalEnrollRow');
+        const modalEnrollBtn = $('#modalEnrollBtn');
+        const modalPoseItems = $$('.modal-pose-item');
+        const modalCaptureCanvas = $('#modalCaptureCanvas');
+
+        const modalStudentName = $('#modalStudentName');
+        const modalStudentMatric = $('#modalStudentMatric');
+        const modalStudentRoom = $('#modalStudentRoom');
+        const modalStudentBed = $('#modalStudentBed');
+        const modalStudentInfo = $('#modalStudentInfo');
+
+        const modalLoadingOverlay = $('#modalLoadingOverlay');
+        const modalLoadingMsg = $('#modalLoadingMsg');
+        const modalLoadingBar = $('#modalLoadingBar');
+        const modalSuccessOverlay = $('#modalSuccessOverlay');
+        const modalErrorOverlay = $('#modalErrorOverlay');
+        const modalErrorMsg = $('#modalErrorMsg');
+        const modalSuccessName = $('#modalSuccessName');
+        const modalSuccessMatric = $('#modalSuccessMatric');
+
+        // ============================================================
+        // TOAST
+        // ============================================================
+        function toast(msg, type = 'info') {
+            toastEl.textContent = msg;
+            toastEl.className = `toast ${type}`;
+            requestAnimationFrame(() => toastEl.classList.add('show'));
+            clearTimeout(toast._timeout);
+            toast._timeout = setTimeout(() => toastEl.classList.remove('show'), 3500);
+        }
+
+        // ============================================================
+        // AUTH HELPERS
+        // ============================================================
+        function getToken() {
+            return sessionStorage.getItem('bedcheck_token') || state.token;
+        }
+
+        function setToken(token) {
+            state.token = token;
+            sessionStorage.setItem('bedcheck_token', token);
+        }
+
+        function getHeaders() {
+            const token = getToken();
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': token ? `Bearer ${token}` : '',
+                'X-Campus': state.user?.campus || 'Legacy',
+            };
+        }
+
+        // ============================================================
+        // API CALLS
+        // ============================================================
+        async function apiCall(endpoint, options = {}) {
+            const url = endpoint.startsWith('http') ? endpoint : `${CONFIG.API_BASE}${endpoint}`;
+            const headers = getHeaders();
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: { ...headers, ...options.headers },
+                });
+
+                if (response.status === 401) {
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    window.location.replace('../Login.html');
+                    throw new Error('Authentication required');
+                }
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || data.error || `HTTP ${response.status}`);
+                }
+
+                return data;
+            } catch (error) {
+                console.error('API call error:', error);
+                throw error;
+            }
+        }
+
+        // ============================================================
+        // STUDENT API
+        // ============================================================
+        async function fetchStudents(query = '') {
+            const params = new URLSearchParams();
+            if (query) params.append('search', query);
+            params.append('limit', '100');
+
+            let endpoint = `/students?${params.toString()}`;
+            if (state.assignedHostelId) {
+                endpoint += `&hostel_id=${state.assignedHostelId}`;
+            }
+
+            const response = await apiCall(endpoint);
+            return response.data || [];
+        }
+
+        async function enrollStudentFace(studentId, imageData) {
+            const response = await apiCall(`/students/${studentId}/face/enroll`, {
+                method: 'POST',
+                body: JSON.stringify({ image: imageData }),
+            });
+            return response.data;
+        }
+
+        async function getCurrentUser() {
+            const response = await apiCall('/me');
+            return response.data;
+        }
+
+        async function loadHostels() {
+            const response = await apiCall('/hostels');
+            state.hostels = response.data || [];
+            return state.hostels;
+        }
+
+        async function loadStaff() {
+            const response = await apiCall('/staff?limit=100');
+            state.staffMembers = response.data || [];
+            return state.staffMembers;
+        }
+
+        async function loadAssignedRooms() {
+            try {
+                const response = await apiCall('/ra/rooms');
+                state.assignedRooms = response.data?.rooms || [];
+                return state.assignedRooms;
+            } catch (error) {
+                console.warn('Could not load assigned rooms:', error);
+                state.assignedRooms = [];
+                return [];
+            }
+        }
+
+        // ============================================================
+        // USER PROFILE
+        // ============================================================
+        async function loadUserProfile() {
+            try {
+                const user = await getCurrentUser();
+                state.user = user;
+
+                state.assignedHostelId = user.hostel_id || null;
+                state.assignedHostelName = user.hostel_name || user.hostel || '';
+                state.assignedFloor = user.assigned_floor || user.assigned_flat || '';
+                state.assignedFloorName = user.assigned_floor_name || '';
+                state.assignedArea = state.assignedFloorName || state.assignedFloor || '';
+
+                if (state.assignedHostelId && !state.assignedHostelName) {
+                    const hostel = state.hostels.find(h => h.id === state.assignedHostelId);
+                    if (hostel) state.assignedHostelName = hostel.name;
+                }
+
+                return user;
+            } catch (error) {
+                console.error('Error loading user profile:', error);
+                throw error;
+            }
+        }
+
+        // ============================================================
+        // UPDATE UI
+        // ============================================================
+        function updateHeader() {
+            if (!state.user) return;
+
+            const avatar = document.getElementById('profileAvatar');
+            const name = document.getElementById('profileName');
+            const role = document.getElementById('profileRoleLabel');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRole = document.getElementById('mobileRoleFooter');
+
+            const initials = state.user.initials || getInitials(state.user.name);
+            const displayName = state.user.name || 'User';
+
+            avatar.textContent = initials;
+            name.textContent = displayName;
+            role.textContent = 'RA';
+            roleLabel.textContent = 'RA';
+
+            const hostelDisplay = state.assignedHostelName || 'No Hostel';
+            const areaDisplay = state.assignedArea || 'No Floor';
+            const roomCount = state.assignedRooms.length;
+
+            roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
+            mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
+        }
+
+        function getInitials(name) {
+            if (!name) return 'U';
+            return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        }
+
+        function setDate() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        // ============================================================
+        // RENDER STUDENTS TABLE
+        // ============================================================
+        function renderStudentsTable() {
+            const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+
+            let displayStudents = state.filtered;
+            if (statusFilter !== 'all') {
+                if (statusFilter === 'enrolled') {
+                    displayStudents = state.filtered.filter(s => s.face_enrolled === true);
+                } else if (statusFilter === 'pending') {
+                    displayStudents = state.filtered.filter(s => s.face_enrolled !== true);
+                }
+            }
+
+            const start = (state.currentPage - 1) * state.pageSize;
+            const end = start + state.pageSize;
+            const pageStudents = displayStudents.slice(start, end);
+            const total = displayStudents.length;
+
+            // Stats
+            const enrolled = state.filtered.filter(s => s.face_enrolled === true).length;
+            const pending = total - enrolled;
+            document.getElementById('totalStudents').textContent = total;
+            document.getElementById('enrolledStudents').textContent = enrolled;
+            document.getElementById('pendingStudents').textContent = pending;
+
+            const tbody = document.getElementById('studentTableBody');
+            if (!tbody) return;
+
+            if (pageStudents.length === 0) {
+                tbody.innerHTML = `
+                    <tr><td colspan="6">
+                        <div class="no-students">
+                            <div class="icon">👤</div>
+                            <div class="title">No students found</div>
+                            <div class="sub">${state.filtered.length === 0 ? 'No students assigned to you.' : 'Try adjusting your search or filter.'}</div>
+                        </div>
+                    </td></tr>
+                `;
+                updatePagination(displayStudents.length);
+                return;
+            }
+
+            tbody.innerHTML = pageStudents.map(s => `
+                <tr>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <span class="avatar">${getInitials(s.name)}</span>
+                            <span class="font-bold">${s.name || 'Unknown'}</span>
+                        </div>
+                    </td>
+                    <td><span style="color:#6b778b;font-size:0.85rem;">${s.matric || '—'}</span></td>
+                    <td>${s.room_code || s.room || '—'}</td>
+                    <td>${s.bed_code || s.bed || '—'}</td>
+                    <td>
+                        <span class="status-badge ${s.face_enrolled ? 'enrolled' : 'pending'}">
+                            ${s.face_enrolled ? '🟢 Enrolled' : '🟠 Pending'}
+                        </span>
+                    </td>
+                    <td style="text-align:right;">
+                        ${s.face_enrolled
+                            ? `<button class="btn-action btn-view" disabled><i class="fas fa-eye"></i> View</button>`
+                            : `<button class="btn-action btn-enroll" onclick="openEnrollmentModal(${s.id})">
+                                <i class="fas fa-camera"></i> Enroll
+                               </button>`
+                        }
+                    </td>
+                </tr>
+            `).join('');
+
+            updatePagination(displayStudents.length);
+        }
+
+        function updatePagination(total) {
+            const totalPages = Math.ceil(total / state.pageSize);
+            const start = (state.currentPage - 1) * state.pageSize + 1;
+            const end = Math.min(state.currentPage * state.pageSize, total);
+
+            const info = document.getElementById('paginationInfo');
+            if (info) {
+                info.textContent = `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
+            }
+
+            const controls = document.getElementById('paginationControls');
+            if (!controls) return;
+
+            let html = '';
+            html += `<button onclick="changePage(${state.currentPage - 1})" ${state.currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+
+            for (let i = 1; i <= Math.min(totalPages, 7); i++) {
+                if (i === 1 || i === totalPages || (i >= state.currentPage - 2 && i <= state.currentPage + 2)) {
+                    html += `<button class="${i === state.currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+                } else if (i === state.currentPage - 3 || i === state.currentPage + 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+
+            html += `<button onclick="changePage(${state.currentPage + 1})" ${state.currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+            controls.innerHTML = html;
+        }
+
+        function changePage(page) {
+            const total = state.filtered.length;
+            const totalPages = Math.ceil(total / state.pageSize);
+            if (page < 1 || page > totalPages) return;
+            state.currentPage = page;
+            renderStudentsTable();
+        }
+
+        function filterStudents() {
+            state.currentPage = 1;
+            renderStudentsTable();
+        }
+
+        function resetFilters() {
+            const filter = document.getElementById('statusFilter');
+            if (filter) filter.value = 'all';
+            const search = document.getElementById('searchInput');
+            if (search) search.value = '';
+            state.currentPage = 1;
+            performSearch();
+        }
+
+        // ============================================================
+        // SEARCH
+        // ============================================================
+        async function performSearch() {
+            const query = document.getElementById('searchInput')?.value?.trim() || '';
+            try {
+                const results = await fetchStudents(query);
+                state.filtered = results;
+                state.currentPage = 1;
+                renderStudentsTable();
+                toast(`Found ${results.length} students`, 'info');
+            } catch (error) {
+                toast('Error fetching students: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================================
+        // RENDER DASHBOARD
+        // ============================================================
+        function renderDashboard() {
+            const displayHostel = state.assignedHostelName || 'No Hostel';
+            const displayArea = state.assignedArea || 'No Floor';
+            const totalStudents = state.filtered.length;
+            const enrolled = state.filtered.filter(s => s.face_enrolled === true).length;
+            const pending = totalStudents - enrolled;
+
+            container.innerHTML = `
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow"><i class="fas fa-users"></i> Student Management</p>
+                        <h1>${displayHostel}</h1>
+                        <p class="desc">
+                            <span class="assigned-hostel-badge">
+                                <i class="fas fa-building"></i> ${displayHostel}
+                            </span>
+                            <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                <i class="fas fa-layer-group"></i> ${displayArea}
+                            </span>
+                            <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
+                            <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                <i class="fas fa-door-open"></i> ${state.assignedRooms.length} rooms
+                            </span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <div class="metric-icon navy"><i class="fas fa-users"></i></div>
+                        <div class="metric-value">${totalStudents}</div>
+                        <div class="metric-title">Total Students</div>
+                        <div class="metric-detail">In ${displayArea}</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #2d6545;">
+                        <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                        <div class="metric-value" style="color:#2d6545;">${enrolled}</div>
+                        <div class="metric-title">Face Enrolled</div>
+                        <div class="metric-detail">${totalStudents > 0 ? Math.round((enrolled/totalStudents)*100) : 0}% complete</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #d4af37;">
+                        <div class="metric-icon gold"><i class="fas fa-hourglass-half"></i></div>
+                        <div class="metric-value" style="color:#8b6513;">${pending}</div>
+                        <div class="metric-title">Pending</div>
+                        <div class="metric-detail">Awaiting enrollment</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #10233f;">
+                        <div class="metric-icon navy"><i class="fas fa-door-open"></i></div>
+                        <div class="metric-value">${state.assignedRooms.length}</div>
+                        <div class="metric-title">Assigned Rooms</div>
+                        <div class="metric-detail">Your area coverage</div>
+                    </div>
+                </div>
+
+                <!-- Search & Filter -->
+                <div class="search-section">
+                    <div class="search-wrap">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Search by name, matric, room..." />
+                    </div>
+                    <button class="btn-search" onclick="performSearch()">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                    <button class="btn-reset" onclick="resetFilters()">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                    <div class="field" style="min-width:140px;margin-left:auto;">
+                        <select id="statusFilter" onchange="filterStudents()">
+                            <option value="all">All Students</option>
+                            <option value="enrolled">Face Enrolled</option>
+                            <option value="pending">Pending</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Students Table -->
+                <div class="card">
+                    <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Assigned Students</div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr>
+                                <th>Student</th>
+                                <th>Matric Number</th>
+                                <th>Room</th>
+                                <th>Bed</th>
+                                <th>Face ID</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr></thead>
+                            <tbody id="studentTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <div class="info" id="paginationInfo">Showing 1-10 of 0 students</div>
+                        <div class="pages" id="paginationControls"></div>
+                    </div>
+                </div>
+
+                <div class="night-session-footer">
+                    BedCheck System · Benson Idahosa University
+                </div>
+            `;
+
+            renderStudentsTable();
+
+            // Search input event
+            document.getElementById('searchInput')?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') performSearch();
+            });
+
+            let searchTimeout = null;
+            document.getElementById('searchInput')?.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(performSearch, 400);
+            });
+        }
+
+        // ============================================================
+        // MODAL: OPEN / CLOSE
+        // ============================================================
+        function openEnrollmentModal(studentId) {
+            const student = state.filtered.find(s => s.id === studentId);
+            if (!student) {
+                toast('Student not found', 'error');
+                return;
+            }
+            if (student.face_enrolled) {
+                toast('Student already enrolled', 'info');
+                return;
+            }
+
+            state.selectedStudent = student;
+
+            modalStudentName.textContent = student.name || 'Unknown';
+            modalStudentMatric.textContent = student.matric || '---';
+            modalStudentRoom.textContent = student.room_code || student.room || '---';
+            modalStudentBed.textContent = student.bed_code || student.bed || '---';
+            modalStudentInfo.textContent = (student.name || 'Unknown') + ' · ' + (student.matric || '---');
+            modalSuccessName.textContent = student.name || 'Unknown';
+            modalSuccessMatric.textContent = student.matric || '---';
+
+            modalReset();
+            modal.classList.add('active');
+            initModalCamera();
+            toast('Camera ready — center your face', 'info');
+        }
+        window.openEnrollmentModal = openEnrollmentModal;
+
+        function closeModal() {
+            stopModalCamera();
+            modal.classList.remove('active');
+            state.selectedStudent = null;
+            modalReset();
+        }
+        window.closeModal = closeModal;
+
+        // ============================================================
+        // MODAL: CAMERA
+        // ============================================================
+        async function initModalCamera() {
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('Camera not supported');
+                }
+
+                if (state.modalStream) stopModalCamera();
+
+                state.modalStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+
+                modalVideo.srcObject = state.modalStream;
+                await modalVideo.play();
+                state.modalCameraReady = true;
+
+                modalStatusTxt.textContent = 'Center your face in the oval';
+                modalStatusDot.className = 'dot waiting';
+                modalInstruction.innerHTML = '<i class="fas fa-user" style="color:#8b6513;"></i> Center your face and wait for the oval to turn green';
+
+                if (!state.modalModelsReady) {
+                    await loadModalModels();
+                }
+
+                startModalDetection();
+
+            } catch (e) {
+                console.error('Camera error:', e);
+                toast('Camera error: ' + e.message, 'error');
+                modalStatusTxt.textContent = 'Camera unavailable';
+                modalStatusDot.className = 'dot error';
+            }
+        }
+
+        function stopModalCamera() {
+            if (state.modalStream) {
+                state.modalStream.getTracks().forEach(t => t.stop());
+                state.modalStream = null;
+            }
+            state.modalCameraReady = false;
+            modalVideo.srcObject = null;
+            if (state.modalAnimId) {
+                cancelAnimationFrame(state.modalAnimId);
+                state.modalAnimId = null;
+            }
+        }
+
+        // ============================================================
+        // MODAL: LOAD MODELS
+        // ============================================================
+        async function loadModalModels() {
+            try {
+                const modelUrls = [
+                    'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model',
+                    'https://justadudewhohacks.github.io/face-api.js/models'
+                ];
+                let loaded = false;
+                for (const url of modelUrls) {
+                    try {
+                        await Promise.all([
+                            faceapi.nets.tinyFaceDetector.loadFromUri(url),
+                            faceapi.nets.faceLandmark68TinyNet.loadFromUri(url)
+                        ]);
+                        loaded = true;
+                        break;
+                    } catch (e) { /* try next */ }
+                }
+                state.modalModelsReady = loaded;
+                if (!loaded) console.warn('Face models not loaded, using fallback');
+            } catch (e) {
+                console.warn('Model load error:', e);
+                state.modalModelsReady = false;
+            }
+        }
+
+        // ============================================================
+        // MODAL: DETECTION LOOP
+        // ============================================================
+        function startModalDetection() {
+            if (state.modalAnimId) cancelAnimationFrame(state.modalAnimId);
+
+            const loop = async () => {
+                if (!state.modalCameraReady || modalVideo.readyState < 2) {
+                    state.modalAnimId = requestAnimationFrame(loop);
+                    return;
+                }
+
+                const w = modalVideo.videoWidth || 640;
+                const h = modalVideo.videoHeight || 480;
+                if (modalOverlayCanvas.width !== w) {
+                    modalOverlayCanvas.width = w;
+                    modalOverlayCanvas.height = h;
+                }
+
+                modalCtx.clearRect(0, 0, w, h);
+
+                let detection = null;
+                let quality = 0;
+                let isGood = false;
+
+                if (state.modalModelsReady) {
+                    try {
+                        detection = await faceapi
+                            .detectSingleFace(modalVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+                            .withFaceLandmarks(true);
+                    } catch (e) { /* ignore */ }
+                }
+
+                if (!detection) {
+                    const imgData = modalCtx.getImageData(0, 0, w, h);
+                    const data = imgData.data;
+                    let skin = 0, total = 0, brightness = 0;
+                    for (let i = 0; i < data.length; i += 16) {
+                        const r = data[i], g = data[i+1], b = data[i+2];
+                        total++;
+                        brightness += (r + g + b) / 3;
+                        if (r > 60 && g > 40 && b > 30 && r > g && r > b && Math.abs(r-g) < 50 && Math.abs(g-b) < 50) skin++;
+                    }
+                    const skinRatio = skin / total;
+                    const avgBright = brightness / total;
+                    isGood = skinRatio > 0.03 && avgBright > 40 && avgBright < 230;
+                    quality = isGood ? Math.min(0.95, skinRatio * 2 + 0.3) : 0;
+                    if (isGood) {
+                        modalCtx.strokeStyle = '#2d6545';
+                        modalCtx.lineWidth = 3;
+                        modalCtx.strokeRect(w * 0.2, h * 0.15, w * 0.6, h * 0.6);
+                    }
+                    modalFaceGuide.className = isGood ? 'modal-face-guide good' : 'modal-face-guide';
+                } else {
+                    const box = detection.detection.box;
+                    const score = detection.detection.score;
+                    const faceRatio = box.height / h;
+                    const drawX = w - box.x - box.width;
+
+                    const sizeGood = faceRatio >= CONFIG.MIN_FACE_RATIO && faceRatio <= CONFIG.MAX_FACE_RATIO;
+                    const scoreGood = score >= CONFIG.MIN_SCORE;
+                    isGood = scoreGood && sizeGood;
+
+                    modalCtx.strokeStyle = isGood ? '#2d6545' : (scoreGood ? '#d4af37' : '#a84134');
+                    modalCtx.lineWidth = 3;
+                    modalCtx.strokeRect(drawX, box.y, box.width, box.height);
+
+                    if (detection.landmarks) {
+                        modalCtx.fillStyle = 'rgba(214,173,75,0.6)';
+                        for (const p of detection.landmarks.positions) {
+                            modalCtx.beginPath();
+                            modalCtx.arc(w - p.x, p.y, 1.5, 0, Math.PI * 2);
+                            modalCtx.fill();
+                        }
+                    }
+
+                    const sizeScore = faceRatio < CONFIG.MIN_FACE_RATIO
+                        ? faceRatio / CONFIG.MIN_FACE_RATIO
+                        : faceRatio > CONFIG.MAX_FACE_RATIO
+                            ? Math.max(0, 1 - (faceRatio - CONFIG.MAX_FACE_RATIO) / 0.2)
+                            : 1;
+                    quality = (score || 0) * 0.65 + sizeScore * 0.35;
+                    modalFaceGuide.className = isGood ? 'modal-face-guide good' : 'modal-face-guide detected';
+                }
+
+                if (isGood) {
+                    if (!state.modalCapturing) {
+                        modalStartBtn.disabled = false;
+                        modalStatusTxt.textContent = '✅ Face looks good — Start Capture';
+                        modalStatusDot.className = 'dot good';
+                    }
+                } else {
+                    modalStartBtn.disabled = true;
+                    if (!state.modalCapturing) {
+                        modalStatusTxt.textContent = quality > 0.3 ? 'Adjust position for better quality' : 'Position your face in the oval';
+                        modalStatusDot.className = 'dot waiting';
+                    }
+                }
+
+                if (state.modalCapturing && state.modalFrames.length < CONFIG.TOTAL_POSES && !state.modalCaptureCooldown) {
+                    if (isGood) {
+                        state.modalStableCount++;
+                        modalStatusTxt.textContent = `Hold still… ${state.modalStableCount}/${CONFIG.STABLE_FRAMES}`;
+                        modalStatusDot.className = 'dot capturing';
+                        if (state.modalStableCount >= CONFIG.STABLE_FRAMES) {
+                            state.modalCaptureCooldown = true;
+                            modalCaptureFrame();
+                            state.modalStableCount = 0;
+                            setTimeout(() => {
+                                state.modalCaptureCooldown = false;
+                                if (state.modalCapturing && state.modalFrames.length < CONFIG.TOTAL_POSES) {
+                                    const next = POSES[state.modalFrames.length];
+                                    modalStatusTxt.textContent = `Next: ${next.label}`;
+                                }
+                            }, CONFIG.CAPTURE_INTERVAL);
+                        }
+                    } else {
+                        state.modalStableCount = Math.max(0, state.modalStableCount - 2);
+                        const pose = POSES[state.modalFrames.length];
+                        modalStatusTxt.textContent = pose ? pose.instruction.replace(/<[^>]+>/g, '') : 'Adjust position';
+                        modalStatusDot.className = 'dot waiting';
+                    }
+                }
+
+                state.modalAnimId = requestAnimationFrame(loop);
+            };
+            loop();
+        }
+
+        // ============================================================
+        // MODAL: CAPTURE
+        // ============================================================
+        function modalCaptureFrame() {
+            if (state.modalFrames.length >= CONFIG.TOTAL_POSES) return;
+
+            const ctx = modalCaptureCanvas.getContext('2d');
+            const w = modalVideo.videoWidth || 640;
+            const h = modalVideo.videoHeight || 480;
+            modalCaptureCanvas.width = w;
+            modalCaptureCanvas.height = h;
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(modalVideo, -w, 0, w, h);
+            ctx.restore();
+
+            const imageData = modalCaptureCanvas.toDataURL('image/jpeg', 0.92);
+            const pose = POSES[state.modalFrames.length] || POSES[0];
+
+            state.modalFrames.push({
+                pose: pose.id,
+                label: pose.label,
+                imageData,
+                score: 0.8,
+                ts: Date.now()
+            });
+
+            modalFaceGuide.classList.add('capturing');
+            setTimeout(() => modalFaceGuide.classList.remove('capturing'), 400);
+
+            updateModalPoseUI();
+            toast(`✓ ${pose.label} captured`, 'success');
+
+            if (state.modalFrames.length >= CONFIG.TOTAL_POSES) {
+                modalFinishCapture();
+            } else {
+                const next = POSES[state.modalFrames.length];
+                modalInstruction.innerHTML = `<i class="fas fa-arrow-right" style="color:#8b6513;"></i> ${next.instruction}`;
+                modalStatusTxt.textContent = `Next: ${next.label}`;
+                modalStatusDot.className = 'dot capturing';
+            }
+        }
+
+        function modalFinishCapture() {
+            state.modalCapturing = false;
+            modalFaceGuide.className = 'modal-face-guide good';
+            modalStatusTxt.textContent = '✅ All 5 poses captured!';
+            modalStatusDot.className = 'dot good';
+            modalInstruction.innerHTML = '<i class="fas fa-check-circle" style="color:#2d6545;"></i> <span class="ok">All positions ready</span> — click Enroll Face';
+            modalStartBtn.disabled = true;
+            modalStartBtn.innerHTML = '<i class="fas fa-check" style="color:#2d6545;"></i> Complete';
+            modalEnrollRow.style.display = 'flex';
+            toast('All poses captured! Ready to enroll.', 'success');
+        }
+
+        function updateModalPoseUI() {
+            modalPoseItems.forEach((el, i) => {
+                el.classList.remove('active', 'done');
+                if (i < state.modalFrames.length) el.classList.add('done');
+                else if (i === state.modalFrames.length && state.modalCapturing) el.classList.add('active');
+            });
+        }
+
+        // ============================================================
+        // MODAL: START CAPTURE
+        // ============================================================
+        function modalStartCapture() {
+            if (state.modalCapturing || state.modalFrames.length >= CONFIG.TOTAL_POSES) return;
+            if (!state.modalCameraReady) {
+                toast('Enable camera first', 'error');
+                return;
+            }
+            state.modalCapturing = true;
+            state.modalStableCount = 0;
+            state.modalCaptureCooldown = false;
+            modalStartBtn.disabled = true;
+            modalStartBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing…';
+
+            const first = POSES[state.modalFrames.length] || POSES[0];
+            modalInstruction.innerHTML = `<i class="fas fa-arrow-right" style="color:#8b6513;"></i> ${first.instruction}`;
+            modalStatusTxt.textContent = `Pose 1/${CONFIG.TOTAL_POSES}: ${first.label}`;
+            modalStatusDot.className = 'dot capturing';
+            updateModalPoseUI();
+            toast('Hold each pose steady — we capture automatically', 'info');
+        }
+        window.modalStartCapture = modalStartCapture;
+
+        // ============================================================
+        // MODAL: ENROLL
+        // ============================================================
+        async function modalDoEnroll() {
+            if (state.modalFrames.length < CONFIG.TOTAL_POSES) {
+                toast('Capture all 5 poses first', 'error');
+                return;
+            }
+            if (state.modalEnrolling) return;
+            state.modalEnrolling = true;
+
+            modalErrorOverlay.classList.remove('show');
+            modalSuccessOverlay.classList.remove('show');
+            modalLoadingOverlay.classList.add('show');
+            modalLoadingMsg.textContent = 'Preparing…';
+            modalLoadingBar.style.width = '8%';
+
+            try {
+                const student = state.selectedStudent;
+                if (!student) throw new Error('No student selected');
+
+                modalLoadingMsg.textContent = 'Selecting best capture…';
+                modalLoadingBar.style.width = '30%';
+
+                const best = state.modalFrames.reduce((a, b) => (b.score > a.score ? b : a), state.modalFrames[0]);
+                let imageB64 = best.imageData;
+                if (imageB64 && !imageB64.startsWith('data:image')) {
+                    imageB64 = `data:image/jpeg;base64,${imageB64}`;
+                }
+
+                modalLoadingMsg.textContent = 'Sending to server…';
+                modalLoadingBar.style.width = '55%';
+
+                const result = await enrollStudentFace(student.id, imageB64);
+
+                modalLoadingBar.style.width = '90%';
+                modalLoadingMsg.textContent = '✅ Success!';
+
+                student.face_enrolled = true;
+
+                setTimeout(() => {
+                    modalLoadingOverlay.classList.remove('show');
+                    modalSuccessOverlay.classList.add('show');
+                    modalEnrollBtn.disabled = true;
+                    modalEnrollBtn.innerHTML = '<i class="fas fa-check"></i> Enrolled ✓';
+                    modalInstruction.innerHTML = '<i class="fas fa-check-circle" style="color:#2d6545;"></i> <span class="ok">Face enrolled successfully!</span>';
+                    renderStudentsTable();
+                    toast('Face enrolled successfully!', 'success');
+                    state.modalEnrolling = false;
+                }, 800);
+
+            } catch (err) {
+                console.error('Enrollment error:', err);
+                modalLoadingOverlay.classList.remove('show');
+                modalErrorMsg.textContent = err.message || 'An error occurred. Please try again.';
+                modalErrorOverlay.classList.add('show');
+                toast('Error: ' + err.message, 'error');
+                state.modalEnrolling = false;
+            }
+        }
+        window.modalDoEnroll = modalDoEnroll;
+
+        function retryEnroll() {
+            modalErrorOverlay.classList.remove('show');
+            modalDoEnroll();
+        }
+        window.retryEnroll = retryEnroll;
+
+        // ============================================================
+        // MODAL: RESET
+        // ============================================================
+        function modalReset() {
+            state.modalCapturing = false;
+            state.modalEnrolling = false;
+            state.modalFrames = [];
+            state.modalStableCount = 0;
+            state.modalCaptureCooldown = false;
+            modalSuccessOverlay.classList.remove('show');
+            modalErrorOverlay.classList.remove('show');
+            modalLoadingOverlay.classList.remove('show');
+            modalEnrollRow.style.display = 'none';
+            modalStartBtn.disabled = true;
+            modalStartBtn.innerHTML = '<i class="fas fa-play"></i> Start Capture';
+            modalEnrollBtn.disabled = false;
+            modalEnrollBtn.innerHTML = '<i class="fas fa-check-circle"></i> Enroll Face';
+            modalFaceGuide.className = 'modal-face-guide';
+            modalPoseItems.forEach(el => el.classList.remove('active', 'done'));
+            if (state.modalCameraReady) {
+                modalStatusTxt.textContent = 'Center your face in the oval';
+                modalStatusDot.className = 'dot waiting';
+                modalInstruction.innerHTML = '<i class="fas fa-user" style="color:#8b6513;"></i> Center your face and wait for the oval to turn green';
+            } else {
+                modalStatusTxt.textContent = 'Initializing camera…';
+                modalStatusDot.className = 'dot loading';
+                modalInstruction.innerHTML = '<i class="fas fa-info-circle" style="color:#8b6513;"></i> Please wait for camera to start';
+            }
+        }
+        window.modalReset = modalReset;
+
+        // ============================================================
+        // LOGOUT
+        // ============================================================
+        function logout() {
+            if (confirm('Sign out?')) {
+                sessionStorage.clear();
+                window.location.replace('../Login.html');
+            }
+        }
+        window.logout = logout;
+
+        // ============================================================
+        // MOBILE DRAWER
+        // ============================================================
+        function openMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.add('open');
+            document.getElementById('drawerOverlay').classList.add('show');
+        }
+
+        function closeMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.remove('open');
+            document.getElementById('drawerOverlay').classList.remove('show');
+        }
+
+        // ============================================================
+        // EXPOSE GLOBALLY
+        // ============================================================
+        window.filterStudents = filterStudents;
+        window.resetFilters = resetFilters;
+        window.changePage = changePage;
+        window.performSearch = performSearch;
+
+        // ============================================================
+        // INIT
+        // ============================================================
+        async function init() {
+            setDate();
+
+            // Mobile drawer events
+            document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+            document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+            document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+            document.getElementById('logoutBtn').addEventListener('click', logout);
+
+            try {
+                await loadHostels();
+                await loadUserProfile();
+                await loadAssignedRooms();
+                await loadStaff();
+
+                const results = await fetchStudents();
+                state.filtered = results;
+                state.currentPage = 1;
+
+                updateHeader();
+                renderDashboard();
+
+                toast(`Loaded ${results.length} students`, 'info');
+
+            } catch (error) {
+                console.error('Init error:', error);
+                container.innerHTML = `
+                    <div class="error-container">
+                        <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <h2>Unable to Load</h2>
+                        <p>${error.message || 'Failed to load student data.'}</p>
+                        <button class="btn-success" onclick="location.reload()">
+                            <i class="fas fa-refresh"></i> Retry
+                        </button>
+                    </div>
+                `;
+                toast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Close modal on overlay click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('active')) closeModal();
+        });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>
