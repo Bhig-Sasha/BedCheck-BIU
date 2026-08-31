@@ -528,18 +528,11 @@
             const token = sessionStorage.getItem('bedcheck_token');
             const userData = sessionStorage.getItem('bedcheck_user');
             
-            console.log('🔐 Checking authentication...');
-            console.log('Token exists:', !!token);
-            console.log('Token value:', token ? token.substring(0, 20) + '...' : 'null');
-            console.log('User data exists:', !!userData);
-            
             if (!token || !userData) {
-                console.warn('❌ No token or user data found. Redirecting to login...');
                 window.location.replace('../Login.html');
                 return false;
             }
             
-            // Verify token is still valid by making a test call
             try {
                 const response = await fetch(`${API_BASE_URL}/auth/verify`, {
                     headers: {
@@ -549,7 +542,6 @@
                 });
                 
                 if (response.status === 401) {
-                    console.warn('❌ Token is invalid or expired');
                     sessionStorage.removeItem('bedcheck_token');
                     sessionStorage.removeItem('bedcheck_user');
                     sessionStorage.removeItem('bedcheck_role');
@@ -557,22 +549,14 @@
                     return false;
                 }
                 
-                if (!response.ok) {
-                    console.warn('⚠️ Token verification returned:', response.status);
-                    // Continue anyway - maybe the endpoint is down
-                }
-                
-                console.log('✅ Token appears valid');
                 return true;
             } catch (error) {
-                console.warn('⚠️ Token verification failed:', error.message);
-                // Continue anyway - maybe the network is down
                 return true;
             }
         }
 
         // =============================================
-        // AUTHENTICATED API HELPER - WITH DEBUGGING
+        // AUTHENTICATED API HELPER
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -586,7 +570,6 @@
             }
 
             try {
-                // Fix endpoint paths
                 let fixedEndpoint = endpoint;
                 if (endpoint.includes('/bed_spaces')) {
                     fixedEndpoint = endpoint.replace('/bed_spaces', '/bed-spaces');
@@ -594,12 +577,9 @@
                 if (endpoint.includes('/floors_flats')) {
                     fixedEndpoint = endpoint.replace('/floors_flats', '/floors-flats');
                 }
-                // Remove duplicate slashes
                 fixedEndpoint = fixedEndpoint.replace(/([^:]\/)\/+/g, "$1");
                 
                 const url = `${API_BASE_URL}${fixedEndpoint}`;
-                console.log(`📡 API Call: ${options.method || 'GET'} ${url}`);
-                console.log(`🔑 Token: ${token.substring(0, 20)}...`);
                 
                 const response = await fetch(url, {
                     ...options,
@@ -610,13 +590,7 @@
                     }
                 });
                 
-                // Log response status
-                console.log(`📡 Response Status: ${response.status}`);
-                
                 if (response.status === 401) {
-                    console.error('❌ API returned 401 Unauthorized');
-                    const errorText = await response.text();
-                    console.error('Error details:', errorText);
                     showToast('Session expired. Please login again.', 'error');
                     sessionStorage.removeItem('bedcheck_token');
                     sessionStorage.removeItem('bedcheck_user');
@@ -629,7 +603,6 @@
                 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error(`❌ API Error ${response.status}:`, errorText);
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
@@ -640,7 +613,6 @@
                 return data;
             } catch (error) {
                 if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                    console.error('API Error:', error);
                     showToast('Error: ' + error.message, 'error');
                 }
                 throw error;
@@ -705,10 +677,8 @@
             try {
                 const data = await apiCall('/hostels');
                 hostels = data.data || [];
-                console.log('✅ Hostels loaded:', hostels.length);
                 return hostels;
             } catch (error) {
-                console.error('❌ Error loading hostels:', error);
                 hostels = [];
                 return hostels;
             }
@@ -720,7 +690,6 @@
                 students = data.data || [];
                 return students;
             } catch (error) {
-                console.error('❌ Error loading students:', error);
                 students = [];
                 return students;
             }
@@ -728,36 +697,27 @@
 
         async function loadFloorsFlatsForHostel(hostelId) {
             try {
-                console.log(`📋 Loading floors/flats for hostel ${hostelId}...`);
                 const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
-                console.log(`✅ Floors/flats loaded:`, data.data);
                 return data.data || [];
             } catch (error) {
-                console.warn('⚠️ Could not load floors/flats:', error);
                 return [];
             }
         }
 
         async function loadRoomsForHostel(hostelId) {
             try {
-                console.log(`📋 Loading rooms for hostel ${hostelId}...`);
                 const data = await apiCall(`/rooms?hostel_id=${hostelId}`);
-                console.log(`✅ Rooms loaded:`, data.data);
                 return data.data || [];
             } catch (error) {
-                console.warn('⚠️ Could not load rooms:', error);
                 return [];
             }
         }
 
         async function loadBedSpacesForHostel(hostelId) {
             try {
-                console.log(`📋 Loading bed spaces for hostel ${hostelId}...`);
                 const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
-                console.log(`✅ Bed spaces loaded:`, data.data);
                 return data.data || [];
             } catch (error) {
-                console.warn('⚠️ Could not load bed spaces:', error);
                 return [];
             }
         }
@@ -767,7 +727,6 @@
                 const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
                 return data.data || [];
             } catch (error) {
-                console.warn('Could not load bed spaces for room:', error);
                 return [];
             }
         }
@@ -904,27 +863,20 @@
             `;
             
             try {
-                // Load all data
                 const floorsData = await loadFloorsFlatsForHostel(hostelId);
                 allFloorsFlats = floorsData;
-                console.log('✅ allFloorsFlats:', allFloorsFlats);
                 
                 const roomsData = await loadRoomsForHostel(hostelId);
                 allRooms = roomsData;
-                console.log('✅ allRooms:', allRooms);
                 
                 const bedsData = await loadBedSpacesForHostel(hostelId);
                 allBedSpaces = bedsData;
-                console.log('✅ allBedSpaces:', allBedSpaces);
                 
-                // Build floor label map from floors_flats
                 const floorLabelMap = {};
                 floorsData.forEach(f => {
                     floorLabelMap[f.id] = f.name;
                 });
-                console.log('✅ floorLabelMap:', floorLabelMap);
                 
-                // Enrich rooms with floor labels
                 allRooms = roomsData.map(room => {
                     if (room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
                         room.floor_label = floorLabelMap[room.floor_flat_id];
@@ -944,9 +896,6 @@
                     return room;
                 });
                 
-                console.log('✅ Enriched rooms:', allRooms);
-                
-                // Update hostel with actual counts
                 const totalRooms = allRooms.length;
                 const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || 4), 0);
                 hostel.total_rooms = totalRooms;
@@ -954,13 +903,11 @@
                 
                 renderHostelDetail(hostel);
             } catch (error) {
-                console.error('Error loading hostel detail:', error);
                 detailContainer.innerHTML = `
                     <div class="text-center p-4 error-box">
                         <i class="fas fa-exclamation-triangle" style="font-size:2rem;color:#991b1b;"></i>
                         <p class="font-bold mt-3">Error loading hostel data</p>
                         <p class="text-sm text-muted">${error.message}</p>
-                        <p class="text-xs text-muted mt-2">Check the console (F12) for more details.</p>
                         <button class="btn-primary mt-3" onclick="showHostelDetail(${hostelId})">Retry</button>
                     </div>
                 `;
@@ -1110,7 +1057,7 @@
         }
 
         // =============================================
-        // RENDER FLOOR / FLAT SELECTOR - NO FALLBACK
+        // RENDER FLOOR / FLAT SELECTOR
         // =============================================
         function renderFloorSelector() {
             const container = document.getElementById('floorSelector');
@@ -1122,19 +1069,14 @@
             
             let floorLabels = [];
             
-            // ONLY use data from the database
             if (allRooms && allRooms.length > 0) {
                 floorLabels = [...new Set(allRooms.map(r => r.floor_label || r.floor).filter(Boolean))].sort();
-                console.log('📋 Floor labels from rooms:', floorLabels);
             }
             
-            // If no floors from rooms, try floors_flats
             if (floorLabels.length === 0 && allFloorsFlats && allFloorsFlats.length > 0) {
                 floorLabels = allFloorsFlats.map(f => f.name).sort();
-                console.log('📋 Floor labels from floors_flats:', floorLabels);
             }
             
-            // NO FALLBACK - if no data, show message
             if (floorLabels.length === 0) {
                 container.innerHTML = `
                     <div class="text-center text-muted p-3" style="grid-column:1/-1;">
@@ -1153,7 +1095,6 @@
                 return;
             }
             
-            // Build floor data from actual rooms
             let floorData = [];
             
             floorLabels.forEach(label => {
@@ -1183,7 +1124,6 @@
                 });
             });
             
-            // Sort by number
             floorData.sort((a, b) => {
                 const aNum = parseInt(a.value.replace('F', '')) || 0;
                 const bNum = parseInt(b.value.replace('F', '')) || 0;
@@ -1266,13 +1206,11 @@
             const tbody = document.getElementById('roomTableBody');
             if (!tbody) return;
             
-            // Find rooms for this floor
             let floorRooms = allRooms.filter(r => {
                 const roomFloor = r.floor_label || r.floor;
                 return roomFloor === floorValue;
             });
             
-            // If no exact match, try partial match
             if (floorRooms.length === 0) {
                 floorRooms = allRooms.filter(r => {
                     const code = r.room_code || '';
@@ -1444,7 +1382,6 @@
                         floorSelect.appendChild(opt);
                     });
                 } else {
-                    // Show a message instead of generating fallback
                     const opt = document.createElement('option');
                     opt.value = '';
                     opt.textContent = isFlat ? 'No flats found. Please create a flat first.' : 'No floors found. Please create a floor first.';
@@ -1742,7 +1679,6 @@
                 closeRoomDrawer();
                 setTimeout(() => openRoomDrawer(room.id), 300);
             } catch (error) {
-                console.error('Maintenance error:', error);
                 showToast('Error updating bed: ' + error.message, 'error');
             }
         }
@@ -1808,7 +1744,6 @@
                 renderScreen();
                 
             } catch (error) {
-                console.error('Save error:', error);
                 showToast('Error saving: ' + error.message, 'error');
             } finally {
                 if (saveBtn) {
@@ -1903,14 +1838,12 @@
         window.refreshHostelData = refreshHostelData;
 
         // =============================================
-        // INIT - FIXED
+        // INIT
         // =============================================
         async function init() {
-            // Check authentication first
             const isAuthenticated = await checkAuthStatus();
             if (!isAuthenticated) return;
             
-            // Now load the user data
             if (!checkAuth()) return;
             setDate();
 
