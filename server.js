@@ -10418,7 +10418,6 @@ app.get('/api/hostels',
                 .select('*')
                 .order('name', { ascending: true });
             
-            // ✅ If NOT admin, filter by campus AND hostel
             const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
             if (!adminRoles.includes(req.user.role)) {
                 query = query.eq('campus', req.campus);
@@ -10426,7 +10425,6 @@ app.get('/api/hostels',
                     query = query.eq('id', req.user.hostel_id);
                 }
             }
-            // ✅ Admins see ALL campuses (no campus filter)
 
             const { data: hostelsData, error: hostelsError } = await query;
             if (hostelsError) throw hostelsError;
@@ -10495,22 +10493,27 @@ app.get('/api/hostels/:id',
     async (req, res) => {
         const id = parseInt(req.params.id);
         try {
-            const { data: hostelData, error: hostelError } = await supabase
+            let query = supabase
                 .from('hostels')
                 .select('*')
-                .eq('id', id)
-                .eq('campus', req.campus)
-                .single();
+                .eq('id', id);
+            
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
+                query = query.eq('campus', req.campus);
+            }
+            
+            const { data: hostelData, error: hostelError } = await query.single();
 
             if (hostelError || !hostelData) {
                 return res.status(404).json({ 
                     success: false, 
-                    message: 'Hostel not found in this campus',
+                    message: 'Hostel not found',
                     code: 'HOSTEL_NOT_FOUND'
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== id) {
+            if (!adminRoles.includes(req.user.role) && req.user.hostel_id !== id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -10522,8 +10525,7 @@ app.get('/api/hostels/:id',
                 .from('staff')
                 .select('id, name, role, username, email, phone')
                 .eq('hostel_id', id)
-                .eq('status', 'Active')
-                .eq('campus', req.campus);
+                .eq('status', 'Active');
 
             const hraStaff = staffData?.find(s => s.role === 'HRA');
             const raStaff = staffData?.filter(s => s.role === 'RA') || [];
@@ -11037,17 +11039,17 @@ app.get('/api/floors-flats',
                 .from('hostels')
                 .select('id');
 
-            // Only filter by campus if NOT viewing all campuses
-            if (!req.viewAllCampuses) {
+            // ✅ Only filter by campus if NOT admin
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
                 hostelQuery = hostelQuery.eq('campus', req.campus);
+                if (req.user.hostel_id) {
+                    hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                }
             }
 
             if (hostel_id) {
                 hostelQuery = hostelQuery.eq('id', parseInt(hostel_id));
-            }
-
-            if (!req.viewAllCampuses && req.user.hostel_id) {
-                hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
             }
 
             const { data: hostels, error: hostelError } = await hostelQuery;
@@ -11099,22 +11101,25 @@ app.get('/api/floors-flats/:id',
                 });
             }
 
-            const { data: hostel } = await supabase
-                .from('hostels')
-                .select('id, campus')
-                .eq('id', data.hostel_id)
-                .eq('campus', req.campus)
-                .single();
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
+                const { data: hostel } = await supabase
+                    .from('hostels')
+                    .select('id, campus')
+                    .eq('id', data.hostel_id)
+                    .eq('campus', req.campus)
+                    .single();
 
-            if (!hostel) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Floor/Flat not found in this campus',
-                    code: 'FLOOR_FLAT_NOT_FOUND'
-                });
+                if (!hostel) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Floor/Flat not found in this campus',
+                        code: 'FLOOR_FLAT_NOT_FOUND'
+                    });
+                }
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== data.hostel_id) {
+            if (!adminRoles.includes(req.user.role) && req.user.hostel_id !== data.hostel_id) {
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied',
@@ -11387,19 +11392,16 @@ app.get('/api/rooms',
     async (req, res) => {
         const { floor_flat_id, hostel_id, type } = req.query;
         try {
-            // Build hostel list
             let hostelQuery = supabase
                 .from('hostels')
                 .select('id, type');
 
-            // Only filter by campus if NOT an admin viewing all campuses
-            if (!req.viewAllCampuses) {
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
                 hostelQuery = hostelQuery.eq('campus', req.campus);
-            }
-
-            // Non-admins with a specific hostel are further restricted
-            if (!req.viewAllCampuses && req.user.hostel_id) {
-                hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                if (req.user.hostel_id) {
+                    hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                }
             }
 
             const { data: hostels, error: hostelError } = await hostelQuery;
@@ -11585,33 +11587,36 @@ app.get('/api/rooms/:id',
                 });
             }
 
-            const { data: floorData } = await supabase
-                .from('floors_flats')
-                .select('hostel_id')
-                .eq('id', data.floor_flat_id)
-                .single();
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
+                const { data: floorData } = await supabase
+                    .from('floors_flats')
+                    .select('hostel_id')
+                    .eq('id', data.floor_flat_id)
+                    .single();
 
-            const { data: hostel } = await supabase
-                .from('hostels')
-                .select('id, campus')
-                .eq('id', floorData?.hostel_id)
-                .eq('campus', req.campus)
-                .single();
+                const { data: hostel } = await supabase
+                    .from('hostels')
+                    .select('id, campus')
+                    .eq('id', floorData?.hostel_id)
+                    .eq('campus', req.campus)
+                    .single();
 
-            if (!hostel) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Room not found in this campus',
-                    code: 'ROOM_NOT_FOUND'
-                });
-            }
+                if (!hostel) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Room not found in this campus',
+                        code: 'ROOM_NOT_FOUND'
+                    });
+                }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Access denied',
-                    code: 'PERMISSION_DENIED'
-                });
+                if (req.user.hostel_id !== floorData?.hostel_id) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied',
+                        code: 'PERMISSION_DENIED'
+                    });
+                }
             }
             
             const { data: bedData } = await supabase
