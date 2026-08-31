@@ -749,6 +749,7 @@
                     floorsFlats = data.data || [];
                     return floorsFlats;
                 } catch (error) {
+                    console.error('Error loading floors/flats:', error);
                     floorsFlats = [];
                     return floorsFlats;
                 }
@@ -761,6 +762,7 @@
                     hasLoadedRooms = true;
                     return assignedRooms;
                 } catch (error) {
+                    console.error('Error loading assigned rooms:', error);
                     assignedRooms = [];
                     hasLoadedRooms = true;
                     return assignedRooms;
@@ -928,6 +930,7 @@
                     
                     if (data.data) {
                         const userData = data.data;
+                        debugLog('👤 Profile loaded:', userData.name);
                         
                         currentUser = { ...currentUser, ...userData };
                         
@@ -962,6 +965,8 @@
                     }
                     throw new Error('User data not found');
                 } catch (error) {
+                    console.error('Error loading user profile:', error);
+                    
                     if (currentUser) {
                         assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
                         assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
@@ -1074,6 +1079,7 @@
                     }
                     
                 } catch (error) {
+                    console.error('Start BedCheck error:', error);
                     showToast('Failed to start: ' + error.message, 'error');
                 }
             }
@@ -1118,6 +1124,7 @@
                     renderDashboard();
                     
                 } catch (error) {
+                    console.error('Complete BedCheck error:', error);
                     showToast('Failed to complete: ' + error.message, 'error');
                 }
             }
@@ -1630,22 +1637,10 @@
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 try {
-                    // 1. Parallel – these three have no mutual dependency
-                    const [hostelsResult, roomsResult, staffResult] = await Promise.allSettled([
-                        loadHostels(),
-                        loadAssignedRooms(),
-                        loadStaff()
-                    ]);
-
-                    // Soft-fail any that rejected
-                    if (hostelsResult.status === 'rejected') hostels = [];
-                    if (roomsResult.status === 'rejected') assignedRooms = [];
-                    if (staffResult.status === 'rejected') staffMembers = [];
-
-                    // 2. Profile needs hostels (already loaded)
+                    await loadHostels();
                     await loadUserProfile();
+                    await loadAssignedRooms();
 
-                    // 3. Floors need assignedHostelId (now known)
                     if (assignedHostelId) {
                         await loadFloorsFlats();
                         if (assignedFloor && !assignedFloorName && !isNaN(assignedFloor)) {
@@ -1657,18 +1652,18 @@
                         }
                     }
 
-                    // 4. Students + session status can run together
-                    await Promise.allSettled([
-                        loadStudents(),
-                        loadSessionStatus()
-                    ]);
+                    await loadStaff();
+                    await loadStudents();
+                    await loadSessionStatus();
 
                     updateHeader();
+
                     renderDashboard();
                     startSessionChecker();
                     addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
 
                 } catch (error) {
+                    console.error('Init error:', error);
                     const errorMessage = error.message || 'Failed to load dashboard data.';
                     showError(errorMessage);
                     showToast('Error: ' + errorMessage, 'error');
