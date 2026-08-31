@@ -816,31 +816,44 @@
                     const token = sessionStorage.getItem('bedcheck_token');
                     const response = await fetch(`${API_BASE_URL}/face/health`, {
                         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-                        signal: AbortSignal.timeout(10000)
+                        signal: AbortSignal.timeout(12000)
                     });
-                    
+
+                    console.log('🩺 Face health status code:', response.status);
+
                     if (response.status === 429) {
-                        console.warn('⚠️ Face health check rate limited, skipping...');
+                        console.warn('⚠️ Face health rate-limited – treating as healthy');
                         isApiHealthy = true;
                         apiHealthChecked = true;
-                        return isApiHealthy;
+                        return true;
                     }
-                    
+
                     if (!response.ok) {
+                        console.warn('🩺 Face health not OK:', response.status);
                         isApiHealthy = false;
-                    } else {
-                        const data = await response.json();
-                        const status = data.data?.status || data.status;
-                        isApiHealthy = !!(
-                            data.success &&
-                            data.circuit_breaker !== 'open' &&
-                            (status === 'running' || status === 'healthy')
-                        );
+                        apiHealthChecked = true;
+                        return false;
                     }
+
+                    const data = await response.json();
+                    console.log('🩺 Face health response:', data);
+
+                    const status = data?.data?.status || data?.status || '';
+                    const circuit = data?.circuit_breaker || data?.data?.circuit_breaker || 'closed';
+
+                    isApiHealthy = !!(
+                        data.success !== false &&
+                        circuit !== 'open' &&
+                        (status === 'healthy' || status === 'running' || status === '')
+                    );
+
+                    console.log('🩺 isApiHealthy =', isApiHealthy);
                 } catch (error) {
                     console.warn('Face API health check failed:', error.message);
+                    // On network/timeout error we still allow trying verification
                     isApiHealthy = true;
                 }
+
                 apiHealthChecked = true;
                 return isApiHealthy;
             }
