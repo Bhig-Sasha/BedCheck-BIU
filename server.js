@@ -7739,12 +7739,23 @@ app.get('/api/attendance/session/:sessionId',
 app.get('/api/sessions/active',
     campusIsolation,
     async (req, res) => {
+        // Prevent Render from closing the connection
+        const timeout = setTimeout(() => {
+            if (!res.headersSent) {
+                res.status(504).json({
+                    success: false,
+                    message: 'Request timed out while fetching active session',
+                    code: 'TIMEOUT'
+                });
+            }
+        }, 18000); // 18 seconds
+
         try {
             const campusContext = req.campus || 'Legacy';
             const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
             const isAdmin = adminRoles.includes(req.user?.role);
 
-            // ✅ Get the active session (university-wide - no campus filter)
+            // 1. Get the active session
             const { data: session, error } = await supabase
                 .from('sessions')
                 .select('*')
@@ -7754,116 +7765,138 @@ app.get('/api/sessions/active',
                 .maybeSingle();
 
             if (error) {
+                clearTimeout(timeout);
                 console.error('Error fetching active session:', error);
-                return res.status(500).json({ 
-                    success: false, 
+                return res.status(500).json({
+                    success: false,
                     message: 'An error occurred. Please try again.',
                     code: 'SERVER_ERROR'
                 });
             }
 
             if (!session) {
-                return res.json({ 
-                    success: true, 
+                clearTimeout(timeout);
+                return res.json({
+                    success: true,
                     data: null,
                     campus: campusContext,
                     is_active: false
                 });
             }
 
-            // ✅ For non-admins, filter stats by their campus
-            let campusFilter = isAdmin ? null : campusContext;
-            
-            // Get hostel IDs for the campus
-            let hostelQuery = supabase.from('hostels').select('id');
+            const campusFilter = isAdmin ? null : campusContext;
+
+            // 2. Get hostel IDs for campus filter (only if needed)
+            let hostelIds = [];
             if (campusFilter) {
-                hostelQuery = hostelQuery.eq('campus', campusFilter);
-            }
-            const { data: campusHostels } = await hostelQuery;
-            const hostelIds = campusHostels?.map(h => h.id) || [];
-
-            // Get bedcheck sessions for this campus
-            let bedcheckQuery = supabase
-                .from('bedcheck_sessions')
-                .select('*')
-                .eq('global_session_id', session.id);
-            
-            if (campusFilter && hostelIds.length > 0) {
-                bedcheckQuery = bedcheckQuery.in('hostel_id', hostelIds);
-            }
-            
-            const { data: bedcheckSessions, error: bedcheckError } = await bedcheckQuery;
-
-            if (bedcheckError) {
-                console.error('Error fetching bedcheck sessions:', bedcheckError);
+                const { data: campusHostels } = await supabase
+                    .from('hostels')
+                    .select('id')
+                    .eq('campus', campusFilter);
+                hostelIds = campusHostels?.map(h => h.id) || [];
             }
 
-            // Get attendance for this campus
-            let attendanceQuery = supabase
-                .from('bedcheck_attendance')
-                .select('*', { count: 'exact', head: true })
-                .eq('global_session_id', session.id);
-            
-            if (campusFilter) {
-                attendanceQuery = attendanceQuery.eq('campus', campusFilter);
-            }
-            const { count: totalStudents } = await attendanceQuery;
+            // 3. Run all heavy queries in PARALLEL
+            const [
+                bedcheckResult,
+                totalStudentsResult,
+                presentStudentsResult,
+                scansResult
+            ] = await Promise.all([
+                // bedcheck_sessions
+                (() => {
+                    let q = supabase
+                        .from('bedcheck_sessions')
+                        .select('*')
+                        .eq('global_session_id', session.id);
+                    if (campusFilter && hostelIds.length > 0) {
+                        q = q.in('hostel_id', hostelIds);
+                    }
+                    return q;
+                })(),
 
-            let presentQuery = supabase
-                .from('bedcheck_attendance')
-                .select('*', { count: 'exact', head: true })
-                .eq('global_session_id', session.id)
-                .eq('status', 'present');
-            
-            if (campusFilter) {
-                presentQuery = presentQuery.eq('campus', campusFilter);
-            }
-            const { count: presentStudents } = await presentQuery;
+                // total students
+                (() => {
+                    let q = supabase
+                        .from('bedcheck_attendance')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('global_session_id', session.id);
+                    if (campusFilter) q = q.eq('campus', campusFilter);
+                    return q;
+                })(),
 
-            let scansQuery = supabase
-                .from('bedcheck_scans')
-                .select('*', { count: 'exact', head: true })
-                .eq('session_id', session.id);
-            
-            if (campusFilter) {
-                scansQuery = scansQuery.eq('campus', campusFilter);
-            }
-            const { count: scansCount } = await scansQuery;
+                // present students
+                (() => {
+                    let q = supabase
+                        .from('bedcheck_attendance')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('global_session_id', session.id)
+                        .eq('status', 'present');
+                    if (campusFilter) q = q.eq('campus', campusFilter);
+                    return q;
+                })(),
 
-            // Calculate hostel stats
-            const totalHostels = bedcheckSessions?.length || 0;
-            const completedHostels = bedcheckSessions?.filter(b => b.status === 'completed').length || 0;
-            const inProgressHostels = bedcheckSessions?.filter(b => b.status === 'in_progress' || b.status === 'started').length || 0;
-            const pendingHostels = bedcheckSessions?.filter(b => b.status === 'pending').length || 0;
+                // scans
+                (() => {
+                    let q = supabase
+                        .from('bedcheck_scans')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('session_id', session.id);
+                    if (campusFilter) q = q.eq('campus', campusFilter);
+                    return q;
+                })()
+            ]);
+
+            const bedcheckSessions = bedcheckResult.data || [];
+            const totalStudents   = totalStudentsResult.count || 0;
+            const presentStudents = presentStudentsResult.count || 0;
+            const scansCount      = scansResult.count || 0;
+
+            const totalHostels      = bedcheckSessions.length;
+            const completedHostels  = bedcheckSessions.filter(b => b.status === 'completed').length;
+            const inProgressHostels = bedcheckSessions.filter(b => 
+                b.status === 'in_progress' || b.status === 'started'
+            ).length;
+            const pendingHostels    = bedcheckSessions.filter(b => b.status === 'pending').length;
 
             const stats = {
                 campus: campusFilter || 'All Campuses',
-                total_students: totalStudents || 0,
-                present_students: presentStudents || 0,
-                scans_count: scansCount || 0,
+                total_students: totalStudents,
+                present_students: presentStudents,
+                scans_count: scansCount,
                 total_hostels: totalHostels,
                 hostels_completed: completedHostels,
                 hostels_in_progress: inProgressHostels,
                 hostels_pending: pendingHostels,
-                hostel_completion: totalHostels > 0 ? Math.round((completedHostels / totalHostels) * 100) : 0,
-                attendance_completion: totalStudents > 0 ? Math.round((presentStudents / totalStudents) * 100) : 0,
-                bedcheck_sessions: bedcheckSessions || []
+                hostel_completion: totalHostels > 0 
+                    ? Math.round((completedHostels / totalHostels) * 100) 
+                    : 0,
+                attendance_completion: totalStudents > 0 
+                    ? Math.round((presentStudents / totalStudents) * 100) 
+                    : 0,
+                bedcheck_sessions: bedcheckSessions
             };
 
-            res.json({ 
-                success: true, 
+            clearTimeout(timeout);
+
+            res.json({
+                success: true,
                 data: { ...session, stats },
                 campus: campusFilter || 'All',
                 is_active: true,
                 view_all: isAdmin
             });
+
         } catch (error) {
+            clearTimeout(timeout);
             console.error('Error fetching active session:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
         }
     }
 );
