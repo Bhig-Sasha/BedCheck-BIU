@@ -82,7 +82,6 @@
         .session-status.locked { background: #8a6413; color: white; }
         .session-status.submitted { background: #8a6413; color: white; }
         .session-status.completed { background: #1e3a5f; color: white; }
-        .session-details { font-size: 0.7rem; color: #68768a; margin-left: 0.5rem; }
 
         .page-heading { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
         @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; } }
@@ -90,15 +89,10 @@
         .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.8rem; font-weight: 700; margin-top: 0.15rem; }
         @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
         .page-heading .desc { margin-top: 0.25rem; font-size: 0.9rem; color: #5c6a7d; }
-        .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
         .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background 0.15s; text-decoration: none; }
         .btn-primary:hover { background: #18345a; }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-primary.danger { background: #8a3328; }
-        .btn-primary.danger:hover { background: #a84134; }
-        .btn-primary.success { background: #2d6545; }
-        .btn-primary.success:hover { background: #3f755d; }
         .btn-outline { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
         .btn-outline:hover { background: #f5f1e8; }
         .btn-ghost { background: transparent; border: none; font-weight: 700; color: #926a13; cursor: pointer; font-size: 0.9rem; }
@@ -203,7 +197,7 @@
             <div class="brand">
                 <div class="brand-badge">BIU</div>
                 <div>
-                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
@@ -229,7 +223,7 @@
             <div class="brand">
                 <div class="brand-badge">BIU</div>
                 <div>
-                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
@@ -252,7 +246,7 @@
                         <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
                         <div>
                             <p class="header-date" id="currentDate">Loading...</p>
-                            <p class="header-title">BIU BedCheck</p>
+                            <p class="header-title">BedCheck</p>
                         </div>
                     </div>
                     <div class="header-right">
@@ -269,7 +263,6 @@
                 <div class="notice-banner" id="noticeBanner">
                     <i class="fas fa-clock"></i>
                     <span id="noticeText">Loading...</span>
-                    <span id="sessionStatusBadge" class="session-status active">● Active</span>
                 </div>
                 <div id="screenContent">
                     <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
@@ -453,49 +446,6 @@
                 }
             }
 
-            async function createSession(status = 'Active') {
-                try {
-                    const today = new Date().toISOString().split('T')[0];
-                    const data = await apiCall('/sessions', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            date: today,
-                            start_time: '22:00:00',
-                            end_time: '23:30:00',
-                            status: status,
-                            hostels_completed: 0,
-                            total_hostels: hostels.length || 11,
-                            completion: 0
-                        })
-                    });
-                    if (data.success) {
-                        currentSession = data.data;
-                        return currentSession;
-                    }
-                    return null;
-                } catch (error) {
-                    showToast('Failed to create session: ' + error.message, 'error');
-                    return null;
-                }
-            }
-
-            async function updateSessionStatus(sessionId, status) {
-                try {
-                    const data = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ status: status })
-                    });
-                    if (data.success) {
-                        currentSession = data.data;
-                        return currentSession;
-                    }
-                    return null;
-                } catch (error) {
-                    showToast('Failed to update session: ' + error.message, 'error');
-                    return null;
-                }
-            }
-
             async function loadHostels() {
                 try {
                     const data = await apiCall('/hostels');
@@ -533,16 +483,12 @@
             // UPDATE SESSION UI
             // =============================================
             function updateSessionUI() {
-                const badge = document.getElementById('sessionStatusBadge');
                 const noticeText = document.getElementById('noticeText');
                 
                 if (currentSession) {
                     const status = currentSession.status || 'Active';
                     const statusClass = getSessionStatusClass(status);
                     const icon = getSessionStatusIcon(status);
-                    
-                    badge.className = `session-status ${statusClass}`;
-                    badge.textContent = `${icon} ${status}`;
                     
                     const sessionInfo = [];
                     if (currentSession.date) sessionInfo.push(`Date: ${formatDate(currentSession.date)}`);
@@ -566,21 +512,8 @@
                     
                     noticeText.textContent = statusMessages[status] || `Session: ${status}`;
                     
-                    let detailSpan = document.querySelector('.session-details');
-                    if (!detailSpan) {
-                        detailSpan = document.createElement('span');
-                        detailSpan.className = 'session-details';
-                        document.getElementById('noticeBanner').appendChild(detailSpan);
-                    }
-                    detailSpan.textContent = sessionInfo.join(' · ');
-                    
                 } else {
-                    badge.className = 'session-status closed';
-                    badge.textContent = '○ No Session';
                     noticeText.textContent = 'No active BedCheck session. Please start a new session.';
-                    
-                    const detailSpan = document.querySelector('.session-details');
-                    if (detailSpan) detailSpan.textContent = '';
                 }
             }
 
@@ -607,34 +540,6 @@
                 roleLabel.textContent = displayRole;
                 roleScope.textContent = currentUser.scope || 'All hostels · Sessions · Reports';
                 mobileRole.textContent = `${displayRole} · ${currentUser.scope || 'All hostels · Sessions · Reports'}`;
-            }
-
-            // =============================================
-            // SESSION CONTROLS
-            // =============================================
-            async function handleSessionAction(action) {
-                try {
-                    if (!currentSession) {
-                        const newSession = await createSession(action);
-                        if (newSession) {
-                            currentSession = newSession;
-                            updateSessionUI();
-                            renderDashboard();
-                            showToast(`Session started (${action})`, 'success');
-                        }
-                        return;
-                    }
-
-                    const updatedSession = await updateSessionStatus(currentSession.id, action);
-                    if (updatedSession) {
-                        currentSession = updatedSession;
-                        updateSessionUI();
-                        renderDashboard();
-                        showToast(`Session ${action} successfully`, 'success');
-                    }
-                } catch (error) {
-                    showToast('Failed to update session: ' + error.message, 'error');
-                }
             }
 
             // =============================================
@@ -680,22 +585,6 @@
                             <p class="eyebrow">RASD · Resident Advisor Supervisor</p>
                             <h1>BedCheck Overview</h1>
                             <p class="desc">Monitor attendance across all hostels, review sessions, and generate reports.</p>
-                        </div>
-                        <div class="action-group">
-                            <div class="session-controls">
-                                <button class="btn-primary success" onclick="window.handleSessionAction('Active')" ${isActive ? 'disabled' : ''}>
-                                    <i class="fas fa-play"></i> Start Session
-                                </button>
-                                <button class="btn-primary" onclick="window.handleSessionAction('Submitted')" ${isSubmitted ? 'disabled' : ''}>
-                                    <i class="fas fa-paper-plane"></i> Submit
-                                </button>
-                                <button class="btn-primary danger" onclick="window.handleSessionAction('Closed')" ${isClosed ? 'disabled' : ''}>
-                                    <i class="fas fa-stop"></i> Close
-                                </button>
-                                <button class="btn-primary" onclick="window.handleSessionAction('Locked')" ${isLocked ? 'disabled' : ''}>
-                                    <i class="fas fa-lock"></i> Lock
-                                </button>
-                            </div>
                         </div>
                     </div>
 
@@ -829,37 +718,10 @@
                     </div>
 
                     <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
-                            <span class="ml-4"><span class="status-dot green"></span> System Online</span>
-                            <span class="ml-4"><span class="status-dot" style="background:${sessionColor};"></span> Session: ${sessionStatus}</span>
-                        </p>
+                        <p class="text-xs text-muted">BedCheck System · Benson Idahosa University</p>
                     </div>
                 `;
             }
-
-            // =============================================
-            // SESSION ACTION HANDLER
-            // =============================================
-            window.handleSessionAction = function(action) {
-                if (currentSession && currentSession.status === action) {
-                    showToast(`Session is already ${action}`, 'info');
-                    return;
-                }
-                
-                const confirmMsg = {
-                    'Active': 'Are you sure you want to START/ACTIVATE the BedCheck session? RAs will be able to conduct checks.',
-                    'Open': 'Are you sure you want to OPEN the BedCheck session? RAs will be able to conduct checks.',
-                    'Submitted': 'Are you sure you want to SUBMIT the BedCheck session for review?',
-                    'Closed': 'Are you sure you want to CLOSE the BedCheck session? No further submissions will be allowed.',
-                    'Locked': 'Are you sure you want to LOCK the BedCheck session? This will prevent all submissions.',
-                    'Completed': 'Are you sure you want to COMPLETE the BedCheck session?'
-                };
-                
-                if (confirm(confirmMsg[action] || `Change session to ${action}?`)) {
-                    handleSessionAction(action);
-                }
-            };
 
             // =============================================
             // MOBILE DRAWER
@@ -942,7 +804,7 @@
                     renderDashboard();
                     
                     const sessionStatus = currentSession ? currentSession.status : 'No Session';
-                    document.getElementById('noticeText').textContent = `RASD Dashboard · ${hostels.length} hostels, ${students.length} students monitored · Session: ${sessionStatus}`;
+                    document.getElementById('noticeText').textContent = `RASD Dashboard · ${hostels.length} hostels, ${students.length} students monitored`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     showToast('Error loading data: ' + error.message, 'error');
@@ -953,7 +815,6 @@
             // EXPOSE GLOBALLY
             // =============================================
             window.showToast = showToast;
-            window.handleSessionAction = window.handleSessionAction;
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
