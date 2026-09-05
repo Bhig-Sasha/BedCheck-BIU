@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Audit Logs · BIU BedCheck</title>
+    <title>Audit Logs · BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -290,7 +290,7 @@
             <div class="brand">
                 <div class="brand-badge">BIU</div>
                 <div>
-                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
@@ -319,7 +319,7 @@
             <div class="brand">
                 <div class="brand-badge">BIU</div>
                 <div>
-                    <div class="brand-text">BIU BedCheck</div>
+                    <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
@@ -345,7 +345,7 @@
                         <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
                         <div>
                             <p class="header-date" id="currentDate"></p>
-                            <p class="header-title">BIU BedCheck</p>
+                            <p class="header-title">BedCheck</p>
                         </div>
                     </div>
                     <div class="header-right">
@@ -370,7 +370,7 @@
         </main>
     </div>
 
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -407,7 +407,6 @@
             // AUTHENTICATED API HELPER
             // =============================================
             async function apiCall(endpoint, options = {}) {
-                // Get token from session storage
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!token) {
@@ -428,9 +427,7 @@
                         }
                     });
                     
-                    // Handle 401 - token expired or invalid
                     if (response.status === 401) {
-                        const errorData = await response.json().catch(() => ({}));
                         showToast('Session expired. Please login again.', 'error');
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
@@ -523,6 +520,19 @@
             }
 
             // =============================================
+            // GET USER LOGS ONLY (Excludes System/Developer)
+            // =============================================
+            function getUserLogs() {
+                return auditLogs.filter(log => {
+                    const actor = log.actor || '';
+                    const role = log.actor_role || '';
+                    return actor !== 'System' && actor !== 'Developer' && 
+                           role !== 'System' && role !== 'Developer' &&
+                           log.module !== 'system' && log.module !== 'developer' && log.module !== 'dev';
+                });
+            }
+
+            // =============================================
             // LOAD DATA
             // =============================================
             async function loadAuditLogs() {
@@ -565,12 +575,14 @@
             function renderScreen() {
                 const container = document.getElementById('screenContent');
                 
-                const total = auditLogs.length;
-                const successCount = auditLogs.filter(l => l.result === 'success' || l.result === 'completed').length;
-                const failedCount = auditLogs.filter(l => l.result === 'failed' || l.result === 'blocked').length;
-                const criticalCount = auditLogs.filter(l => l.tone === 'red' || l.severity === 'critical').length;
+                // Only use user logs for statistics
+                const userLogs = getUserLogs();
+                const total = userLogs.length;
+                const successCount = userLogs.filter(l => l.result === 'success' || l.result === 'completed').length;
+                const failedCount = userLogs.filter(l => l.result === 'failed' || l.result === 'blocked').length;
+                const criticalCount = userLogs.filter(l => l.tone === 'red' || l.severity === 'critical').length;
                 const activeStaff = staffList.filter(s => s.status === 'Active').length || 0;
-                const lastActivity = auditLogs.length > 0 ? getTimeSince(auditLogs[0].created_at) : '—';
+                const lastActivity = userLogs.length > 0 ? getTimeSince(userLogs[0].created_at) : '—';
                 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -637,7 +649,6 @@
                                     <option value="students">Students</option>
                                     <option value="staff">Staff</option>
                                     <option value="hostel">Hostel</option>
-                                    <option value="system">System</option>
                                     <option value="verification">Verification</option>
                                     <option value="notifications">Notifications</option>
                                 </select>
@@ -649,7 +660,6 @@
                                     <option value="RA">RA</option>
                                     <option value="HRA">HRA</option>
                                     <option value="Admin">Admin</option>
-                                    <option value="System">System</option>
                                     <option value="RASD">RASD</option>
                                 </select>
                             </div>
@@ -746,10 +756,7 @@
                     </div>
 
                     <div class="mt-4 pt-3 border-t text-center">
-                        <p class="text-xs text-muted">
-                            BIU BedCheck System v1.0 · © Benson Idahosa University
-                            <span class="ml-3"><span class="status-dot green"></span> Online</span>
-                        </p>
+                        <p class="text-xs text-muted">BedCheck System · Benson Idahosa University</p>
                     </div>
                 `;
 
@@ -757,11 +764,12 @@
             }
 
             // =============================================
-            // GET MOST ACTIVE USERS
+            // GET MOST ACTIVE USERS (Excludes System/Developer)
             // =============================================
             function getMostActiveUsers() {
                 const userCounts = {};
-                auditLogs.forEach(log => {
+                const userLogs = getUserLogs();
+                userLogs.forEach(log => {
                     const key = log.actor || 'Unknown';
                     if (!userCounts[key]) userCounts[key] = 0;
                     userCounts[key]++;
@@ -773,13 +781,14 @@
             }
 
             // =============================================
-            // GET SECURITY ALERTS
+            // GET SECURITY ALERTS (Excludes System/Developer)
             // =============================================
             function getSecurityAlerts() {
                 const alerts = [];
+                const userLogs = getUserLogs();
                 
                 // Check for failed logins
-                const failedLogins = auditLogs.filter(l => l.action === 'Login Failed' || l.result === 'failed');
+                const failedLogins = userLogs.filter(l => l.action === 'Login Failed' || l.result === 'failed');
                 if (failedLogins.length >= 3) {
                     alerts.push({
                         title: 'Multiple failed attempts',
@@ -790,7 +799,7 @@
                 }
                 
                 // Check for rejected sessions
-                const rejected = auditLogs.filter(l => l.action === 'Rejected BedCheck');
+                const rejected = userLogs.filter(l => l.action === 'Rejected BedCheck');
                 if (rejected.length >= 3) {
                     alerts.push({
                         title: 'Multiple BedCheck rejections',
@@ -801,7 +810,7 @@
                 }
                 
                 // Check for suspicious activity (critical tone)
-                const suspicious = auditLogs.filter(l => l.tone === 'red');
+                const suspicious = userLogs.filter(l => l.tone === 'red');
                 if (suspicious.length >= 2) {
                     alerts.push({
                         title: 'Suspicious activity detected',
@@ -812,12 +821,12 @@
                 }
                 
                 // Add a system alert if no alerts generated and there are logs
-                if (alerts.length === 0 && auditLogs.length > 0) {
+                if (alerts.length === 0 && userLogs.length > 0) {
                     alerts.push({
                         title: 'All systems normal',
                         tone: 'green',
                         description: 'No suspicious activity detected in recent logs.',
-                        time: formatDate(auditLogs[0]?.created_at)
+                        time: formatDate(userLogs[0]?.created_at)
                     });
                 }
                 
@@ -883,7 +892,7 @@
             }
 
             // =============================================
-            // FILTER LOGS
+            // FILTER LOGS - COMPLETELY HIDES SYSTEM/DEVELOPER
             // =============================================
             function getFilteredLogs() {
                 const actionFilter = document.getElementById('filterAction')?.value || '';
@@ -893,6 +902,21 @@
                 const endDate = document.getElementById('filterEndDate')?.value || '';
                 
                 return auditLogs.filter(log => {
+                    // =============================================
+                    // COMPLETELY HIDE SYSTEM AND DEVELOPER LOGS
+                    // The audit page should never show these
+                    // =============================================
+                    const actor = log.actor || '';
+                    const role = log.actor_role || '';
+                    
+                    // Exclude System and Developer actors
+                    if (actor === 'System' || actor === 'Developer') return false;
+                    if (role === 'System' || role === 'Developer') return false;
+                    
+                    // Also exclude by module
+                    if (log.module === 'system' || log.module === 'developer' || log.module === 'dev') return false;
+                    
+                    // User filters (only apply to non-system logs)
                     if (actionFilter && log.module !== actionFilter) return false;
                     if (roleFilter && log.actor_role !== roleFilter) return false;
                     if (resultFilter && log.result !== resultFilter) return false;
@@ -931,11 +955,20 @@
             // =============================================
             async function openViewDrawer(logId) {
                 try {
-                    // Fetch full log details from API
                     const data = await apiCall(`/audit/${logId}`);
                     const log = data.data;
                     if (!log) {
                         showToast('Log not found', 'error');
+                        return;
+                    }
+                    
+                    // Check if this is a System/Developer log - if so, don't show it
+                    const actor = log.actor || '';
+                    const role = log.actor_role || '';
+                    if (actor === 'System' || actor === 'Developer' || 
+                        role === 'System' || role === 'Developer' ||
+                        log.module === 'system' || log.module === 'developer' || log.module === 'dev') {
+                        showToast('This log is not available', 'warning');
                         return;
                     }
                     
@@ -947,7 +980,6 @@
                     title.textContent = log.action || 'Audit Detail';
                     subtitle.textContent = `${log.actor || 'Unknown'} · ${log.actor_role || '—'} · ${formatDate(log.created_at)}`;
                     
-                    // Build timeline from available data
                     const timeline = [
                         { time: log.created_at, event: `${log.action} initiated by ${log.actor || 'System'}` },
                         { time: log.created_at, event: `Target: ${log.context || log.details || 'N/A'}` },
@@ -1121,7 +1153,6 @@
                     }
                 }
 
-                // Close drawer on escape
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
                         closeViewDrawer();
