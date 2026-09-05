@@ -683,11 +683,9 @@
                         
                         if (response.status === 429) {
                             const data = await response.json();
-                            console.warn(`⚠️ Rate limit hit (${retries} retries left):`, data.message);
                             
                             if (retries > 1) {
                                 const waitTime = delay * (4 - retries);
-                                console.log(`⏳ Waiting ${waitTime}ms before retry...`);
                                 await new Promise(resolve => setTimeout(resolve, waitTime));
                                 retries--;
                                 continue;
@@ -769,7 +767,6 @@
                 } catch (error) {
                     // Handle rate limit errors gracefully
                     if (error.message && error.message.includes('429')) {
-                        console.warn(`⚠️ Rate limit hit for student ${studentId}, using cached/fallback data`);
                         const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
                         if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
                             return { 
@@ -796,7 +793,6 @@
                         };
                     }
                     
-                    console.error(`❌ Failed to check face status for student ${studentId}:`, error);
                     return { 
                         enrolled: false, 
                         has_embedding: false, 
@@ -821,37 +817,42 @@
                         signal: AbortSignal.timeout(12000)
                     });
 
-                    console.log('🩺 Face health status code:', response.status);
 
                     if (response.status === 429) {
-                        console.warn('⚠️ Face health rate-limited – treating as healthy');
                         isApiHealthy = true;
                         apiHealthChecked = true;
                         return true;
                     }
 
                     if (!response.ok) {
-                        console.warn('🩺 Face health not OK:', response.status);
                         isApiHealthy = false;
                         apiHealthChecked = true;
                         return false;
                     }
 
                     const data = await response.json();
-                    console.log('🩺 Face health response:', data);
 
-                    const status = data?.data?.status || data?.status || '';
-                    const circuit = data?.circuit_breaker || data?.data?.circuit_breaker || 'closed';
+                    const status = String(
+                        data?.data?.status || data?.status || data?.data?.health || ''
+                    ).toLowerCase();
+                    const circuit = String(
+                        data?.circuit_breaker || data?.data?.circuit_breaker || 'closed'
+                    ).toLowerCase();
 
                     isApiHealthy = !!(
                         data.success !== false &&
                         circuit !== 'open' &&
-                        (status === 'healthy' || status === 'running' || status === '')
+                        (
+                            status === '' ||
+                            status === 'healthy' ||
+                            status === 'running' ||
+                            status === 'ok' ||
+                            status === 'up' ||
+                            status === 'ready'
+                        )
                     );
 
-                    console.log('🩺 isApiHealthy =', isApiHealthy);
                 } catch (error) {
-                    console.warn('Face API health check failed:', error.message);
                     // On network/timeout error we still allow trying verification
                     isApiHealthy = true;
                 }
@@ -862,7 +863,6 @@
 
             async function verifyFaceWithAPI(imageDataUrl, studentId, threshold = 0.45) {
                 try {
-                    console.log(`🔐 Verifying student ${studentId} with threshold ${threshold}`);
                     
                     const result = await apiCall('/face/verify', {
                         method: 'POST',
@@ -873,7 +873,6 @@
                         })
                     });
 
-                    console.log('📊 Verification result:', result);
 
                     const verified = !!(result.data && result.data.verified);
                     const confidence = result.data?.similarity || result.data?.confidence || 0;
@@ -887,7 +886,6 @@
                         student: result.data?.student || null
                     };
                 } catch (error) {
-                    console.error('Face verification API error:', error);
                     return {
                         success: false,
                         verified: false,
@@ -907,7 +905,6 @@
                     });
                     return result.is_live === true;
                 } catch (error) {
-                    console.warn('Liveness check error:', error);
                     return false;
                 }
             }
@@ -980,7 +977,6 @@
                     if (contrast > 30) qualityScore += 50;
                     qualityScore = Math.min(100, qualityScore + (brightness - 127) * 0.2);
                     
-                    console.log(`📸 Frame ${attempt + 1}: brightness=${Math.round(brightness)}, contrast=${Math.round(contrast)}, quality=${Math.round(qualityScore)}`);
                     
                     if (qualityScore > bestQuality) {
                         bestQuality = qualityScore;
@@ -990,7 +986,6 @@
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                 }
                 
-                console.log(`📸 Best frame quality: ${Math.round(bestQuality)}%`);
                 return bestImageData;
             }
 
@@ -1071,7 +1066,6 @@
                         }, 1000);
                     }
                 } catch (error) {
-                    console.error('Modal camera error:', error);
                     let errorMessage = 'Camera access denied. ';
                     if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
                         errorMessage = 'iOS: Go to Settings > Safari > Camera > Allow.';
@@ -1138,7 +1132,6 @@
                 const faceStatusContainer = document.getElementById('modalFaceStatus');
                 const verifyBtn = document.getElementById('modalVerifyBtn');
                 
-                console.log(`Face status for ${student.name} (ID: ${student.id}):`, faceStatus);
                 
                 const hasEnrollment = faceStatus.enrolled === true;
                 const hasEmbedding = faceStatus.has_embedding === true;
@@ -1318,7 +1311,6 @@
                     const confidence = result.confidence || 0;
                     const confidencePercent = Math.round(confidence * 100);
 
-                    console.log(`📊 Verification result: ${result.verified ? '✅' : '❌'} ${confidencePercent}% confidence`);
 
                     if (result.verified || result.success) {
                         const student = selectedStudent;
@@ -1350,7 +1342,6 @@
                                 })
                             });
                         } catch (scanError) {
-                            console.warn('Could not record scan:', scanError);
                         }
 
                         showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
@@ -1455,7 +1446,6 @@
                     }
 
                 } catch (error) {
-                    console.error('Verification error:', error);
                     showToast('Error during verification: ' + error.message, 'error');
                     document.getElementById('modalCameraStatus').textContent = 'Error';
                     document.getElementById('statusDot').className = 'status-dot-live error';
@@ -1717,7 +1707,6 @@
                     }
                     
                 } catch (error) {
-                    console.error('Error loading session:', error);
                     sessionStatus = 'closed';
                     isSessionActive = false;
                     currentSession = null;
