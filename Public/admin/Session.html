@@ -290,7 +290,7 @@
         <div class="modal-box">
             <div class="modal-header">
                 <div class="icon"><i class="fas fa-plus-circle"></i></div>
-                <h2>Create University-Wide Session</h2>
+                <h2>Create Session</h2>
                 <button class="close-btn" onclick="closeCreateSession()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
@@ -357,7 +357,7 @@
                     </select>
                 </div>
                 <div class="mt-3" style="background:#e8edf2;padding:0.75rem;border-radius:0.5rem;font-size:0.75rem;color:#536274;">
-                    <i class="fas fa-info-circle"></i> This is a <strong>UNIVERSITY-WIDE</strong> session. All campuses and users will see the same session ID.
+                    <i class="fas fa-info-circle"></i> This is a <strong>university-wide</strong> session. All campuses and users will see the same session.
                 </div>
             </div>
             <div class="modal-footer">
@@ -664,7 +664,6 @@
                 }
 
                 try {
-                    // Check if any session exists for this date by filtering loaded sessions
                     const existing = sessions.find(s => s.date === date);
                     
                     if (existing) {
@@ -754,11 +753,9 @@
 
                     title.textContent = session.name || 'Session Details';
 
-                    // Check if it's a university-wide session (campus is null or 'General')
                     const isUniversityWide = !session.campus || session.campus === 'General' || session.campus === null;
                     const campusDisplay = isUniversityWide ? '🌍 All Campuses' : (session.campus || 'Legacy');
 
-                    // Get campus breakdown from the session data
                     const campuses = session.campuses || [];
 
                     body.innerHTML = `
@@ -885,7 +882,7 @@
             }
 
             // =============================================
-            // SESSION CRUD OPERATIONS - UNIVERSITY-WIDE
+            // SESSION CRUD OPERATIONS
             // =============================================
 
             async function createSession() {
@@ -902,7 +899,6 @@
                     return;
                 }
 
-                // If there's an existing session for this date, ask user what to do
                 if (existingSessionData) {
                     const confirmAction = confirm(
                         `⚠️ A session already exists for ${date}:\n\n` +
@@ -924,7 +920,6 @@
                 }
 
                 try {
-                    // No existing session - create new one
                     const payload = {
                         name: name,
                         date: date,
@@ -940,7 +935,7 @@
                         body: JSON.stringify(payload)
                     });
 
-                    showToast(`✅ University-wide session "${name}" created successfully!`, 'success');
+                    showToast(`✅ Session "${name}" created successfully!`, 'success');
                     closeCreateSession();
                     await loadSessions();
                     renderScreen();
@@ -959,7 +954,6 @@
                 } catch (error) {
                     if (error.message.includes('SESSION_EXISTS')) {
                         showToast('⚠️ A session already exists for this date. Please check the sessions list.', 'error');
-                        // Refresh to update the existing session check
                         await loadSessions();
                         checkExistingForDate();
                     } else {
@@ -977,7 +971,7 @@
                             started_at: new Date().toISOString()
                         })
                     });
-                    showToast('✅ University-wide session started! All campuses can now verify students.', 'success');
+                    showToast('✅ Session started!', 'success');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -994,7 +988,7 @@
                             completed_at: new Date().toISOString()
                         })
                     });
-                    showToast('✅ University-wide session completed.', 'info');
+                    showToast('✅ Session completed.', 'info');
                     await loadSessions();
                     renderScreen();
                 } catch (error) {
@@ -1046,13 +1040,11 @@
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('sessionDate').value = today;
                 
-                // Auto-generate name
                 const d = new Date(today);
                 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 const dayName = dayNames[d.getDay()] || 'Night';
-                document.getElementById('sessionName').value = `${dayName} Night BedCheck (University-Wide)`;
+                document.getElementById('sessionName').value = `${dayName} Night BedCheck`;
                 
-                // Check for existing session
                 setTimeout(checkExistingForDate, 100);
                 
                 modal.classList.add('show');
@@ -1093,7 +1085,7 @@
             }
 
             // =============================================
-            // RENDER - UNIVERSITY-WIDE SESSIONS
+            // RENDER
             // =============================================
 
             function renderScreen() {
@@ -1119,7 +1111,6 @@
                     indicator.style.color = '#68768a';
                 }
 
-                // Sort sessions by date (newest first)
                 const sortedSessions = [...sessions].sort((a, b) => {
                     if (a.date > b.date) return -1;
                     if (a.date < b.date) return 1;
@@ -1131,7 +1122,7 @@
                         <div>
                             <p class="eyebrow"><i class="fas fa-clipboard-check"></i> Nightly Operations</p>
                             <h1>BedCheck Sessions</h1>
-                            <p class="desc">Configure and monitor the university-wide BedCheck session. <span style="color:#d6ad4b;font-weight:600;">One session applies to all campuses.</span></p>
+                            <p class="desc">Configure and monitor BedCheck sessions.</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-primary" onclick="openCreateSession()"><i class="fas fa-plus"></i> Create Session</button>
@@ -1180,9 +1171,6 @@
                                 <p class="text-sm text-muted">Session is ${getStatusDisplay(currentActive.status).label}</p>
                                 <p class="text-xs text-muted">Started: ${formatTime(currentActive.started_at) || formatTime(currentActive.created_at) || 'Just now'}</p>
                                 <p class="text-xs text-muted">
-                                    <span class="general-session-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;">
-                                        <i class="fas fa-globe"></i> ALL CAMPUSES
-                                    </span>
                                     <span class="text-xs text-muted" style="margin-left:0.5rem;">
                                         <i class="fas fa-clock"></i> Grace: ${currentActive.grace_period || 15}min
                                     </span>
@@ -1248,19 +1236,14 @@
                                 <div class="flex-between mt-1"><span class="text-muted">Scheduled</span><span class="font-bold">${scheduled}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Completed</span><span class="font-bold">${completed}</span></div>
                                 <div class="flex-between mt-1"><span class="text-muted">Archived</span><span class="font-bold">${archived}</span></div>
-                                <div class="flex-between mt-1"><span class="text-muted">Campuses</span><span class="font-bold"><span class="general-session-badge" style="font-size:0.7rem;padding:0.1rem 0.6rem;"><i class="fas fa-globe"></i> All</span></span></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- UNIVERSITY-WIDE SESSIONS TABLE -->
                     <div class="card mt-4">
                         <div class="flex-between">
                             <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> All Sessions</div>
                             <div style="display:flex;gap:0.5rem;align-items:center;">
-                                <span class="general-session-badge" style="font-size:0.6rem;padding:0.1rem 0.5rem;">
-                                    <i class="fas fa-globe"></i> University-Wide
-                                </span>
                                 <span class="text-xs text-muted">${totalSessions} sessions</span>
                             </div>
                         </div>
@@ -1278,7 +1261,7 @@
                                 </tr></thead>
                                 <tbody>
                                     ${sortedSessions.length === 0 ? `
-                                        <tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">No sessions found. Create your first university-wide session!</td></tr>
+                                        <tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">No sessions found. Create your first session!</td></tr>
                                     ` : sortedSessions.map(s => {
                                         const statusDisplay = getStatusDisplay(s.status);
                                         const isScheduled = s.status === 'scheduled';
@@ -1336,10 +1319,7 @@
                     </div>
 
                     <div class="mt-6 pt-4 border-t text-center">
-                        <p class="text-xs text-muted">BedCheck System v2.0 · Benson Idahosa University · ${totalSessions} total sessions</p>
-                        <p class="text-xs text-muted" style="color:#d6ad4b;font-weight:600;margin-top:0.2rem;">
-                            <i class="fas fa-globe"></i> University-Wide Session System — One session, all campuses
-                        </p>
+                        <p class="text-xs text-muted">BedCheck System · Benson Idahosa University · ${totalSessions} total sessions</p>
                     </div>
                 `;
 
