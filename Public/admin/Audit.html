@@ -520,18 +520,29 @@
             }
 
             // =============================================
-            // GET USER LOGS ONLY
+            // GET USER LOGS (Shows failed/suspicious System logs)
             // =============================================
             function getUserLogs() {
                 return auditLogs.filter(log => {
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
-                    const module = log.module || '';
                     
-                    // Only exclude System/Developer actors
-                    if (actor === 'System' || actor === 'Developer') return false;
-                    if (role === 'System' || role === 'Developer') return false;
+                    // If it's a System/Developer log
+                    if (actor === 'System' || actor === 'Developer' || 
+                        role === 'System' || role === 'Developer') {
+                        
+                        // KEEP important security events even if logged by System
+                        const isImportant = log.result === 'failed' || 
+                                           log.result === 'blocked' ||
+                                           log.tone === 'red' || 
+                                           log.tone === 'critical' ||
+                                           log.action === 'Login Failed' ||
+                                           log.action === 'Rejected BedCheck';
+                        
+                        return isImportant; // Keep failed/suspicious, hide normal System logs
+                    }
                     
+                    // Keep all non-System logs
                     return true;
                 });
             }
@@ -768,7 +779,7 @@
             }
 
             // =============================================
-            // GET MOST ACTIVE USERS (Excludes System/Developer)
+            // GET MOST ACTIVE USERS (Shows important System logs)
             // =============================================
             function getMostActiveUsers() {
                 const userCounts = {};
@@ -785,7 +796,7 @@
             }
 
             // =============================================
-            // GET SECURITY ALERTS (Excludes System/Developer)
+            // GET SECURITY ALERTS (Shows important System logs)
             // =============================================
             function getSecurityAlerts() {
                 const alerts = [];
@@ -896,7 +907,7 @@
             }
 
             // =============================================
-            // FILTER LOGS - COMPLETELY HIDES SYSTEM/DEVELOPER
+            // FILTER LOGS - Shows failed/suspicious System logs
             // =============================================
             function getFilteredLogs() {
                 const actionFilter = document.getElementById('filterAction')?.value || '';
@@ -906,21 +917,26 @@
                 const endDate = document.getElementById('filterEndDate')?.value || '';
                 
                 return auditLogs.filter(log => {
-                    // =============================================
-                    // COMPLETELY HIDE SYSTEM AND DEVELOPER LOGS
-                    // The audit page should never show these
-                    // =============================================
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
                     
-                    // Exclude System and Developer actors
-                    if (actor === 'System' || actor === 'Developer') return false;
-                    if (role === 'System' || role === 'Developer') return false;
+                    // If it's a System/Developer log
+                    if (actor === 'System' || actor === 'Developer' || 
+                        role === 'System' || role === 'Developer') {
+                        
+                        // KEEP important security events even if logged by System
+                        const isImportant = log.result === 'failed' || 
+                                           log.result === 'blocked' ||
+                                           log.tone === 'red' || 
+                                           log.tone === 'critical' ||
+                                           log.action === 'Login Failed' ||
+                                           log.action === 'Rejected BedCheck';
+                        
+                        if (!isImportant) return false; // Skip normal System logs
+                        // If important, apply user filters
+                    }
                     
-                    // Also exclude by module
-                    if (log.module === 'system' || log.module === 'developer' || log.module === 'dev') return false;
-                    
-                    // User filters (only apply to non-system logs)
+                    // Apply user filters
                     if (actionFilter && log.module !== actionFilter) return false;
                     if (roleFilter && log.actor_role !== roleFilter) return false;
                     if (resultFilter && log.result !== resultFilter) return false;
@@ -966,14 +982,24 @@
                         return;
                     }
                     
-                    // Check if this is a System/Developer log - if so, don't show it
+                    // Check if this is a System/Developer log
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
                     if (actor === 'System' || actor === 'Developer' || 
-                        role === 'System' || role === 'Developer' ||
-                        log.module === 'system' || log.module === 'developer' || log.module === 'dev') {
-                        showToast('This log is not available', 'warning');
-                        return;
+                        role === 'System' || role === 'Developer') {
+                        
+                        // Allow viewing if it's an important security event
+                        const isImportant = log.result === 'failed' || 
+                                           log.result === 'blocked' ||
+                                           log.tone === 'red' || 
+                                           log.tone === 'critical' ||
+                                           log.action === 'Login Failed' ||
+                                           log.action === 'Rejected BedCheck';
+                        
+                        if (!isImportant) {
+                            showToast('This log is not available', 'warning');
+                            return;
+                        }
                     }
                     
                     const drawer = document.getElementById('viewDrawer');
