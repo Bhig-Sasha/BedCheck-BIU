@@ -1475,410 +1475,446 @@
     </div>
 
 <script>
-        (function() {
-            'use strict';
+    (function() {
+        'use strict';
 
-            // ========== CONFIG ==========
-            const API_BASE = 'https://bedcheck-biu.onrender.com/api';
+        // ========== CONFIG ==========
+        const API_BASE = 'https://bedcheck-biu.onrender.com/api';
 
-            // ========== STATE ==========
-            let currentUser = null;
-            let hostels = [];
-            let students = [];
-            let sessions = [];
-            let isLoading = false;
-            let searchQuery = '';
-            let statusFilter = 'all';
+        // ========== STATE ==========
+        let currentUser = null;
+        let hostels = [];
+        let students = [];
+        let sessions = [];
+        let isLoading = false;
+        let searchQuery = '';
+        let statusFilter = 'all';
 
-            // ========== TOAST ==========
-            function showToast(msg, type = 'success') {
-                const t = document.getElementById('toast');
-                t.textContent = msg;
-                t.className = `toast ${type}`;
-                setTimeout(() => t.classList.add('show'), 10);
-                setTimeout(() => t.classList.remove('show'), 4000);
+        // ========== TOAST ==========
+        function showToast(msg, type = 'success') {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = `toast ${type}`;
+            setTimeout(() => t.classList.add('show'), 10);
+            setTimeout(() => t.classList.remove('show'), 4000);
+        }
+        window.showToast = showToast;
+
+        // ========== API HELPERS ==========
+        async function apiCall(endpoint, opts = {}) {
+            const token = sessionStorage.getItem('bedcheck_token');
+
+            if (!token) {
+                showToast('No authentication token found. Please login again.', 'error');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 1500);
+                throw new Error('No authentication token');
             }
-            window.showToast = showToast;
 
-            // ========== API HELPERS ==========
-            async function apiCall(endpoint, opts = {}) {
-                const token = sessionStorage.getItem('bedcheck_token');
+            try {
+                const res = await fetch(`${API_BASE}${endpoint}`, {
+                    ...opts,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                        ...(opts.headers || {})
+                    }
+                });
 
-                if (!token) {
-                    showToast('No authentication token found. Please login again.', 'error');
+                if (res.status === 401) {
+                    showToast('Session expired. Please login again.', 'error');
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    sessionStorage.removeItem('bedcheck_role');
                     setTimeout(() => {
                         window.location.replace('../Login.html');
                     }, 1500);
-                    throw new Error('No authentication token');
+                    throw new Error('Authentication required');
                 }
 
-                try {
-                    const res = await fetch(`${API_BASE}${endpoint}`, {
-                        ...opts,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`,
-                            ...(opts.headers || {})
-                        }
-                    });
-
-                    if (res.status === 401) {
-                        showToast('Session expired. Please login again.', 'error');
-                        sessionStorage.removeItem('bedcheck_token');
-                        sessionStorage.removeItem('bedcheck_user');
-                        sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => {
-                            window.location.replace('../Login.html');
-                        }, 1500);
-                        throw new Error('Authentication required');
+                // Handle 400 errors specially - they contain useful info
+                if (res.status === 400) {
+                    const errorText = await res.text();
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch (e) {
+                        errorData = { message: errorText };
                     }
-
-                    if (!res.ok) {
-                        const errorText = await res.text();
-                        throw new Error(`HTTP ${res.status}: ${errorText}`);
+                    
+                    // Check if it's a session_exists error
+                    if (errorData.code === 'SESSION_EXISTS' || errorData.message && errorData.message.includes('session already exists')) {
+                        // Don't show toast for this - handled by the caller
+                        throw new Error(`SESSION_EXISTS: ${errorData.message}`);
                     }
-                    const data = await res.json();
-                    if (!data.success) throw new Error(data.message || 'API error');
-                    return data;
-                } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        console.error('API Error:', error);
+                    throw new Error(errorData.message || `HTTP ${res.status}`);
+                }
+
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${errorText}`);
+                }
+
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message || 'API error');
+                return data;
+            } catch (error) {
+                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    // Only show toast for non-SESSION_EXISTS errors
+                    if (!error.message.includes('SESSION_EXISTS')) {
                         showToast('Error: ' + error.message, 'error');
                     }
-                    throw error;
                 }
+                throw error;
+            }
+        }
+
+        // ========== HELPERS ==========
+        function formatTime(d) {
+            if (!d) return '—';
+            try {
+                if (typeof d === 'string' && d.includes(':')) {
+                    const parts = d.split(':');
+                    const hour = parseInt(parts[0]);
+                    const minute = parseInt(parts[1]);
+                    const ampm = hour >= 12 ? 'PM' : 'AM';
+                    const hour12 = hour % 12 || 12;
+                    return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+                }
+                const date = new Date(d);
+                if (isNaN(date)) return d;
+                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            } catch (e) { return d; }
+        }
+
+        function formatDate(d) {
+            if (!d) return '—';
+            try {
+                const date = new Date(d);
+                if (isNaN(date)) return d;
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch (e) { return d; }
+        }
+
+        function getStatusBadge(status) {
+            const map = {
+                'active': 'badge-active',
+                'archived': 'badge-archived',
+                'completed': 'badge-completed',
+                'scheduled': 'badge-scheduled',
+                'ready': 'badge-ready',
+                'draft': 'badge-draft'
+            };
+            return map[status?.toLowerCase()] || 'badge-draft';
+        }
+
+        function getStatusDot(status) {
+            const map = {
+                'active': '🟢',
+                'archived': '🔴',
+                'completed': '✅',
+                'scheduled': '🟡',
+                'ready': '🟡',
+                'draft': '⚪'
+            };
+            return map[status?.toLowerCase()] || '⚪';
+        }
+
+        function getSessionClass(status) {
+            const map = {
+                'active': 'active',
+                'scheduled': 'scheduled',
+                'ready': 'ready',
+                'completed': 'completed',
+                'draft': 'draft',
+                'archived': 'archived'
+            };
+            return map[status?.toLowerCase()] || 'draft';
+        }
+
+        function getStatusDisplay(status) {
+            const map = {
+                'active': 'ACTIVE',
+                'scheduled': 'SCHEDULED',
+                'ready': 'READY',
+                'completed': 'COMPLETED',
+                'draft': 'DRAFT',
+                'archived': 'ARCHIVED'
+            };
+            return map[status?.toLowerCase()] || 'UNKNOWN';
+        }
+
+        function getInitials(name) {
+            if (!name) return 'U';
+            return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        }
+
+        // ========== USER ==========
+        function getUser() {
+            try {
+                const stored = sessionStorage.getItem('bedcheck_user');
+                if (stored) return JSON.parse(stored);
+                return null;
+            } catch (e) { return null; }
+        }
+
+        function updateUserUI(user) {
+            if (!user) {
+                document.getElementById('profileName').textContent = 'Guest';
+                document.getElementById('profileRoleLabel').textContent = 'Viewer';
+                document.getElementById('profileAvatar').textContent = '??';
+                document.getElementById('roleLabel').textContent = 'Viewer';
+                document.getElementById('roleScope').textContent = 'Read-only access';
+                document.getElementById('mobileRoleFooter').textContent = 'Viewer · Read-only';
+                return;
             }
 
-            // ========== HELPERS ==========
-            function formatTime(d) {
-                if (!d) return '—';
-                try {
-                    if (typeof d === 'string' && d.includes(':')) {
-                        const parts = d.split(':');
-                        const hour = parseInt(parts[0]);
-                        const minute = parseInt(parts[1]);
-                        const ampm = hour >= 12 ? 'PM' : 'AM';
-                        const hour12 = hour % 12 || 12;
-                        return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
-                    }
-                    const date = new Date(d);
-                    if (isNaN(date)) return d;
-                    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-                } catch (e) { return d; }
-            }
+            const name = user.name || 'User';
+            const role = user.role || 'Staff';
+            const initials = getInitials(name);
 
-            function formatDate(d) {
-                if (!d) return '—';
-                try {
-                    const date = new Date(d);
-                    if (isNaN(date)) return d;
-                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                } catch (e) { return d; }
-            }
+            document.getElementById('profileName').textContent = name;
+            document.getElementById('profileRoleLabel').textContent = role;
+            document.getElementById('profileAvatar').textContent = initials;
+            document.getElementById('roleLabel').textContent = role;
 
-            function getStatusBadge(status) {
-                const map = {
-                    'active': 'badge-active',
-                    'archived': 'badge-archived',
-                    'completed': 'badge-completed',
-                    'scheduled': 'badge-scheduled',
-                    'ready': 'badge-ready',
-                    'draft': 'badge-draft'
-                };
-                return map[status?.toLowerCase()] || 'badge-draft';
+            let scopeText = '';
+            if (user.hostel_id) {
+                const hostel = hostels.find(h => h.id === user.hostel_id);
+                scopeText = hostel ? `${hostel.name} · ` : '';
             }
+            scopeText += `${role} · ${hostels.length} hostels`;
+            document.getElementById('roleScope').textContent = scopeText;
+            document.getElementById('mobileRoleFooter').textContent = scopeText;
 
-            function getStatusDot(status) {
-                const map = {
-                    'active': '🟢',
-                    'archived': '🔴',
-                    'completed': '✅',
-                    'scheduled': '🟡',
-                    'ready': '🟡',
-                    'draft': '⚪'
-                };
-                return map[status?.toLowerCase()] || '⚪';
+            currentUser = user;
+        }
+
+        // ========== DATA LOADING ==========
+        async function loadHostels() {
+            try {
+                const d = await apiCall('/hostels');
+                hostels = d.data || [];
+            } catch (e) {
+                hostels = [];
+                console.warn('Failed to load hostels:', e);
             }
+            return hostels;
+        }
 
-            function getSessionClass(status) {
-                const map = {
-                    'active': 'active',
-                    'scheduled': 'scheduled',
-                    'ready': 'ready',
-                    'completed': 'completed',
-                    'draft': 'draft',
-                    'archived': 'archived'
-                };
-                return map[status?.toLowerCase()] || 'draft';
+        async function loadStudents() {
+            try {
+                const d = await apiCall('/students');
+                students = d.data || [];
+            } catch (e) {
+                students = [];
+                console.warn('Failed to load students:', e);
             }
+            return students;
+        }
 
-            function getStatusDisplay(status) {
-                const map = {
-                    'active': 'ACTIVE',
-                    'scheduled': 'SCHEDULED',
-                    'ready': 'READY',
-                    'completed': 'COMPLETED',
-                    'draft': 'DRAFT',
-                    'archived': 'ARCHIVED'
-                };
-                return map[status?.toLowerCase()] || 'UNKNOWN';
+        async function loadSessions() {
+            try {
+                const d = await apiCall('/sessions');
+                sessions = d.data || [];
+                sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            } catch (e) {
+                sessions = [];
+                console.warn('Failed to load sessions:', e);
             }
+            return sessions;
+        }
 
-            function getInitials(name) {
-                if (!name) return 'U';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
+        // ========== CREATE SESSION ==========
+        async function createNewSession() {
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const dayName = dayNames[new Date().getDay()];
 
-            // ========== USER ==========
-            function getUser() {
-                try {
-                    const stored = sessionStorage.getItem('bedcheck_user');
-                    if (stored) return JSON.parse(stored);
+                // Check if session already exists for today
+                const existingToday = sessions.find(s => s.date === today);
+                if (existingToday) {
+                    showToast(`A session already exists for today (${existingToday.name}). Please use that session.`, 'warning');
+                    renderPage();
                     return null;
-                } catch (e) { return null; }
-            }
+                }
 
-            function updateUserUI(user) {
-                if (!user) {
-                    document.getElementById('profileName').textContent = 'Guest';
-                    document.getElementById('profileRoleLabel').textContent = 'Viewer';
-                    document.getElementById('profileAvatar').textContent = '??';
-                    document.getElementById('roleLabel').textContent = 'Viewer';
-                    document.getElementById('roleScope').textContent = 'Read-only access';
-                    document.getElementById('mobileRoleFooter').textContent = 'Viewer · Read-only';
+                const sessionData = {
+                    name: `${dayName} Night BedCheck`,
+                    date: today,
+                    start_time: '22:00:00',
+                    end_time: '23:30:00',
+                    status: 'scheduled',
+                    hostels_completed: 0,
+                    total_hostels: hostels.length || 11,
+                    completion: 0,
+                    academic_session: '2026/2027',
+                    grace_period: 15
+                };
+
+                const d = await apiCall('/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify(sessionData)
+                });
+
+                if (d.success) {
+                    sessions.unshift(d.data);
+                    showToast('Session created! Click "Start Session" to begin.', 'success');
+                    renderPage();
+                    return d.data;
+                }
+                return null;
+            } catch (e) {
+                console.error('Create session error:', e);
+                if (e.message && e.message.includes('SESSION_EXISTS')) {
+                    showToast('A session already exists for this date. Please check the sessions list.', 'warning');
+                    // Refresh sessions to show the existing one
+                    await loadSessions();
+                    renderPage();
+                } else {
+                    showToast('Failed to create session: ' + e.message, 'error');
+                }
+                return null;
+            }
+        }
+        window.createNewSession = createNewSession;
+
+        // ========== START SESSION (SCHEDULED -> ACTIVE) ==========
+        async function startSession(sessionId) {
+            try {
+                const d = await apiCall(`/sessions/${sessionId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        status: 'active',
+                        started_at: new Date().toISOString()
+                    })
+                });
+
+                if (d.success) {
+                    const idx = sessions.findIndex(s => s.id === sessionId);
+                    if (idx !== -1) {
+                        sessions[idx] = d.data;
+                    }
+                    showToast('✅ Session started! RAs can now verify students.', 'success');
+                    renderPage();
+                    return d.data;
+                }
+            } catch (e) {
+                console.error('Start session error:', e);
+                showToast('Failed to start session: ' + e.message, 'error');
+            }
+            return null;
+        }
+        window.startSession = startSession;
+
+        // ========== COMPLETE SESSION (ACTIVE -> COMPLETED) ==========
+        async function completeSession(sessionId) {
+            try {
+                const d = await apiCall(`/sessions/${sessionId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        status: 'completed',
+                        completed_at: new Date().toISOString()
+                    })
+                });
+
+                if (d.success) {
+                    const idx = sessions.findIndex(s => s.id === sessionId);
+                    if (idx !== -1) {
+                        sessions[idx] = d.data;
+                    }
+                    showToast('✅ Session completed! No further verifications allowed.', 'success');
+                    renderPage();
+                    return d.data;
+                }
+            } catch (e) {
+                console.error('Complete session error:', e);
+                showToast('Failed to complete session: ' + e.message, 'error');
+            }
+            return null;
+        }
+        window.completeSession = completeSession;
+
+        // ========== UPDATE SESSION STATUS ==========
+        async function updateSessionStatus(sessionId, newStatus) {
+            try {
+                const statusLower = newStatus.toLowerCase();
+                const d = await apiCall(`/sessions/${sessionId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: statusLower })
+                });
+
+                if (d.success) {
+                    const idx = sessions.findIndex(s => s.id === sessionId);
+                    if (idx !== -1) {
+                        sessions[idx] = d.data;
+                    }
+                    showToast(`Session ${statusLower}`, 'success');
+                    renderPage();
+                    return d.data;
+                }
+            } catch (e) {
+                console.error('Update session error:', e);
+                showToast('Failed to update session: ' + e.message, 'error');
+            }
+            return null;
+        }
+
+        // ========== DELETE SESSION ==========
+        async function deleteSession(sessionId) {
+            try {
+                const session = sessions.find(s => s.id === sessionId);
+                if (!session) {
+                    showToast('Session not found', 'error');
                     return;
                 }
 
-                const name = user.name || 'User';
-                const role = user.role || 'Staff';
-                const initials = getInitials(name);
-
-                document.getElementById('profileName').textContent = name;
-                document.getElementById('profileRoleLabel').textContent = role;
-                document.getElementById('profileAvatar').textContent = initials;
-                document.getElementById('roleLabel').textContent = role;
-
-                let scopeText = '';
-                if (user.hostel_id) {
-                    const hostel = hostels.find(h => h.id === user.hostel_id);
-                    scopeText = hostel ? `${hostel.name} · ` : '';
+                let confirmMsg =
+                    `Are you sure you want to delete "${session.name || 'Session'}"? This action cannot be undone.`;
+                if (session.status?.toLowerCase() === 'active') {
+                    confirmMsg =
+                        `⚠️ WARNING: This is an ACTIVE session!\n\nDeleting it will remove all associated data.\n\nAre you sure you want to delete "${session.name || 'Session'}"?`;
                 }
-                scopeText += `${role} · ${hostels.length} hostels`;
-                document.getElementById('roleScope').textContent = scopeText;
-                document.getElementById('mobileRoleFooter').textContent = scopeText;
 
-                currentUser = user;
-            }
+                if (!confirm(confirmMsg)) return;
 
-            // ========== DATA LOADING ==========
-            async function loadHostels() {
-                try {
-                    const d = await apiCall('/hostels');
-                    hostels = d.data || [];
-                } catch (e) {
-                    hostels = [];
-                    console.warn('Failed to load hostels:', e);
+                const d = await apiCall(`/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+
+                if (d.success) {
+                    sessions = sessions.filter(s => s.id !== sessionId);
+                    showToast('Session deleted successfully', 'success');
+                    renderPage();
                 }
-                return hostels;
+            } catch (e) {
+                console.error('Delete session error:', e);
+                showToast('Failed to delete session: ' + e.message, 'error');
             }
+        }
+        window.deleteSession = deleteSession;
 
-            async function loadStudents() {
-                try {
-                    const d = await apiCall('/students');
-                    students = d.data || [];
-                } catch (e) {
-                    students = [];
-                    console.warn('Failed to load students:', e);
-                }
-                return students;
-            }
+        // ========== SESSION MODAL ==========
+        function openSessionModal(session) {
+            const modal = document.getElementById('sessionModal');
+            const title = document.getElementById('modalTitle');
+            const body = document.getElementById('modalBody');
 
-            async function loadSessions() {
-                try {
-                    const d = await apiCall('/sessions');
-                    sessions = d.data || [];
-                    sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
-                } catch (e) {
-                    sessions = [];
-                    console.warn('Failed to load sessions:', e);
-                }
-                return sessions;
-            }
+            const status = session.status || 'scheduled';
+            const isActive = status?.toLowerCase() === 'active';
+            const isScheduled = status?.toLowerCase() === 'scheduled' || status?.toLowerCase() === 'ready';
+            const isCompleted = status?.toLowerCase() === 'completed';
+            const isArchived = status?.toLowerCase() === 'archived';
+            title.textContent = session.name || 'Session Details';
 
-            // ========== CREATE SESSION ==========
-            async function createNewSession() {
-                try {
-                    const today = new Date().toISOString().split('T')[0];
-                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                    const dayName = dayNames[new Date().getDay()];
+            const sessionStudents = students.filter(s => s.hostel_id === session.hostel_id || !session.hostel_id);
+            const present = sessionStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
+            const absent = sessionStudents.filter(s => s.status === 'Absent').length || 0;
+            const remaining = sessionStudents.length - present - absent;
 
-                    const sessionData = {
-                        name: `${dayName} Night BedCheck`,
-                        date: today,
-                        start_time: '22:00:00',
-                        end_time: '23:30:00',
-                        status: 'scheduled',
-                        hostels_completed: 0,
-                        total_hostels: hostels.length || 11,
-                        completion: 0,
-                        academic_session: '2026/2027',
-                        grace_period: 15
-                    };
-
-                    const d = await apiCall('/sessions', {
-                        method: 'POST',
-                        body: JSON.stringify(sessionData)
-                    });
-
-                    if (d.success) {
-                        sessions.unshift(d.data);
-                        showToast('Session created! Click "Start Session" to begin.', 'success');
-                        renderPage();
-                        return d.data;
-                    }
-                    return null;
-                } catch (e) {
-                    console.error('Create session error:', e);
-                    showToast('Failed to create session: ' + e.message, 'error');
-                    return null;
-                }
-            }
-            window.createNewSession = createNewSession;
-
-            // ========== START SESSION (SCHEDULED -> ACTIVE) ==========
-            async function startSession(sessionId) {
-                try {
-                    const d = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({
-                            status: 'active',
-                            started_at: new Date().toISOString()
-                        })
-                    });
-
-                    if (d.success) {
-                        const idx = sessions.findIndex(s => s.id === sessionId);
-                        if (idx !== -1) {
-                            sessions[idx] = d.data;
-                        }
-                        showToast('✅ Session started! RAs can now verify students.', 'success');
-                        renderPage();
-                        return d.data;
-                    }
-                } catch (e) {
-                    console.error('Start session error:', e);
-                    showToast('Failed to start session: ' + e.message, 'error');
-                }
-                return null;
-            }
-            window.startSession = startSession;
-
-            // ========== COMPLETE SESSION (ACTIVE -> COMPLETED) ==========
-            async function completeSession(sessionId) {
-                try {
-                    const d = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({
-                            status: 'completed',
-                            completed_at: new Date().toISOString()
-                        })
-                    });
-
-                    if (d.success) {
-                        const idx = sessions.findIndex(s => s.id === sessionId);
-                        if (idx !== -1) {
-                            sessions[idx] = d.data;
-                        }
-                        showToast('✅ Session completed! No further verifications allowed.', 'success');
-                        renderPage();
-                        return d.data;
-                    }
-                } catch (e) {
-                    console.error('Complete session error:', e);
-                    showToast('Failed to complete session: ' + e.message, 'error');
-                }
-                return null;
-            }
-            window.completeSession = completeSession;
-
-            // ========== UPDATE SESSION STATUS ==========
-            async function updateSessionStatus(sessionId, newStatus) {
-                try {
-                    const statusLower = newStatus.toLowerCase();
-                    const d = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ status: statusLower })
-                    });
-
-                    if (d.success) {
-                        const idx = sessions.findIndex(s => s.id === sessionId);
-                        if (idx !== -1) {
-                            sessions[idx] = d.data;
-                        }
-                        showToast(`Session ${statusLower}`, 'success');
-                        renderPage();
-                        return d.data;
-                    }
-                } catch (e) {
-                    console.error('Update session error:', e);
-                    showToast('Failed to update session: ' + e.message, 'error');
-                }
-                return null;
-            }
-
-            // ========== DELETE SESSION ==========
-            async function deleteSession(sessionId) {
-                try {
-                    const session = sessions.find(s => s.id === sessionId);
-                    if (!session) {
-                        showToast('Session not found', 'error');
-                        return;
-                    }
-
-                    let confirmMsg =
-                        `Are you sure you want to delete "${session.name || 'Session'}"? This action cannot be undone.`;
-                    if (session.status?.toLowerCase() === 'active') {
-                        confirmMsg =
-                            `⚠️ WARNING: This is an ACTIVE session!\n\nDeleting it will remove all associated data.\n\nAre you sure you want to delete "${session.name || 'Session'}"?`;
-                    }
-
-                    if (!confirm(confirmMsg)) return;
-
-                    const d = await apiCall(`/sessions/${sessionId}`, {
-                        method: 'DELETE'
-                    });
-
-                    if (d.success) {
-                        sessions = sessions.filter(s => s.id !== sessionId);
-                        showToast('Session deleted successfully', 'success');
-                        renderPage();
-                    }
-                } catch (e) {
-                    console.error('Delete session error:', e);
-                    showToast('Failed to delete session: ' + e.message, 'error');
-                }
-            }
-            window.deleteSession = deleteSession;
-
-            // ========== SESSION MODAL ==========
-            function openSessionModal(session) {
-                const modal = document.getElementById('sessionModal');
-                const title = document.getElementById('modalTitle');
-                const body = document.getElementById('modalBody');
-
-                const status = session.status || 'scheduled';
-                const isActive = status?.toLowerCase() === 'active';
-                const isScheduled = status?.toLowerCase() === 'scheduled' || status?.toLowerCase() === 'ready';
-                const isCompleted = status?.toLowerCase() === 'completed';
-                const isArchived = status?.toLowerCase() === 'archived';
-                title.textContent = session.name || 'Session Details';
-
-                const sessionStudents = students.filter(s => s.hostel_id === session.hostel_id || !session.hostel_id);
-                const present = sessionStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
-                const absent = sessionStudents.filter(s => s.status === 'Absent').length || 0;
-                const remaining = sessionStudents.length - present - absent;
-
-                body.innerHTML = `
+            body.innerHTML = `
                     <div class="info-grid">
                         <div><span class="label">Status</span><div class="value"><span class="badge ${getStatusBadge(status)}">${getStatusDot(status)} ${status}</span></div></div>
                         <div><span class="label">Date</span><div class="value">${formatDate(session.date)}</div></div>
@@ -1926,119 +1962,119 @@
                     </div>
                 `;
 
-                modal.classList.add('show');
-            }
-            window.openSessionModal = openSessionModal;
+            modal.classList.add('show');
+        }
+        window.openSessionModal = openSessionModal;
 
-            function closeSessionModal() {
-                document.getElementById('sessionModal').classList.remove('show');
-            }
-            window.closeSessionModal = closeSessionModal;
+        function closeSessionModal() {
+            document.getElementById('sessionModal').classList.remove('show');
+        }
+        window.closeSessionModal = closeSessionModal;
 
-            window.handleSessionAction = function(sessionId, action) {
-                const confirmMsg = {
-                    'active': 'Activate this BedCheck session? RAs will be able to conduct checks.',
-                    'scheduled': 'Reopen this BedCheck session? RAs will be able to conduct checks.',
-                    'archived': 'Archive this BedCheck session? This will prevent further submissions.'
-                };
-                if (confirm(confirmMsg[action] || `Change session to ${action}?`)) {
-                    updateSessionStatus(sessionId, action);
-                    closeSessionModal();
-                }
+        window.handleSessionAction = function(sessionId, action) {
+            const confirmMsg = {
+                'active': 'Activate this BedCheck session? RAs will be able to conduct checks.',
+                'scheduled': 'Reopen this BedCheck session? RAs will be able to conduct checks.',
+                'archived': 'Archive this BedCheck session? This will prevent further submissions.'
             };
+            if (confirm(confirmMsg[action] || `Change session to ${action}?`)) {
+                updateSessionStatus(sessionId, action);
+                closeSessionModal();
+            }
+        };
 
-            // ========== SEND REMINDERS ==========
-            window.sendReminders = function() {
-                showToast('Reminders sent to all RAs!', 'success');
-            };
+        // ========== SEND REMINDERS ==========
+        window.sendReminders = function() {
+            showToast('Reminders sent to all RAs!', 'success');
+        };
 
-            // ========== RENDER PAGE ==========
-            function renderPage() {
-                const container = document.getElementById('screenContent');
+        // ========== RENDER PAGE ==========
+        function renderPage() {
+            const container = document.getElementById('screenContent');
 
-                // Get session by priority: active > scheduled/ready > completed > none
-                const activeSession = sessions.find(s => s.status?.toLowerCase() === 'active');
-                const scheduledSession = sessions.find(s => s.status?.toLowerCase() === 'scheduled' || s.status?.toLowerCase() ===
-                    'ready');
-                const completedSession = sessions.find(s => s.status?.toLowerCase() === 'completed');
-                const currentSession = activeSession || scheduledSession || completedSession || null;
-                const hasActive = !!activeSession;
-                const hasScheduled = !!scheduledSession && !hasActive;
-                const hasCompleted = !!completedSession && !hasActive && !hasScheduled;
-                const sessionStatus = currentSession?.status?.toLowerCase() || 'none';
+            // Get session by priority: active > scheduled/ready > completed > none
+            const activeSession = sessions.find(s => s.status?.toLowerCase() === 'active');
+            const scheduledSession = sessions.find(s => s.status?.toLowerCase() === 'scheduled' || s.status?.toLowerCase() ===
+                'ready');
+            const completedSession = sessions.find(s => s.status?.toLowerCase() === 'completed');
+            const currentSession = activeSession || scheduledSession || completedSession || null;
+            const hasActive = !!activeSession;
+            const hasScheduled = !!scheduledSession && !hasActive;
+            const hasCompleted = !!completedSession && !hasActive && !hasScheduled;
+            const sessionStatus = currentSession?.status?.toLowerCase() || 'none';
 
-                // Determine what to show in the panel
-                let panelTitle = 'No Active Session';
-                let panelStatus = 'draft';
-                let panelStatusDisplay = 'INACTIVE';
-                let panelClass = 'draft';
-                let showStartButton = false;
-                let showCompleteButton = false;
-                let showArchiveButton = false;
-                let showViewButton = false;
-                let showOpenButton = true;
+            // Determine what to show in the panel
+            let panelTitle = 'No Active Session';
+            let panelStatus = 'draft';
+            let panelStatusDisplay = 'INACTIVE';
+            let panelClass = 'draft';
+            let showStartButton = false;
+            let showCompleteButton = false;
+            let showArchiveButton = false;
+            let showViewButton = false;
+            let showOpenButton = true;
 
-                if (hasActive) {
-                    panelTitle = activeSession.name || 'BedCheck Session';
-                    panelStatus = 'active';
-                    panelStatusDisplay = 'ACTIVE';
-                    panelClass = 'active';
-                    showViewButton = true;
-                    showCompleteButton = true;
-                    showArchiveButton = true;
-                    showOpenButton = false;
-                } else if (hasScheduled) {
-                    panelTitle = scheduledSession.name || 'BedCheck Session';
-                    panelStatus = 'ready';
-                    panelStatusDisplay = 'READY';
-                    panelClass = 'ready';
-                    showStartButton = true;
-                    showViewButton = true;
-                    showOpenButton = false;
-                } else if (hasCompleted) {
-                    panelTitle = completedSession.name || 'BedCheck Session';
-                    panelStatus = 'completed';
-                    panelStatusDisplay = 'COMPLETED';
-                    panelClass = 'completed';
-                    showViewButton = true;
-                    showArchiveButton = true;
-                    showOpenButton = false;
-                } else {
-                    panelTitle = 'No Active Session';
-                    panelStatus = 'draft';
-                    panelStatusDisplay = 'INACTIVE';
-                    panelClass = 'draft';
-                    showOpenButton = true;
-                }
+            if (hasActive) {
+                panelTitle = activeSession.name || 'BedCheck Session';
+                panelStatus = 'active';
+                panelStatusDisplay = 'ACTIVE';
+                panelClass = 'active';
+                showViewButton = true;
+                showCompleteButton = true;
+                showArchiveButton = true;
+                showOpenButton = false;
+            } else if (hasScheduled) {
+                panelTitle = scheduledSession.name || 'BedCheck Session';
+                panelStatus = 'ready';
+                panelStatusDisplay = 'READY';
+                panelClass = 'ready';
+                showStartButton = true;
+                showViewButton = true;
+                showOpenButton = false;
+            } else if (hasCompleted) {
+                panelTitle = completedSession.name || 'BedCheck Session';
+                panelStatus = 'completed';
+                panelStatusDisplay = 'COMPLETED';
+                panelClass = 'completed';
+                showViewButton = true;
+                showArchiveButton = true;
+                showOpenButton = false;
+            } else {
+                panelTitle = 'No Active Session';
+                panelStatus = 'draft';
+                panelStatusDisplay = 'INACTIVE';
+                panelClass = 'draft';
+                showOpenButton = true;
+            }
 
-                // Stats for active session
-                const totalStudents = students.length || 0;
-                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
-                const absent = students.filter(s => s.status === 'Absent').length || 0;
-                const remaining = totalStudents - present - absent;
+            // Stats for active session
+            const totalStudents = students.length || 0;
+            const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
+            const absent = students.filter(s => s.status === 'Absent').length || 0;
+            const remaining = totalStudents - present - absent;
 
-                // Filter sessions for history
-                let filteredSessions = sessions;
-                if (statusFilter !== 'all') {
-                    filteredSessions = filteredSessions.filter(s => s.status?.toLowerCase() === statusFilter);
-                }
-                if (searchQuery) {
-                    const q = searchQuery.toLowerCase();
-                    filteredSessions = filteredSessions.filter(s =>
-                        (s.name && s.name.toLowerCase().includes(q)) ||
-                        (s.id && String(s.id).includes(q))
-                    );
-                }
+            // Filter sessions for history
+            let filteredSessions = sessions;
+            if (statusFilter !== 'all') {
+                filteredSessions = filteredSessions.filter(s => s.status?.toLowerCase() === statusFilter);
+            }
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                filteredSessions = filteredSessions.filter(s =>
+                    (s.name && s.name.toLowerCase().includes(q)) ||
+                    (s.id && String(s.id).includes(q))
+                );
+            }
 
-                const totalSessions = sessions.length;
-                const activeCount = sessions.filter(s => s.status?.toLowerCase() === 'active').length;
-                const scheduledCount = sessions.filter(s => s.status?.toLowerCase() === 'scheduled' || s.status?.toLowerCase() ===
-                    'ready').length;
-                const completedCount = sessions.filter(s => s.status?.toLowerCase() === 'completed').length;
-                const archivedCount = sessions.filter(s => s.status?.toLowerCase() === 'archived').length;
+            const totalSessions = sessions.length;
+            const activeCount = sessions.filter(s => s.status?.toLowerCase() === 'active').length;
+            const scheduledCount = sessions.filter(s => s.status?.toLowerCase() === 'scheduled' || s.status?.toLowerCase() ===
+                'ready').length;
+            const completedCount = sessions.filter(s => s.status?.toLowerCase() === 'completed').length;
+            const archivedCount = sessions.filter(s => s.status?.toLowerCase() === 'archived').length;
 
-                // Build HTML
-                let html = `
+            // Build HTML
+            let html = `
                     <!-- Page Heading -->
                     <div class="page-heading">
                         <div>
@@ -2223,111 +2259,111 @@
                     </div>
                 `;
 
-                container.innerHTML = html;
-            }
+            container.innerHTML = html;
+        }
 
-            // ========== FILTER FUNCTIONS ==========
-            window.filterSessions = function(query, status) {
-                if (query !== undefined) searchQuery = query;
-                if (status !== undefined) statusFilter = status;
+        // ========== FILTER FUNCTIONS ==========
+        window.filterSessions = function(query, status) {
+            if (query !== undefined) searchQuery = query;
+            if (status !== undefined) statusFilter = status;
+            renderPage();
+        };
+
+        window.clearFilters = function() {
+            searchQuery = '';
+            statusFilter = 'all';
+            const searchInput = document.getElementById('searchInput');
+            const statusSelect = document.getElementById('statusFilterSelect');
+            if (searchInput) searchInput.value = '';
+            if (statusSelect) statusSelect.value = 'all';
+            renderPage();
+        };
+
+        // ========== REFRESH ==========
+        async function refreshData() {
+            if (isLoading) return;
+            try {
+                isLoading = true;
+                showToast('Refreshing...', 'info');
+                await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
+
+                const user = getUser();
+                if (user) updateUserUI(user);
+
                 renderPage();
-            };
+                showToast('Data refreshed', 'success');
+            } catch (e) {
+                if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+                    showToast('Error: ' + e.message, 'error');
+                }
+            } finally {
+                isLoading = false;
+            }
+        }
+        window.refreshData = refreshData;
 
-            window.clearFilters = function() {
-                searchQuery = '';
-                statusFilter = 'all';
-                const searchInput = document.getElementById('searchInput');
-                const statusSelect = document.getElementById('statusFilterSelect');
-                if (searchInput) searchInput.value = '';
-                if (statusSelect) statusSelect.value = 'all';
+        // ========== DATE ==========
+        function setDate() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        // ========== INIT ==========
+        async function init() {
+            // Check authentication
+            const token = sessionStorage.getItem('bedcheck_token');
+            const userData = sessionStorage.getItem('bedcheck_user');
+
+            if (!token || !userData) {
+                window.location.replace('../Login.html');
+                return;
+            }
+
+            // Mobile menu handlers
+            document.getElementById('menuToggle').addEventListener('click', () => {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            });
+            document.getElementById('closeDrawer').addEventListener('click', () => {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            });
+            document.getElementById('drawerOverlay').addEventListener('click', () => {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            });
+            document.getElementById('logoutBtn').addEventListener('click', () => {
+                sessionStorage.removeItem('bedcheck_token');
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            });
+
+            setDate();
+
+            try {
+                await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
+
+                const user = getUser();
+                if (user) updateUserUI(user);
+
                 renderPage();
-            };
-
-            // ========== REFRESH ==========
-            async function refreshData() {
-                if (isLoading) return;
-                try {
-                    isLoading = true;
-                    showToast('Refreshing...', 'info');
-                    await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
-
-                    const user = getUser();
-                    if (user) updateUserUI(user);
-
-                    renderPage();
-                    showToast('Data refreshed', 'success');
-                } catch (e) {
-                    if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
-                        showToast('Error: ' + e.message, 'error');
-                    }
-                } finally {
-                    isLoading = false;
+            } catch (e) {
+                if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
+                    showToast('Error: ' + e.message, 'error');
                 }
             }
-            window.refreshData = refreshData;
+        }
 
-            // ========== DATE ==========
-            function setDate() {
-                const now = new Date();
-                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-            }
+        document.addEventListener('DOMContentLoaded', init);
 
-            // ========== INIT ==========
-            async function init() {
-                // Check authentication
-                const token = sessionStorage.getItem('bedcheck_token');
-                const userData = sessionStorage.getItem('bedcheck_user');
-
-                if (!token || !userData) {
-                    window.location.replace('../Login.html');
-                    return;
-                }
-
-                // Mobile menu handlers
-                document.getElementById('menuToggle').addEventListener('click', () => {
-                    document.getElementById('mobileDrawer').classList.add('open');
-                    document.getElementById('drawerOverlay').classList.add('show');
-                });
-                document.getElementById('closeDrawer').addEventListener('click', () => {
-                    document.getElementById('mobileDrawer').classList.remove('open');
-                    document.getElementById('drawerOverlay').classList.remove('show');
-                });
-                document.getElementById('drawerOverlay').addEventListener('click', () => {
-                    document.getElementById('mobileDrawer').classList.remove('open');
-                    document.getElementById('drawerOverlay').classList.remove('show');
-                });
-                document.getElementById('logoutBtn').addEventListener('click', () => {
-                    sessionStorage.removeItem('bedcheck_token');
-                    sessionStorage.removeItem('bedcheck_user');
-                    sessionStorage.removeItem('bedcheck_role');
-                    window.location.replace('../Login.html');
-                });
-
-                setDate();
-
-                try {
-                    await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
-
-                    const user = getUser();
-                    if (user) updateUserUI(user);
-
-                    renderPage();
-                } catch (e) {
-                    if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
-                        showToast('Error: ' + e.message, 'error');
-                    }
-                }
-            }
-
-            document.addEventListener('DOMContentLoaded', init);
-
-        })();
-    </script>
+    })();
+</script>
 
 </body>
 </html>
