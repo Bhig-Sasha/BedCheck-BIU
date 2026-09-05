@@ -11545,7 +11545,7 @@ app.get('/api/rooms',
             const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
             const isAdmin = adminRoles.includes(req.user.role);
 
-            // 1. Get accessible hostels
+            // 1. Hostels the user can access
             let hostelQuery = supabase.from('hostels').select('id, type, name');
 
             if (!isAdmin) {
@@ -11567,7 +11567,7 @@ app.get('/api/rooms',
                 return res.json({ success: true, data: [], campus: req.campus });
             }
 
-            // 2. Get floors/flats
+            // 2. Floors/flats
             let floorsQuery = supabase
                 .from('floors_flats')
                 .select('id, name, type, hostel_id')
@@ -11591,7 +11591,7 @@ app.get('/api/rooms',
             const floorIds = floors.map(f => f.id);
             const floorMap = Object.fromEntries(floors.map(f => [f.id, f]));
 
-            // 3. Get all rooms (single query)
+            // 3. Rooms (one query)
             let roomsQuery = supabase
                 .from('rooms')
                 .select('id, room_code, floor_flat_id, capacity, status, campus')
@@ -11609,7 +11609,7 @@ app.get('/api/rooms',
                 return res.json({ success: true, data: [], campus: req.campus });
             }
 
-            // 4. Batch load ALL beds in ONE query (this is the important fix)
+            // 4. Beds in ONE query (this removes the 500)
             const roomIds = rooms.map(r => r.id);
 
             let bedsQuery = supabase
@@ -11622,14 +11622,13 @@ app.get('/api/rooms',
             }
 
             const { data: allBeds } = await bedsQuery;
-
             const bedsByRoom = {};
             (allBeds || []).forEach(b => {
                 if (!bedsByRoom[b.room_id]) bedsByRoom[b.room_id] = [];
                 bedsByRoom[b.room_id].push(b);
             });
 
-            // 5. Enrich in memory (no extra database queries)
+            // 5. Enrich in memory
             const enriched = rooms.map(room => {
                 const floor = floorMap[room.floor_flat_id] || {};
                 const beds = bedsByRoom[room.id] || [];
