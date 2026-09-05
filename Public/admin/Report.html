@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <title>Reports · BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+    </script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { max-width: 100%; overflow-x: hidden; }
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background-color: #f5f1e8; color: #17233c; min-height: 100vh; overflow-x: hidden; }
 
         /* ----- PORTAL LAYOUT ----- */
@@ -61,7 +64,7 @@
         .header-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
         .header-left { display: flex; align-items: center; gap: 0.75rem; }
         @media (max-width: 480px) { .header-left { gap: 0.4rem; } }
-        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.4rem; cursor: pointer; font-size: 1rem; color: #17233c; transition: all 0.3s ease; }
+        .menu-toggle { border: 1px solid #d8d0c2; border-radius: 0.5rem; background: transparent; padding: 0.4rem; cursor: pointer; font-size: 1rem; color: #17233c; transition: all 0.3s ease; min-width: 40px; min-height: 40px; }
         .menu-toggle:hover { background: rgba(0,0,0,0.05); transform: scale(1.05); }
         @media (min-width: 1024px) { .menu-toggle { display: none; } }
         .header-date { font-size: 0.6rem; font-weight: 600; color: #6b778b; }
@@ -77,31 +80,38 @@
         .profile-btn:hover .profile-avatar { transform: scale(1.1); }
         .profile-name { display: none; font-weight: 700; font-size: 0.8rem; }
         .profile-role { display: none; font-size: 0.5rem; color: #68768a; }
-        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 0.9rem; padding: 0.3rem; transition: all 0.3s ease; }
+        .logout-btn { background: transparent; border: none; color: #68768a; cursor: pointer; font-size: 0.9rem; padding: 0.3rem; transition: all 0.3s ease; min-width: 40px; min-height: 40px; }
         .logout-btn:hover { color: #17233c; transform: scale(1.1); }
         @media (min-width: 640px) { .profile-name { display: block; } .profile-role { display: block; } }
 
         .content-container { max-width: 1280px; margin: 0 auto; padding: 1rem 0.75rem; width: 100%; }
         @media (min-width: 640px) { .content-container { padding: 1.75rem 1.75rem; } }
         @media (max-width: 480px) { .content-container { padding: 0.75rem 0.5rem; } }
+        @media (max-width: 380px) { .content-container { padding: 0.6rem 0.4rem; } }
 
-        .notice-banner { display: flex; gap: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 1rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.75rem; animation: slideDown 0.5s ease; }
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-        @media (max-width: 480px) { .notice-banner { font-size: 0.65rem; padding: 0.4rem 0.6rem; margin-bottom: 0.75rem; } }
+        .notice-banner { display: flex; gap: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 1rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.75rem; flex-wrap: wrap; align-items: center; }
+        @media (max-width: 480px) { .notice-banner { font-size: 0.65rem; padding: 0.4rem 0.6rem; } }
         .notice-banner i { margin-top: 0.1rem; font-size: 0.7rem; }
+        .notice-banner .status-indicator { margin-left: auto; font-weight: 700; }
 
-        .page-heading { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; animation: fadeIn 0.6s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .page-heading { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
         @media (min-width: 640px) { .page-heading { flex-direction: row; justify-content: space-between; align-items: flex-end; gap: 1rem; } }
         .page-heading .eyebrow { font-size: 0.65rem; font-weight: 600; color: #a77915; text-transform: uppercase; letter-spacing: 0.05em; }
         @media (max-width: 480px) { .page-heading .eyebrow { font-size: 0.55rem; } }
         .page-heading h1 { font-family: 'Merriweather',serif; font-size: 1.4rem; font-weight: 700; margin-top: 0.1rem; }
         @media (min-width: 640px) { .page-heading h1 { font-size: 2.25rem; } }
         @media (max-width: 480px) { .page-heading h1 { font-size: 1.2rem; } }
+        @media (max-width: 380px) { .page-heading h1 { font-size: 1.05rem; } }
         .page-heading .desc { margin-top: 0.15rem; font-size: 0.75rem; color: #5c6a7d; }
         @media (max-width: 480px) { .page-heading .desc { font-size: 0.65rem; } }
         .page-heading .action-group { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-        @media (max-width: 480px) { .page-heading .action-group { width: 100%; } }
+        @media (max-width: 640px) { .page-heading .action-group { width: 100%; } }
+
+        .breadcrumb { display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: #68768a; flex-wrap: wrap; margin-bottom: 0.5rem; }
+        .breadcrumb .crumb { cursor: pointer; transition: color 0.2s; }
+        .breadcrumb .crumb:hover { color: #a77915; }
+        .breadcrumb .crumb.active { color: #10233f; font-weight: 700; cursor: default; }
+        .breadcrumb .sep { color: #b9c7db; }
 
         .btn-export { 
             display: inline-flex; 
@@ -120,6 +130,7 @@
             position: relative;
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(26, 110, 58, 0.35);
+            min-height: 40px;
         }
         .btn-export::before {
             content: '';
@@ -131,9 +142,7 @@
             background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
             transition: left 0.6s ease;
         }
-        .btn-export:hover::before {
-            left: 100%;
-        }
+        .btn-export:hover::before { left: 100%; }
         .btn-export:hover { 
             transform: translateY(-3px); 
             box-shadow: 0 8px 25px rgba(26, 110, 58, 0.45);
@@ -161,92 +170,122 @@
             .btn-export i { font-size: 0.8rem; }
         }
 
-        .btn-primary { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; }
+        .btn-primary { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: none; border-radius: 0.5rem; background: #10233f; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; min-height: 40px; }
         .btn-primary:hover { background: #18345a; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,35,63,0.3); }
         @media (max-width: 480px) { .btn-primary { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .btn-outline { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; }
+
+        .btn-outline { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.75rem; border: 1px solid #bfc8d5; border-radius: 0.5rem; background: #fffcf6; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: all 0.3s ease; text-decoration: none; min-height: 40px; }
         .btn-outline:hover { background: #f5f1e8; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
         @media (max-width: 480px) { .btn-outline { padding: 0.4rem 0.6rem; font-size: 0.65rem; } }
 
-        .metric-grid { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr; animation: fadeIn 0.7s ease; }
-        @media (min-width: 640px) { .metric-grid { gap: 1rem; grid-template-columns: repeat(3, 1fr); } }
-        .metric-card { padding: 0.6rem 0.75rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.3s ease; }
+        .btn-sm { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.6rem; border: none; border-radius: 0.4rem; font-weight: 600; font-size: 0.65rem; cursor: pointer; transition: all 0.2s; min-height: 32px; text-decoration: none; }
+        .btn-sm:hover { transform: translateY(-2px); }
+        .btn-sm-primary { background: #10233f; color: white; }
+        .btn-sm-primary:hover { background: #18345a; }
+        .btn-sm-gold { background: #d6ad4b; color: #10233f; }
+        .btn-sm-gold:hover { background: #c49a2a; }
+        .btn-sm-outline { background: transparent; border: 1px solid #bfc8d5; color: #17233c; }
+        .btn-sm-outline:hover { background: #f5f1e8; }
+
+        .filter-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+        .filter-bar .field { min-width: 140px; flex: 1; max-width: 220px; }
+        @media (max-width: 480px) { .filter-bar .field { min-width: 100px; max-width: 100%; flex: 1 1 100%; } }
+        .filter-bar .field label { font-weight: 700; font-size: 0.6rem; color: #68768a; text-transform: uppercase; letter-spacing: 0.05em; }
+        .filter-bar .field select, .filter-bar .field input { padding: 0.4rem 0.5rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.75rem; outline: none; width: 100%; font-family: inherit; min-height: 38px; }
+        @media (max-width: 480px) { .filter-bar .field select, .filter-bar .field input { font-size: 16px; } }
+        .filter-bar .field select:focus, .filter-bar .field input:focus { border-color: #a77915; }
+
+        .search-box { display: flex; gap: 0.3rem; align-items: center; flex: 1; min-width: 180px; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; padding: 0 0.5rem; }
+        .search-box:focus-within { border-color: #a77915; }
+        .search-box i { color: #68768a; font-size: 0.7rem; }
+        .search-box input { border: none; padding: 0.4rem 0.3rem; font-size: 0.75rem; outline: none; width: 100%; background: transparent; font-family: inherit; min-height: 38px; }
+        @media (max-width: 480px) { .search-box input { font-size: 16px; } }
+
+        .metric-grid { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr; }
+        @media (min-width: 640px) { .metric-grid { gap: 0.75rem; grid-template-columns: repeat(4, 1fr); } }
+        @media (min-width: 1024px) { .metric-grid { grid-template-columns: repeat(6, 1fr); } }
+        .metric-card { padding: 0.5rem 0.75rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.3s ease; }
         .metric-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
         @media (max-width: 480px) { .metric-card { padding: 0.4rem 0.5rem; } }
-        .metric-icon { display: inline-flex; padding: 0.3rem; border-radius: 0.5rem; font-size: 0.7rem; transition: transform 0.3s ease; }
-        .metric-card:hover .metric-icon { transform: scale(1.1); }
+        .metric-card .metric-icon { display: inline-flex; padding: 0.25rem; border-radius: 0.5rem; font-size: 0.6rem; }
         .metric-icon.navy { background: #e7edf5; color: #24466f; }
         .metric-icon.green { background: #e1f0e5; color: #2d6545; }
         .metric-icon.red { background: #f9e2de; color: #9c3e32; }
-        .metric-value { margin-top: 0.3rem; font-size: 1.2rem; font-weight: 700; transition: color 0.3s ease; }
-        @media (max-width: 480px) { .metric-value { font-size: 1rem; } }
-        .metric-card:hover .metric-value { color: #a77915; }
-        .metric-title { margin-top: 0.15rem; font-weight: 700; font-size: 0.7rem; }
-        @media (max-width: 480px) { .metric-title { font-size: 0.6rem; } }
-        .metric-detail { margin-top: 0.1rem; font-size: 0.55rem; color: #6b778b; }
-        @media (max-width: 480px) { .metric-detail { font-size: 0.5rem; } }
+        .metric-icon.gold { background: #fff1c9; color: #8b6513; }
+        .metric-icon.gray { background: #eceff2; color: #536274; }
+        .metric-card .metric-value { margin-top: 0.2rem; font-size: 1.2rem; font-weight: 700; }
+        @media (max-width: 480px) { .metric-card .metric-value { font-size: 1rem; } }
+        .metric-card .metric-title { font-weight: 600; font-size: 0.65rem; }
+        .metric-card .metric-detail { font-size: 0.55rem; color: #68768a; }
 
-        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 0.75rem; transition: all 0.3s ease; animation: fadeIn 0.5s ease; }
+        .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 0.75rem; transition: all 0.3s ease; }
         .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
         @media (min-width: 640px) { .card { padding: 1.25rem; } }
         @media (max-width: 480px) { .card { padding: 0.5rem; } }
-        .card-title { font-family: 'Merriweather',serif; font-size: 0.95rem; font-weight: 700; }
+        .card-title { font-family: 'Merriweather',serif; font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
         @media (max-width: 480px) { .card-title { font-size: 0.8rem; } }
-
-        .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; transition: all 0.3s ease; }
-        @media (max-width: 480px) { .badge { font-size: 0.45rem; padding: 0.08rem 0.35rem; } }
-        .badge-approved { background: #e1f0e5; color: #2d6545; }
-        .badge-draft { background: #e8edf2; color: #536274; }
-        .badge-provisional { background: #fff0cb; color: #8a6413; }
-        .badge-returned { background: #f8e1dc; color: #9b3c31; }
-        .badge-present { background: #e1f0e5; color: #2d6545; }
-        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .card-title .icon { color: #a77915; }
 
         .grid-2 { display: grid; gap: 0.5rem; grid-template-columns: 1fr; }
-        @media (min-width: 768px) { .grid-2 { gap: 1rem; grid-template-columns: 1fr 1fr; } }
+        @media (min-width: 768px) { .grid-2 { gap: 0.75rem; grid-template-columns: 1fr 1fr; } }
         .grid-3 { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr 1fr; }
         @media (max-width: 480px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
 
         .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-        .gap-2 { gap: 0.4rem; }
-        .gap-3 { gap: 0.5rem; }
-        .gap-4 { gap: 0.75rem; }
         .mt-1 { margin-top: 0.15rem; }
         .mt-2 { margin-top: 0.3rem; }
         .mt-3 { margin-top: 0.5rem; }
         .mt-4 { margin-top: 0.75rem; }
-        .mt-5 { margin-top: 1rem; }
         .mt-6 { margin-top: 1.25rem; }
-        .mt-7 { margin-top: 1.5rem; }
         .text-sm { font-size: 0.75rem; }
         @media (max-width: 480px) { .text-sm { font-size: 0.65rem; } }
         .text-xs { font-size: 0.6rem; }
         @media (max-width: 480px) { .text-xs { font-size: 0.5rem; } }
-        .text-gold { color: #a77915; }
         .text-muted { color: #68768a; }
+        .text-gold { color: #a77915; }
+        .text-green { color: #2d6545; }
+        .text-red { color: #9b3c31; }
         .font-bold { font-weight: 700; }
-        .font-serif { font-family: 'Merriweather',serif; }
-        .text-center { text-align: center; }
         .border-t { border-top: 1px solid #ded6c9; }
         .p-3 { padding: 0.5rem; }
+        .text-center { text-align: center; }
 
-        .field { display: flex; flex-direction: column; gap: 0.2rem; }
-        .field label { font-weight: 700; font-size: 0.7rem; }
-        @media (max-width: 480px) { .field label { font-size: 0.6rem; } }
-        .field select { padding: 0.4rem 0.5rem; border: 1px solid #cbd2db; border-radius: 0.5rem; background: white; font-size: 0.75rem; outline: none; width: 100%; font-family: inherit; }
-        @media (max-width: 480px) { .field select { padding: 0.35rem 0.4rem; font-size: 0.65rem; } }
-        .field select:focus { border-color: #a77915; }
+        .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.45rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        @media (max-width: 480px) { .badge { font-size: 0.4rem; padding: 0.08rem 0.3rem; } }
+        .badge-present { background: #e1f0e5; color: #2d6545; }
+        .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-approved { background: #e1f0e5; color: #2d6545; }
+        .badge-draft { background: #e8edf2; color: #536274; }
+        .badge-provisional { background: #fff0cb; color: #8a6413; }
 
-        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; animation: fadeIn 0.6s ease; }
-        .table-wrap table { width: 100%; min-width: 500px; border-collapse: collapse; font-size: 0.75rem; text-align: left; }
+        .table-wrap { overflow-x: auto; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; -webkit-overflow-scrolling: touch; }
+        .table-wrap table { width: 100%; min-width: 500px; border-collapse: collapse; font-size: 0.7rem; text-align: left; }
         @media (max-width: 480px) { .table-wrap table { font-size: 0.6rem; min-width: 400px; } }
         .table-wrap thead { background: #fbf7ef; font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; color: #68768a; }
-        .table-wrap th { padding: 0.4rem 0.6rem; }
-        .table-wrap td { padding: 0.4rem 0.6rem; border-top: 1px solid #eee8de; transition: background 0.3s ease; }
-        .table-wrap tbody tr { transition: all 0.3s ease; }
+        .table-wrap th { padding: 0.35rem 0.5rem; white-space: nowrap; }
+        .table-wrap td { padding: 0.35rem 0.5rem; border-top: 1px solid #eee8de; }
+        .table-wrap tbody tr { transition: all 0.2s; cursor: pointer; }
         .table-wrap tbody tr:hover { background: #fbf7ef; }
-        @media (max-width: 480px) { .table-wrap th, .table-wrap td { padding: 0.3rem 0.4rem; } }
+        .table-wrap tbody tr.clickable { cursor: pointer; }
+        .table-wrap tbody tr.clickable:hover { background: #f5efe6; }
+
+        .avatar { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #e7edf5; font-size: 0.5rem; font-weight: 700; transition: transform 0.3s ease; flex-shrink: 0; }
+
+        .hostel-stat { padding: 0.5rem; border: 1px solid #eee8de; border-radius: 0.5rem; text-align: center; transition: all 0.2s; cursor: pointer; }
+        .hostel-stat:hover { background: #fbf7ef; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .hostel-stat .name { font-weight: 600; font-size: 0.7rem; }
+        .hostel-stat .rate { font-size: 1.1rem; font-weight: 700; }
+        .hostel-stat .counts { font-size: 0.55rem; color: #68768a; }
+        .hostel-stat .rate.good { color: #2d6545; }
+        .hostel-stat .rate.warning { color: #8a6413; }
+        .hostel-stat .rate.danger { color: #9b3c31; }
+
+        .progress-bar { height: 0.3rem; overflow: hidden; border-radius: 9999px; background: #e6e2da; }
+        .progress-bar .fill { height: 100%; border-radius: 9999px; transition: width 0.6s ease; }
+        .progress-bar .fill.good { background: #2d6545; }
+        .progress-bar .fill.warning { background: #d4af37; }
+        .progress-bar .fill.danger { background: #8a3328; }
 
         .loading-spinner { display: flex; justify-content: center; align-items: center; padding: 2rem; }
         .loading-spinner i { font-size: 1.5rem; color: #a77915; animation: spin 1s linear infinite; }
@@ -263,47 +302,35 @@
         .status-dot.green { background: #3f755d; }
         .status-dot.red { background: #9b3c31; }
 
-        .avatar { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #e7edf5; font-size: 0.5rem; font-weight: 700; transition: transform 0.3s ease; }
-        .table-wrap tbody tr:hover .avatar { transform: scale(1.1); }
-
-        .filter-buttons { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-        @media (max-width: 480px) { .filter-buttons { gap: 0.2rem; } }
-        .filter-buttons .btn-outline, .filter-buttons .btn-primary { font-size: 0.65rem; padding: 0.3rem 0.6rem; }
-        @media (max-width: 480px) { .filter-buttons .btn-outline, .filter-buttons .btn-primary { font-size: 0.55rem; padding: 0.25rem 0.4rem; } }
-
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
 
-        .tab-bar { display: flex; gap: 0.5rem; border-bottom: 2px solid #ded6c9; padding-bottom: 0.5rem; flex-wrap: wrap; }
-        .tab-bar .tab { padding: 0.4rem 0.8rem; border: none; background: transparent; font-weight: 600; font-size: 0.75rem; cursor: pointer; color: #68768a; transition: all 0.3s ease; border-radius: 0.5rem 0.5rem 0 0; }
-        .tab-bar .tab:hover { color: #17233c; background: rgba(0,0,0,0.03); }
-        .tab-bar .tab.active { color: #10233f; background: #fffcf6; border-bottom: 3px solid #d6ad4b; }
-        @media (max-width: 480px) { .tab-bar .tab { font-size: 0.6rem; padding: 0.3rem 0.5rem; } }
+        .clickable { cursor: pointer; }
+        .clickable:hover { opacity: 0.8; }
 
-        .hostel-metric { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
-        @media (min-width: 768px) { .hostel-metric { grid-template-columns: 1fr 1fr 1fr; } }
-        .hostel-stat { padding: 0.5rem; border: 1px solid #eee8de; border-radius: 0.5rem; text-align: center; }
-        .hostel-stat .name { font-weight: 600; font-size: 0.7rem; }
-        .hostel-stat .rate { font-size: 1.1rem; font-weight: 700; }
-        .hostel-stat .counts { font-size: 0.55rem; color: #68768a; }
-        .hostel-stat .rate.good { color: #2d6545; }
-        .hostel-stat .rate.warning { color: #8a6413; }
-        .hostel-stat .rate.danger { color: #9b3c31; }
+        .back-link { display: inline-flex; align-items: center; gap: 0.3rem; color: #a77915; font-weight: 600; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; padding: 0.3rem 0; }
+        .back-link:hover { color: #8b6513; transform: translateX(-4px); }
+
+        .empty-state { text-align: center; padding: 2rem; color: #68768a; }
+        .empty-state i { font-size: 2.5rem; color: #b9c7db; margin-bottom: 0.5rem; }
+        .empty-state h3 { font-size: 1rem; color: #17233c; margin-bottom: 0.25rem; }
+
+        .hostel-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
+        @media (min-width: 768px) { .hostel-metric-grid { grid-template-columns: 1fr 1fr 1fr; } }
     </style>
 </head>
 <body>
 
-    <!-- ===== TOAST NOTIFICATION ===== -->
+    <!-- ===== TOAST ===== -->
     <div id="toast" class="toast"></div>
 
     <!-- ===== PORTAL ===== -->
     <div id="portalApp" class="app-wrapper">
-        <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
-                <div class="brand-badge">BIU</div>
+                <div class="brand-badge">S</div>
                 <div>
                     <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
@@ -312,13 +339,13 @@
             <p class="workspace-label">Workspace</p>
             <nav id="desktopNav">
                 <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students</a>
                 <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
-                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Config</a>
                 <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
                 <a href="Report.html" class="nav-item active"><i class="fas fa-chart-bar"></i> Reports</a>
                 <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
-                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="role-card">
@@ -327,12 +354,11 @@
             </div>
         </aside>
 
-        <!-- Mobile Drawer -->
         <div class="drawer-overlay" id="drawerOverlay"></div>
         <aside class="mobile-drawer" id="mobileDrawer">
             <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
             <div class="brand">
-                <div class="brand-badge">BIU</div>
+                <div class="brand-badge">S</div>
                 <div>
                     <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
@@ -340,19 +366,18 @@
             </div>
             <nav id="mobileNav">
                 <a href="index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students Management</a>
+                <a href="Student.html" class="nav-item"><i class="fas fa-users"></i> Students</a>
                 <a href="Staff.html" class="nav-item"><i class="fas fa-shield-alt"></i> Staff & Roles</a>
-                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Configuration</a>
+                <a href="Hostels.html" class="nav-item"><i class="fas fa-building"></i> Hostel Config</a>
                 <a href="Session.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
                 <a href="Report.html" class="nav-item active"><i class="fas fa-chart-bar"></i> Reports</a>
                 <a href="Audit.html" class="nav-item"><i class="fas fa-history"></i> Audit Logs</a>
-                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> System Settings</a>
+                <a href="Settings.html" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
                 <a href="Profile.html" class="nav-item"><i class="fas fa-user"></i> Profile</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
         </aside>
 
-        <!-- Main Content -->
         <main class="main-content">
             <header class="main-header">
                 <div class="header-inner">
@@ -365,9 +390,9 @@
                     </div>
                     <div class="header-right">
                         <a href="Profile.html" class="profile-btn">
-                            <span class="profile-avatar" id="profileAvatar">IM</span>
-                            <span class="profile-name" id="profileName">Ibrahim Musa</span>
-                            <span class="profile-role" id="profileRoleLabel">Administrator</span>
+                            <span class="profile-avatar" id="profileAvatar"></span>
+                            <span class="profile-name" id="profileName"></span>
+                            <span class="profile-role" id="profileRoleLabel"></span>
                         </a>
                         <button class="logout-btn" id="logoutBtn" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
                     </div>
@@ -385,9 +410,7 @@
         </main>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-    </script>
-    <script>
+<script>
         (function() {
             'use strict';
 
@@ -397,40 +420,47 @@
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
             // =============================================
-            // TOAST NOTIFICATION
+            // STATE
+            // =============================================
+            let currentUser = null;
+            let currentRole = 'Administrator';
+            let students = [];
+            let hostels = [];
+            let sessions = [];
+            let scans = [];
+            let viewState = {
+                scope: 'all', // 'all' | 'hostel' | 'student'
+                hostelId: null,
+                hostelName: null,
+                studentId: null,
+                studentName: null,
+                period: 'today'
+            };
+            let selectedReportType = 'weekly';
+
+            // =============================================
+            // TOAST
             // =============================================
             function showToast(message, type = 'success') {
                 const toast = document.getElementById('toast');
                 toast.textContent = message;
                 toast.className = `toast ${type}`;
                 setTimeout(() => toast.classList.add('show'), 10);
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 4000);
+                setTimeout(() => toast.classList.remove('show'), 4000);
             }
 
             // =============================================
-            // STATE
+            // API HELPERS
             // =============================================
-            let currentUser = null;
-            let currentRole = 'Administrator';
-            let students = [];
-            let submissionState = 'In progress';
-            let selectedReportType = 'weekly';
-            let reportData = { total: 0, present: 0, absent: 0 };
-            let activeTab = 'summary';
+            function getToken() {
+                return sessionStorage.getItem('bedcheck_token');
+            }
 
-            // =============================================
-            // AUTHENTICATED API HELPER
-            // =============================================
             async function apiCall(endpoint, options = {}) {
-                const token = sessionStorage.getItem('bedcheck_token');
-
+                const token = getToken();
                 if (!token) {
                     showToast('No authentication token found. Please login again.', 'error');
-                    setTimeout(() => {
-                        window.location.replace('../Login.html');
-                    }, 1500);
+                    setTimeout(() => window.location.replace('../Login.html'), 1500);
                     throw new Error('No authentication token');
                 }
 
@@ -449,9 +479,7 @@
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
                         sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => {
-                            window.location.replace('../Login.html');
-                        }, 1500);
+                        setTimeout(() => window.location.replace('../Login.html'), 1500);
                         throw new Error('Authentication required');
                     }
 
@@ -461,9 +489,7 @@
                     }
 
                     const data = await response.json();
-                    if (!data.success) {
-                        throw new Error(data.message || 'API error');
-                    }
+                    if (!data.success) throw new Error(data.message || 'API error');
                     return data;
                 } catch (error) {
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
@@ -481,434 +507,692 @@
                 return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
             }
 
-            function badge(state) {
-                const map = {
-                    'Draft': 'badge-draft',
-                    'Provisional': 'badge-provisional',
-                    'Approved': 'badge-approved',
-                    'Returned': 'badge-returned',
-                    'In progress': 'badge-draft',
-                    'Submitted': 'badge-provisional',
-                    'Completed': 'badge-approved',
-                    'Not Started': 'badge-draft',
-                    'Open': 'badge-provisional',
-                    'Closed': 'badge-approved'
-                };
-                const cls = map[state] || 'badge-draft';
-                return `<span class="badge ${cls}">${state}</span>`;
+            function formatDate(dateStr) {
+                if (!dateStr) return '—';
+                try {
+                    const d = new Date(dateStr);
+                    if (isNaN(d.getTime())) return dateStr;
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                } catch (e) { return dateStr; }
+            }
+
+            function formatTime(timeStr) {
+                if (!timeStr) return '—';
+                try {
+                    if (timeStr.includes(':')) {
+                        const parts = timeStr.split(':');
+                        if (parts.length >= 2) {
+                            const hour = parseInt(parts[0]);
+                            const minute = parseInt(parts[1]);
+                            const ampm = hour >= 12 ? 'PM' : 'AM';
+                            const hour12 = hour % 12 || 12;
+                            return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+                        }
+                    }
+                    const d = new Date(timeStr);
+                    if (!isNaN(d.getTime())) {
+                        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    }
+                    return timeStr;
+                } catch (e) { return timeStr; }
             }
 
             function statusBadge(status) {
-                const map = {
-                    'Present': 'badge-present',
-                    'Absent': 'badge-absent'
-                };
+                const map = { 'Present': 'badge-present', 'present': 'badge-present', 'Absent': 'badge-absent',
+                    'absent': 'badge-absent' };
                 const cls = map[status] || 'badge-draft';
                 return `<span class="badge ${cls}">${status || 'Unknown'}</span>`;
+            }
+
+            function attRate(present, total) {
+                return total > 0 ? Math.round((present / total) * 100) : 0;
+            }
+
+            function getPeriodDates(period) {
+                const now = new Date();
+                let start = new Date(now);
+                let end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+
+                switch (period) {
+                    case 'today':
+                        break;
+                    case 'yesterday':
+                        start.setDate(now.getDate() - 1);
+                        end.setDate(now.getDate() - 1);
+                        break;
+                    case 'week':
+                        start.setDate(now.getDate() - 7);
+                        break;
+                    case 'month':
+                        start.setMonth(now.getMonth() - 1);
+                        break;
+                    case 'semester':
+                        start.setMonth(now.getMonth() - 4);
+                        break;
+                    default:
+                        break;
+                }
+                return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
             }
 
             // =============================================
             // DATA LOADING
             // =============================================
-            async function loadStudents() {
+            async function loadAllData() {
                 try {
-                    const data = await apiCall('/students');
-                    students = data.data || [];
-                    return students;
-                } catch (error) {
-                    students = [];
-                    return students;
-                }
-            }
+                    const [studentsData, hostelsData, sessionsData, scansData] = await Promise.all([
+                        apiCall('/students').catch(() => ({ data: [] })),
+                        apiCall('/hostels').catch(() => ({ data: [] })),
+                        apiCall('/sessions').catch(() => ({ data: [] })),
+                        apiCall('/bedcheck/scans').catch(() => ({ data: [] }))
+                    ]);
 
-            async function loadSubmissionState() {
-                try {
-                    const data = await apiCall('/submission');
-                    submissionState = data.data.state || 'In progress';
-                    return submissionState;
-                } catch (error) {
-                    submissionState = 'In progress';
-                    return submissionState;
-                }
-            }
+                    students = studentsData.data || [];
+                    hostels = hostelsData.data || [];
+                    sessions = sessionsData.data || [];
+                    scans = scansData.data || [];
 
-            async function loadAttendanceReport() {
-                try {
-                    const data = await apiCall('/reports/attendance');
-                    if (data.success && data.data) {
-                        reportData = data.data;
-                        return reportData;
-                    }
-                    return { total: 0, present: 0, absent: 0 };
+                    // Map hostel names to students
+                    students = students.map(s => {
+                        const hostel = hostels.find(h => h.id === s.hostel_id);
+                        return { ...s, hostel_name: hostel?.name || s.hostel || 'Unassigned' };
+                    });
+
+                    return { students, hostels, sessions, scans };
                 } catch (error) {
-                    return { total: 0, present: 0, absent: 0 };
+                    console.error('Error loading data:', error);
+                    return { students: [], hostels: [], sessions: [], scans: [] };
                 }
             }
 
             // =============================================
-            // EXPORT EXCEL REPORT - CLEANED
+            // EXPORT EXCEL
             // =============================================
             function exportExcelReport() {
                 try {
-                    const present = students.filter(s => s.status === 'Present').length || 0;
-                    const absent = students.filter(s => s.status === 'Absent').length || 0;
+                    const present = students.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
+                    const absent = students.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
                     const total = students.length;
-                    const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
-                    const absenceRate = total > 0 ? Math.round((absent / total) * 100) : 0;
+                    const rate = attRate(present, total);
 
                     const date = new Date();
                     const dateStr = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
-                    const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                    const fileName =
-                        `BedCheck_${selectedReportType.toUpperCase()}_Report_${date.toISOString().slice(0,10)}.xlsx`;
+                    const fileName = `BedCheck_Report_${date.toISOString().slice(0,10)}.xlsx`;
 
-                    // =============================================
-                    // SHEET 1: SUMMARY
-                    // =============================================
                     const summaryData = [
                         ['', ''],
                         ['ATTENDANCE REPORT', ''],
                         ['', ''],
-                        ['Report Type:', selectedReportType.toUpperCase()],
                         ['Generated On:', dateStr],
-                        ['Generated Time:', timeStr],
-                        ['Report Status:', submissionState.toUpperCase()],
+                        ['Report Status:', 'Final'],
                         ['', ''],
                         ['TOTAL STUDENTS', total],
                         ['PRESENT', present],
                         ['ABSENT', absent],
-                        ['ATTENDANCE RATE', attendanceRate + '%'],
-                        ['ABSENCE RATE', absenceRate + '%']
+                        ['ATTENDANCE RATE', rate + '%']
                     ];
 
-                    // =============================================
-                    // SHEET 2: STUDENT DETAILS
-                    // =============================================
                     const studentHeaders = ['S/N', 'Full Name', 'Matric Number', 'Status', 'Hostel', 'Room', 'Gender',
-                        'Level', 'Faculty', 'Department'
+                        'Level', 'Faculty'
                     ];
                     const studentRows = students.map((s, i) => [
-                        i + 1,
-                        s.name || '',
-                        s.matric || '',
-                        s.status || 'Unknown',
-                        s.hostel || s.hostel_name || '',
-                        s.room || s.room_code || '',
-                        s.gender || '',
-                        s.level || '',
-                        s.faculty || '',
-                        s.department || ''
+                        i + 1, s.name || '', s.matric || '', s.status || 'Unknown',
+                        s.hostel_name || '', s.room || s.room_code || '',
+                        s.gender || '', s.level || '', s.faculty || ''
                     ]);
                     const studentData = [studentHeaders, ...studentRows];
 
-                    // =============================================
-                    // SHEET 3: HOSTEL SUMMARY
-                    // =============================================
                     const hostelMap = {};
                     students.forEach(s => {
-                        const hostel = s.hostel || s.hostel_name || 'Unassigned';
-                        if (!hostelMap[hostel]) {
-                            hostelMap[hostel] = { total: 0, present: 0, absent: 0 };
-                        }
-                        hostelMap[hostel].total++;
-                        if (s.status === 'Present') hostelMap[hostel].present++;
-                        if (s.status === 'Absent') hostelMap[hostel].absent++;
+                        const h = s.hostel_name || 'Unassigned';
+                        if (!hostelMap[h]) hostelMap[h] = { total: 0, present: 0, absent: 0 };
+                        hostelMap[h].total++;
+                        if (s.status === 'Present' || s.status === 'present') hostelMap[h].present++;
+                        if (s.status === 'Absent' || s.status === 'absent') hostelMap[h].absent++;
                     });
-
-                    const hostelHeaders = ['S/N', 'Hostel', 'Total Students', 'Present', 'Absent', 'Attendance Rate'];
-                    const hostelRows = Object.keys(hostelMap).map((hostel, i) => {
-                        const data = hostelMap[hostel];
-                        const rate = data.total > 0 ? Math.round((data.present / data.total) * 100) : 0;
-                        return [i + 1, hostel, data.total, data.present, data.absent, rate + '%'];
+                    const hostelHeaders = ['S/N', 'Hostel', 'Total', 'Present', 'Absent', 'Rate'];
+                    const hostelRows = Object.keys(hostelMap).map((h, i) => {
+                        const d = hostelMap[h];
+                        return [i + 1, h, d.total, d.present, d.absent, attRate(d.present, d.total) + '%'];
                     });
-                    hostelRows.sort((a, b) => {
-                        const rateA = parseInt(a[5]);
-                        const rateB = parseInt(b[5]);
-                        return rateB - rateA;
-                    });
+                    hostelRows.sort((a, b) => parseInt(b[5]) - parseInt(a[5]));
                     const hostelData = [hostelHeaders, ...hostelRows];
 
-                    // =============================================
-                    // CREATE WORKBOOK
-                    // =============================================
                     const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), 'Summary');
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(studentData), 'Students');
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hostelData), 'Hostels');
 
-                    const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
-                    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
-
-                    const ws2 = XLSX.utils.aoa_to_sheet(studentData);
-                    XLSX.utils.book_append_sheet(wb, ws2, 'Student Details');
-
-                    const ws3 = XLSX.utils.aoa_to_sheet(hostelData);
-                    XLSX.utils.book_append_sheet(wb, ws3, 'Hostel Summary');
-
-                    // =============================================
-                    // COLUMN WIDTHS
-                    // =============================================
-                    const colWidths = [
-                        { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 12 },
-                        { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 8 },
-                        { wch: 20 }, { wch: 25 }
-                    ];
-                    ws2['!cols'] = colWidths;
-
-                    const hostelColWidths = [
-                        { wch: 8 }, { wch: 25 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }
-                    ];
-                    ws3['!cols'] = hostelColWidths;
-
-                    // =============================================
-                    // DOWNLOAD
-                    // =============================================
                     XLSX.writeFile(wb, fileName);
-                    showToast(`📊 Excel report exported successfully! (${total} students)`, 'success');
-
+                    showToast(`📊 Report exported successfully! (${total} students)`, 'success');
                 } catch (error) {
-                    console.error('Export error:', error);
                     showToast('Error exporting report: ' + error.message, 'error');
                 }
             }
 
             // =============================================
-            // SELECT REPORT TYPE
+            // VIEW NAVIGATION
             // =============================================
-            function selectReportType(type) {
-                selectedReportType = type;
+            function goToAllHostels() {
+                viewState.scope = 'all';
+                viewState.hostelId = null;
+                viewState.hostelName = null;
+                viewState.studentId = null;
+                viewState.studentName = null;
+                renderScreen();
+            }
+
+            function goToHostel(hostelId, hostelName) {
+                viewState.scope = 'hostel';
+                viewState.hostelId = hostelId;
+                viewState.hostelName = hostelName;
+                viewState.studentId = null;
+                viewState.studentName = null;
+                renderScreen();
+            }
+
+            function goToStudent(studentId, studentName) {
+                viewState.scope = 'student';
+                viewState.studentId = studentId;
+                viewState.studentName = studentName;
+                renderScreen();
+            }
+
+            function setPeriod(period) {
+                viewState.period = period;
                 renderScreen();
             }
 
             // =============================================
-            // SELECT TAB
-            // =============================================
-            function selectTab(tab) {
-                activeTab = tab;
-                renderScreen();
-            }
-
-            // =============================================
-            // RENDER REPORTS PAGE
+            // RENDER SCREEN
             // =============================================
             function renderScreen() {
                 const container = document.getElementById('screenContent');
 
-                const present = students.filter(s => s.status === 'Present').length || 0;
-                const absent = students.filter(s => s.status === 'Absent').length || 0;
+                if (viewState.scope === 'all') {
+                    renderAllHostels(container);
+                } else if (viewState.scope === 'hostel') {
+                    renderHostelView(container);
+                } else if (viewState.scope === 'student') {
+                    renderStudentView(container);
+                } else {
+                    renderAllHostels(container);
+                }
+            }
+
+            // =============================================
+            // RENDER ALL HOSTELS
+            // =============================================
+            function renderAllHostels(container) {
                 const total = students.length;
-                const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
-                const absenceRate = total > 0 ? Math.round((absent / total) * 100) : 0;
+                const present = students.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
+                const absent = students.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const rate = attRate(present, total);
 
-                const apiPresent = reportData.present || present;
-                const apiAbsent = reportData.absent || absent;
-                const apiTotal = reportData.total || total;
-
-                const reportTypes = ['today', 'weekly', 'monthly', 'semester', 'custom'];
-                const typeLabels = {
-                    'today': 'Today',
-                    'weekly': 'Weekly',
-                    'monthly': 'Monthly',
-                    'semester': 'Semester',
-                    'custom': 'Custom'
-                };
-                const typeIcons = {
-                    'today': 'fa-calendar-day',
-                    'weekly': 'fa-calendar-week',
-                    'monthly': 'fa-calendar-alt',
-                    'semester': 'fa-calendar-plus',
-                    'custom': 'fa-sliders-h'
-                };
-
-                const hostelMap = {};
-                students.forEach(s => {
-                    const hostel = s.hostel || s.hostel_name || 'Unassigned';
-                    if (!hostelMap[hostel]) {
-                        hostelMap[hostel] = { total: 0, present: 0, absent: 0 };
-                    }
-                    hostelMap[hostel].total++;
-                    if (s.status === 'Present') hostelMap[hostel].present++;
-                    if (s.status === 'Absent') hostelMap[hostel].absent++;
-                });
-                const hostelStats = Object.keys(hostelMap).map(hostel => {
-                    const data = hostelMap[hostel];
-                    const rate = data.total > 0 ? Math.round((data.present / data.total) * 100) : 0;
-                    return { name: hostel, ...data, rate };
+                // Hostel stats
+                const hostelStats = hostels.map(h => {
+                    const hStudents = students.filter(s => s.hostel_id === h.id);
+                    const hPresent = hStudents.filter(s => s.status === 'Present' || s.status === 'present').length;
+                    const hTotal = hStudents.length;
+                    return { ...h, total: hTotal, present: hPresent, absent: hTotal - hPresent,
+                    rate: attRate(hPresent, hTotal) };
                 }).sort((a, b) => b.rate - a.rate);
 
                 container.innerHTML = `
                     <div class="page-heading">
                         <div>
                             <p class="eyebrow"><i class="fas fa-chart-bar"></i> Reports</p>
-                            <h1>Attendance Reports</h1>
-                            <p class="desc">View, analyse and export official BedCheck attendance data. <span class="text-gold">${submissionState === 'Approved' ? '✅ Finalized' : '⏳ ' + submissionState}</span></p>
+                            <h1>Reports</h1>
+                            <p class="desc">Attendance, occupancy and student performance reports</p>
                         </div>
                         <div class="action-group">
-                            <button class="btn-outline" onclick="refreshReport()"><i class="fas fa-sync-alt"></i> Refresh</button>
                             <button class="btn-export" onclick="exportExcelReport()">
                                 <i class="fas fa-file-excel"></i>
-                                <span class="export-label">Export Excel Report</span>
+                                <span class="export-label">Export Report</span>
                                 <span class="export-badge">XLSX</span>
                             </button>
                         </div>
                     </div>
 
-                    <div class="filter-buttons mt-3">
-                        ${reportTypes.map(type => `
-                            <button class="${type === selectedReportType ? 'btn-primary' : 'btn-outline'}" 
-                                    onclick="selectReportType('${type}')">
-                                <i class="fas ${typeIcons[type]}"></i> ${typeLabels[type]}
-                            </button>
-                        `).join('')}
+                    <!-- FILTER BAR -->
+                    <div class="filter-bar">
+                        <div class="field">
+                            <label>Report Scope</label>
+                            <select id="scopeSelect" onchange="handleScopeChange(this.value)">
+                                <option value="all" ${viewState.scope === 'all' ? 'selected' : ''}>All Hostels</option>
+                                ${hostels.map(h => `<option value="${h.id}">${h.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Period</label>
+                            <select id="periodSelect" onchange="setPeriod(this.value)">
+                                <option value="today" ${viewState.period === 'today' ? 'selected' : ''}>Today</option>
+                                <option value="yesterday" ${viewState.period === 'yesterday' ? 'selected' : ''}>Yesterday</option>
+                                <option value="week" ${viewState.period === 'week' ? 'selected' : ''}>This Week</option>
+                                <option value="month" ${viewState.period === 'month' ? 'selected' : ''}>This Month</option>
+                                <option value="semester" ${viewState.period === 'semester' ? 'selected' : ''}>Semester</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search student name or matric..." id="studentSearch" oninput="handleStudentSearch(this.value)" />
+                        </div>
                     </div>
 
-                    <div class="metric-grid mt-4">
+                    <!-- SUMMARY CARDS -->
+                    <div class="metric-grid">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-users"></i></div>
-                            <div class="metric-value">${apiTotal}</div>
+                            <div class="metric-value">${total}</div>
                             <div class="metric-title">Total Students</div>
-                            <div class="metric-detail">All registered students</div>
+                            <div class="metric-detail">All registered</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value">${apiPresent}</div>
-                            <div class="metric-title">Present</div>
-                            <div class="metric-detail">${attendanceRate}% attendance rate</div>
+                            <div class="metric-value">${present}</div>
+                            <div class="metric-title">Present Today</div>
+                            <div class="metric-detail">${rate}% attendance</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
-                            <div class="metric-value">${apiAbsent}</div>
-                            <div class="metric-title">Absent</div>
-                            <div class="metric-detail">${absenceRate}% absence rate</div>
+                            <div class="metric-value">${absent}</div>
+                            <div class="metric-title">Absent Today</div>
+                            <div class="metric-detail">${100 - rate}% absence</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-bed"></i></div>
+                            <div class="metric-value">${hostels.reduce((sum, h) => sum + (h.capacity || 0), 0)}</div>
+                            <div class="metric-title">Total Beds</div>
+                            <div class="metric-detail">Across all hostels</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-chart-line"></i></div>
+                            <div class="metric-value">${rate}%</div>
+                            <div class="metric-title">Attendance Rate</div>
+                            <div class="metric-detail">${rate >= 90 ? '✅ Good' : rate >= 70 ? '⚠️ Average' : '❌ Needs improvement'}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gray"><i class="fas fa-building"></i></div>
+                            <div class="metric-value">${hostels.length}</div>
+                            <div class="metric-title">Hostels</div>
+                            <div class="metric-detail">${hostelStats.filter(h => h.rate >= 90).length} at ≥90%</div>
                         </div>
                     </div>
 
+                    <!-- HOSTEL PERFORMANCE -->
                     <div class="card mt-4">
-                        <div class="flex-between">
-                            <div class="card-title">Report Preview</div>
-                            ${badge(submissionState === 'Approved' ? 'Approved' : submissionState === 'Open' ? 'Provisional' : 'Draft')}
+                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Performance</div>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr>
+                                    <th>Hostel</th>
+                                    <th>Students</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Attendance</th>
+                                    <th>Progress</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${hostelStats.length === 0 ? `
+                                        <tr><td colspan="6" class="text-center text-muted" style="padding:1.5rem;">No hostels found</td></tr>
+                                    ` : hostelStats.map(h => `
+                                        <tr class="clickable" onclick="goToHostel('${h.id}', '${h.name}')">
+                                            <td style="font-weight:600;">${h.name}</td>
+                                            <td>${h.total}</td>
+                                            <td style="color:#2d6545;">${h.present}</td>
+                                            <td style="color:#9b3c31;">${h.absent}</td>
+                                            <td style="font-weight:700;color:${h.rate >= 90 ? '#2d6545' : h.rate >= 70 ? '#8a6413' : '#9b3c31'};">${h.rate}%</td>
+                                            <td>
+                                                <div class="progress-bar" style="width:80px;">
+                                                    <div class="fill ${h.rate >= 90 ? 'good' : h.rate >= 70 ? 'warning' : 'danger'}" style="width:${h.rate}%;"></div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
                         </div>
-                        <p class="text-sm mt-1 text-muted">${submissionState === 'Approved' ? '✅ Only approved records included.' : submissionState === 'Open' ? '📋 Live submissions being recorded.' : '⏳ Awaiting approval. Currently in ' + submissionState + ' state.'}</p>
-
-                        <div class="tab-bar mt-3">
-                            <button class="tab ${activeTab === 'summary' ? 'active' : ''}" onclick="selectTab('summary')">
-                                <i class="fas fa-chart-pie"></i> Summary
-                            </button>
-                            <button class="tab ${activeTab === 'students' ? 'active' : ''}" onclick="selectTab('students')">
-                                <i class="fas fa-user-graduate"></i> Student Details
-                            </button>
-                            <button class="tab ${activeTab === 'hostels' ? 'active' : ''}" onclick="selectTab('hostels')">
-                                <i class="fas fa-building"></i> Hostel Breakdown
-                            </button>
+                        <div class="mt-2 pt-2 border-t flex-between">
+                            <span class="text-xs text-muted">${hostelStats.length} hostels · ${hostelStats.filter(h => h.rate >= 90).length} at ≥90% attendance</span>
+                            <span class="text-xs text-muted">Click a hostel to view details</span>
                         </div>
-
-                        ${activeTab === 'summary' ? `
-                            <div class="grid-2 mt-3">
-                                <div style="border:1px solid #ded6c9;border-radius:0.5rem;padding:0.75rem;background:#fbf7ef;">
-                                    <div class="text-xs text-muted">Total Students</div>
-                                    <div class="font-bold" style="font-size:1.5rem;">${total}</div>
-                                    <div class="text-xs text-muted">100%</div>
-                                </div>
-                                <div style="border:1px solid #ded6c9;border-radius:0.5rem;padding:0.75rem;background:#e1f0e5;">
-                                    <div class="text-xs text-muted">Present</div>
-                                    <div class="font-bold" style="font-size:1.5rem;color:#2d6545;">${present}</div>
-                                    <div class="text-xs text-muted">${attendanceRate}%</div>
-                                </div>
-                                <div style="border:1px solid #ded6c9;border-radius:0.5rem;padding:0.75rem;background:#f8e1dc;">
-                                    <div class="text-xs text-muted">Absent</div>
-                                    <div class="font-bold" style="font-size:1.5rem;color:#9b3c31;">${absent}</div>
-                                    <div class="text-xs text-muted">${absenceRate}%</div>
-                                </div>
-                                <div style="border:1px solid #ded6c9;border-radius:0.5rem;padding:0.75rem;background:#fffcf6;">
-                                    <div class="text-xs text-muted">Status</div>
-                                    <div class="font-bold" style="font-size:1.2rem;">${submissionState}</div>
-                                    <div class="text-xs text-muted">${submissionState === 'Approved' ? '✅ Finalized' : '⏳ Pending'}</div>
-                                </div>
-                            </div>
-                            <div class="mt-3 pt-2 border-t">
-                                <p class="text-xs text-muted">Report Type: <strong>${selectedReportType.toUpperCase()}</strong> · Generated: ${new Date().toLocaleString()}</p>
-                            </div>
-                        ` : activeTab === 'students' ? `
-                            <div class="mt-3">
-                                <div class="field" style="max-width:200px;">
-                                    <label>Filter by Status</label>
-                                    <select id="statusFilter" onchange="filterReportTable()">
-                                        <option value="all">All Students</option>
-                                        <option value="Present">Present</option>
-                                        <option value="Absent">Absent</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="table-wrap mt-3">
-                                <table>
-                                    <thead><tr>
-                                        <th>Student</th>
-                                        <th>Matric</th>
-                                        <th>Hostel</th>
-                                        <th>Room</th>
-                                        <th>Status</th>
-                                    </tr></thead>
-                                    <tbody id="reportTableBody"></tbody>
-                                </table>
-                            </div>
-                        ` : `
-                            <div class="hostel-metric mt-3">
-                                ${hostelStats.map(h => `
-                                    <div class="hostel-stat">
-                                        <div class="name">${h.name}</div>
-                                        <div class="rate ${h.rate >= 90 ? 'good' : h.rate >= 70 ? 'warning' : 'danger'}">${h.rate}%</div>
-                                        <div class="counts">${h.present} present · ${h.absent} absent</div>
-                                        <div class="counts" style="font-size:0.5rem;">${h.total} total students</div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                            <div class="mt-3 pt-2 border-t">
-                                <p class="text-xs text-muted">Showing ${hostelStats.length} hostels · Total students: ${total}</p>
-                            </div>
-                        `}
                     </div>
 
                     <div class="mt-4 pt-3 border-t text-center">
                         <p class="text-xs text-muted">BedCheck System · Benson Idahosa University</p>
                     </div>
                 `;
+            }
 
-                if (activeTab === 'students') {
-                    filterReportTable();
+            // =============================================
+            // RENDER HOSTEL VIEW
+            // =============================================
+            function renderHostelView(container) {
+                const hostel = hostels.find(h => h.id == viewState.hostelId);
+                if (!hostel) {
+                    renderAllHostels(container);
+                    return;
+                }
+
+                const hStudents = students.filter(s => s.hostel_id === hostel.id);
+                const total = hStudents.length;
+                const present = hStudents.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
+                const absent = hStudents.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const rate = attRate(present, total);
+                const occupied = hStudents.filter(s => s.room_id).length;
+                const capacity = hostel.capacity || total * 4 || 240;
+                const occupancyRate = attRate(occupied, capacity);
+
+                // Floor stats
+                const floors = {};
+                hStudents.forEach(s => {
+                    const floor = s.floor || s.floor_name || 'Unassigned';
+                    if (!floors[floor]) floors[floor] = { total: 0, present: 0, absent: 0 };
+                    floors[floor].total++;
+                    if (s.status === 'Present' || s.status === 'present') floors[floor].present++;
+                    if (s.status === 'Absent' || s.status === 'absent') floors[floor].absent++;
+                });
+                const floorStats = Object.keys(floors).map(f => ({
+                    name: f,
+                    total: floors[f].total,
+                    present: floors[f].present,
+                    absent: floors[f].absent,
+                    rate: attRate(floors[f].present, floors[f].total)
+                }));
+
+                container.innerHTML = `
+                    <div class="breadcrumb">
+                        <span class="crumb" onclick="goToAllHostels()"><i class="fas fa-home"></i> All Hostels</span>
+                        <span class="sep">/</span>
+                        <span class="crumb active">${hostel.name}</span>
+                    </div>
+
+                    <div class="page-heading">
+                        <div>
+                            <h1>${hostel.name}</h1>
+                            <p class="desc">Hostel attendance and occupancy report</p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-export" onclick="exportExcelReport()">
+                                <i class="fas fa-file-excel"></i>
+                                <span class="export-label">Export Hostel Report</span>
+                                <span class="export-badge">XLSX</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="filter-bar">
+                        <div class="field">
+                            <label>Period</label>
+                            <select id="periodSelectHostel" onchange="setPeriod(this.value)">
+                                <option value="today" ${viewState.period === 'today' ? 'selected' : ''}>Today</option>
+                                <option value="yesterday" ${viewState.period === 'yesterday' ? 'selected' : ''}>Yesterday</option>
+                                <option value="week" ${viewState.period === 'week' ? 'selected' : ''}>This Week</option>
+                                <option value="month" ${viewState.period === 'month' ? 'selected' : ''}>This Month</option>
+                                <option value="semester" ${viewState.period === 'semester' ? 'selected' : ''}>Semester</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search student..." id="hostelStudentSearch" oninput="filterHostelStudents(this.value)" />
+                        </div>
+                    </div>
+
+                    <!-- SUMMARY CARDS -->
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-users"></i></div>
+                            <div class="metric-value">${total}</div>
+                            <div class="metric-title">Students</div>
+                            <div class="metric-detail">Registered</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-door-open"></i></div>
+                            <div class="metric-value">${hostel.total_rooms || 0}</div>
+                            <div class="metric-title">Total Rooms</div>
+                            <div class="metric-detail">Available</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-bed"></i></div>
+                            <div class="metric-value">${capacity}</div>
+                            <div class="metric-title">Total Beds</div>
+                            <div class="metric-detail">Capacity</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                            <div class="metric-value">${occupied}</div>
+                            <div class="metric-title">Occupied Beds</div>
+                            <div class="metric-detail">${occupancyRate}% occupancy</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-bed"></i></div>
+                            <div class="metric-value">${capacity - occupied}</div>
+                            <div class="metric-title">Available Beds</div>
+                            <div class="metric-detail">Free spaces</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon gold"><i class="fas fa-chart-line"></i></div>
+                            <div class="metric-value">${rate}%</div>
+                            <div class="metric-title">Attendance</div>
+                            <div class="metric-detail">${present} present today</div>
+                        </div>
+                    </div>
+
+                    <!-- FLOOR PERFORMANCE -->
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Floor Performance</div>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr>
+                                    <th>Floor</th>
+                                    <th>Students</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Attendance</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${floorStats.length === 0 ? `
+                                        <tr><td colspan="5" class="text-center text-muted" style="padding:1rem;">No floors configured</td></tr>
+                                    ` : floorStats.map(f => `
+                                        <tr>
+                                            <td style="font-weight:600;">${f.name}</td>
+                                            <td>${f.total}</td>
+                                            <td style="color:#2d6545;">${f.present}</td>
+                                            <td style="color:#9b3c31;">${f.absent}</td>
+                                            <td style="font-weight:700;color:${f.rate >= 90 ? '#2d6545' : f.rate >= 70 ? '#8a6413' : '#9b3c31'};">${f.rate}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- STUDENTS -->
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-user-graduate"></i></span> Students</div>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr>
+                                    <th>Student</th>
+                                    <th>Matric</th>
+                                    <th>Room</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr></thead>
+                                <tbody id="hostelStudentsBody">
+                                    ${hStudents.map(s => `
+                                        <tr>
+                                            <td><div style="display:flex;align-items:center;gap:0.4rem;"><span class="avatar">${getInitials(s.name)}</span><span style="font-weight:600;">${s.name || 'Unknown'}</span></div></td>
+                                            <td>${s.matric || '—'}</td>
+                                            <td>${s.room || s.room_code || '—'}</td>
+                                            <td>${statusBadge(s.status)}</td>
+                                            <td><button class="btn-sm btn-sm-primary" onclick="goToStudent('${s.id}', '${s.name}')"><i class="fas fa-eye"></i> View</button></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${hStudents.length === 0 ? '<p class="text-muted text-sm p-3">No students assigned to this hostel</p>' : ''}
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t text-center">
+                        <p class="text-xs text-muted">BedCheck System · Benson Idahosa University</p>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // RENDER STUDENT VIEW
+            // =============================================
+            function renderStudentView(container) {
+                const student = students.find(s => s.id == viewState.studentId);
+                if (!student) {
+                    goToAllHostels();
+                    return;
+                }
+
+                const hostel = hostels.find(h => h.id === student.hostel_id);
+                const studentScans = scans.filter(s => s.student_id === student.id);
+                const totalSessions = studentScans.length || 0;
+                const presentCount = studentScans.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
+                const absentCount = studentScans.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const rate = attRate(presentCount, totalSessions);
+
+                container.innerHTML = `
+                    <div class="breadcrumb">
+                        <span class="crumb" onclick="goToAllHostels()"><i class="fas fa-home"></i> All Hostels</span>
+                        <span class="sep">/</span>
+                        <span class="crumb" onclick="goToHostel('${hostel?.id || ''}', '${hostel?.name || ''}')">${hostel?.name || 'Hostel'}</span>
+                        <span class="sep">/</span>
+                        <span class="crumb active">${student.name}</span>
+                    </div>
+
+                    <div class="page-heading">
+                        <div>
+                            <h1>${student.name}</h1>
+                            <p class="desc">${student.matric || 'No matric number'} · ${hostel?.name || 'No hostel'}</p>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-export" onclick="exportExcelReport()">
+                                <i class="fas fa-file-excel"></i>
+                                <span class="export-label">Export Student Report</span>
+                                <span class="export-badge">XLSX</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STUDENT INFO -->
+                    <div class="card">
+                        <div class="grid-2">
+                            <div><span class="text-muted text-sm">Full Name</span><br><span class="font-bold">${student.name || 'Unknown'}</span></div>
+                            <div><span class="text-muted text-sm">Matric Number</span><br><span class="font-bold">${student.matric || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Hostel</span><br><span class="font-bold">${hostel?.name || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Room</span><br><span class="font-bold">${student.room || student.room_code || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Gender</span><br><span class="font-bold">${student.gender || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Level</span><br><span class="font-bold">${student.level || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Faculty</span><br><span class="font-bold">${student.faculty || '—'}</span></div>
+                            <div><span class="text-muted text-sm">Department</span><br><span class="font-bold">${student.department || '—'}</span></div>
+                        </div>
+                    </div>
+
+                    <!-- ATTENDANCE CARDS -->
+                    <div class="metric-grid mt-4">
+                        <div class="metric-card">
+                            <div class="metric-icon navy"><i class="fas fa-calendar-check"></i></div>
+                            <div class="metric-value">${totalSessions}</div>
+                            <div class="metric-title">Total Sessions</div>
+                            <div class="metric-detail">All recorded</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                            <div class="metric-value">${presentCount}</div>
+                            <div class="metric-title">Present</div>
+                            <div class="metric-detail">${rate}% attendance</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
+                            <div class="metric-value">${absentCount}</div>
+                            <div class="metric-title">Absent</div>
+                            <div class="metric-detail">${100 - rate}% absence</div>
+                        </div>
+                        <div class="metric-card" style="background:${rate >= 90 ? '#e1f0e5' : rate >= 70 ? '#fff9e9' : '#f8e1dc'};">
+                            <div class="metric-icon gold"><i class="fas fa-chart-line"></i></div>
+                            <div class="metric-value" style="color:${rate >= 90 ? '#2d6545' : rate >= 70 ? '#8a6413' : '#9b3c31'};">${rate}%</div>
+                            <div class="metric-title">Attendance Rate</div>
+                            <div class="metric-detail">${rate >= 90 ? '✅ Excellent' : rate >= 70 ? '⚠️ Average' : '❌ Needs improvement'}</div>
+                        </div>
+                    </div>
+
+                    <!-- ATTENDANCE HISTORY -->
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-history"></i></span> Attendance History</div>
+                        <div class="table-wrap mt-2">
+                            <table>
+                                <thead><tr>
+                                    <th>Date</th>
+                                    <th>Session</th>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${studentScans.length === 0 ? `
+                                        <tr><td colspan="4" class="text-center text-muted" style="padding:1rem;">No attendance records found</td></tr>
+                                    ` : studentScans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(s => `
+                                        <tr>
+                                            <td>${formatDate(s.created_at)}</td>
+                                            <td>${s.session_name || 'Night Check'}</td>
+                                            <td>${statusBadge(s.status)}</td>
+                                            <td>${formatTime(s.created_at)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 pt-2 border-t flex-between">
+                            <span class="text-xs text-muted">${studentScans.length} records</span>
+                            <button class="btn-sm btn-sm-outline" onclick="goToHostel('${hostel?.id || ''}', '${hostel?.name || ''}')"><i class="fas fa-arrow-left"></i> Back to Hostel</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t text-center">
+                        <p class="text-xs text-muted">BedCheck System · Benson Idahosa University</p>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // FILTERS & SEARCH
+            // =============================================
+            function handleScopeChange(value) {
+                if (value === 'all') {
+                    goToAllHostels();
+                } else {
+                    const hostel = hostels.find(h => h.id == value);
+                    if (hostel) goToHostel(hostel.id, hostel.name);
                 }
             }
 
-            // =============================================
-            // FILTER REPORT TABLE
-            // =============================================
-            function filterReportTable() {
-                const filter = document.getElementById('statusFilter')?.value || 'all';
-                const tbody = document.getElementById('reportTableBody');
-                if (!tbody) return;
-
-                const filtered = filter === 'all' ? students : students.filter(s => s.status === filter);
-
-                tbody.innerHTML = filtered.map(s => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;align-items:center;gap:0.4rem;">
-                                <span class="avatar">${getInitials(s.name)}</span>
-                                <span class="font-bold">${s.name || 'Unknown'}</span>
-                            </div>
-                        </td>
-                        <td>${s.matric || '—'}</td>
-                        <td>${s.hostel || s.hostel_name || '—'}</td>
-                        <td>${s.room || s.room_code || '—'}</td>
-                        <td>${statusBadge(s.status)}</td>
-                    </tr>
-                `).join('') || '<tr><td colspan="5" class="text-center text-muted">No students found</td></tr>';
+            function handleStudentSearch(query) {
+                if (!query || query.length < 2) return;
+                const found = students.find(s =>
+                    (s.name && s.name.toLowerCase().includes(query.toLowerCase())) ||
+                    (s.matric && s.matric.toLowerCase().includes(query.toLowerCase()))
+                );
+                if (found) {
+                    goToStudent(found.id, found.name);
+                    document.getElementById('studentSearch').value = '';
+                }
             }
 
-            // =============================================
-            // REFRESH REPORT
-            // =============================================
-            async function refreshReport() {
-                showToast('Refreshing report data...', 'info');
-                await Promise.all([loadStudents(), loadSubmissionState(), loadAttendanceReport()]);
-                renderScreen();
-                showToast(`Loaded ${students.length} students. Report status: ${submissionState}`, 'success');
+            function filterHostelStudents(query) {
+                const tbody = document.getElementById('hostelStudentsBody');
+                if (!tbody) return;
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    row.style.display = text.includes(query.toLowerCase()) ? '' : 'none';
+                });
             }
 
             // =============================================
@@ -917,23 +1201,21 @@
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
                 const token = sessionStorage.getItem('bedcheck_token');
-
                 if (!userData || !token) {
                     window.location.replace('../Login.html');
                     return false;
                 }
-
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'Administrator';
-
-                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser
-                .name) || 'IM';
-                document.getElementById('profileName').textContent = currentUser.name || 'Ibrahim Musa';
-                document.getElementById('profileRoleLabel').textContent = currentRole;
+                const avatar = document.getElementById('profileAvatar');
+                const name = document.getElementById('profileName');
+                const roleLabel = document.getElementById('profileRoleLabel');
+                avatar.textContent = currentUser.initials || getInitials(currentUser.name);
+                name.textContent = currentUser.name || 'User';
+                roleLabel.textContent = currentRole;
                 document.getElementById('roleLabel').textContent = currentRole;
                 document.getElementById('roleScope').textContent = 'System-wide access';
                 document.getElementById('mobileRoleFooter').textContent = `${currentRole} · System-wide access`;
-
                 return true;
             }
 
@@ -945,18 +1227,16 @@
                 window.location.replace('../Login.html');
             }
 
-            // =============================================
-            // SET DATE
-            // =============================================
             function setDate() {
                 const now = new Date();
-                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
             }
 
-            // =============================================
-            // MOBILE DRAWER
-            // =============================================
             function openMobileDrawer() {
                 document.getElementById('mobileDrawer').classList.add('open');
                 document.getElementById('drawerOverlay').classList.add('show');
@@ -971,11 +1251,15 @@
             // EXPOSE GLOBALLY
             // =============================================
             window.showToast = showToast;
-            window.selectReportType = selectReportType;
-            window.selectTab = selectTab;
+            window.goToAllHostels = goToAllHostels;
+            window.goToHostel = goToHostel;
+            window.goToStudent = goToStudent;
+            window.setPeriod = setPeriod;
             window.exportExcelReport = exportExcelReport;
-            window.filterReportTable = filterReportTable;
-            window.refreshReport = refreshReport;
+            window.handleScopeChange = handleScopeChange;
+            window.handleStudentSearch = handleStudentSearch;
+            window.filterHostelStudents = filterHostelStudents;
+            window.renderScreen = renderScreen;
 
             // =============================================
             // INIT
@@ -991,24 +1275,16 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading reports...';
-                    await Promise.all([loadStudents(), loadSubmissionState(), loadAttendanceReport()]);
+                    await loadAllData();
                     renderScreen();
                     document.getElementById('noticeText').textContent =
-                        `Loaded ${students.length} students. Report status: ${submissionState}`;
+                        `${students.length} students · ${hostels.length} hostels · ${sessions.length} sessions`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
                 }
-
-                setInterval(() => {
-                    loadStudents().then(() => {
-                        if (document.getElementById('reportTableBody')) {
-                            filterReportTable();
-                        }
-                    });
-                }, 60000);
             }
 
             if (document.readyState === 'loading') {
