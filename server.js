@@ -11541,114 +11541,335 @@ app.get('/api/rooms',
     campusIsolation,
     async (req, res) => {
         const { floor_flat_id, hostel_id } = req.query;
+
         try {
-            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            const adminRoles = [
+                'Admin',
+                'Developer',
+                'Administrator',
+                'Administration'
+            ];
+
             const isAdmin = adminRoles.includes(req.user.role);
 
-            // 1. Hostels the user can access
-            let hostelQuery = supabase.from('hostels').select('id, type, name');
+            /*
+             * ============================================================
+             * 1. GET ACCESSIBLE HOSTELS
+             * ============================================================
+             */
 
+            let hostelQuery = supabase
+                .from('hostels')
+                .select('id, type, name, campus');
+
+            // Non-admin users can only access their campus
             if (!isAdmin) {
                 hostelQuery = hostelQuery.eq('campus', req.campus);
+
+                // If the user has a hostel assignment,
+                // restrict them to that hostel.
                 if (req.user.hostel_id) {
-                    hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
+                    hostelQuery = hostelQuery.eq(
+                        'id',
+                        parseInt(req.user.hostel_id)
+                    );
                 }
             }
 
+            // Optional hostel filter
             if (hostel_id) {
-                hostelQuery = hostelQuery.eq('id', parseInt(hostel_id));
+                hostelQuery = hostelQuery.eq(
+                    'id',
+                    parseInt(hostel_id)
+                );
             }
 
-            const { data: hostels, error: hostelError } = await hostelQuery;
-            if (hostelError) throw hostelError;
+            const {
+                data: hostels,
+                error: hostelError
+            } = await hostelQuery;
 
-            const hostelIds = (hostels || []).map(h => h.id);
+            if (hostelError) {
+                console.error(
+                    '❌ Error fetching hostels for rooms:',
+                    hostelError
+                );
+                throw hostelError;
+            }
+
+            const hostelIds = (hostels || []).map(
+                hostel => hostel.id
+            );
+
             if (hostelIds.length === 0) {
-                return res.json({ success: true, data: [], campus: req.campus });
+                return res.json({
+                    success: true,
+                    data: [],
+                    campus: req.campus,
+                    count: 0
+                });
             }
 
-            // 2. Floors/flats
+            /*
+             * ============================================================
+             * 2. GET FLOORS / FLATS
+             * ============================================================
+             */
+
             let floorsQuery = supabase
                 .from('floors_flats')
-                .select('id, name, type, hostel_id')
+                .select(`
+                    id,
+                    hostel_id,
+                    name,
+                    code,
+                    type,
+                    level,
+                    room_count,
+                    status
+                `)
                 .in('hostel_id', hostelIds);
 
-            if (!isAdmin) {
-                floorsQuery = floorsQuery.eq('campus', req.campus);
-            }
-
             if (floor_flat_id) {
-                floorsQuery = floorsQuery.eq('id', parseInt(floor_flat_id));
+                floorsQuery = floorsQuery.eq(
+                    'id',
+                    parseInt(floor_flat_id)
+                );
             }
 
-            const { data: floors, error: floorsError } = await floorsQuery;
-            if (floorsError) throw floorsError;
+            const {
+                data: floors,
+                error: floorsError
+            } = await floorsQuery;
+
+            if (floorsError) {
+                console.error(
+                    '❌ Error fetching floors/flats:',
+                    floorsError
+                );
+                throw floorsError;
+            }
 
             if (!floors || floors.length === 0) {
-                return res.json({ success: true, data: [], campus: req.campus });
+                return res.json({
+                    success: true,
+                    data: [],
+                    campus: req.campus,
+                    count: 0
+                });
             }
 
-            const floorIds = floors.map(f => f.id);
-            const floorMap = Object.fromEntries(floors.map(f => [f.id, f]));
+            /*
+             * Map floors by ID
+             */
+            const floorMap = Object.fromEntries(
+                floors.map(floor => [
+                    floor.id,
+                    floor
+                ])
+            );
 
-            // 3. Rooms (one query)
+            const floorIds = floors.map(
+                floor => floor.id
+            );
+
+            /*
+             * ============================================================
+             * 3. GET ROOMS
+             * ============================================================
+             *
+             * IMPORTANT:
+             * rooms DOES NOT have campus.
+             * Therefore campus filtering is already handled through
+             * the accessible hostels above.
+             */
+
             let roomsQuery = supabase
                 .from('rooms')
-                .select('id, room_code, floor_flat_id, capacity, status, campus')
+                .select(`
+                    id,
+                    hostel_id,
+                    floor_flat_id,
+                    room_code,
+                    full_code,
+                    capacity,
+                    occupied,
+                    status,
+                    created_at,
+                    updated_at
+                `)
                 .in('floor_flat_id', floorIds)
-                .order('room_code', { ascending: true });
+                .order('room_code', {
+                    ascending: true
+                });
 
-            if (!isAdmin) {
-                roomsQuery = roomsQuery.eq('campus', req.campus);
+            const {
+                data: rooms,
+                error: roomsError
+            } = await roomsQuery;
+
+            if (roomsError) {
+                console.error(
+                    '❌ Error fetching rooms:',
+                    roomsError
+                );
+                throw roomsError;
             }
-
-            const { data: rooms, error: roomsError } = await roomsQuery;
-            if (roomsError) throw roomsError;
 
             if (!rooms || rooms.length === 0) {
-                return res.json({ success: true, data: [], campus: req.campus });
+                return res.json({
+                    success: true,
+                    data: [],
+                    campus: req.campus,
+                    count: 0
+                });
             }
 
-            // 4. Beds in ONE query (this removes the 500)
-            const roomIds = rooms.map(r => r.id);
+            /*
+             * ============================================================
+             * 4. GET ALL BEDS FOR ALL ROOMS
+             * ============================================================
+             */
+
+            const roomIds = rooms.map(
+                room => room.id
+            );
 
             let bedsQuery = supabase
                 .from('bed_spaces')
-                .select('id, room_id, status, student_id, bed_code')
+                .select(`
+                    id,
+                    room_id,
+                    bed_code,
+                    full_bed_code,
+                    status,
+                    student_id,
+                    campus,
+                    created_at,
+                    updated_at
+                `)
                 .in('room_id', roomIds);
 
+            /*
+             * bed_spaces DOES have campus,
+             * so campus filtering is valid here.
+             */
             if (!isAdmin) {
-                bedsQuery = bedsQuery.eq('campus', req.campus);
+                bedsQuery = bedsQuery.eq(
+                    'campus',
+                    req.campus
+                );
             }
 
-            const { data: allBeds } = await bedsQuery;
+            const {
+                data: allBeds,
+                error: bedsError
+            } = await bedsQuery;
+
+            if (bedsError) {
+                console.error(
+                    '❌ Error fetching bed spaces:',
+                    bedsError
+                );
+                throw bedsError;
+            }
+
+            /*
+             * ============================================================
+             * 5. GROUP BEDS BY ROOM
+             * ============================================================
+             */
+
             const bedsByRoom = {};
-            (allBeds || []).forEach(b => {
-                if (!bedsByRoom[b.room_id]) bedsByRoom[b.room_id] = [];
-                bedsByRoom[b.room_id].push(b);
+
+            (allBeds || []).forEach(bed => {
+                if (!bedsByRoom[bed.room_id]) {
+                    bedsByRoom[bed.room_id] = [];
+                }
+
+                bedsByRoom[bed.room_id].push(bed);
             });
 
-            // 5. Enrich in memory
+            /*
+             * ============================================================
+             * 6. BUILD FINAL ROOM DATA
+             * ============================================================
+             */
+
             const enriched = rooms.map(room => {
-                const floor = floorMap[room.floor_flat_id] || {};
-                const beds = bedsByRoom[room.id] || [];
-                const occupied = beds.filter(b => b.status === 'occupied').length;
-                const capacity = beds.length || room.capacity || 4;
+
+                const floor =
+                    floorMap[room.floor_flat_id] || {};
+
+                const beds =
+                    bedsByRoom[room.id] || [];
+
+                /*
+                 * Count occupied beds from actual bed_spaces
+                 */
+                const occupied = beds.filter(
+                    bed => bed.status === 'occupied'
+                ).length;
+
+                /*
+                 * Prefer actual bed count.
+                 * If no bed records exist, use room.capacity.
+                 */
+                const capacity =
+                    beds.length > 0
+                        ? beds.length
+                        : (room.capacity || 4);
 
                 return {
                     ...room,
-                    floor_label: floor.name || null,
-                    floor_type: floor.type || null,
-                    hostel_id: floor.hostel_id || null,
+
+                    /*
+                     * Location information
+                     */
+                    hostel_id:
+                        room.hostel_id ||
+                        floor.hostel_id ||
+                        null,
+
+                    floor_label:
+                        floor.name || null,
+
+                    floor_code:
+                        floor.code || null,
+
+                    floor_type:
+                        floor.type || null,
+
+                    floor_level:
+                        floor.level || null,
+
+                    /*
+                     * Occupancy
+                     */
                     capacity,
+
                     occupied,
-                    available: capacity - occupied,
-                    bed_count: beds.length,
+
+                    available:
+                        Math.max(
+                            0,
+                            capacity - occupied
+                        ),
+
+                    bed_count:
+                        beds.length,
+
                     beds
                 };
             });
 
-            res.json({
+            /*
+             * ============================================================
+             * 7. RESPONSE
+             * ============================================================
+             */
+
+            return res.json({
                 success: true,
                 data: enriched,
                 campus: req.campus,
@@ -11656,164 +11877,15 @@ app.get('/api/rooms',
             });
 
         } catch (error) {
-            console.error('Error fetching rooms:', error);
-            res.status(500).json({
+
+            console.error(
+                '❌ Error fetching rooms:',
+                error
+            );
+
+            return res.status(500).json({
                 success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-app.get('/api/rooms/:id',
-    campusIsolation,
-    validate(validators.roomId),
-    async (req, res) => {
-        const id = parseInt(req.params.id);
-        try {
-            const { data, error } = await supabase
-                .from('rooms')
-                .select('*')
-                .eq('id', id)
-                .single();
-            
-            if (error || !data) {
-                return res.status(404).json({ 
-                    success: false, 
-                    message: 'Room not found',
-                    code: 'ROOM_NOT_FOUND'
-                });
-            }
-
-            // ✅ Skip campus validation for admin roles
-            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
-            if (!adminRoles.includes(req.user.role)) {
-                const { data: floorData } = await supabase
-                    .from('floors_flats')
-                    .select('hostel_id')
-                    .eq('id', data.floor_flat_id)
-                    .single();
-
-                const { data: hostel } = await supabase
-                    .from('hostels')
-                    .select('id, campus')
-                    .eq('id', floorData?.hostel_id)
-                    .eq('campus', req.campus)
-                    .single();
-
-                if (!hostel) {
-                    return res.status(404).json({
-                        success: false,
-                        message: 'Room not found in this campus',
-                        code: 'ROOM_NOT_FOUND'
-                    });
-                }
-
-                if (req.user.hostel_id !== floorData?.hostel_id) {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'Access denied',
-                        code: 'PERMISSION_DENIED'
-                    });
-                }
-            }
-            
-            const { data: bedData } = await supabase
-                .from('bed_spaces')
-                .select('id, status')
-                .eq('room_id', id);
-            
-            const capacity = bedData?.length || 4;
-            const occupiedCount = bedData?.filter(b => b.status === 'occupied').length || 0;
-            
-            res.json({ 
-                success: true, 
-                data: { ...data, capacity, occupied: occupiedCount, available: capacity - occupiedCount },
-                campus: req.campus
-            });
-        } catch (error) {
-            console.error('Error fetching room:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
-        }
-    }
-);
-
-app.post('/api/rooms',
-    campusIsolation,
-    requireRole('Admin', 'HRA', 'Developer'),
-    validate(validators.roomCreate),
-    async (req, res) => {
-        const { floor_flat_id, room_code } = req.body;
-        try {
-            const { data: floorData } = await supabase
-                .from('floors_flats')
-                .select('hostel_id')
-                .eq('id', parseInt(floor_flat_id))
-                .single();
-
-            const { data: hostel } = await supabase
-                .from('hostels')
-                .select('id, campus')
-                .eq('id', floorData?.hostel_id)
-                .eq('campus', req.campus)
-                .single();
-
-            if (!hostel) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Floor/Flat not found in this campus',
-                    code: 'FLOOR_FLAT_NOT_FOUND'
-                });
-            }
-
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== floorData?.hostel_id) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Access denied',
-                    code: 'PERMISSION_DENIED'
-                });
-            }
-
-            const newRoom = { floor_flat_id: parseInt(floor_flat_id), room_code };
-            const { data, error } = await supabase
-                .from('rooms')
-                .insert(newRoom)
-                .select()
-                .single();
-            
-            if (error) throw error;
-            
-            await auditService.log({
-                actor: req.user.name || req.user.username,
-                actor_id: req.user.id,
-                actor_role: req.user.role,
-                action: 'Room Created',
-                module: 'hostel',
-                details: `Created room: ${room_code}`,
-                result: 'success',
-                category: 'hostel',
-                hostel_id: floorData?.hostel_id,
-                room_id: data.id,
-                campus: req.campus,
-                ip_address: req.clientIp,
-                user_agent: req.userAgent
-            });
-            
-            res.json({ 
-                success: true, 
-                data: { ...data, capacity: 4, occupied: 0, available: 4 },
-                campus: req.campus
-            });
-        } catch (error) {
-            console.error('Error creating room:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
+                message: 'An error occurred while fetching rooms.',
                 code: 'SERVER_ERROR'
             });
         }
