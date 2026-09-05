@@ -11677,11 +11677,6 @@ app.get('/api/rooms',
              * ============================================================
              * 3. GET ROOMS
              * ============================================================
-             *
-             * IMPORTANT:
-             * rooms DOES NOT have campus.
-             * Therefore campus filtering is already handled through
-             * the accessible hostels above.
              */
 
             let roomsQuery = supabase
@@ -11886,6 +11881,393 @@ app.get('/api/rooms',
             return res.status(500).json({
                 success: false,
                 message: 'An error occurred while fetching rooms.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.get('/api/rooms/:id',
+    campusIsolation,
+    validate(validators.roomId),
+    async (req, res) => {
+        const id = parseInt(req.params.id);
+        try {
+            const { data, error } = await supabase
+                .from('rooms')
+                .select('*')
+                .eq('id', id)
+                .single();
+            
+            if (error || !data) {
+                return res.status(404).json({ 
+                    success: false, 
+                    message: 'Room not found',
+                    code: 'ROOM_NOT_FOUND'
+                });
+            }
+
+            // ✅ Skip campus validation for admin roles
+            const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            if (!adminRoles.includes(req.user.role)) {
+                const { data: floorData } = await supabase
+                    .from('floors_flats')
+                    .select('hostel_id')
+                    .eq('id', data.floor_flat_id)
+                    .single();
+
+                const { data: hostel } = await supabase
+                    .from('hostels')
+                    .select('id, campus')
+                    .eq('id', floorData?.hostel_id)
+                    .eq('campus', req.campus)
+                    .single();
+
+                if (!hostel) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Room not found in this campus',
+                        code: 'ROOM_NOT_FOUND'
+                    });
+                }
+
+                if (req.user.hostel_id !== floorData?.hostel_id) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied',
+                        code: 'PERMISSION_DENIED'
+                    });
+                }
+            }
+            
+            const { data: bedData } = await supabase
+                .from('bed_spaces')
+                .select('id, status')
+                .eq('room_id', id);
+            
+            const capacity = bedData?.length || 4;
+            const occupiedCount = bedData?.filter(b => b.status === 'occupied').length || 0;
+            
+            res.json({ 
+                success: true, 
+                data: { ...data, capacity, occupied: occupiedCount, available: capacity - occupiedCount },
+                campus: req.campus
+            });
+        } catch (error) {
+            console.error('Error fetching room:', error);
+            res.status(500).json({ 
+                success: false, 
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+app.post('/api/rooms',
+    campusIsolation,
+    requireRole('Admin', 'HRA', 'Developer'),
+    validate(validators.roomCreate),
+    async (req, res) => {
+        const { floor_flat_id, room_code, capacity } = req.body;
+
+        try {
+            const floorId = parseInt(floor_flat_id);
+
+            if (!Number.isInteger(floorId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid floor/flat ID',
+                    code: 'INVALID_FLOOR_FLAT_ID'
+                });
+            }
+
+            /*
+             * ============================================================
+             * 1. FIND FLOOR / FLAT
+             * ============================================================
+             */
+
+            const {
+                data: floorData,
+                error: floorError
+            } = await supabase
+                .from('floors_flats')
+                .select(`
+                    id,
+                    hostel_id,
+                    name,
+                    code,
+                    type,
+                    level
+                `)
+                .eq('id', floorId)
+                .single();
+
+            if (floorError || !floorData) {
+                console.error(
+                    '❌ Floor/flat lookup failed:',
+                    floorError
+                );
+
+                return res.status(404).json({
+                    success: false,
+                    message: 'Floor/Flat not found',
+                    code: 'FLOOR_FLAT_NOT_FOUND'
+                });
+            }
+
+            /*
+             * ============================================================
+             * 2. VERIFY HOSTEL + CAMPUS
+             * ============================================================
+             */
+
+            const {
+                data: hostel,
+                error: hostelError
+            } = await supabase
+                .from('hostels')
+                .select(`
+                    id,
+                    name,
+                    type,
+                    campus
+                `)
+                .eq('id', floorData.hostel_id)
+                .single();
+
+            if (hostelError || !hostel) {
+                console.error(
+                    '❌ Hostel lookup failed:',
+                    hostelError
+                );
+
+                return res.status(404).json({
+                    success: false,
+                    message: 'Hostel not found',
+                    code: 'HOSTEL_NOT_FOUND'
+                });
+            }
+
+            /*
+             * Non-admin users must belong to the same campus.
+             */
+
+            const adminRoles = [
+                'Admin',
+                'Developer',
+                'Administrator',
+                'Administration'
+            ];
+
+            const isAdmin = adminRoles.includes(
+                req.user.role
+            );
+
+            if (!isAdmin && hostel.campus !== req.campus) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied for this campus',
+                    code: 'CAMPUS_ACCESS_DENIED'
+                });
+            }
+
+            /*
+             * ============================================================
+             * 3. VERIFY HOSTEL ASSIGNMENT
+             * ============================================================
+             *
+             * HRA can only create rooms inside their assigned hostel.
+             */
+
+            if (
+                !isAdmin &&
+                req.user.role !== 'Developer' &&
+                req.user.hostel_id !== floorData.hostel_id
+            ) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have access to this hostel',
+                    code: 'PERMISSION_DENIED'
+                });
+            }
+
+            /*
+             * ============================================================
+             * 4. CHECK FOR DUPLICATE ROOM CODE
+             * ============================================================
+             */
+
+            const {
+                data: existingRoom,
+                error: existingRoomError
+            } = await supabase
+                .from('rooms')
+                .select('id, room_code, full_code')
+                .eq('floor_flat_id', floorId)
+                .eq('room_code', room_code)
+                .maybeSingle();
+
+            if (existingRoomError) {
+                console.error(
+                    '❌ Error checking existing room:',
+                    existingRoomError
+                );
+
+                throw existingRoomError;
+            }
+
+            if (existingRoom) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'A room with this room code already exists on this floor/flat',
+                    code: 'ROOM_ALREADY_EXISTS'
+                });
+            }
+
+            /*
+             * ============================================================
+             * 5. BUILD FULL ROOM CODE
+             * ============================================================
+             *
+             * Example:
+             *
+             * Hostel code/name + floor code + room code
+             *
+             * If you already have a specific full_code convention,
+             * replace this construction with that convention.
+             */
+
+            const floorCode =
+                floorData.code ||
+                floorData.name ||
+                `F${floorData.level ?? ''}`;
+
+            const fullCode =
+                `${floorCode}-${room_code}`;
+
+            /*
+             * ============================================================
+             * 6. CREATE ROOM
+             * ============================================================
+             */
+
+            const roomCapacity =
+                Number.isInteger(parseInt(capacity))
+                    ? parseInt(capacity)
+                    : 4;
+
+            const newRoom = {
+                hostel_id: floorData.hostel_id,
+                floor_flat_id: floorId,
+                room_code: room_code,
+                full_code: fullCode,
+                capacity: roomCapacity,
+                occupied: 0,
+                status: 'Active'
+            };
+
+            const {
+                data,
+                error
+            } = await supabase
+                .from('rooms')
+                .insert(newRoom)
+                .select()
+                .single();
+
+            if (error) {
+                console.error(
+                    '❌ Error creating room:',
+                    error
+                );
+
+                throw error;
+            }
+
+            /*
+             * ============================================================
+             * 7. AUDIT LOG
+             * ============================================================
+             */
+
+            await auditService.log({
+                actor:
+                    req.user.name ||
+                    req.user.username,
+
+                actor_id:
+                    req.user.id,
+
+                actor_role:
+                    req.user.role,
+
+                action:
+                    'Room Created',
+
+                module:
+                    'hostel',
+
+                details:
+                    `Created room: ${room_code} (${fullCode})`,
+
+                result:
+                    'success',
+
+                category:
+                    'hostel',
+
+                hostel_id:
+                    floorData.hostel_id,
+
+                room_id:
+                    data.id,
+
+                campus:
+                    req.campus,
+
+                ip_address:
+                    req.clientIp,
+
+                user_agent:
+                    req.userAgent
+            });
+
+            /*
+             * ============================================================
+             * 8. RESPONSE
+             * ============================================================
+             */
+
+            return res.status(201).json({
+                success: true,
+
+                data: {
+                    ...data,
+                    capacity:
+                        data.capacity || roomCapacity,
+                    occupied:
+                        data.occupied || 0,
+                    available:
+                        (data.capacity || roomCapacity) -
+                        (data.occupied || 0)
+                },
+
+                campus:
+                    req.campus
+            });
+
+        } catch (error) {
+
+            console.error(
+                '❌ Error creating room:',
+                error
+            );
+
+            return res.status(500).json({
+                success: false,
+                message: 'An error occurred while creating the room.',
                 code: 'SERVER_ERROR'
             });
         }
