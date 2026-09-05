@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RASD Dashboard · BedCheck</title>
+    <title>RASD Dashboard · BIU BedCheck</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -219,7 +219,7 @@
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
-                <div class="brand-badge">S</div>
+                <div class="brand-badge">BIU</div>
                 <div>
                     <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
@@ -245,14 +245,14 @@
         <aside class="mobile-drawer" id="mobileDrawer">
             <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
             <div class="brand">
-                <div class="brand-badge">S</div>
+                <div class="brand-badge">BIU</div>
                 <div>
                     <div class="brand-text">BedCheck</div>
                     <div class="brand-sub">Management System</div>
                 </div>
             </div>
             <nav id="mobileNav">
-                <a href="rasd-index.html" class="nav-item active"><i class="fas fa-home"></i> Dashboard</a>
+                <a href="rasd-index.html" class="nav-item"><i class="fas fa-home"></i> Dashboard</a>
                 <a href="management.html" class="nav-item"><i class="fas fa-clipboard-list"></i> Management</a>
                 <a href="Sessions.html" class="nav-item"><i class="fas fa-clipboard-check"></i> BedCheck Sessions</a>
                 <a href="Reports.html" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
@@ -491,21 +491,50 @@
                     const data = await apiCall('/hostels');
                     let allHostels = data.data || [];
                     
+                    console.log('📋 Total hostels from API:', allHostels.length);
+                    console.log('📋 User campus:', currentCampus);
+                    console.log('📋 User gender:', userGender);
+                    
+                    // Normalize campus and gender
+                    allHostels = allHostels.map(h => ({
+                        ...h,
+                        campus: h.campus || 'Legacy',
+                        gender: h.gender || 'Male',
+                        status: h.status || 'Active'
+                    }));
+                    
+                    // Filter by status
+                    allHostels = allHostels.filter(h => h.status === 'active' || h.status === 'Active');
+                    
                     // Filter by campus
                     allHostels = allHostels.filter(h => h.campus === currentCampus);
+                    console.log('📋 After campus filter (' + currentCampus + '):', allHostels.length);
+                    console.log('📋 Hostels in campus:', allHostels.map(h => h.name));
                     
-                    // Filter by gender (RASD can only see hostels matching their gender)
+                    // Filter by gender
                     if (userGender) {
                         const gender = userGender.toLowerCase();
                         allHostels = allHostels.filter(h => {
                             const hostelGender = h.gender?.toLowerCase() || 'male';
-                            return hostelGender === gender || hostelGender === 'mixed';
+                            const match = hostelGender === gender || hostelGender === 'mixed';
+                            if (!match) {
+                                console.log('⏭️ Skipping hostel:', h.name, '(gender:', hostelGender, 'does not match user gender:', gender + ')');
+                            }
+                            return match;
                         });
+                        console.log('📋 After gender filter (' + userGender + '):', allHostels.length);
+                    }
+                    
+                    // If no hostels found, show a warning
+                    if (allHostels.length === 0) {
+                        console.warn('⚠️ No hostels found for', currentCampus, userGender);
+                        showToast('No hostels found for your campus and gender', 'warning');
                     }
                     
                     hostels = allHostels;
                     return hostels;
                 } catch (error) {
+                    console.error('Error loading hostels:', error);
                     hostels = [];
                     return hostels;
                 }
@@ -539,7 +568,6 @@
                 try {
                     const data = await apiCall('/audit?limit=20');
                     auditLogs = data.data || [];
-                    // Filter audit logs by campus
                     auditLogs = auditLogs.filter(log => log.campus === currentCampus);
                     return auditLogs;
                 } catch (error) {
@@ -677,7 +705,7 @@
                             <div class="metric-icon navy"><i class="fas fa-building"></i></div>
                             <div class="metric-value">${hostels.length || 0}</div>
                             <div class="metric-title">Total Hostels</div>
-                            <div class="metric-detail">${currentCampus} Campus</div>
+                            <div class="metric-detail">${currentCampus} Campus · ${userGender}</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon gray"><i class="fas fa-bed"></i></div>
@@ -768,6 +796,7 @@
                                         <div class="flex-between">
                                             <span class="font-bold" style="font-size:0.9rem;">${h.name || 'Unknown'}</span>
                                             <span class="badge ${h.progress === 100 ? 'badge-approved' : 'badge-provisional'}" style="font-size:0.6rem;">${h.progress === 100 ? '✅ Complete' : '⏳ In progress'}</span>
+                                            <span style="font-size:0.55rem;color:#6b778b;">${h.gender}</span>
                                         </div>
                                         <div class="progress-bar mt-1">
                                             <div class="fill" style="width:${h.progress || 0}%;"></div>
