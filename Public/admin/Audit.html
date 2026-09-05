@@ -520,29 +520,32 @@
             }
 
             // =============================================
-            // GET USER LOGS (Shows failed/suspicious System logs)
+            // GET USER LOGS - HIDES System, Developer, Sasha_Saint
             // =============================================
             function getUserLogs() {
                 return auditLogs.filter(log => {
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
+                    const module = log.module || '';
                     
-                    // If it's a System/Developer log
-                    if (actor === 'System' || actor === 'Developer' || 
-                        role === 'System' || role === 'Developer') {
-                        
-                        // KEEP important security events even if logged by System
-                        const isImportant = log.result === 'failed' || 
-                                           log.result === 'blocked' ||
-                                           log.tone === 'red' || 
-                                           log.tone === 'critical' ||
-                                           log.action === 'Login Failed' ||
-                                           log.action === 'Rejected BedCheck';
-                        
-                        return isImportant; // Keep failed/suspicious, hide normal System logs
-                    }
+                    // =============================================
+                    // COMPLETELY HIDE THESE
+                    // =============================================
+                    // Hide System and Developer
+                    if (actor === 'System' || actor === 'Developer') return false;
+                    if (role === 'System' || role === 'Developer') return false;
+                    if (module === 'system' || module === 'developer' || module === 'dev') return false;
                     
-                    // Keep all non-System logs
+                    // =============================================
+                    // HIDE Sasha_Saint COMPLETELY
+                    // =============================================
+                    if (actor === 'Sasha_Saint') return false;
+                    if (role === 'Sasha_Saint') return false;
+                    
+                    // Hide anything containing "Sasha"
+                    if (actor && actor.includes('Sasha')) return false;
+                    if (role && role.includes('Sasha')) return false;
+                    
                     return true;
                 });
             }
@@ -779,7 +782,7 @@
             }
 
             // =============================================
-            // GET MOST ACTIVE USERS (Shows important System logs)
+            // GET MOST ACTIVE USERS - HIDES Sasha_Saint
             // =============================================
             function getMostActiveUsers() {
                 const userCounts = {};
@@ -796,7 +799,7 @@
             }
 
             // =============================================
-            // GET SECURITY ALERTS (Shows important System logs)
+            // GET SECURITY ALERTS - HIDES Sasha_Saint
             // =============================================
             function getSecurityAlerts() {
                 const alerts = [];
@@ -907,7 +910,7 @@
             }
 
             // =============================================
-            // FILTER LOGS - Shows failed/suspicious System logs
+            // FILTER LOGS - HIDES System, Developer, Sasha_Saint
             // =============================================
             function getFilteredLogs() {
                 const actionFilter = document.getElementById('filterAction')?.value || '';
@@ -919,24 +922,25 @@
                 return auditLogs.filter(log => {
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
+                    const module = log.module || '';
                     
-                    // If it's a System/Developer log
-                    if (actor === 'System' || actor === 'Developer' || 
-                        role === 'System' || role === 'Developer') {
-                        
-                        // KEEP important security events even if logged by System
-                        const isImportant = log.result === 'failed' || 
-                                           log.result === 'blocked' ||
-                                           log.tone === 'red' || 
-                                           log.tone === 'critical' ||
-                                           log.action === 'Login Failed' ||
-                                           log.action === 'Rejected BedCheck';
-                        
-                        if (!isImportant) return false; // Skip normal System logs
-                        // If important, apply user filters
-                    }
+                    // =============================================
+                    // COMPLETELY HIDE THESE
+                    // =============================================
+                    // Hide System and Developer
+                    if (actor === 'System' || actor === 'Developer') return false;
+                    if (role === 'System' || role === 'Developer') return false;
+                    if (module === 'system' || module === 'developer' || module === 'dev') return false;
                     
-                    // Apply user filters
+                    // =============================================
+                    // HIDE Sasha_Saint COMPLETELY
+                    // =============================================
+                    if (actor === 'Sasha_Saint') return false;
+                    if (role === 'Sasha_Saint') return false;
+                    if (actor && actor.includes('Sasha')) return false;
+                    if (role && role.includes('Sasha')) return false;
+                    
+                    // User filters (only apply to non-system logs)
                     if (actionFilter && log.module !== actionFilter) return false;
                     if (roleFilter && log.actor_role !== roleFilter) return false;
                     if (resultFilter && log.result !== resultFilter) return false;
@@ -971,7 +975,7 @@
             }
 
             // =============================================
-            // VIEW DRAWER
+            // VIEW DRAWER - HIDES Sasha_Saint
             // =============================================
             async function openViewDrawer(logId) {
                 try {
@@ -982,24 +986,26 @@
                         return;
                     }
                     
-                    // Check if this is a System/Developer log
+                    // =============================================
+                    // HIDE Sasha_Saint COMPLETELY
+                    // =============================================
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
+                    const module = log.module || '';
+                    
+                    if (actor === 'Sasha_Saint' || role === 'Sasha_Saint') {
+                        showToast('This log is not available', 'warning');
+                        return;
+                    }
+                    if (actor && actor.includes('Sasha')) {
+                        showToast('This log is not available', 'warning');
+                        return;
+                    }
                     if (actor === 'System' || actor === 'Developer' || 
-                        role === 'System' || role === 'Developer') {
-                        
-                        // Allow viewing if it's an important security event
-                        const isImportant = log.result === 'failed' || 
-                                           log.result === 'blocked' ||
-                                           log.tone === 'red' || 
-                                           log.tone === 'critical' ||
-                                           log.action === 'Login Failed' ||
-                                           log.action === 'Rejected BedCheck';
-                        
-                        if (!isImportant) {
-                            showToast('This log is not available', 'warning');
-                            return;
-                        }
+                        role === 'System' || role === 'Developer' ||
+                        module === 'system' || module === 'developer' || module === 'dev') {
+                        showToast('This log is not available', 'warning');
+                        return;
                     }
                     
                     const drawer = document.getElementById('viewDrawer');
