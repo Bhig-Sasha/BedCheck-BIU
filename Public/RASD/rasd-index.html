@@ -486,55 +486,68 @@
                 }
             }
 
+            function normalizeCampus(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (v === 'heritage' || v === 'her') return 'Heritage';
+                if (v === 'legacy' || v === 'leg') return 'Legacy';
+                return null;
+            }
+
+            function normalizeGender(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (v === 'female' || v === 'f' || v === 'girl' || v === 'girls') return 'female';
+                if (v === 'male' || v === 'm' || v === 'boy' || v === 'boys') return 'male';
+                return null;
+            }
+
             async function loadHostels() {
                 try {
                     const data = await apiCall('/hostels');
-                    let allHostels = data.data || [];
-                    
-                    console.log('📋 Total hostels from API:', allHostels.length);
-                    console.log('📋 User campus:', currentCampus);
-                    console.log('📋 User gender:', userGender);
-                    
-                    // Normalize campus and gender
-                    allHostels = allHostels.map(h => ({
+                    let allHostels = (data.data || []).map(h => ({
                         ...h,
-                        campus: h.campus || 'Legacy',
-                        gender: h.gender || 'Male',
-                        status: h.status || 'Active'
+                        campus: normalizeCampus(h.campus || h.campus_code),
+                        gender: normalizeGender(h.gender),
+                        status: String(h.status || h.state || '').toLowerCase()
                     }));
-                    
-                    // Filter by status
-                    allHostels = allHostels.filter(h => h.status === 'active' || h.status === 'Active');
-                    
-                    // Filter by campus
-                    allHostels = allHostels.filter(h => h.campus === currentCampus);
-                    console.log('📋 After campus filter (' + currentCampus + '):', allHostels.length);
-                    console.log('📋 Hostels in campus:', allHostels.map(h => h.name));
-                    
-                    // Filter by gender
-                    if (userGender) {
-                        const gender = userGender.toLowerCase();
-                        allHostels = allHostels.filter(h => {
-                            const hostelGender = h.gender?.toLowerCase() || 'male';
-                            const match = hostelGender === gender || hostelGender === 'mixed';
-                            if (!match) {
-                                console.log('⏭️ Skipping hostel:', h.name, '(gender:', hostelGender, 'does not match user gender:', gender + ')');
-                            }
-                            return match;
-                        });
-                        console.log('📋 After gender filter (' + userGender + '):', allHostels.length);
+
+                    // Campus must come from staff
+                    currentCampus = normalizeCampus(currentUser?.campus || currentUser?.campus_code);
+                    if (!currentCampus) {
+                        hostels = [];
+                        showToast('Your account has no campus assigned', 'error');
+                        return hostels;
                     }
-                    
-                    // If no hostels found, show a warning
-                    if (allHostels.length === 0) {
-                        console.warn('⚠️ No hostels found for', currentCampus, userGender);
-                        showToast('No hostels found for your campus and gender', 'warning');
+
+                    // Gender must come from assigned hostel only
+                    if (!currentUser?.hostel_id) {
+                        hostels = [];
+                        showToast('Your account has no hostel assigned', 'error');
+                        return hostels;
                     }
-                    
-                    hostels = allHostels;
+
+                    const assigned = allHostels.find(h => Number(h.id) === Number(currentUser.hostel_id));
+                    const resolvedGender = normalizeGender(assigned?.gender);
+
+                    if (!resolvedGender) {
+                        hostels = [];
+                        showToast('Could not determine gender scope from assigned hostel', 'error');
+                        return hostels;
+                    }
+
+                    userGender = resolvedGender === 'female' ? 'Female' : 'Male';
+
+                    hostels = allHostels.filter(h =>
+                        (h.status === 'active' || h.status === 'open') &&
+                        h.campus === currentCampus &&
+                        h.gender === resolvedGender
+                    );
+
+                    if (hostels.length === 0) {
+                        showToast(`No ${userGender.toLowerCase()} hostels found for ${currentCampus}`, 'error');
+                    }
+
                     return hostels;
                 } catch (error) {
-                    console.error('Error loading hostels:', error);
                     hostels = [];
                     return hostels;
                 }
@@ -543,20 +556,19 @@
             async function loadStudents() {
                 try {
                     const data = await apiCall('/students');
-                    let allStudents = data.data || [];
-                    
-                    // Filter by campus
-                    allStudents = allStudents.filter(s => s.campus === currentCampus);
-                    
-                    // Filter by hostel (only students in hostels the RASD can see)
+                    const campus = normalizeCampus(currentCampus);
                     const hostelIds = hostels.map(h => h.id);
-                    if (hostelIds.length > 0) {
-                        allStudents = allStudents.filter(s => hostelIds.includes(s.hostel_id));
-                    } else {
-                        allStudents = [];
+
+                    if (!campus || hostelIds.length === 0) {
+                        students = [];
+                        return students;
                     }
-                    
-                    students = allStudents;
+
+                    students = (data.data || []).filter(s =>
+                        normalizeCampus(s.campus) === campus &&
+                        hostelIds.includes(s.hostel_id)
+                    );
+
                     return students;
                 } catch (error) {
                     students = [];
