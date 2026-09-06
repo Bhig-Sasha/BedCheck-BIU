@@ -1674,91 +1674,109 @@
                             sessionStatus = 'ready';
                             isSessionActive = true;
                             effectiveStatus = 'ready';
+                        } else {
+                            sessionStatus = 'closed';
+                            isSessionActive = false;
+                            effectiveStatus = 'closed';
                         }
                     }
                     
                     // =========================================================
                     // 3. CRITICAL: LOAD SCANS FROM DATABASE TO RESTORE STATE
                     // =========================================================
-                    let activeSessionId = null;
-                    
-                    // Try to get from RA status first
-                    try {
-                        const statusData = await apiCall('/ra/bedcheck/status');
-                        if (statusData && statusData.data) {
-                            const data = statusData.data;
-                            if (data.active_session) {
-                                activeSessionId = data.active_session.session_id || data.active_session.id;
+                    // Only load scans if there's an active or completed session
+                    if (isSessionActive || effectiveStatus === 'completed' || hasCompletedToday) {
+                        let activeSessionId = null;
+                        
+                        // Try to get from RA status first
+                        try {
+                            const statusData = await apiCall('/ra/bedcheck/status');
+                            if (statusData && statusData.data) {
+                                const data = statusData.data;
+                                if (data.active_session) {
+                                    activeSessionId = data.active_session.session_id || data.active_session.id;
+                                }
+                            }
+                        } catch (e) {}
+                        
+                        // If not found, use currentSession
+                        if (!activeSessionId && currentSession) {
+                            activeSessionId = currentSession.id;
+                        }
+                        
+                        // If we have a session ID, load ALL scans for this session
+                        if (activeSessionId) {
+                            try {
+                                const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
+                                
+                                if (scansData && scansData.data) {
+                                    // Reset bedScanStatus - we're reloading from DB
+                                    bedScanStatus = {};
+                                    
+                                    scansData.data.forEach(scan => {
+                                        if (scan.status === 'Verified' || scan.status === 'Present') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: true,
+                                                status: 'Verified',
+                                                time: scan.created_at,
+                                                confidence: scan.metadata?.confidence || null,
+                                                method: scan.metadata?.method || 'face-recognition'
+                                            };
+                                        } else if (scan.status === 'Absent') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: false,
+                                                status: 'Absent',
+                                                time: scan.created_at,
+                                                method: scan.metadata?.method || 'auto-absent'
+                                            };
+                                        } else if (scan.status === 'Failed') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: false,
+                                                status: 'Failed',
+                                                time: scan.created_at,
+                                                method: scan.metadata?.method || 'face-recognition'
+                                            };
+                                        }
+                                    });
+                                }
+                            } catch (scanError) {
+                                console.warn('Could not load scans:', scanError);
                             }
                         }
-                    } catch (e) {}
-                    
-                    // If not found, use currentSession
-                    if (!activeSessionId && currentSession) {
-                        activeSessionId = currentSession.id;
-                    }
-                    
-                    // If we have a session ID, load ALL scans for this session
-                    if (activeSessionId) {
+                        
+                        // 4. Also update from students table status as fallback
                         try {
-                            const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
-                            
-                            if (scansData && scansData.data) {
-                                // Reset bedScanStatus - we're reloading from DB
-                                bedScanStatus = {};
-                                
-                                scansData.data.forEach(scan => {
-                                    // Store every scan, not just Verified
-                                    if (scan.status === 'Verified' || scan.status === 'Present') {
-                                        bedScanStatus[scan.student_id] = {
+                            const studentsData = await apiCall(`/students?hostel_id=${assignedHostelId}`);
+                            if (studentsData && studentsData.data) {
+                                studentsData.data.forEach(student => {
+                                    // If student status is Verified or Present and no scan record yet
+                                    if ((student.status === 'Verified' || student.status === 'Present') && 
+                                        !bedScanStatus[student.id]) {
+                                        bedScanStatus[student.id] = {
                                             verified: true,
-                                            status: 'Verified',
-                                            time: scan.created_at,
-                                            confidence: scan.metadata?.confidence || null,
-                                            method: scan.metadata?.method || 'face-recognition'
+                                            status: student.status,
+                                            time: student.updated_at || now(),
+                                            confidence: null,
+                                            method: 'from-student-status'
                                         };
-                                    } else if (scan.status === 'Absent') {
-                                        bedScanStatus[scan.student_id] = {
+                                    }
+                                    // If student status is Absent and no scan record yet
+                                    if (student.status === 'Absent' && !bedScanStatus[student.id]) {
+                                        bedScanStatus[student.id] = {
                                             verified: false,
                                             status: 'Absent',
-                                            time: scan.created_at,
-                                            method: scan.metadata?.method || 'auto-absent'
-                                        };
-                                    } else if (scan.status === 'Failed') {
-                                        bedScanStatus[scan.student_id] = {
-                                            verified: false,
-                                            status: 'Failed',
-                                            time: scan.created_at,
-                                            method: scan.metadata?.method || 'face-recognition'
+                                            time: student.updated_at || now(),
+                                            method: 'from-student-status'
                                         };
                                     }
                                 });
                             }
-                        } catch (scanError) {
-                            console.warn('Could not load scans:', scanError);
+                        } catch (e) {
+                            console.warn('Could not load student statuses:', e);
                         }
-                    }
-                    
-                    // 4. Also update from students table status as fallback
-                    try {
-                        const studentsData = await apiCall(`/students?hostel_id=${assignedHostelId}`);
-                        if (studentsData && studentsData.data) {
-                            studentsData.data.forEach(student => {
-                                // If student status is Verified or Present and no scan record yet
-                                if ((student.status === 'Verified' || student.status === 'Present') && 
-                                    !bedScanStatus[student.id]) {
-                                    bedScanStatus[student.id] = {
-                                        verified: true,
-                                        status: student.status,
-                                        time: student.updated_at || now(),
-                                        confidence: null,
-                                        method: 'from-student-status'
-                                    };
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Could not load student statuses:', e);
+                    } else {
+                        // No active session - reset all statuses to pending
+                        bedScanStatus = {};
                     }
                     
                     // 5. Update completed rooms based on loaded status
@@ -1965,19 +1983,49 @@
                     roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
                 }
 
-                // Build student cards
+                // Build student cards - UPDATED with correct session state handling
                 let studentCardsHtml = '';
                 if (currentRoom && roomStudents.length > 0) {
                     studentCardsHtml = roomStudents.map(s => {
                         const scan = bedScanStatus[s.id];
-                        const isVerified = scan?.verified || false;
-                        const status = scan?.status || 'Pending';
-                        const statusClass = isVerified ? 'verified' : 'pending';
-                        const statusLabel = isVerified ? '✓ Verified' : 'Pending';
+                        
+                        // Determine status based on scan or student status
+                        let isVerified = false;
+                        let statusLabel = 'Pending';
+                        let statusClass = 'pending';
+                        let isAbsent = false;
+                        let isSessionEnded = effectiveStatus === 'completed' || hasCompletedToday;
+                        
+                        if (scan) {
+                            if (scan.verified === true || scan.status === 'Verified' || scan.status === 'Present') {
+                                isVerified = true;
+                                statusLabel = '✓ Verified';
+                                statusClass = 'verified';
+                            } else if (scan.status === 'Absent') {
+                                isAbsent = true;
+                                statusLabel = 'Absent';
+                                statusClass = 'absent';
+                            }
+                        } else {
+                            // Check if student has a status from the students table
+                            if (s.status === 'Verified' || s.status === 'Present') {
+                                isVerified = true;
+                                statusLabel = '✓ Verified';
+                                statusClass = 'verified';
+                            } else if (s.status === 'Absent') {
+                                isAbsent = true;
+                                statusLabel = 'Absent';
+                                statusClass = 'absent';
+                            }
+                        }
+                        
                         const bedLabel = getStudentBed(s.id) || '—';
                         const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
                         const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
-                        const canVerify = !isVerified && isSessionActive && effectiveStatus !== 'completed' && !hasCompletedToday;
+                        
+                        // Can verify only if: NOT verified, NOT absent, session is active, NOT completed
+                        const canVerify = !isVerified && !isAbsent && isSessionActive && 
+                                         effectiveStatus !== 'completed' && !hasCompletedToday;
                         
                         const faceStatus = studentFaceStatus[s.id];
                         let hasFace = false;
@@ -2000,7 +2048,7 @@
                         }
 
                         return `
-                            <div class="student-card ${isVerified ? 'verified' : ''}">
+                            <div class="student-card ${isVerified ? 'verified' : isAbsent ? 'absent' : ''}">
                                 <div class="student-info">
                                     <div class="name">${s.name}</div>
                                     <div class="matric">${s.matric || '—'} · Bed ${bedLabel} 
@@ -2009,6 +2057,7 @@
                                         </span>
                                     </div>
                                     ${isVerified ? `<div class="text-xs text-muted">Verified ${verifiedTime}${confidence}</div>` : ''}
+                                    ${isAbsent ? `<div class="text-xs text-muted">Marked Absent</div>` : ''}
                                 </div>
                                 <span class="status-tag ${statusClass}">${statusLabel}</span>
                                 ${canVerify ? `
@@ -2016,11 +2065,14 @@
                                         <i class="fas fa-camera"></i> Verify
                                     </button>
                                 ` : ''}
-                                ${!isVerified && !isSessionActive ? `
-                                    <span class="text-xs text-muted">⏳ Wait</span>
+                                ${!isVerified && !isAbsent && !isSessionActive && !isSessionEnded ? `
+                                    <span class="text-xs text-muted">⏳ No active session</span>
                                 ` : ''}
-                                ${!isVerified && effectiveStatus === 'completed' ? `
-                                    <span class="text-xs text-muted">✅ Done</span>
+                                ${!isVerified && !isAbsent && isSessionEnded ? `
+                                    <span class="text-xs text-muted">✅ Session ended</span>
+                                ` : ''}
+                                ${isAbsent ? `
+                                    <span class="text-xs text-muted">❌ Absent</span>
                                 ` : ''}
                             </div>
                         `;
