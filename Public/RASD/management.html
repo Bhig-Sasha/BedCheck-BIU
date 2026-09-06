@@ -89,15 +89,13 @@
     .btn-success:hover { background: #1f4a32; transform: translateY(-1px); }
 
     .metric-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; animation: fadeIn 0.6s ease; }
-    @media (min-width:640px) { .metric-grid { grid-template-columns: repeat(4,1fr); } }
+    @media (min-width:640px) { .metric-grid { grid-template-columns: repeat(3,1fr); } }
     .metric-card { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; transition: all 0.25s ease; cursor: default; }
     .metric-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-color: #c9bca8; }
     .metric-icon { display: inline-flex; padding: 0.5rem; border-radius: 0.5rem; font-size: 1rem; }
     .metric-icon.navy { background: #e7edf5; color: #24466f; }
-    .metric-icon.gold { background: #fff1c9; color: #8b6513; }
-    .metric-icon.red { background: #f9e2de; color: #9c3e32; }
-    .metric-icon.gray { background: #eceff2; color: #536274; }
     .metric-icon.green { background: #e1f0e5; color: #2d6545; }
+    .metric-icon.red { background: #f9e2de; color: #9c3e32; }
     .metric-value { margin-top: 0.75rem; font-size: 1.8rem; font-weight: 700; transition: all 0.3s; }
     .metric-title { margin-top: 0.25rem; font-weight: 700; font-size: 0.95rem; }
     .metric-detail { margin-top: 0.15rem; font-size: 0.75rem; color: #6b778b; }
@@ -195,14 +193,6 @@
     .drawer-footer-actions .btn-sm.primary:hover { background: #18345a; }
     .drawer-footer-actions .btn-sm.danger { background: #a84134; color: white; border-color: #a84134; }
     .drawer-footer-actions .btn-sm.danger:hover { background: #8a3328; }
-
-    .hostel-progress-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #f0ebe3; transition: background 0.15s; }
-    .hostel-progress-row:last-child { border-bottom: none; }
-    .hostel-progress-row:hover { background: #f8f4ec; }
-    .hostel-progress-row .hostel-name { font-weight: 600; font-size: 0.85rem; min-width: 10rem; }
-    .hostel-progress-row .hostel-stats { font-size: 0.7rem; color: #6b778b; }
-    .hostel-progress-row .progress-bar { flex: 1; height: 0.3rem; background: #e6e2da; border-radius: 9999px; overflow: hidden; }
-    .hostel-progress-row .progress-bar .fill { height: 100%; border-radius: 9999px; transition: width 0.8s ease; }
 
     @media (max-width:640px) { .quick-actions { grid-template-columns: 1fr; } }
     ::-webkit-scrollbar { width: 6px; }
@@ -445,40 +435,19 @@
     }
 
     // ========== CALCULATE STATS ==========
-    function calcStats(students, hostels, bedSpaces) {
+    function calcStats(students) {
       const total = students.length;
-      const assigned = students.filter(s => s.room_id !== null && s.room_id > 0).length;
-      const completed = students.filter(s => s.status === 'Completed' || s.status === 'Registration Complete').length;
-      const issues = students.filter(s => !s.name || !s.matric || (s.room_id === null || s.room_id === 0)).length;
-      const totalBeds = bedSpaces.length;
-      const available = bedSpaces.filter(b => b.status === 'available').length;
       const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
       const absent = students.filter(s => s.status === 'Absent').length;
-      const late = students.filter(s => s.status === 'Late').length;
-      const onlineReg = total;
-      return { total, assigned, completed, issues, totalBeds, available, present, absent, late, onlineReg };
+      return { total, present, absent };
     }
 
     // ========== RENDER PAGE ==========
     function renderPage(stats, students, hostels) {
       const container = document.getElementById('screenContent');
       const total = stats.total || 0;
-      const assigned = stats.assigned || 0;
-      const issues = stats.issues || 0;
-      const available = stats.available || 0;
       const present = stats.present || 0;
       const absent = stats.absent || 0;
-      const late = stats.late || 0;
-      const onlineReg = stats.onlineReg || 0;
-
-      // Hostel progress
-      const hostelProgress = hostels.map(h => {
-        const hostelStudents = students.filter(s => s.hostel_id === h.id || s.hostel_name === h.name);
-        const totalH = hostelStudents.length;
-        const assignedH = hostelStudents.filter(s => s.room_id !== null && s.room_id > 0).length;
-        const progress = totalH > 0 ? Math.round((assignedH / totalH) * 100) : 0;
-        return { name: h.name || 'Unknown', registered: totalH, assigned: assignedH, progress };
-      });
 
       // Paginated students
       const start = (currentPage - 1) * PAGE_SIZE;
@@ -493,20 +462,12 @@
             <h1>Student Operations & BedCheck</h1>
             <p class="desc">Monitor student status, hostel assignment, attendance, and QR identity across all hostels.</p>
           </div>
-          <div class="action-group">
-            <button class="btn-outline" onclick="window.exportCSV()"><i class="fas fa-file-csv"></i> Export CSV</button>
-            <button class="btn-outline" onclick="showToast('Printing...','info')"><i class="fas fa-print"></i> Print</button>
-            <button class="btn-primary" onclick="window.refreshData()"><i class="fas fa-sync"></i> Refresh</button>
-          </div>
         </div>
 
         <div class="metric-grid">
-          <div class="metric-card"><div class="metric-icon navy"><i class="fas fa-users"></i></div><div class="metric-value">${total}</div><div class="metric-title">Total Students</div><div class="metric-detail">Registered students</div></div>
-          <div class="metric-card"><div class="metric-icon green"><i class="fas fa-check-circle"></i></div><div class="metric-value" style="color:#2d6545;">${present}</div><div class="metric-title">Present</div><div class="metric-detail">Currently present</div></div>
-          <div class="metric-card"><div class="metric-icon red"><i class="fas fa-times-circle"></i></div><div class="metric-value" style="color:#8a3328;">${absent}</div><div class="metric-title">Absent</div><div class="metric-detail">Currently absent</div></div>
-          <div class="metric-card"><div class="metric-icon gold"><i class="fas fa-clock"></i></div><div class="metric-value" style="color:#92400e;">${late}</div><div class="metric-title">Late</div><div class="metric-detail">Late arrivals</div></div>
-          <div class="metric-card"><div class="metric-icon gray"><i class="fas fa-globe"></i></div><div class="metric-value">${onlineReg}</div><div class="metric-title">Online Registered</div><div class="metric-detail">Total online registrations</div></div>
-          <div class="metric-card"><div class="metric-icon green"><i class="fas fa-home"></i></div><div class="metric-value" style="color:#2d6545;">${assigned}</div><div class="metric-title">Assigned Hostel</div><div class="metric-detail">Students with hostel assignment</div></div>
+          <div class="metric-card"><div class="metric-icon navy"><i class="fas fa-users"></i></div><div class="metric-value">${total}</div><div class="metric-title">Total Students</div><div class="metric-detail">Registered in scope</div></div>
+          <div class="metric-card"><div class="metric-icon green"><i class="fas fa-check-circle"></i></div><div class="metric-value" style="color:#2d6545;">${present}</div><div class="metric-title">Present</div><div class="metric-detail">Students present</div></div>
+          <div class="metric-card"><div class="metric-icon red"><i class="fas fa-user-slash"></i></div><div class="metric-value" style="color:#9c3e32;">${absent}</div><div class="metric-title">Absent</div><div class="metric-detail">Students absent</div></div>
         </div>
 
         <div class="card mt-4" style="padding:0.75rem 1rem;">
@@ -554,21 +515,6 @@
           </div>` : ''}
         </div>
 
-        <!-- Hostel Registration Progress - Only this section remains -->
-        <div class="card mt-6">
-          <div class="card-title">Hostel Registration Progress</div>
-          <div class="mt-3">
-            ${hostelProgress.length > 0 ? hostelProgress.map(h => `
-              <div class="hostel-progress-row">
-                <span class="hostel-name">${h.name}</span>
-                <span class="hostel-stats">${h.assigned} / ${h.registered}</span>
-                <div class="progress-bar"><div class="fill" style="width:${h.progress}%;background:${h.progress === 100 ? '#2d6545' : '#d6ad4b'};"></div></div>
-                <span style="font-size:0.7rem;font-weight:600;color:#68768a;min-width:2.5rem;text-align:right;">${h.progress}%</span>
-              </div>
-            `).join('') : '<p class="text-muted text-sm">No hostels found</p>'}
-          </div>
-        </div>
-
         <div class="mt-6 pt-4 border-t text-center">
           <p class="text-xs text-muted">BIU BedCheck System v1.0 · © Benson Idahosa University <span class="ml-4"><span class="status-dot green"></span> System Online</span></p>
         </div>
@@ -580,7 +526,7 @@
     window.goToPage = function(page) {
       if (page < 1 || page > Math.ceil(allStudents.length / PAGE_SIZE)) return;
       currentPage = page;
-      const stats = calcStats(allStudents, allHostels, allBedSpaces);
+      const stats = calcStats(allStudents);
       renderPage(stats, allStudents, allHostels);
       document.getElementById('studentTableBody').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -594,7 +540,7 @@
       if (hostelVal) filtered = filtered.filter(s => s.hostel_id == hostelVal || s.hostel_name === hostelVal);
       if (levelVal) filtered = filtered.filter(s => s.level === levelVal);
       if (statusVal) filtered = filtered.filter(s => s.status === statusVal);
-      const stats = calcStats(filtered, allHostels, allBedSpaces);
+      const stats = calcStats(filtered);
       currentPage = 1;
       renderPage(stats, filtered, allHostels);
       showToast(`Showing ${filtered.length} students`, 'info');
@@ -605,23 +551,9 @@
       document.getElementById('filterLevel').value = '';
       document.getElementById('filterStatus').value = '';
       currentPage = 1;
-      const stats = calcStats(allStudents, allHostels, allBedSpaces);
+      const stats = calcStats(allStudents);
       renderPage(stats, allStudents, allHostels);
       showToast('Filters cleared', 'info');
-    };
-
-    // ========== EXPORT CSV ==========
-    window.exportCSV = function() {
-      if (!allStudents.length) { showToast('No data to export', 'error'); return; }
-      const header = 'Name,Matric,Faculty,Department,Level,Gender,Hostel,Room,Bed,Status\n';
-      const rows = allStudents.map(s => 
-        `${s.name||''},${s.matric||''},${s.faculty||''},${s.department||''},${s.level||''},${s.gender||''},${s.hostel_name||s.hostel||''},${s.room_code||s.room||''},${s.bed_code||''},${s.status||''}`
-      );
-      const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `students_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click(); URL.revokeObjectURL(url);
-      showToast(`${allStudents.length} records exported`, 'success');
     };
 
     // ========== REFRESH ==========
@@ -642,7 +574,7 @@
           }
         }
         
-        const stats = calcStats(allStudents, allHostels, allBedSpaces);
+        const stats = calcStats(allStudents);
         currentPage = 1;
         renderPage(stats, allStudents, allHostels);
         showToast('Data refreshed', 'success');
@@ -820,7 +752,7 @@
           updateUserUI(null);
         }
         
-        const stats = calcStats(allStudents, allHostels, allBedSpaces);
+        const stats = calcStats(allStudents);
         renderPage(stats, allStudents, allHostels);
       } catch(e) {
         if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
