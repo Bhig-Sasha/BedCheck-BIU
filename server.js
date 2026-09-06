@@ -612,6 +612,10 @@ class InsightFaceService {
 
 const faceService = new InsightFaceService(FACE_API_URL);
 
+// In-process face queue (limits concurrent Face API calls)
+const faceQueue = require('./faceQueue');
+console.log(`Face queue ready (concurrency=${process.env.FACE_CONCURRENCY || 3})`);
+
 // =====================================================
 // SESSION MANAGEMENT FUNCTIONS
 // =====================================================
@@ -7356,11 +7360,13 @@ app.post('/api/attendance/verify',
                 });
             }
             
-            // Verify face with InsightFace API
-            const verificationResult = await faceService.verifyFace(
-                image,
-                faceData.face_embedding,
-                FACE_VERIFICATION_THRESHOLD
+            // Verify face via queue (max N concurrent Face API jobs)
+            const verificationResult = await faceQueue.add(() =>
+                faceService.verifyFace(
+                    image,
+                    faceData.face_embedding,
+                    FACE_VERIFICATION_THRESHOLD
+                )
             );
             
             if (!verificationResult.success || !verificationResult.verified) {
@@ -13351,11 +13357,13 @@ app.post('/api/bedcheck/scan-with-face',
             const embeddings = faceData.map(f => f.face_embedding);
             const faceStudentIds = faceData.map(f => f.student_id);
 
-            const result = await faceService.verifyMultiple(
-                image,
-                embeddings,
-                faceStudentIds,
-                threshold
+            const result = await faceQueue.add(() =>
+                faceService.verifyMultiple(
+                    image,
+                    embeddings,
+                    faceStudentIds,
+                    threshold
+                )
             );
 
             let matchedStudent = null;
