@@ -1613,7 +1613,7 @@
             }
 
             // =============================================
-            // LOAD SESSION DATA - FIXED TO RESTORE SCANS
+            // LOAD SESSION DATA - FIXED TO CLEAR STATUS WHEN NO SESSION
             // =============================================
             async function loadSessionData() {
                 try {
@@ -1637,6 +1637,7 @@
                     }
                     
                     // 2. Get RA session status
+                    let sessionIsActive = false;
                     try {
                         const statusData = await apiCall('/ra/bedcheck/status');
                         
@@ -1651,22 +1652,27 @@
                                 sessionStatus = 'active';
                                 isSessionActive = true;
                                 isRASessionActive = true;
+                                sessionIsActive = true;
                             } else if (effectiveStatus === 'ready') {
                                 sessionStatus = 'ready';
                                 isSessionActive = true;
                                 isRASessionActive = false;
                                 globalSessionActive = true;
+                                sessionIsActive = true;
                             } else if (effectiveStatus === 'completed') {
                                 sessionStatus = 'completed';
                                 isSessionActive = false;
                                 hasCompletedToday = true;
+                                sessionIsActive = false;
                             } else if (globalSessionActive) {
                                 sessionStatus = 'ready';
                                 isSessionActive = true;
                                 globalSessionActive = true;
+                                sessionIsActive = true;
                             } else {
                                 sessionStatus = 'closed';
                                 isSessionActive = false;
+                                sessionIsActive = false;
                             }
                         }
                     } catch (e) {
@@ -1674,18 +1680,27 @@
                             sessionStatus = 'ready';
                             isSessionActive = true;
                             effectiveStatus = 'ready';
+                            sessionIsActive = true;
                         } else {
                             sessionStatus = 'closed';
                             isSessionActive = false;
                             effectiveStatus = 'closed';
+                            sessionIsActive = false;
                         }
                     }
                     
                     // =========================================================
-                    // 3. CRITICAL: LOAD SCANS FROM DATABASE TO RESTORE STATE
+                    // 3. CRITICAL: CLEAR OR LOAD SCANS BASED ON SESSION STATE
                     // =========================================================
-                    // Only load scans if there's an active or completed session
-                    if (isSessionActive || effectiveStatus === 'completed' || hasCompletedToday) {
+                    
+                    // If there's NO active session, clear all statuses
+                    if (!sessionIsActive && !hasCompletedToday && effectiveStatus !== 'completed') {
+                        // No active session - reset all statuses to pending
+                        bedScanStatus = {};
+                        completedRooms = [];
+                        console.log('📋 No active session - cleared all scan statuses');
+                    } else {
+                        // There IS an active session OR session was completed today - load scans
                         let activeSessionId = null;
                         
                         // Try to get from RA status first
@@ -1738,13 +1753,14 @@
                                             };
                                         }
                                     });
+                                    console.log(`📊 Loaded ${Object.keys(bedScanStatus).length} scan records from DB`);
                                 }
                             } catch (scanError) {
                                 console.warn('Could not load scans:', scanError);
                             }
                         }
                         
-                        // 4. Also update from students table status as fallback
+                        // Also update from students table status as fallback (only for active/completed sessions)
                         try {
                             const studentsData = await apiCall(`/students?hostel_id=${assignedHostelId}`);
                             if (studentsData && studentsData.data) {
@@ -1774,9 +1790,6 @@
                         } catch (e) {
                             console.warn('Could not load student statuses:', e);
                         }
-                    } else {
-                        // No active session - reset all statuses to pending
-                        bedScanStatus = {};
                     }
                     
                     // 5. Update completed rooms based on loaded status
@@ -1983,7 +1996,7 @@
                     roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
                 }
 
-                // Build student cards - UPDATED with correct session state handling
+                // Build student cards - UPDATED with proper session state handling
                 let studentCardsHtml = '';
                 if (currentRoom && roomStudents.length > 0) {
                     studentCardsHtml = roomStudents.map(s => {
@@ -1995,28 +2008,38 @@
                         let statusClass = 'pending';
                         let isAbsent = false;
                         let isSessionEnded = effectiveStatus === 'completed' || hasCompletedToday;
+                        let isSessionLive = isSessionActive && (effectiveStatus === 'started' || effectiveStatus === 'ready');
                         
-                        if (scan) {
-                            if (scan.verified === true || scan.status === 'Verified' || scan.status === 'Present') {
-                                isVerified = true;
-                                statusLabel = '✓ Verified';
-                                statusClass = 'verified';
-                            } else if (scan.status === 'Absent') {
-                                isAbsent = true;
-                                statusLabel = 'Absent';
-                                statusClass = 'absent';
+                        // ONLY show verified/absent status if session is active or completed
+                        if (isSessionLive || isSessionEnded) {
+                            if (scan) {
+                                if (scan.verified === true || scan.status === 'Verified' || scan.status === 'Present') {
+                                    isVerified = true;
+                                    statusLabel = '✓ Verified';
+                                    statusClass = 'verified';
+                                } else if (scan.status === 'Absent') {
+                                    isAbsent = true;
+                                    statusLabel = 'Absent';
+                                    statusClass = 'absent';
+                                }
+                            } else {
+                                // Check if student has a status from the students table
+                                if (s.status === 'Verified' || s.status === 'Present') {
+                                    isVerified = true;
+                                    statusLabel = '✓ Verified';
+                                    statusClass = 'verified';
+                                } else if (s.status === 'Absent') {
+                                    isAbsent = true;
+                                    statusLabel = 'Absent';
+                                    statusClass = 'absent';
+                                }
                             }
                         } else {
-                            // Check if student has a status from the students table
-                            if (s.status === 'Verified' || s.status === 'Present') {
-                                isVerified = true;
-                                statusLabel = '✓ Verified';
-                                statusClass = 'verified';
-                            } else if (s.status === 'Absent') {
-                                isAbsent = true;
-                                statusLabel = 'Absent';
-                                statusClass = 'absent';
-                            }
+                            // No active session - everything is Pending
+                            statusLabel = 'Pending';
+                            statusClass = 'pending';
+                            isVerified = false;
+                            isAbsent = false;
                         }
                         
                         const bedLabel = getStudentBed(s.id) || '—';
@@ -2024,7 +2047,7 @@
                         const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                         
                         // Can verify only if: NOT verified, NOT absent, session is active, NOT completed
-                        const canVerify = !isVerified && !isAbsent && isSessionActive && 
+                        const canVerify = !isVerified && !isAbsent && isSessionLive && 
                                          effectiveStatus !== 'completed' && !hasCompletedToday;
                         
                         const faceStatus = studentFaceStatus[s.id];
@@ -2065,7 +2088,7 @@
                                         <i class="fas fa-camera"></i> Verify
                                     </button>
                                 ` : ''}
-                                ${!isVerified && !isAbsent && !isSessionActive && !isSessionEnded ? `
+                                ${!isVerified && !isAbsent && !isSessionLive && !isSessionEnded ? `
                                     <span class="text-xs text-muted">⏳ No active session</span>
                                 ` : ''}
                                 ${!isVerified && !isAbsent && isSessionEnded ? `
@@ -2414,5 +2437,6 @@
 
         })();
     </script>
+    
 </body>
 </html>
