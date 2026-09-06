@@ -1163,7 +1163,7 @@
             <div class="nav-label">System</div>
             <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports & Audit</a>
             <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
-            <a href="./dev-security.html" class="active"><i class="fas fa-shield-alt"></i> Security & Recovery</a>
+            <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security & Recovery</a>
             <a href="./dev-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
         </nav>
 
@@ -1379,7 +1379,7 @@
 
     </main>
 
-<script>
+    <script>
         (function() {
             'use strict';
 
@@ -1413,7 +1413,7 @@
             let refreshInterval = null;
 
             // ============================================
-            // API HELPERS
+            // API HELPERS - FIXED to remove limit parameters
             // ============================================
             function getHeaders() {
                 return {
@@ -1424,7 +1424,10 @@
 
             async function apiFetch(endpoint, options = {}) {
                 try {
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    // Clean the endpoint - remove any query parameters that might cause validation issues
+                    const cleanEndpoint = endpoint.split('?')[0];
+                    
+                    const response = await fetch(`${API_BASE_URL}${cleanEndpoint}`, {
                         ...options,
                         headers: {
                             ...getHeaders(),
@@ -1437,23 +1440,6 @@
                         localStorage.removeItem('bedcheck_token');
                         window.location.href = '../Login.html';
                         throw new Error('Session expired. Please login again.');
-                    }
-
-                    if (response.status === 400) {
-                        // Try without limit parameter
-                        const cleanEndpoint = endpoint.split('?')[0];
-                        const response2 = await fetch(`${API_BASE_URL}${cleanEndpoint}`, {
-                            ...options,
-                            headers: {
-                                ...getHeaders(),
-                                ...(options.headers || {})
-                            }
-                        });
-                        const data2 = await response2.json();
-                        if (!data2.success) {
-                            throw new Error(data2.message || 'API request failed');
-                        }
-                        return data2;
                     }
 
                     const data = await response.json();
@@ -1508,7 +1494,7 @@
             }
 
             // ============================================
-            // LOAD ALL DATA - FIXED ENDPOINTS
+            // LOAD ALL DATA - NO limit parameters
             // ============================================
             async function loadAllData() {
                 try {
@@ -1529,7 +1515,7 @@
 
                     await loadUserData();
 
-                    // ✅ FIXED: Remove limit parameter from all endpoints
+                    // ✅ FIXED: No limit parameters - use clean endpoints
                     const [
                         studentsData,
                         staffData,
@@ -1560,7 +1546,7 @@
                     dataStore.rooms = roomsData.data || [];
                     dataStore.bed_spaces = bedSpacesData.data || [];
                     
-                    // Handle session data (could be null or an array)
+                    // Handle session data
                     if (sessionData && sessionData.data) {
                         dataStore.sessions = [sessionData.data];
                     } else if (sessionData && Array.isArray(sessionData)) {
@@ -1620,7 +1606,7 @@
             }
 
             // ============================================
-            // UPDATE BEDCHECK - Using sessions table
+            // UPDATE BEDCHECK
             // ============================================
             function updateBedCheck() {
                 const session = dataStore.sessions && dataStore.sessions.length > 0 ? dataStore.sessions[0] : null;
@@ -1686,13 +1672,11 @@
                     const present = hostelStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
                     const progress = total > 0 ? Math.round((present / total) * 100) : 0;
 
-                    // Get room count for this hostel
                     const hostelRooms = dataStore.rooms.filter(r => {
                         const floor = dataStore.floors_flats.find(f => f.id === r.floor_flat_id);
                         return floor && floor.hostel_id === hostel.id;
                     });
 
-                    // Get bed count for this hostel
                     const hostelBeds = dataStore.bed_spaces.filter(b => {
                         const room = dataStore.rooms.find(r => r.id === b.room_id);
                         if (!room) return false;
@@ -1730,7 +1714,6 @@
 
                 const activities = [];
 
-                // Use audit logs first
                 if (dataStore.audit_logs && dataStore.audit_logs.length > 0) {
                     dataStore.audit_logs.slice(0, 5).forEach(log => {
                         const time = log.created_at ? new Date(log.created_at).toLocaleTimeString('en-US', {
@@ -1748,7 +1731,6 @@
                     });
                 }
 
-                // If no audit logs, use bedcheck scans
                 if (activities.length === 0 && dataStore.bedcheck_scans && dataStore.bedcheck_scans.length > 0) {
                     dataStore.bedcheck_scans.slice(0, 5).forEach(scan => {
                         const student = dataStore.students.find(s => s.id === scan.student_id);
@@ -1803,7 +1785,6 @@
             // UPDATE SYSTEM STATUS
             // ============================================
             function updateSystemStatus() {
-                // Face API health check - using the correct endpoint from server.js
                 fetch(`${API_BASE_URL}/face/health`, {
                         headers: getHeaders()
                     })
@@ -1820,7 +1801,6 @@
                         statusEl.innerHTML = `<span class="dot offline"></span> Offline`;
                     });
 
-                // API Status - assume online
                 document.getElementById('apiStatus').innerHTML = `<span class="dot online"></span> Online`;
                 document.getElementById('dbStatus').innerHTML = `<span class="dot online"></span> Online`;
                 document.getElementById('supabaseStatus').innerHTML = `<span class="dot online"></span> Online`;
