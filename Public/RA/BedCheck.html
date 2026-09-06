@@ -667,7 +667,6 @@
                     throw new Error('No authentication token');
                 }
 
-                // Add retry logic for rate limits
                 let retries = 3;
                 let delay = 1000;
                 
@@ -682,8 +681,6 @@
                         const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
                         
                         if (response.status === 429) {
-                            const data = await response.json();
-                            
                             if (retries > 1) {
                                 const waitTime = delay * (4 - retries);
                                 await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -765,7 +762,6 @@
                     };
                     
                 } catch (error) {
-                    // Handle rate limit errors gracefully
                     if (error.message && error.message.includes('429')) {
                         const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
                         if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
@@ -817,7 +813,6 @@
                         signal: AbortSignal.timeout(12000)
                     });
 
-
                     if (response.status === 429) {
                         isApiHealthy = true;
                         apiHealthChecked = true;
@@ -853,7 +848,6 @@
                     );
 
                 } catch (error) {
-                    // On network/timeout error we still allow trying verification
                     isApiHealthy = true;
                 }
 
@@ -863,7 +857,6 @@
 
             async function verifyFaceWithAPI(imageDataUrl, studentId, threshold = 0.45) {
                 try {
-                    
                     const result = await apiCall('/face/verify', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -872,7 +865,6 @@
                             threshold: threshold
                         })
                     });
-
 
                     const verified = !!(result.data && result.data.verified);
                     const confidence = result.data?.similarity || result.data?.confidence || 0;
@@ -896,7 +888,6 @@
                 }
             }
 
-            // Check liveness
             async function checkLiveness(imageDataUrl) {
                 try {
                     const result = await apiCall('/face/liveness', {
@@ -909,7 +900,6 @@
                 }
             }
 
-            // Simple face detection using canvas (no browser API dependency)
             function checkForFaceInFrame(video) {
                 if (video && video.readyState >= 2 && !video.paused && video.videoWidth > 0) {
                     modalFaceDetected = true;
@@ -933,7 +923,7 @@
             }
 
             // =============================================
-            // CAPTURE BEST FRAME - Take multiple frames and pick the best
+            // CAPTURE BEST FRAME
             // =============================================
             function captureBestFrame(video) {
                 const canvas = document.createElement('canvas');
@@ -976,7 +966,6 @@
                     if (brightness > 80 && brightness < 220) qualityScore += 50;
                     if (contrast > 30) qualityScore += 50;
                     qualityScore = Math.min(100, qualityScore + (brightness - 127) * 0.2);
-                    
                     
                     if (qualityScore > bestQuality) {
                         bestQuality = qualityScore;
@@ -1132,7 +1121,6 @@
                 const faceStatusContainer = document.getElementById('modalFaceStatus');
                 const verifyBtn = document.getElementById('modalVerifyBtn');
                 
-                
                 const hasEnrollment = faceStatus.enrolled === true;
                 const hasEmbedding = faceStatus.has_embedding === true;
                 const isPartial = hasEnrollment && !hasEmbedding;
@@ -1215,7 +1203,7 @@
             };
 
             // =============================================
-            // START VERIFICATION - WITH BETTER FEEDBACK
+            // START VERIFICATION
             // =============================================
             window.startVerification = function() {
                 if (isVerifying) return;
@@ -1281,7 +1269,7 @@
             };
 
             // =============================================
-            // PERFORM VERIFICATION WITH API - WITH BETTER MATCHING
+            // PERFORM VERIFICATION WITH API
             // =============================================
             async function performVerificationWithAPI(imageDataUrl) {
                 try {
@@ -1311,7 +1299,6 @@
                     const confidence = result.confidence || 0;
                     const confidencePercent = Math.round(confidence * 100);
 
-
                     if (result.verified || result.success) {
                         const student = selectedStudent;
 
@@ -1323,11 +1310,22 @@
                             confidence: confidencePercent
                         };
 
+                        // Get the correct session ID
+                        let sessionId = currentSession?.id || null;
+                        if (!sessionId) {
+                            try {
+                                const statusData = await apiCall('/ra/bedcheck/status');
+                                if (statusData && statusData.data && statusData.data.active_session) {
+                                    sessionId = statusData.data.active_session.session_id || statusData.data.active_session.id;
+                                }
+                            } catch (e) {}
+                        }
+
                         try {
                             await apiCall('/bedcheck/scans', {
                                 method: 'POST',
                                 body: JSON.stringify({
-                                    session_id: currentSession?.id || null,
+                                    session_id: sessionId,
                                     student_id: student.id,
                                     room: currentRoom || student.room_code,
                                     status: 'Verified',
@@ -1341,7 +1339,17 @@
                                     }
                                 })
                             });
+                            
+                            // Also update student status
+                            try {
+                                await apiCall(`/students/${student.id}/status`, {
+                                    method: 'PUT',
+                                    body: JSON.stringify({ status: 'Verified' })
+                                });
+                            } catch (statusError) {}
+                            
                         } catch (scanError) {
+                            console.error('Failed to save scan:', scanError);
                         }
 
                         showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
@@ -1605,7 +1613,7 @@
             }
 
             // =============================================
-            // LOAD SESSION DATA
+            // LOAD SESSION DATA - FIXED TO RESTORE SCANS
             // =============================================
             async function loadSessionData() {
                 try {
@@ -1613,6 +1621,7 @@
                         return;
                     }
                     
+                    // 1. Get global session
                     try {
                         const globalSession = await apiCall('/sessions/active');
                         if (globalSession && globalSession.data && globalSession.is_active) {
@@ -1627,6 +1636,7 @@
                         currentSession = null;
                     }
                     
+                    // 2. Get RA session status
                     try {
                         const statusData = await apiCall('/ra/bedcheck/status');
                         
@@ -1658,45 +1668,6 @@
                                 sessionStatus = 'closed';
                                 isSessionActive = false;
                             }
-                            
-                            if (data.active_session || currentSession) {
-                                const sessionId = data.active_session?.session_id || currentSession?.id;
-                                if (sessionId) {
-                                    try {
-                                        const scansData = await apiCall(`/bedcheck/scans?session_id=${sessionId}`);
-                                        if (scansData && scansData.data) {
-                                            scansData.data.forEach(scan => {
-                                                if (scan.status === 'Verified' || scan.status === 'Present') {
-                                                    bedScanStatus[scan.student_id] = {
-                                                        verified: true,
-                                                        status: 'Verified',
-                                                        time: scan.created_at,
-                                                        confidence: scan.metadata?.confidence || null
-                                                    };
-                                                } else if (scan.status === 'Absent') {
-                                                    bedScanStatus[scan.student_id] = {
-                                                        verified: false,
-                                                        status: 'Absent',
-                                                        time: scan.created_at
-                                                    };
-                                                }
-                                            });
-                                        }
-                                    } catch (scanError) {
-                                        // Silent fail
-                                    }
-                                }
-                            }
-                            
-                            if (availableRooms.length > 0) {
-                                completedRooms = [];
-                                availableRooms.forEach(room => {
-                                    const students = getStudentsForRoom(room);
-                                    if (students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified)) {
-                                        completedRooms.push(room);
-                                    }
-                                });
-                            }
                         }
                     } catch (e) {
                         if (globalSessionActive) {
@@ -1706,7 +1677,103 @@
                         }
                     }
                     
+                    // =========================================================
+                    // 3. CRITICAL: LOAD SCANS FROM DATABASE TO RESTORE STATE
+                    // =========================================================
+                    let activeSessionId = null;
+                    
+                    // Try to get from RA status first
+                    try {
+                        const statusData = await apiCall('/ra/bedcheck/status');
+                        if (statusData && statusData.data) {
+                            const data = statusData.data;
+                            if (data.active_session) {
+                                activeSessionId = data.active_session.session_id || data.active_session.id;
+                            }
+                        }
+                    } catch (e) {}
+                    
+                    // If not found, use currentSession
+                    if (!activeSessionId && currentSession) {
+                        activeSessionId = currentSession.id;
+                    }
+                    
+                    // If we have a session ID, load ALL scans for this session
+                    if (activeSessionId) {
+                        try {
+                            const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
+                            
+                            if (scansData && scansData.data) {
+                                // Reset bedScanStatus - we're reloading from DB
+                                bedScanStatus = {};
+                                
+                                scansData.data.forEach(scan => {
+                                    // Store every scan, not just Verified
+                                    if (scan.status === 'Verified' || scan.status === 'Present') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: true,
+                                            status: 'Verified',
+                                            time: scan.created_at,
+                                            confidence: scan.metadata?.confidence || null,
+                                            method: scan.metadata?.method || 'face-recognition'
+                                        };
+                                    } else if (scan.status === 'Absent') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: false,
+                                            status: 'Absent',
+                                            time: scan.created_at,
+                                            method: scan.metadata?.method || 'auto-absent'
+                                        };
+                                    } else if (scan.status === 'Failed') {
+                                        bedScanStatus[scan.student_id] = {
+                                            verified: false,
+                                            status: 'Failed',
+                                            time: scan.created_at,
+                                            method: scan.metadata?.method || 'face-recognition'
+                                        };
+                                    }
+                                });
+                            }
+                        } catch (scanError) {
+                            console.warn('Could not load scans:', scanError);
+                        }
+                    }
+                    
+                    // 4. Also update from students table status as fallback
+                    try {
+                        const studentsData = await apiCall(`/students?hostel_id=${assignedHostelId}`);
+                        if (studentsData && studentsData.data) {
+                            studentsData.data.forEach(student => {
+                                // If student status is Verified or Present and no scan record yet
+                                if ((student.status === 'Verified' || student.status === 'Present') && 
+                                    !bedScanStatus[student.id]) {
+                                    bedScanStatus[student.id] = {
+                                        verified: true,
+                                        status: student.status,
+                                        time: student.updated_at || now(),
+                                        confidence: null,
+                                        method: 'from-student-status'
+                                    };
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Could not load student statuses:', e);
+                    }
+                    
+                    // 5. Update completed rooms based on loaded status
+                    if (availableRooms.length > 0) {
+                        completedRooms = [];
+                        availableRooms.forEach(room => {
+                            const students = getStudentsForRoom(room);
+                            if (students.length > 0 && students.every(s => bedScanStatus[s.id]?.verified)) {
+                                completedRooms.push(room);
+                            }
+                        });
+                    }
+                    
                 } catch (error) {
+                    console.error('loadSessionData error:', error);
                     sessionStatus = 'closed';
                     isSessionActive = false;
                     currentSession = null;
@@ -2203,7 +2270,7 @@
                     // Face health check – non-blocking
                     checkFaceApiHealth().catch(() => {});
 
-                    // Load all independent data in parallel (no artificial delays)
+                    // Load all independent data in parallel
                     const results = await Promise.allSettled([
                         apiCall('/hostels'),
                         apiCall('/students'),
@@ -2218,7 +2285,6 @@
                     allRooms       = results[3].status === 'fulfilled' ? (results[3].value.data || []) : [];
                     allBedSpaces   = results[4].status === 'fulfilled' ? (results[4].value.data || []) : [];
 
-                    // Soft-fail: if any critical endpoint failed, still continue with what we have
                     const failed = results.filter(r => r.status === 'rejected');
                     if (failed.length > 0) {
                         showToast(`Some data could not be loaded (${failed.length} endpoint(s)). Showing available data.`, 'info');
