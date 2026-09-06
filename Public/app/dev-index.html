@@ -1439,6 +1439,23 @@
                         throw new Error('Session expired. Please login again.');
                     }
 
+                    if (response.status === 400) {
+                        // Try without limit parameter
+                        const cleanEndpoint = endpoint.split('?')[0];
+                        const response2 = await fetch(`${API_BASE_URL}${cleanEndpoint}`, {
+                            ...options,
+                            headers: {
+                                ...getHeaders(),
+                                ...(options.headers || {})
+                            }
+                        });
+                        const data2 = await response2.json();
+                        if (!data2.success) {
+                            throw new Error(data2.message || 'API request failed');
+                        }
+                        return data2;
+                    }
+
                     const data = await response.json();
                     if (!data.success) {
                         throw new Error(data.message || 'API request failed');
@@ -1491,7 +1508,7 @@
             }
 
             // ============================================
-            // LOAD ALL DATA
+            // LOAD ALL DATA - FIXED ENDPOINTS
             // ============================================
             async function loadAllData() {
                 try {
@@ -1512,7 +1529,7 @@
 
                     await loadUserData();
 
-                    // ✅ FIXED ENDPOINTS - Using server.js routes
+                    // ✅ FIXED: Remove limit parameter from all endpoints
                     const [
                         studentsData,
                         staffData,
@@ -1524,15 +1541,15 @@
                         scansData,
                         auditData
                     ] = await Promise.all([
-                        apiFetch('/students?limit=1000').catch(() => ({ data: [] })),
-                        apiFetch('/staff?limit=100').catch(() => ({ data: [] })),
+                        apiFetch('/students').catch(() => ({ data: [] })),
+                        apiFetch('/staff').catch(() => ({ data: [] })),
                         apiFetch('/hostels').catch(() => ({ data: [] })),
                         apiFetch('/floors-flats').catch(() => ({ data: [] })),
-                        apiFetch('/rooms?limit=1000').catch(() => ({ data: [] })),
-                        apiFetch('/bed-spaces?limit=1000').catch(() => ({ data: [] })),
+                        apiFetch('/rooms').catch(() => ({ data: [] })),
+                        apiFetch('/bed-spaces').catch(() => ({ data: [] })),
                         apiFetch('/sessions/active').catch(() => ({ data: null })),
-                        apiFetch('/bedcheck/scans?limit=50').catch(() => ({ data: [] })),
-                        apiFetch('/audit/recent?limit=10').catch(() => ({ data: [] }))
+                        apiFetch('/bedcheck/scans').catch(() => ({ data: [] })),
+                        apiFetch('/audit/recent').catch(() => ({ data: [] }))
                     ]);
 
                     // Populate data store
