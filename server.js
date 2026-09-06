@@ -10552,27 +10552,32 @@ app.get('/api/hostels',
     async (req, res) => {
         try {
             const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
+            const isAdmin = adminRoles.includes(req.user.role);
+            const isRASD = req.user.role === 'RASD';
+
             let query = supabase
                 .from('hostels')
                 .select('*')
                 .order('name', { ascending: true });
-            
-            // ✅ Only filter by campus for non-admin users
-            if (!adminRoles.includes(req.user.role)) {
+
+            // Non-admins: campus only
+            if (!isAdmin) {
                 query = query.eq('campus', req.campus);
-                if (req.user.hostel_id) {
+
+                // Pin to one hostel for HRA/RA only — RASD sees all campus hostels
+                if (!isRASD && req.user.hostel_id) {
                     query = query.eq('id', req.user.hostel_id);
                 }
             }
-            // ✅ Admins see ALL campuses
+            // Admins see all campuses
 
             const { data: hostelsData, error: hostelsError } = await query;
             if (hostelsError) throw hostelsError;
 
-            const hostelIds = hostelsData.map(h => h.id);
+            const hostelIds = (hostelsData || []).map(h => h.id);
             let floorsData = [];
             let staffData = [];
-            
+
             if (hostelIds.length > 0) {
                 const { data: floors } = await supabase
                     .from('floors_flats')
@@ -10580,22 +10585,21 @@ app.get('/api/hostels',
                     .in('hostel_id', hostelIds);
                 floorsData = floors || [];
 
-                // ✅ Only filter staff by campus for non-admins
                 let staffQuery = supabase
                     .from('staff')
                     .select('id, name, role, hostel_id')
                     .in('hostel_id', hostelIds)
                     .eq('status', 'Active');
-                
-                if (!adminRoles.includes(req.user.role)) {
+
+                if (!isAdmin) {
                     staffQuery = staffQuery.eq('campus', req.campus);
                 }
-                
+
                 const { data: staff } = await staffQuery;
                 staffData = staff || [];
             }
 
-            const enrichedHostels = hostelsData.map(hostel => {
+            const enrichedHostels = (hostelsData || []).map(hostel => {
                 const hostelFloors = floorsData.filter(f => f.hostel_id === hostel.id);
                 const hostelStaff = staffData.filter(s => s.hostel_id === hostel.id);
                 const hraStaff = hostelStaff.find(s => s.role === 'HRA');
@@ -10611,15 +10615,15 @@ app.get('/api/hostels',
                 };
             });
 
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 data: enrichedHostels,
                 campus: req.campus
             });
         } catch (error) {
             console.error('Error fetching hostels:', error);
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 message: 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });
