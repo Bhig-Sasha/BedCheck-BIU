@@ -117,7 +117,8 @@
         .badge-returned { background: #f8e1dc; color: #9b3c31; }
         .badge-present { background: #e1f0e5; color: #2d6545; }
         .badge-absent { background: #f8e1dc; color: #9b3c31; }
-        .badge-late { background: #fff0cb; color: #8a6413; }
+        .badge-verified { background: #d6e8f0; color: #1a4a6b; }
+        .badge-pending { background: #e8edf2; color: #536274; }
 
         .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
         .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
@@ -328,10 +329,47 @@
             let currentRole = 'RASD';
             let students = [];
             let filteredStudents = [];
+            let hostels = [];
             let submissionState = 'In progress';
             let selectedReportType = 'today';
             let currentPage = 1;
             let currentFilter = 'all';
+            let currentCampus = null;
+            let userGender = null;
+
+            // =============================================
+            // NORMALIZERS
+            // =============================================
+            function normalizeCampus(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (v === 'heritage' || v === 'her') return 'Heritage';
+                if (v === 'legacy' || v === 'leg') return 'Legacy';
+                return null;
+            }
+
+            function normalizeGender(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (v === 'female' || v === 'f' || v === 'girl' || v === 'girls') return 'female';
+                if (v === 'male' || v === 'm' || v === 'boy' || v === 'boys') return 'male';
+                return null;
+            }
+
+            function isPresentStatus(status) {
+                const s = String(status || '').toLowerCase();
+                return s === 'present' || s === 'verified';
+            }
+
+            function isAbsentStatus(status) {
+                const s = String(status || '').toLowerCase();
+                return s === 'absent';
+            }
+
+            function getAttendanceStatus(student) {
+                const status = String(student.status || '').toLowerCase();
+                if (status === 'present' || status === 'verified') return 'Present';
+                if (status === 'absent') return 'Absent';
+                return 'Pending';
+            }
 
             // =============================================
             // API HELPER
@@ -410,29 +448,82 @@
             }
 
             function attBadge(status) {
-                const map = {
-                    'Present': 'badge-present',
-                    'Absent': 'badge-absent',
-                    'Late': 'badge-late',
-                    'Excused': 'badge-approved'
-                };
-                return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
+                const statusLower = String(status || '').toLowerCase();
+                if (statusLower === 'present' || statusLower === 'verified') {
+                    return `<span class="badge badge-present">Present</span>`;
+                } else if (statusLower === 'absent') {
+                    return `<span class="badge badge-absent">Absent</span>`;
+                } else {
+                    return `<span class="badge badge-pending">—</span>`;
+                }
             }
 
             // =============================================
             // DATA LOADING
             // =============================================
+            async function loadHostels() {
+                try {
+                    const data = await apiCall('/hostels');
+                    let allHostels = (data.data || []).map(h => ({
+                        ...h,
+                        campus: normalizeCampus(h.campus || h.campus_code),
+                        gender: normalizeGender(h.gender),
+                        status: String(h.status || h.state || '').toLowerCase()
+                    }));
+
+                    currentCampus = normalizeCampus(currentUser?.campus || currentUser?.campus_code);
+                    if (!currentCampus || !currentUser?.hostel_id) {
+                        hostels = [];
+                        return hostels;
+                    }
+
+                    const assigned = allHostels.find(h => Number(h.id) === Number(currentUser.hostel_id));
+                    const resolvedGender = normalizeGender(assigned?.gender);
+                    if (!resolvedGender) {
+                        hostels = [];
+                        return hostels;
+                    }
+
+                    userGender = resolvedGender === 'female' ? 'Female' : 'Male';
+
+                    hostels = allHostels.filter(h =>
+                        (h.status === 'active' || h.status === 'open') &&
+                        h.campus === currentCampus &&
+                        h.gender === resolvedGender
+                    );
+
+                    return hostels;
+                } catch (error) {
+                    hostels = [];
+                    return hostels;
+                }
+            }
+
             async function loadStudents() {
                 try {
                     const data = await apiCall('/students');
-                    students = data.data || [];
-                    students = students.map(s => ({
-                        ...s,
-                        hostel: s.hostel || s.hostel_name || '—',
-                        room: s.room || s.room_code || '—',
-                        hostel_name: s.hostel_name || s.hostel || '—',
-                        room_code: s.room_code || s.room || '—'
-                    }));
+                    const campus = normalizeCampus(currentCampus);
+                    const hostelIds = hostels.map(h => h.id);
+
+                    if (!campus || hostelIds.length === 0) {
+                        students = [];
+                        filteredStudents = [];
+                        return students;
+                    }
+
+                    students = (data.data || [])
+                        .filter(s =>
+                            normalizeCampus(s.campus) === campus &&
+                            hostelIds.includes(s.hostel_id)
+                        )
+                        .map(s => ({
+                            ...s,
+                            hostel: s.hostel_name || s.hostel || '—',
+                            room: s.room_code || s.room || '—',
+                            hostel_name: s.hostel_name || s.hostel || '—',
+                            room_code: s.room_code || s.room || '—'
+                        }));
+
                     filteredStudents = [...students];
                     return students;
                 } catch (error) {
@@ -458,7 +549,7 @@
             // =============================================
             function updateHeader() {
                 if (!currentUser) return;
-                
+
                 const avatar = document.getElementById('profileAvatar');
                 const name = document.getElementById('profileName');
                 const role = document.getElementById('profileRoleLabel');
@@ -468,13 +559,16 @@
 
                 const initials = currentUser.initials || getInitials(currentUser.name);
                 const displayName = currentUser.name || 'User';
+                const campus = currentCampus || currentUser.campus || '—';
+                const gender = userGender || '—';
+                const scopeText = `RASD · ${campus} · ${gender} Hostels · ${hostels.length} hostels`;
 
                 avatar.textContent = initials;
                 name.textContent = displayName;
                 role.textContent = 'RASD';
                 roleLabel.textContent = 'RASD';
-                roleScope.textContent = 'All hostels · Sessions · Reports';
-                mobileRole.textContent = `RASD · All hostels · Sessions · Reports`;
+                roleScope.textContent = scopeText;
+                mobileRole.textContent = scopeText;
             }
 
             // =============================================
@@ -489,13 +583,13 @@
             // EXPORT REPORT
             // =============================================
             function exportReport(type) {
-                const present = students.filter(s => s.status === 'Present').length || 0;
-                const absent = students.filter(s => s.status === 'Absent').length || 0;
-                const late = students.filter(s => s.status === 'Late').length || 0;
+                const present = students.filter(s => isPresentStatus(s.status)).length || 0;
+                const absent = students.filter(s => isAbsentStatus(s.status)).length || 0;
+                const pending = students.filter(s => !isPresentStatus(s.status) && !isAbsentStatus(s.status)).length || 0;
                 const total = students.length;
 
-                const data = `Report Type,${type.toUpperCase()}\nDate,${new Date().toLocaleDateString()}\n\nMetric,Value\nTotal Students,${total}\nPresent,${present}\nAbsent,${absent}\nLate,${late}\n\nStudent List\nName,Matric,Status,Hostel,Room\n`;
-                const studentData = students.map(s => `${s.name},${s.matric},${s.status},${s.hostel},${s.room}`).join('\n');
+                const data = `Report Type,${type.toUpperCase()}\nDate,${new Date().toLocaleDateString()}\nCampus,${currentCampus || '—'}\nGender,${userGender || '—'}\n\nMetric,Value\nTotal Students,${total}\nPresent,${present}\nAbsent,${absent}\nPending,${pending}\n\nStudent List\nName,Matric,Status,Hostel,Room\n`;
+                const studentData = students.map(s => `${s.name},${s.matric},${s.status || 'Pending'},${s.hostel},${s.room}`).join('\n');
                 const fullData = data + studentData;
 
                 const blob = new Blob([fullData], { type: 'text/csv' });
@@ -517,6 +611,12 @@
                 
                 if (filter === 'all') {
                     filteredStudents = [...students];
+                } else if (filter === 'Present') {
+                    filteredStudents = students.filter(s => isPresentStatus(s.status));
+                } else if (filter === 'Absent') {
+                    filteredStudents = students.filter(s => isAbsentStatus(s.status));
+                } else if (filter === 'Pending') {
+                    filteredStudents = students.filter(s => !isPresentStatus(s.status) && !isAbsentStatus(s.status));
                 } else {
                     filteredStudents = students.filter(s => s.status === filter);
                 }
@@ -546,9 +646,9 @@
             function renderReports() {
                 const container = document.getElementById('screenContent');
                 
-                const present = students.filter(s => s.status === 'Present').length || 0;
-                const absent = students.filter(s => s.status === 'Absent').length || 0;
-                const late = students.filter(s => s.status === 'Late').length || 0;
+                const present = students.filter(s => isPresentStatus(s.status)).length || 0;
+                const absent = students.filter(s => isAbsentStatus(s.status)).length || 0;
+                const pending = students.filter(s => !isPresentStatus(s.status) && !isAbsentStatus(s.status)).length || 0;
                 const total = students.length;
                 const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
 
@@ -566,7 +666,7 @@
                         <div>
                             <p class="eyebrow"><i class="fas fa-chart-bar"></i> RASD · Reports</p>
                             <h1>Attendance Reports</h1>
-                            <p class="desc">Official reporting uses approved records only.</p>
+                            <p class="desc">${currentCampus || '—'} Campus · ${userGender || '—'} hostels only · approved records when finalized.</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-primary" onclick="exportReport('${selectedReportType}')"><i class="fas fa-download"></i> Export CSV</button>
@@ -602,11 +702,11 @@
                             <div class="metric-title">Absent</div>
                             <div class="metric-detail">Students absent</div>
                         </div>
-                        <div class="metric-card" style="border-left:4px solid #d4af37;">
-                            <div class="metric-icon gold"><i class="fas fa-clock"></i></div>
-                            <div class="metric-value" style="color:#d4af37;">${late}</div>
-                            <div class="metric-title">Late</div>
-                            <div class="metric-detail">Late arrivals</div>
+                        <div class="metric-card" style="border-left:4px solid #b9c7db;">
+                            <div class="metric-icon gray"><i class="fas fa-hourglass-half"></i></div>
+                            <div class="metric-value" style="color:#536274;">${pending}</div>
+                            <div class="metric-title">Pending</div>
+                            <div class="metric-detail">Not yet marked</div>
                         </div>
                     </div>
 
@@ -627,8 +727,8 @@
                                     <div class="text-xs text-muted">Absent</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div class="font-bold text-2xl" style="color:#8a6413;">${late}</div>
-                                    <div class="text-xs text-muted">Late</div>
+                                    <div class="font-bold text-2xl" style="color:#536274;">${pending}</div>
+                                    <div class="text-xs text-muted">Pending</div>
                                 </div>
                             </div>
                             <div class="mt-4 pt-3 border-t">
@@ -652,8 +752,8 @@
                                     <div class="text-xs text-muted">Absent</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div class="font-bold text-2xl" style="color:#8a6413;">${submissionState === 'Approved' ? late : '—'}</div>
-                                    <div class="text-xs text-muted">Late</div>
+                                    <div class="font-bold text-2xl" style="color:#536274;">${submissionState === 'Approved' ? pending : '—'}</div>
+                                    <div class="text-xs text-muted">Pending</div>
                                 </div>
                             </div>
                             <div class="mt-4 pt-3 border-t">
@@ -670,7 +770,7 @@
                                     <option value="all">All Students</option>
                                     <option value="Present">🟢 Present</option>
                                     <option value="Absent">🔴 Absent</option>
-                                    <option value="Late">🟡 Late</option>
+                                    <option value="Pending">⏳ Pending</option>
                                 </select>
                                 <button class="btn-ghost" onclick="resetFilters()" style="font-size:0.8rem;"><i class="fas fa-undo"></i> Reset</button>
                             </div>
@@ -721,20 +821,23 @@
                     return;
                 }
 
-                tbody.innerHTML = pageStudents.map(s => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;align-items:center;gap:0.5rem;">
-                                <span class="avatar">${getInitials(s.name)}</span>
-                                <span class="font-bold">${s.name || 'Unknown'}</span>
-                            </div>
-                        </td>
-                        <td>${s.matric || '—'}</td>
-                        <td>${s.hostel || s.hostel_name || '—'}</td>
-                        <td>${s.room || s.room_code || '—'}</td>
-                        <td>${attBadge(s.status)}</td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = pageStudents.map(s => {
+                    const statusDisplay = getAttendanceStatus(s);
+                    return `
+                        <tr>
+                            <td>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span class="avatar">${getInitials(s.name)}</span>
+                                    <span class="font-bold">${s.name || 'Unknown'}</span>
+                                </div>
+                            </td>
+                            <td>${s.matric || '—'}</td>
+                            <td>${s.hostel || s.hostel_name || '—'}</td>
+                            <td>${s.room || s.room_code || '—'}</td>
+                            <td>${attBadge(s.status)}</td>
+                        </tr>
+                    `;
+                }).join('');
 
                 updatePagination();
             }
@@ -748,8 +851,10 @@
                 const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
                 const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
 
-                document.getElementById('paginationInfo').textContent = 
-                    `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
+                const info = document.getElementById('paginationInfo');
+                if (info) {
+                    info.textContent = `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
+                }
 
                 const controls = document.getElementById('paginationControls');
                 let html = '';
@@ -781,8 +886,6 @@
                 
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'RASD';
-                
-                updateHeader();
                 
                 return true;
             }
@@ -842,10 +945,18 @@
 
                 try {
                     document.getElementById('noticeText').textContent = 'Loading reports...';
-                    await Promise.all([loadStudents(), loadSubmissionState()]);
+                    
+                    // IMPORTANT: Load hostels first to determine campus + gender scope
+                    await loadHostels();
+                    await loadStudents();
+                    await loadSubmissionState();
+                    
                     filteredStudents = [...students];
+                    updateHeader();
                     renderReports();
-                    document.getElementById('noticeText').textContent = `Loaded ${students.length} students. Report status: ${submissionState}`;
+                    
+                    document.getElementById('noticeText').textContent = 
+                        `${currentCampus || '—'} · ${userGender || '—'} · ${students.length} students · ${hostels.length} hostels`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
