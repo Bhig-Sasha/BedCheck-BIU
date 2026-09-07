@@ -1150,18 +1150,44 @@
 
             async function loadStudents() {
                 try {
-                    const data = await apiCall('/students?limit=1000');
+                    // Developer can safely request more rows
+                    const data = await apiCall('/students?limit=5000');
                     students = data.data || [];
                     return students;
-                } catch { students = []; return students; }
+                } catch {
+                    students = [];
+                    return students;
+                }
             }
 
             async function loadSessions() {
                 try {
-                    const data = await apiCall('/sessions/active');
-                    sessions = data.data ? [data.data] : [];
+                    // Prefer university-wide / active sessions first
+                    let data = await apiCall('/sessions?status=active&limit=5').catch(() => null);
+
+                    if (!data || !data.data || data.data.length === 0) {
+                        // Fallback to bedcheck sessions
+                        data = await apiCall('/bedcheck/sessions?limit=10').catch(() => null);
+                    }
+
+                    if (data && data.data) {
+                        // Keep only active / ongoing sessions
+                        const list = Array.isArray(data.data) ? data.data : [data.data];
+                        sessions = list.filter(s =>
+                            s.status === 'active' ||
+                            s.status === 'Active' ||
+                            s.status === 'scheduled' ||
+                            s.status === 'pending'
+                        );
+                    } else {
+                        sessions = [];
+                    }
                     return sessions;
-                } catch { sessions = []; return sessions; }
+                } catch (err) {
+                    console.warn('loadSessions failed:', err.message);
+                    sessions = [];
+                    return sessions;
+                }
             }
 
             async function loadScans() {
@@ -1489,11 +1515,13 @@
 
                 await loadAllData();
 
-                // Auto-refresh every 30 seconds
+                let lastRefresh = 0;
                 setInterval(() => {
-                    if (!document.hidden) {
-                        loadAllData().catch(() => {});
-                    }
+                    if (document.hidden) return;
+                    const now = Date.now();
+                    if (now - lastRefresh < 25000) return;   // prevent overlapping refreshes
+                    lastRefresh = now;
+                    loadAllData().catch(() => {});
                 }, 30000);
             }
 
