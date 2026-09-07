@@ -630,55 +630,6 @@
             color: #17233c;
         }
 
-        /* ===== PAGINATION ===== */
-        .pagination-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 0.3rem;
-            padding: 0.4rem 0.75rem;
-            border-top: 1px solid #eee8de;
-            font-size: 0.65rem;
-            color: #68768a;
-            width: 100%;
-        }
-        @media (max-width: 480px) {
-            .pagination-bar {
-                font-size: 0.55rem;
-                padding: 0.3rem 0.5rem;
-                flex-direction: column;
-                align-items: center;
-                gap: 0.2rem;
-            }
-        }
-        .pagination-bar .buttons {
-            display: flex;
-            gap: 0.1rem;
-        }
-        .pagination-bar .buttons button {
-            padding: 0.15rem 0.5rem;
-            border: 1px solid #cbd2db;
-            border-radius: 0.25rem;
-            background: white;
-            cursor: pointer;
-            font-size: 0.6rem;
-            transition: all 0.2s;
-        }
-        @media (max-width: 480px) {
-            .pagination-bar .buttons button { font-size: 0.5rem; padding: 0.1rem 0.35rem; }
-        }
-        .pagination-bar .buttons button:hover { background: #f5f1e8; }
-        .pagination-bar .buttons button.active {
-            background: #10233f;
-            color: white;
-            border-color: #10233f;
-        }
-        .pagination-bar .buttons button:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
-        }
-
         /* ================================================
            RIGHT DRAWER
         ================================================ */
@@ -1361,8 +1312,6 @@
             let hostels = [];
             let floors = [];
             let selectedStaff = null;
-            let currentPage = 1;
-            const pageSize = 50;
             let filteredStaff = [];
             let editingId = null;
 
@@ -1429,12 +1378,38 @@
                 return `<span class="status-badge ${cls}">${status || 'Active'}</span>`;
             }
 
+            // =============================================
+            // LOAD ALL STAFF - NO PAGINATION LIMIT
+            // =============================================
             async function loadStaff() {
                 try {
-                    const data = await apiCall('/staff');
-                    staff = data.data || [];
+                    let allStaff = [];
+                    let offset = 0;
+                    const limit = 100;
+                    let hasMore = true;
+
+                    while (hasMore) {
+                        const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
+                        const staffBatch = data.data || [];
+
+                        if (staffBatch.length === 0) {
+                            hasMore = false;
+                        } else {
+                            allStaff = allStaff.concat(staffBatch);
+                            offset += limit;
+                            if (staffBatch.length < limit) {
+                                hasMore = false;
+                            }
+                        }
+                    }
+
+                    staff = allStaff;
                     return staff;
-                } catch { staff = []; return staff; }
+                } catch (error) {
+                    console.error('Failed to load staff:', error);
+                    staff = [];
+                    return staff;
+                }
             }
 
             async function loadHostels() {
@@ -1520,7 +1495,7 @@
             }
 
             // =============================================
-            // FILTER & PAGINATION
+            // FILTER STAFF - NO PAGINATION
             // =============================================
             function filterStaff() {
                 const search = (document.getElementById('staffSearch')?.value || '').toLowerCase();
@@ -1555,85 +1530,65 @@
                     return (a.name || '').localeCompare(b.name || '');
                 });
 
-                currentPage = 1;
                 renderTable();
             }
 
             function renderTable() {
-                const total = filteredStaff.length;
-                const totalPages = Math.ceil(total / pageSize) || 1;
-                if (currentPage > totalPages) currentPage = totalPages;
-
-                const start = (currentPage - 1) * pageSize;
-                const end = Math.min(start + pageSize, total);
-                const pageItems = filteredStaff.slice(start, end);
-
                 const tbody = document.getElementById('staffTableBody');
-                if (tbody) {
-                    tbody.innerHTML = pageItems.map(s => {
-                        const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2)
-                            .toUpperCase() : '?';
-                        const hostelName = s.hostel_id ? hostels.find(h => h.id === s.hostel_id)?.name || '—' :
-                            '—';
-                        const lastLogin = s.last_login ? new Date(s.last_login).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }) : '—';
-                        const room = s.assigned_room || s.room || '—';
-                        const campus = s.campus || 'Legacy';
+                if (!tbody) return;
 
-                        return `
-                            <tr onclick="openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})">
-                                <td>
-                                    <div class="staff-cell">
-                                        <div class="avatar">${initials}</div>
-                                        <div>
-                                            <div class="staff-name">${s.name || 'Unknown'}</div>
-                                            <div class="staff-username">${s.username || s.email || '—'}</div>
-                                        </div>
+                if (filteredStaff.length === 0) {
+                    tbody.innerHTML =
+                        '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff found</td></tr>';
+                    updateStats();
+                    return;
+                }
+
+                tbody.innerHTML = filteredStaff.map(s => {
+                    const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2)
+                        .toUpperCase() : '?';
+                    const hostelName = s.hostel_id ? hostels.find(h => h.id === s.hostel_id)?.name || '—' :
+                        '—';
+                    const lastLogin = s.last_login ? new Date(s.last_login).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) : '—';
+                    const room = s.assigned_room || s.room || '—';
+                    const campus = s.campus || 'Legacy';
+
+                    return `
+                        <tr onclick="openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})">
+                            <td>
+                                <div class="staff-cell">
+                                    <div class="avatar">${initials}</div>
+                                    <div>
+                                        <div class="staff-name">${s.name || 'Unknown'}</div>
+                                        <div class="staff-username">${s.username || s.email || '—'}</div>
                                     </div>
-                                </td>
-                                <td>${s.username || '—'}</td>
-                                <td>${getRoleBadge(s.role)}</td>
-                                <td><span class="hostel-badge">${hostelName}</span></td>
-                                <td>${room}</td>
-                                <td><span class="campus-badge">${campus}</span></td>
-                                <td>${getStatusBadge(s.status)}</td>
-                                <td>
-                                    <div class="row-actions">
-                                        <button onclick="event.stopPropagation();openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})" title="View"><i class="fas fa-eye"></i></button>
-                                        <button onclick="event.stopPropagation();editStaff('${s.id}')" title="Edit"><i class="fas fa-edit"></i></button>
-                                        <button onclick="event.stopPropagation();resetPasswordStaff('${s.id}')" title="Reset Password"><i class="fas fa-key"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    }).join('') || '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff found</td></tr>';
-                }
+                                </div>
+                            </td>
+                            <td>${s.username || '—'}</td>
+                            <td>${getRoleBadge(s.role)}</td>
+                            <td><span class="hostel-badge">${hostelName}</span></td>
+                            <td>${room}</td>
+                            <td><span class="campus-badge">${campus}</span></td>
+                            <td>${getStatusBadge(s.status)}</td>
+                            <td>
+                                <div class="row-actions">
+                                    <button onclick="event.stopPropagation();openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})" title="View"><i class="fas fa-eye"></i></button>
+                                    <button onclick="event.stopPropagation();editStaff('${s.id}')" title="Edit"><i class="fas fa-edit"></i></button>
+                                    <button onclick="event.stopPropagation();resetPasswordStaff('${s.id}')" title="Reset Password"><i class="fas fa-key"></i></button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
 
-                const info = document.getElementById('paginationInfo');
-                if (info) {
-                    info.textContent = total > 0 ? `Showing ${start + 1}–${end} of ${total} staff` : 'No staff';
-                }
+                updateStats();
+                updateStaffCount();
+            }
 
-                const btns = document.getElementById('paginationButtons');
-                if (btns) {
-                    let html =
-                        `<button onclick="goToPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
-                    const maxButtons = 5;
-                    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
-                    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
-                    if (endPage - startPage < maxButtons - 1) {
-                        startPage = Math.max(1, endPage - maxButtons + 1);
-                    }
-                    for (let i = startPage; i <= endPage; i++) {
-                        html += `<button onclick="goToPage(${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
-                    }
-                    html +=
-                        `<button onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
-                    btns.innerHTML = html;
-                }
-
+            function updateStats() {
                 const totalStaff = staff.length;
                 const admins = staff.filter(s => s.role === 'Administrator').length;
                 const rasd = staff.filter(s => s.role === 'RASD').length;
@@ -1647,12 +1602,15 @@
                 document.getElementById('statRA').textContent = ra;
             }
 
-            function goToPage(page) {
-                const total = filteredStaff.length;
-                const totalPages = Math.ceil(total / pageSize) || 1;
-                if (page < 1 || page > totalPages) return;
-                currentPage = page;
-                renderTable();
+            function updateStaffCount() {
+                const countEl = document.getElementById('staffCount');
+                if (countEl) {
+                    const filteredCount = filteredStaff.length;
+                    const totalCount = staff.length;
+                    countEl.innerHTML = `
+                        <span>Showing <strong>${filteredCount}</strong> of <strong>${totalCount}</strong> staff members</span>
+                    `;
+                }
             }
 
             function clearFilters() {
@@ -1660,7 +1618,6 @@
                 document.getElementById('filterRole').value = '';
                 document.getElementById('filterHostel').value = '';
                 document.getElementById('filterStatus').value = '';
-                currentPage = 1;
                 filterStaff();
                 showToast('Filters cleared', 'info');
             }
@@ -1848,7 +1805,6 @@
             window.saveStaff = saveStaff;
             window.updateRoleFields = updateRoleFields;
             window.filterStaff = filterStaff;
-            window.goToPage = goToPage;
             window.clearFilters = clearFilters;
             window.showToast = showToast;
             window.handleLogout = handleLogout;
@@ -1921,9 +1877,9 @@
                             </thead>
                             <tbody id="staffTableBody"></tbody>
                         </table>
-                        <div class="pagination-bar">
-                            <span class="info" id="paginationInfo">Loading...</span>
-                            <div class="buttons" id="paginationButtons"></div>
+                        <div class="pagination-bar" style="border-top:1px solid #eee8de;padding:0.4rem 0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;">
+                            <span class="info" id="staffCount">Loading...</span>
+                            <span style="font-size:0.6rem;color:#68768a;">All staff displayed</span>
                         </div>
                     </div>
                 `;
