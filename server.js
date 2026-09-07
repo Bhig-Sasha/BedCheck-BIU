@@ -12526,14 +12526,36 @@ app.get('/api/bed-spaces',
         const { room_id, hostel_id } = req.query;
         try {
             const adminRoles = ['Admin', 'Developer', 'Administrator', 'Administration'];
-            
+            const isAdmin = adminRoles.includes(req.user.role);
+            const isDeveloper = req.user.role === 'Developer';
+
+            // ============================================================
+            // ROLE-AWARE LIMIT (Developer = almost unlimited)
+            // ============================================================
+            const maxAllowed = isDeveloper ? 50000 : 1000;
+            let limit = parseInt(req.query.limit, 10);
+            if (isNaN(limit) || limit < 1) {
+                limit = isDeveloper ? 10000 : 100;   // default
+            }
+            if (limit > maxAllowed) {
+                return res.status(400).json({
+                    success: false,
+                    message: isDeveloper
+                        ? `Limit cannot exceed ${maxAllowed}`
+                        : 'Limit must be between 1 and 1000',
+                    code: 'VALIDATION_ERROR'
+                });
+            }
+            const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+            // ============================================================
+
             // Build hostel list
             let hostelQuery = supabase
                 .from('hostels')
                 .select('id');
 
-            // ✅ Only filter by campus for non-admin users
-            if (!adminRoles.includes(req.user.role)) {
+            // Only filter by campus for non-admin users
+            if (!isAdmin) {
                 hostelQuery = hostelQuery.eq('campus', req.campus);
                 if (req.user.hostel_id) {
                     hostelQuery = hostelQuery.eq('id', req.user.hostel_id);
@@ -12546,10 +12568,20 @@ app.get('/api/bed-spaces',
             const hostelIds = (hostels || []).map(h => h.id);
 
             if (hostelIds.length === 0) {
-                return res.json({ success: true, data: [], campus: req.campus });
+                return res.json({
+                    success: true,
+                    data: [],
+                    campus: req.campus,
+                    count: 0,
+                    total: 0,
+                    limit,
+                    offset
+                });
             }
 
-            let query = supabase.from('bed_spaces').select('*');
+            let query = supabase
+                .from('bed_spaces')
+                .select('*', { count: 'exact' });
 
             if (room_id) {
                 query = query.eq('room_id', parseInt(room_id));
@@ -12589,10 +12621,26 @@ app.get('/api/bed-spaces',
                         const roomIds = rooms.map(r => r.id);
                         query = query.in('room_id', roomIds);
                     } else {
-                        return res.json({ success: true, data: [], campus: req.campus });
+                        return res.json({
+                            success: true,
+                            data: [],
+                            campus: req.campus,
+                            count: 0,
+                            total: 0,
+                            limit,
+                            offset
+                        });
                     }
                 } else {
-                    return res.json({ success: true, data: [], campus: req.campus });
+                    return res.json({
+                        success: true,
+                        data: [],
+                        campus: req.campus,
+                        count: 0,
+                        total: 0,
+                        limit,
+                        offset
+                    });
                 }
             } else {
                 // No specific filter - get all bed spaces for accessible hostels
@@ -12630,17 +12678,45 @@ app.get('/api/bed-spaces',
                         const roomIds = rooms.map(r => r.id);
                         query = query.in('room_id', roomIds);
                     } else {
-                        return res.json({ success: true, data: [], campus: req.campus });
+                        return res.json({
+                            success: true,
+                            data: [],
+                            campus: req.campus,
+                            count: 0,
+                            total: 0,
+                            limit,
+                            offset
+                        });
                     }
                 } else {
-                    return res.json({ success: true, data: [], campus: req.campus });
+                    return res.json({
+                        success: true,
+                        data: [],
+                        campus: req.campus,
+                        count: 0,
+                        total: 0,
+                        limit,
+                        offset
+                    });
                 }
             }
 
-            const { data, error } = await query.order('bed_code', { ascending: true });
+            // Apply pagination
+            const { data, error, count } = await query
+                .order('bed_code', { ascending: true })
+                .range(offset, offset + limit - 1);
+
             if (error) throw error;
 
-            res.json({ success: true, data: data || [], campus: req.campus });
+            res.json({
+                success: true,
+                data: data || [],
+                campus: req.campus,
+                count: (data || []).length,
+                total: count || 0,
+                limit,
+                offset
+            });
         } catch (error) {
             console.error('Error fetching bed spaces:', error);
             res.status(500).json({
