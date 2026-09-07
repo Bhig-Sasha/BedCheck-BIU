@@ -3015,11 +3015,10 @@ app.get('/api/public/bed-spaces', async (req, res) => {
 // =============================================
 // PUBLIC STUDENT REGISTRATION
 // =============================================
-app.post('/api/public/students/register', registrationLimiter,async (req, res) => {
+app.post('/api/public/students/register', registrationLimiter, async (req, res) => {
     try {
         const raw = req.body || {};
 
-        // ===== ALLOWED FIELDS ONLY (mass-assignment protection) =====
         const allowed = [
             'name', 'matric', 'gender', 'phone', 'email',
             'faculty', 'department', 'level', 'session', 'campus',
@@ -3037,9 +3036,7 @@ app.post('/api/public/students/register', registrationLimiter,async (req, res) =
                     : raw[key];
             }
         }
-        // ===========================================================
 
-        // Required fields (same as original)
         const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
         for (const field of required) {
             if (!studentData[field]) {
@@ -3051,13 +3048,11 @@ app.post('/api/public/students/register', registrationLimiter,async (req, res) =
             }
         }
 
-        // Normalise
         studentData.matric = String(studentData.matric).toUpperCase();
         if (!['Legacy', 'Heritage'].includes(studentData.campus)) {
             studentData.campus = 'Legacy';
         }
 
-        // Check if student already exists
         const { data: existing, error: checkError } = await supabase
             .from('students')
             .select('id, face_enrolled, status')
@@ -3080,7 +3075,6 @@ app.post('/api/public/students/register', registrationLimiter,async (req, res) =
         if (existing) {
             isUpdate = true;
 
-            // Public must never overwrite face_enrolled or force status
             const { face_enrolled, status, ...safeUpdate } = studentData;
 
             const { data, error } = await supabase
@@ -3126,7 +3120,6 @@ app.post('/api/public/students/register', registrationLimiter,async (req, res) =
             result = data;
         }
 
-        // Safe bed-space occupation (optimistic lock – original intent preserved)
         if (studentData.bed_space_id) {
             const bedId = parseInt(studentData.bed_space_id, 10);
             if (!Number.isNaN(bedId)) {
