@@ -1659,6 +1659,31 @@ const faceLimiter = rateLimit({
     }
 });
 
+const registrationLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 8,
+    message: {
+        success: false,
+        message: 'Too many registration attempts. Please try again later.',
+        code: 'REGISTRATION_RATE_LIMIT'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        if (forwarded) {
+            return forwarded.split(',')[0].trim();
+        }
+        return req.ip || req.connection.remoteAddress || 'unknown';
+    },
+    validate: { xForwardedForHeader: false },
+    skip: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        let ip = forwarded ? forwarded.split(',')[0].trim() : (req.ip || req.connection.remoteAddress);
+        return ipBlacklist.whitelist.has(ip);
+    }
+});
+
 app.use(express.json({ 
     limit: `${parseInt(process.env.MAX_REQUEST_BODY_SIZE) || 5}mb`,
     verify: (req, res, buf) => {
@@ -2799,179 +2824,10 @@ app.get('/api/security/status', (req, res) => {
 });
 
 // =============================================
-// PUBLIC STUDENT SEARCH - NO AUTH REQUIRED
+// PUBLIC REGISTRATION ENDPOINTS
 // =============================================
 
-app.get('/api/public/students/search', async (req, res) => {
-    try {
-        const { query } = req.query;
-        
-        if (!query || query.length < 1) {
-            return res.json({ 
-                success: true, 
-                data: [],
-                message: 'Please enter at least 1 character'
-            });
-        }
-
-        const cleanQuery = query.trim();
-        const searchTerm = `%${cleanQuery}%`;
-        const lowerQuery = cleanQuery.toLowerCase();
-
-        console.log('🔍 Searching for:', cleanQuery);
-
-        let { data, error } = await supabase
-            .from('students')
-            .select(`
-                id, 
-                name, 
-                matric, 
-                faculty, 
-                department, 
-                level, 
-                session, 
-                hostel_id, 
-                hostel_name, 
-                room_id, 
-                room_code, 
-                bed_space_id, 
-                bed_code, 
-                phone, 
-                gender, 
-                email, 
-                emergency_name, 
-                emergency_relation, 
-                emergency_phone, 
-                status, 
-                face_enrolled, 
-                campus,
-                registration_date
-            `)
-            .or(`name.ilike.${searchTerm},matric.ilike.${searchTerm}`)
-            .in('status', ['Active', 'Present'])
-            .order('name', { ascending: true })
-            .limit(20);
-
-        if (error) {
-            console.error('Search DB error:', error);
-            return res.status(500).json({
-                success: false,
-                message: 'Database error: ' + error.message,
-                code: 'DB_ERROR'
-            });
-        }
-
-        let results = data || [];
-
-        if (results.length === 0) {
-            console.log('🔄 No ILIKE results, trying flexible search...');
-            
-            const { data: allStudents, error: allError } = await supabase
-                .from('students')
-                .select(`
-                    id, 
-                    name, 
-                    matric, 
-                    faculty, 
-                    department, 
-                    level, 
-                    session, 
-                    hostel_id, 
-                    hostel_name, 
-                    room_id, 
-                    room_code, 
-                    bed_space_id, 
-                    bed_code, 
-                    phone, 
-                    gender, 
-                    email, 
-                    emergency_name, 
-                    emergency_relation, 
-                    emergency_phone, 
-                    status, 
-                    face_enrolled, 
-                    campus,
-                    registration_date
-                `)
-                .in('status', ['Active', 'Present'])
-                .limit(100);
-
-            if (!allError && allStudents) {
-                const queryWords = cleanQuery.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
-                
-                results = allStudents.filter(s => {
-                    const name = (s.name || '').toLowerCase();
-                    const matric = (s.matric || '').toLowerCase();
-                    
-                    return queryWords.some(word => {
-                        if (name.includes(word)) return true;
-                        if (matric.includes(word)) return true;
-                        if (name.split(' ').some(part => part.startsWith(word))) return true;
-                        const initials = name.split(' ').map(p => p[0]).join('');
-                        if (initials.includes(word)) return true;
-                        return false;
-                    });
-                });
-                
-                console.log(`🔍 Flexible search found ${results.length} results`);
-            }
-        }
-
-        results.sort((a, b) => {
-            const aName = (a.name || '').toLowerCase();
-            const bName = (b.name || '').toLowerCase();
-            const aMatric = (a.matric || '').toLowerCase();
-            const bMatric = (b.matric || '').toLowerCase();
-            const lq = lowerQuery;
-            
-            const aExact = aName === lq;
-            const bExact = bName === lq;
-            if (aExact && !bExact) return -1;
-            if (!aExact && bExact) return 1;
-            
-            const aStarts = aName.startsWith(lq);
-            const bStarts = bName.startsWith(lq);
-            if (aStarts && !bStarts) return -1;
-            if (!aStarts && bStarts) return 1;
-            
-            const aMatricMatch = aMatric.includes(lq);
-            const bMatricMatch = bMatric.includes(lq);
-            if (aMatricMatch && !bMatricMatch) return -1;
-            if (!aMatricMatch && bMatricMatch) return 1;
-            
-            const aContains = aName.includes(lq);
-            const bContains = bName.includes(lq);
-            if (aContains && !bContains) return -1;
-            if (!aContains && bContains) return 1;
-            
-            return aName.localeCompare(bName);
-        });
-
-        console.log(`✅ Search results: ${results.length} students found for "${cleanQuery}"`);
-
-        res.json({
-            success: true,
-            data: results.slice(0, 10),
-            count: results.length,
-            query: cleanQuery
-        });
-
-    } catch (error) {
-        console.error('❌ Public search error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred. Please try again.',
-            code: 'SERVER_ERROR',
-            error: error.message
-        });
-    }
-});
-
-// =============================================
-// PUBLIC REGISTRATION ENDPOINTS - NO AUTH REQUIRED
-// =============================================
-
-// Public - Get all hostels (filtered by campus)
+// Public - Get all hostels
 app.get('/api/public/hostels', async (req, res) => {
     try {
         const { campus } = req.query;
@@ -3156,54 +3012,34 @@ app.get('/api/public/bed-spaces', async (req, res) => {
     }
 });
 
-// Public - Check if student exists (by matric)
-app.get('/api/public/students/check', async (req, res) => {
+// =============================================
+// PUBLIC STUDENT REGISTRATION
+// =============================================
+app.post('/api/public/students/register', registrationLimiter,async (req, res) => {
     try {
-        const { matric } = req.query;
-        
-        if (!matric) {
-            return res.json({
-                success: true,
-                exists: false,
-                message: 'matric is required'
-            });
-        }
-        
-        const { data, error } = await supabase
-            .from('students')
-            .select('id, name, matric, status, face_enrolled')
-            .eq('matric', matric.toUpperCase())
-            .maybeSingle();
-        
-        if (error) {
-            console.error('Public student check error:', error);
-            return res.status(500).json({
-                success: false,
-                message: 'Database error',
-                code: 'DB_ERROR'
-            });
-        }
-        
-        res.json({
-            success: true,
-            exists: !!data,
-            data: data || null
-        });
-    } catch (error) {
-        console.error('Public student check error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'An error occurred. Please try again.',
-            code: 'SERVER_ERROR'
-        });
-    }
-});
+        const raw = req.body || {};
 
-// Public - Create/Update student (registration)
-app.post('/api/public/students/register', async (req, res) => {
-    try {
-        const studentData = req.body;
-        
+        // ===== ALLOWED FIELDS ONLY (mass-assignment protection) =====
+        const allowed = [
+            'name', 'matric', 'gender', 'phone', 'email',
+            'faculty', 'department', 'level', 'session', 'campus',
+            'hostel_id', 'hostel_name',
+            'room_id', 'room_code',
+            'bed_space_id', 'bed_code',
+            'emergency_name', 'emergency_relation', 'emergency_phone'
+        ];
+
+        const studentData = {};
+        for (const key of allowed) {
+            if (raw[key] !== undefined && raw[key] !== null && raw[key] !== '') {
+                studentData[key] = typeof raw[key] === 'string'
+                    ? raw[key].trim()
+                    : raw[key];
+            }
+        }
+        // ===========================================================
+
+        // Required fields (same as original)
         const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
         for (const field of required) {
             if (!studentData[field]) {
@@ -3214,13 +3050,20 @@ app.post('/api/public/students/register', async (req, res) => {
                 });
             }
         }
-        
+
+        // Normalise
+        studentData.matric = String(studentData.matric).toUpperCase();
+        if (!['Legacy', 'Heritage'].includes(studentData.campus)) {
+            studentData.campus = 'Legacy';
+        }
+
+        // Check if student already exists
         const { data: existing, error: checkError } = await supabase
             .from('students')
-            .select('id')
-            .eq('matric', studentData.matric.toUpperCase())
+            .select('id, face_enrolled, status')
+            .eq('matric', studentData.matric)
             .maybeSingle();
-        
+
         if (checkError) {
             console.error('Check existing error:', checkError);
             return res.status(500).json({
@@ -3229,22 +3072,27 @@ app.post('/api/public/students/register', async (req, res) => {
                 code: 'DB_ERROR'
             });
         }
-        
+
         let result;
         let isUpdate = false;
-        
+        const now = new Date().toISOString();
+
         if (existing) {
             isUpdate = true;
+
+            // Public must never overwrite face_enrolled or force status
+            const { face_enrolled, status, ...safeUpdate } = studentData;
+
             const { data, error } = await supabase
                 .from('students')
                 .update({
-                    ...studentData,
-                    updated_at: new Date().toISOString()
+                    ...safeUpdate,
+                    updated_at: now
                 })
                 .eq('id', existing.id)
                 .select()
                 .single();
-            
+
             if (error) {
                 console.error('Update student error:', error);
                 return res.status(500).json({
@@ -3261,12 +3109,12 @@ app.post('/api/public/students/register', async (req, res) => {
                     ...studentData,
                     status: 'Present',
                     face_enrolled: false,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
+                    created_at: now,
+                    updated_at: now
                 })
                 .select()
                 .single();
-            
+
             if (error) {
                 console.error('Create student error:', error);
                 return res.status(500).json({
@@ -3277,25 +3125,41 @@ app.post('/api/public/students/register', async (req, res) => {
             }
             result = data;
         }
-        
+
+        // Safe bed-space occupation (optimistic lock – original intent preserved)
         if (studentData.bed_space_id) {
-            await supabase
-                .from('bed_spaces')
-                .update({
-                    status: 'occupied',
-                    student_id: result.id,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', parseInt(studentData.bed_space_id));
+            const bedId = parseInt(studentData.bed_space_id, 10);
+            if (!Number.isNaN(bedId)) {
+                const { data: bed } = await supabase
+                    .from('bed_spaces')
+                    .select('id, status, student_id')
+                    .eq('id', bedId)
+                    .maybeSingle();
+
+                if (bed && 
+                    (bed.status === 'available' || bed.status === 'Available') && 
+                    !bed.student_id) {
+                    
+                    await supabase
+                        .from('bed_spaces')
+                        .update({
+                            status: 'occupied',
+                            student_id: result.id,
+                            updated_at: now
+                        })
+                        .eq('id', bedId)
+                        .eq('status', bed.status); // optimistic concurrency
+                }
+            }
         }
-        
+
         res.json({
             success: true,
             data: result,
             is_update: isUpdate,
             message: isUpdate ? 'Student updated successfully' : 'Student registered successfully'
         });
-        
+
     } catch (error) {
         console.error('Public registration error:', error);
         res.status(500).json({
@@ -3306,181 +3170,9 @@ app.post('/api/public/students/register', async (req, res) => {
     }
 });
 
-// =============================================
-// ✅ PUBLIC FACE ENROLLMENT - NO AUTH REQUIRED
-// =============================================
-
-app.post('/api/public/students/:id/face/enroll', async (req, res) => {
-    try {
-        const studentId = parseInt(req.params.id, 10);
-        const { image } = req.body;
-
-        if (!studentId || Number.isNaN(studentId)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid student ID',
-                code: 'INVALID_STUDENT_ID'
-            });
-        }
-
-        let imageData = image;
-        if (!imageData || typeof imageData !== 'string') {
-            return res.status(400).json({
-                success: false,
-                message: 'No image provided',
-                code: 'INVALID_IMAGE'
-            });
-        }
-        if (!imageData.startsWith('data:image')) {
-            imageData = `data:image/jpeg;base64,${imageData}`;
-        }
-
-        const validation = faceService.validateImage(imageData);
-        if (!validation.valid) {
-            return res.status(400).json({
-                success: false,
-                message: validation.error,
-                code: 'INVALID_IMAGE'
-            });
-        }
-
-        const { data: student, error: studentError } = await supabase
-            .from('students')
-            .select('id, name, matric, hostel_id, room_id, campus')
-            .eq('id', studentId)
-            .maybeSingle();
-
-        if (studentError || !student) {
-            return res.status(404).json({
-                success: false,
-                message: 'Student not found',
-                code: 'STUDENT_NOT_FOUND'
-            });
-        }
-
-        const embeddingResult = await faceService.extractEmbedding(imageData);
-        if (!embeddingResult.success || !embeddingResult.embedding) {
-            return res.status(400).json({
-                success: false,
-                message: embeddingResult.error ||
-                    'Failed to generate face embedding. No face detected or image quality too low.',
-                code: 'EMBEDDING_GENERATION_FAILED',
-                fallback: 'Manual verification required'
-            });
-        }
-
-        if (!Array.isArray(embeddingResult.embedding) || embeddingResult.embedding.length !== EMBEDDING_DIMENSION) {
-            return res.status(400).json({
-                success: false,
-                message: `Invalid embedding. Expected ${EMBEDDING_DIMENSION} dimensions, got ${embeddingResult.embedding?.length || 0}`,
-                code: 'INVALID_EMBEDDING'
-            });
-        }
-
-        const now = new Date().toISOString();
-        const campus = student.campus || 'Legacy';
-        const campusCode = campus === 'Legacy' ? 'LEG' : 'HER';
-
-        // ✅ SAVE TO student_face TABLE (NOT students)
-        const facePayload = {
-            student_id: student.id,
-            campus,
-            campus_code: campusCode,
-            face_embedding: embeddingResult.embedding,
-            face_image_url: null,
-            face_image_path: null,
-            enrollment_status: 'enrolled',
-            enrollment_date: now,
-            last_verified: null,
-            verification_count: 0,
-            confidence_score: embeddingResult.confidence ?? 0.95,
-            is_active: true,
-            notes: null,
-            updated_at: now,
-            enrolled_by: null,
-            enrolled_by_student: true,
-            enrollment_ip: req.ip || req.headers['x-forwarded-for'] || null,
-            enrollment_device: (req.headers['user-agent'] || '').slice(0, 500)
-        };
-
-        const { data: existingFace } = await supabase
-            .from('student_face')
-            .select('id')
-            .eq('student_id', student.id)
-            .eq('campus', campus)
-            .maybeSingle();
-
-        let faceData, faceError;
-        if (existingFace?.id) {
-            const result = await supabase
-                .from('student_face')
-                .update(facePayload)
-                .eq('id', existingFace.id)
-                .select('id, enrollment_status, enrollment_date, confidence_score')
-                .single();
-            faceData = result.data;
-            faceError = result.error;
-        } else {
-            facePayload.created_at = now;
-            const result = await supabase
-                .from('student_face')
-                .insert(facePayload)
-                .select('id, enrollment_status, enrollment_date, confidence_score')
-                .single();
-            faceData = result.data;
-            faceError = result.error;
-        }
-
-        if (faceError) {
-            console.error('Save face error:', faceError);
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to save face data to database',
-                code: 'DATABASE_ERROR',
-                error: faceError.message,
-                details: faceError.details,
-                hint: faceError.hint
-            });
-        }
-
-        // ✅ UPDATE students table face_enrolled flag
-        await supabase
-            .from('students')
-            .update({ face_enrolled: true, updated_at: now })
-            .eq('id', student.id);
-
-        return res.json({
-            success: true,
-            data: {
-                student: {
-                    id: student.id,
-                    name: student.name,
-                    matric: student.matric
-                },
-                face: {
-                    id: faceData.id,
-                    enrollment_status: faceData.enrollment_status,
-                    enrollment_date: faceData.enrollment_date,
-                    confidence: faceData.confidence_score
-                },
-                message: 'Face enrolled successfully'
-            },
-            campus
-        });
-    } catch (error) {
-        console.error('Public face enrollment error:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'An error occurred during face enrollment.',
-            code: 'SERVER_ERROR'
-        });
-    }
-});
-
 // =====================================================
 // AUTHENTICATION ENDPOINTS
 // =====================================================
-
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
     const { username, password } = req.body;
     const identifier = req.ip || req.connection.remoteAddress;
