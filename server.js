@@ -2023,7 +2023,23 @@ const validators = {
     bedSpaceId: [param('id').isInt().withMessage('Invalid bed space ID')],
     sessionId: [param('id').isInt().withMessage('Invalid session ID')],
     pagination: [
-        query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
+        query('limit').optional().custom((value, { req }) => {
+            if (value === undefined || value === null || value === '') return true;
+            const limit = parseInt(value, 10);
+            if (isNaN(limit) || limit < 1) {
+                throw new Error('Limit must be at least 1');
+            }
+            const isDeveloper = req.user?.role === 'Developer';
+            const maxAllowed = isDeveloper ? 50000 : 1000;   // Developer almost unlimited
+            if (limit > maxAllowed) {
+                throw new Error(
+                    isDeveloper
+                        ? `Limit cannot exceed ${maxAllowed}`
+                        : 'Limit must be between 1 and 1000'
+                );
+            }
+            return true;
+        }),
         query('offset').optional().isInt({ min: 0 }).withMessage('Offset must be 0 or greater')
     ],
     hostelCreate: [
@@ -11561,6 +11577,28 @@ app.get('/api/rooms',
             ];
 
             const isAdmin = adminRoles.includes(req.user.role);
+            const isDeveloper = req.user.role === 'Developer';
+
+            // ============================================================
+            // ROLE-AWARE LIMIT (Developer = almost unlimited)
+            // ============================================================
+            const maxAllowed = isDeveloper ? 50000 : 1000;
+            let limit = parseInt(req.query.limit, 10);
+            if (isNaN(limit) || limit < 1) {
+                // sensible defaults when no limit is sent
+                limit = isDeveloper ? 5000 : 100;
+            }
+            if (limit > maxAllowed) {
+                return res.status(400).json({
+                    success: false,
+                    message: isDeveloper
+                        ? `Limit cannot exceed ${maxAllowed}`
+                        : 'Limit must be between 1 and 1000',
+                    code: 'VALIDATION_ERROR'
+                });
+            }
+            const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+            // ============================================================
 
             /*
              * ============================================================
@@ -11616,7 +11654,9 @@ app.get('/api/rooms',
                     success: true,
                     data: [],
                     campus: req.campus,
-                    count: 0
+                    count: 0,
+                    limit,
+                    offset
                 });
             }
 
@@ -11665,7 +11705,9 @@ app.get('/api/rooms',
                     success: true,
                     data: [],
                     campus: req.campus,
-                    count: 0
+                    count: 0,
+                    limit,
+                    offset
                 });
             }
 
@@ -11685,7 +11727,7 @@ app.get('/api/rooms',
 
             /*
              * ============================================================
-             * 3. GET ROOMS
+             * 3. GET ROOMS  (with limit + offset)
              * ============================================================
              */
 
@@ -11702,15 +11744,17 @@ app.get('/api/rooms',
                     status,
                     created_at,
                     updated_at
-                `)
+                `, { count: 'exact' })
                 .in('floor_flat_id', floorIds)
                 .order('room_code', {
                     ascending: true
-                });
+                })
+                .range(offset, offset + limit - 1);   // ← pagination applied here
 
             const {
                 data: rooms,
-                error: roomsError
+                error: roomsError,
+                count: totalCount
             } = await roomsQuery;
 
             if (roomsError) {
@@ -11726,13 +11770,16 @@ app.get('/api/rooms',
                     success: true,
                     data: [],
                     campus: req.campus,
-                    count: 0
+                    count: 0,
+                    total: totalCount || 0,
+                    limit,
+                    offset
                 });
             }
 
             /*
              * ============================================================
-             * 4. GET ALL BEDS FOR ALL ROOMS
+             * 4. GET ALL BEDS FOR THE RETURNED ROOMS
              * ============================================================
              */
 
@@ -11878,7 +11925,10 @@ app.get('/api/rooms',
                 success: true,
                 data: enriched,
                 campus: req.campus,
-                count: enriched.length
+                count: enriched.length,
+                total: totalCount || enriched.length,
+                limit,
+                offset
             });
 
         } catch (error) {
