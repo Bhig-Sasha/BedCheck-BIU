@@ -631,6 +631,34 @@
         }
 
         /* ================================================
+           GROUP HEADER ROW
+        ================================================ */
+        .group-header {
+            background: #f5f1e8;
+            font-weight: 700;
+            font-size: 0.75rem;
+            color: #0a1a2e;
+        }
+        .group-header td {
+            padding: 0.3rem 0.6rem;
+            border-top: 2px solid #d6ad4b;
+            border-bottom: 2px solid #d6ad4b;
+        }
+        .group-header .hostel-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .group-header .hostel-name .badge-count {
+            background: #d6ad4b;
+            color: #10233f;
+            padding: 0.05rem 0.5rem;
+            border-radius: 999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+        }
+
+        /* ================================================
            RIGHT DRAWER
         ================================================ */
         .drawer-right {
@@ -661,7 +689,6 @@
             align-items: center;
             z-index: 2;
         }
-        @media (max-width: 480px) { .drawer-right .drawer-header { padding: 0.5rem 0.75rem; } }
         .drawer-right .drawer-header span {
             font-weight: 700;
             font-size: 0.85rem;
@@ -1130,6 +1157,16 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* HRA highlight row */
+        .hra-row td {
+            border-left: 3px solid #d6ad4b;
+        }
+        .hra-row .role-badge.hra {
+            background: #d6ad4b;
+            color: #10233f;
+            font-weight: 800;
+        }
     </style>
 </head>
 <body>
@@ -1379,7 +1416,7 @@
             }
 
             // =============================================
-            // LOAD ALL STAFF - NO PAGINATION LIMIT
+            // LOAD ALL STAFF
             // =============================================
             async function loadStaff() {
                 try {
@@ -1495,7 +1532,7 @@
             }
 
             // =============================================
-            // FILTER STAFF - NO PAGINATION
+            // FILTER STAFF - WITH HOSTEL GROUPING
             // =============================================
             function filterStaff() {
                 const search = (document.getElementById('staffSearch')?.value || '').toLowerCase();
@@ -1512,27 +1549,12 @@
                     return nameMatch && roleMatch && hostelMatch && statusMatch;
                 });
 
-                // Sort: Administrators first, then RASD, then HRAs grouped by hostel, then RAs grouped by hostel
-                filteredStaff.sort((a, b) => {
-                    const roleOrder = { 'Administrator': 0, 'RASD': 1, 'HRA': 2, 'RA': 3 };
-                    const aOrder = roleOrder[a.role] !== undefined ? roleOrder[a.role] : 4;
-                    const bOrder = roleOrder[b.role] !== undefined ? roleOrder[b.role] : 4;
-
-                    if (aOrder !== bOrder) return aOrder - bOrder;
-
-                    // Same role - group by hostel
-                    const aHostel = hostels.find(h => h.id === a.hostel_id)?.name || '';
-                    const bHostel = hostels.find(h => h.id === b.hostel_id)?.name || '';
-
-                    if (aHostel !== bHostel) return aHostel.localeCompare(bHostel);
-
-                    // Same hostel - sort by name
-                    return (a.name || '').localeCompare(b.name || '');
-                });
-
                 renderTable();
             }
 
+            // =============================================
+            // RENDER TABLE WITH HOSTEL GROUPING
+            // =============================================
             function renderTable() {
                 const tbody = document.getElementById('staffTableBody');
                 if (!tbody) return;
@@ -1541,51 +1563,133 @@
                     tbody.innerHTML =
                         '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff found</td></tr>';
                     updateStats();
+                    updateStaffCount();
                     return;
                 }
 
-                tbody.innerHTML = filteredStaff.map(s => {
-                    const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2)
-                        .toUpperCase() : '?';
-                    const hostelName = s.hostel_id ? hostels.find(h => h.id === s.hostel_id)?.name || '—' :
-                        '—';
-                    const lastLogin = s.last_login ? new Date(s.last_login).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) : '—';
-                    const room = s.assigned_room || s.room || '—';
-                    const campus = s.campus || 'Legacy';
+                // Separate non-hostel staff (Admins, RASD, and staff without hostel)
+                const nonHostelStaff = filteredStaff.filter(s => 
+                    s.role === 'Administrator' || s.role === 'RASD' || !s.hostel_id
+                );
+                
+                // Get hostel staff (HRA and RA with hostel_id)
+                const hostelStaff = filteredStaff.filter(s => 
+                    s.hostel_id && (s.role === 'HRA' || s.role === 'RA')
+                );
 
-                    return `
-                        <tr onclick="openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})">
-                            <td>
-                                <div class="staff-cell">
-                                    <div class="avatar">${initials}</div>
-                                    <div>
-                                        <div class="staff-name">${s.name || 'Unknown'}</div>
-                                        <div class="staff-username">${s.username || s.email || '—'}</div>
+                // Group hostel staff by hostel
+                const hostelGroups = {};
+                hostelStaff.forEach(s => {
+                    const hostelName = hostels.find(h => h.id === s.hostel_id)?.name || 'Unknown';
+                    if (!hostelGroups[hostelName]) {
+                        hostelGroups[hostelName] = [];
+                    }
+                    hostelGroups[hostelName].push(s);
+                });
+
+                // Sort hostel names
+                const sortedHostels = Object.keys(hostelGroups).sort((a, b) => {
+                    // Put "Unknown" at the end
+                    if (a === 'Unknown') return 1;
+                    if (b === 'Unknown') return -1;
+                    return a.localeCompare(b);
+                });
+
+                let html = '';
+
+                // 1. Non-hostel staff (Administrators and RASD first)
+                const sortedNonHostel = [...nonHostelStaff].sort((a, b) => {
+                    const order = { 'Administrator': 0, 'RASD': 1 };
+                    return (order[a.role] ?? 2) - (order[b.role] ?? 2);
+                });
+
+                sortedNonHostel.forEach(s => {
+                    html += renderStaffRow(s);
+                });
+
+                // 2. Hostel groups - HRA first, then RAs
+                sortedHostels.forEach(hostelName => {
+                    const members = hostelGroups[hostelName];
+                    
+                    // Get HRA for this hostel
+                    const hra = members.find(s => s.role === 'HRA');
+                    const ras = members.filter(s => s.role === 'RA');
+
+                    // If there's an HRA, render it first with a group header
+                    if (hra) {
+                        // Add a group header row
+                        const hostelObj = hostels.find(h => h.id === hra.hostel_id);
+                        const totalInHostel = members.length;
+                        html += `
+                            <tr class="group-header">
+                                <td colspan="8">
+                                    <div class="hostel-name">
+                                        <i class="fas fa-building" style="color:#d6ad4b;"></i>
+                                        ${hostelName}
+                                        <span class="badge-count">${totalInHostel} staff</span>
+                                        <span style="font-size:0.6rem;color:#6b778b;font-weight:400;">
+                                            ${hostelObj?.campus || 'Legacy'} Campus
+                                        </span>
                                     </div>
-                                </div>
-                            </td>
-                            <td>${s.username || '—'}</td>
-                            <td>${getRoleBadge(s.role)}</td>
-                            <td><span class="hostel-badge">${hostelName}</span></td>
-                            <td>${room}</td>
-                            <td><span class="campus-badge">${campus}</span></td>
-                            <td>${getStatusBadge(s.status)}</td>
-                            <td>
-                                <div class="row-actions">
-                                    <button onclick="event.stopPropagation();openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})" title="View"><i class="fas fa-eye"></i></button>
-                                    <button onclick="event.stopPropagation();editStaff('${s.id}')" title="Edit"><i class="fas fa-edit"></i></button>
-                                    <button onclick="event.stopPropagation();resetPasswordStaff('${s.id}')" title="Reset Password"><i class="fas fa-key"></i></button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
+                                </td>
+                            </tr>
+                        `;
+                        // Render HRA
+                        html += renderStaffRow(hra, true);
+                    }
 
+                    // Render RAs
+                    ras.forEach(s => {
+                        html += renderStaffRow(s, false);
+                    });
+                });
+
+                tbody.innerHTML = html;
                 updateStats();
                 updateStaffCount();
+            }
+
+            // =============================================
+            // RENDER STAFF ROW
+            // =============================================
+            function renderStaffRow(s, isHRA = false) {
+                const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                const hostelName = s.hostel_id ? hostels.find(h => h.id === s.hostel_id)?.name || '—' : '—';
+                const room = s.assigned_room || s.room || '—';
+                const campus = s.campus || 'Legacy';
+                const rowClass = isHRA ? 'hra-row' : '';
+
+                // For HRA, show the role badge with gold highlight
+                const roleBadge = isHRA ? 
+                    `<span class="role-badge hra" style="background:#d6ad4b;color:#10233f;font-weight:800;">HRA</span>` :
+                    getRoleBadge(s.role);
+
+                return `
+                    <tr class="${rowClass}" onclick="openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})">
+                        <td>
+                            <div class="staff-cell">
+                                <div class="avatar">${initials}</div>
+                                <div>
+                                    <div class="staff-name">${s.name || 'Unknown'}</div>
+                                    <div class="staff-username">${s.username || s.email || '—'}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>${s.username || '—'}</td>
+                        <td>${roleBadge}</td>
+                        <td><span class="hostel-badge">${hostelName}</span></td>
+                        <td>${room}</td>
+                        <td><span class="campus-badge">${campus}</span></td>
+                        <td>${getStatusBadge(s.status)}</td>
+                        <td>
+                            <div class="row-actions">
+                                <button onclick="event.stopPropagation();openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})" title="View"><i class="fas fa-eye"></i></button>
+                                <button onclick="event.stopPropagation();editStaff('${s.id}')" title="Edit"><i class="fas fa-edit"></i></button>
+                                <button onclick="event.stopPropagation();resetPasswordStaff('${s.id}')" title="Reset Password"><i class="fas fa-key"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
             }
 
             function updateStats() {
@@ -1609,6 +1713,7 @@
                     const totalCount = staff.length;
                     countEl.innerHTML = `
                         <span>Showing <strong>${filteredCount}</strong> of <strong>${totalCount}</strong> staff members</span>
+                        <span style="font-size:0.6rem;color:#68768a;">Grouped by hostel</span>
                     `;
                 }
             }
@@ -1879,7 +1984,7 @@
                         </table>
                         <div class="pagination-bar" style="border-top:1px solid #eee8de;padding:0.4rem 0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;">
                             <span class="info" id="staffCount">Loading...</span>
-                            <span style="font-size:0.6rem;color:#68768a;">All staff displayed</span>
+                            <span style="font-size:0.6rem;color:#68768a;">Grouped by hostel · HRA listed first</span>
                         </div>
                     </div>
                 `;
