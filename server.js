@@ -12701,7 +12701,7 @@ app.get('/api/bed-spaces',
                 }
             }
 
-            // Apply pagination
+            // Apply order + pagination
             const { data, error, count } = await query
                 .order('bed_code', { ascending: true })
                 .range(offset, offset + limit - 1);
