@@ -934,6 +934,7 @@
         .toast.success { background: #3f755d; }
         .toast.error { background: #a84134; }
         .toast.info { background: #1e3a5f; }
+        .toast.warning { background: #a77915; }
 
         /* ================================================
            MOBILE OVERLAY
@@ -1313,7 +1314,10 @@
 
             // =============================================
             // LOAD DATA
+            // Developer gets high limit (server allows up to 50000)
             // =============================================
+            const DEV_LIMIT = 10000; // safe high limit for Developer role
+
             async function loadHostels() {
                 try {
                     const data = await apiCall('/hostels');
@@ -1324,7 +1328,7 @@
 
             async function loadFloors() {
                 try {
-                    const data = await apiCall('/floors-flats');
+                    const data = await apiCall(`/floors-flats?limit=${DEV_LIMIT}`);
                     floors = data.data || [];
                     return floors;
                 } catch { floors = []; return floors; }
@@ -1332,7 +1336,8 @@
 
             async function loadRooms() {
                 try {
-                    const data = await apiCall('/rooms?limit=1000');
+                    // Server: Developer max 50000, others max 1000
+                    const data = await apiCall(`/rooms?limit=${DEV_LIMIT}`);
                     rooms = data.data || [];
                     return rooms;
                 } catch { rooms = []; return rooms; }
@@ -1340,7 +1345,7 @@
 
             async function loadBeds() {
                 try {
-                    const data = await apiCall('/bed-spaces?limit=1000');
+                    const data = await apiCall(`/bed-spaces?limit=${DEV_LIMIT}`);
                     beds = data.data || [];
                     return beds;
                 } catch { beds = []; return beds; }
@@ -1348,7 +1353,7 @@
 
             async function loadStudents() {
                 try {
-                    const data = await apiCall('/students?limit=1000');
+                    const data = await apiCall(`/students?limit=${DEV_LIMIT}`);
                     students = data.data || [];
                     return students;
                 } catch { students = []; return students; }
@@ -1356,7 +1361,7 @@
 
             async function loadStaff() {
                 try {
-                    const data = await apiCall('/staff?limit=100');
+                    const data = await apiCall(`/staff?limit=${DEV_LIMIT}`);
                     staff = data.data || [];
                     return staff;
                 } catch { staff = []; return staff; }
@@ -1588,40 +1593,86 @@
                 document.getElementById(id).classList.remove('show');
             };
 
-            window.createHostel = function() {
+            window.createHostel = async function() {
                 const name = document.getElementById('hostelName').value.trim();
                 const campus = document.getElementById('hostelCampus').value;
                 const gender = document.querySelector('input[name="hostelGender"]:checked').value;
-                const floors = parseInt(document.getElementById('hostelFloors').value) || 3;
+                const totalFloors = parseInt(document.getElementById('hostelFloors').value) || 3;
                 const roomsPerFloor = parseInt(document.getElementById('hostelRoomsPerFloor').value) || 18;
                 const bedsPerRoom = parseInt(document.getElementById('hostelBedsPerRoom').value) || 4;
                 const status = document.getElementById('hostelStatus').value;
 
                 if (!name) { showToast('Please enter a hostel name', 'warning'); return; }
 
-                showToast(`Creating hostel "${name}"...`, 'info');
-                closeModal('addHostelModal');
+                const payload = {
+                    name,
+                    campus,
+                    gender,
+                    type: 'floor',
+                    status,
+                    total_floors: totalFloors,
+                    rooms_per_floor: roomsPerFloor,
+                    beds_per_room: bedsPerRoom
+                };
 
-                setTimeout(() => {
-                    loadAllData();
+                try {
+                    showToast(`Creating hostel "${name}"...`, 'info');
+                    await apiCall('/hostels', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    closeModal('addHostelModal');
                     showToast(`Hostel "${name}" created successfully!`, 'success');
-                }, 500);
+                    await loadAllData();
+                } catch (err) {
+                    showToast(err.message || 'Failed to create hostel', 'error');
+                }
             };
 
             window.viewHostel = function(id) {
                 const hostel = hostels.find(h => h.id === id);
-                showToast(`Viewing ${hostel ? hostel.name : 'hostel'}...`, 'info');
+                if (!hostel) {
+                    showToast('Hostel not found', 'error');
+                    return;
+                }
+                const hostelFloors = floors.filter(f => f.hostel_id === id);
+                const hostelRooms = rooms.filter(r => {
+                    const floor = floors.find(f => f.id === r.floor_flat_id);
+                    return floor && floor.hostel_id === id;
+                });
+                const hostelBeds = beds.filter(b => {
+                    const room = rooms.find(r => r.id === b.room_id);
+                    if (!room) return false;
+                    const floor = floors.find(f => f.id === room.floor_flat_id);
+                    return floor && floor.hostel_id === id;
+                });
+                const occupied = hostelBeds.filter(b => b.status === 'occupied').length;
+                showToast(
+                    `${hostel.name} · ${hostelFloors.length} floors · ${hostelRooms.length} rooms · ${occupied}/${hostelBeds.length} beds occupied`,
+                    'info'
+                );
             };
 
             window.editHostel = function(id) {
                 const hostel = hostels.find(h => h.id === id);
-                showToast(`Editing ${hostel ? hostel.name : 'hostel'}...`, 'info');
+                showToast(`Edit for "${hostel ? hostel.name : 'hostel'}" – modal coming soon`, 'info');
             };
 
-            window.deleteHostel = function(id) {
+            window.deleteHostel = async function(id) {
                 const hostel = hostels.find(h => h.id === id);
-                if (confirm(`⚠️ Are you sure you want to delete "${hostel ? hostel.name : 'this hostel'}"? This will remove all floors, rooms, and bed spaces.`)) {
-                    showToast(`Hostel "${hostel ? hostel.name : ''}" deleted`, 'error');
+                if (!hostel) {
+                    showToast('Hostel not found', 'error');
+                    return;
+                }
+                if (!confirm(`⚠️ Delete "${hostel.name}"?\nThis may cascade and remove floors, rooms and bed spaces.`)) {
+                    return;
+                }
+                try {
+                    await apiCall(`/hostels/${id}`, { method: 'DELETE' });
+                    showToast(`Hostel "${hostel.name}" deleted`, 'success');
+                    await loadAllData();
+                } catch (err) {
+                    showToast(err.message || 'Failed to delete hostel', 'error');
                 }
             };
 
@@ -1630,7 +1681,7 @@
             // =============================================
             async function loadAllData() {
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading hostels...';
+                    document.getElementById('noticeText').textContent = 'Loading hostels, floors, rooms & beds...';
                     await Promise.all([
                         loadHostels(),
                         loadFloors(),
@@ -1640,7 +1691,8 @@
                         loadStaff()
                     ]);
                     renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels.`;
+                    document.getElementById('noticeText').textContent =
+                        `Loaded ${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms · ${beds.length} beds`;
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
