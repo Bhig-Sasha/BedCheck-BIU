@@ -966,6 +966,9 @@
             return /^(\+?234|0)[7-9][01]\d{8}$/.test(phone);
         }
 
+        // =============================================
+        // FIXED: saveStaff - Only sends fields with values
+        // =============================================
         function saveStaff() {
             const name = document.getElementById('staffName').value.trim();
             const username = document.getElementById('staffUsername').value.trim().toLowerCase();
@@ -991,17 +994,31 @@
                 return;
             }
 
+            // ---- FIXED PAYLOAD - Only send fields with actual values ----
             const payload = {
                 name,
                 username,
                 email,
-                phone: phone || null,
                 role,
-                hostel_id: hostelId ? parseInt(hostelId) : null,
-                assigned_floor: floorId || null,
-                status,
-                password: password
+                status
             };
+
+            // Only add these fields when they actually have a value
+            if (phone) {
+                payload.phone = phone;
+            }
+            if (hostelId) {
+                payload.hostel_id = parseInt(hostelId, 10);
+            }
+            if (floorId) {
+                payload.assigned_floor = String(floorId);   // must be a string
+            }
+
+            // Password only on create or when user typed a new one
+            const passwordField = document.getElementById('staffPassword');
+            if (!editingId || (passwordField && passwordField.value.trim())) {
+                payload.password = password;
+            }
 
             const isEdit = !!editingId;
             const endpoint = isEdit ? `/staff/${editingId}` : '/staff';
@@ -1010,12 +1027,10 @@
             showToast(isEdit ? `Updating ${name}...` : `Creating ${name}...`, 'info');
 
             apiCall(endpoint, { method, body: JSON.stringify(payload) })
-                .then((data) => {
+                .then(() => {
                     closeAddStaff();
                     showToast(isEdit ? `Staff ${name} updated` : `Staff ${name} created with password: ${password}`, 'success');
-                    loadStaff().then(() => {
-                        filterStaff();
-                    });
+                    loadStaff().then(() => filterStaff());
                 })
                 .catch((err) => {
                     showToast(err.message || 'Failed to save staff', 'error');
