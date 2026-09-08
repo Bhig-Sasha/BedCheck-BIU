@@ -672,7 +672,7 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
 }
 
 // =====================================================
-// HELPER: Create University-Wide Bedcheck Sessions
+// HELPER: Create Bedcheck Sessions
 // =====================================================
 
 async function createUniversityWideBedcheckSessions(sessionId) {
@@ -786,7 +786,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
 }
 
 // =====================================================
-// HELPER: Mark Unverified as Absent (University-Wide)
+// HELPER: Mark Unverified as Absent
 // =====================================================
 
 async function markUnverifiedAsAbsentUniversityWide(sessionId) {
@@ -894,7 +894,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 }
 
 // =====================================================
-// HELPER: Update Session Progress (University-Wide)
+// HELPER: Update Session Progress
 // =====================================================
 
 async function updateSessionProgressUniversityWide(sessionId) {
@@ -1824,7 +1824,7 @@ const authMiddleware = async (req, res, next) => {
 };
 
 // =====================================================
-// AUTHORIZATION MIDDLEWARE - UPDATED WITH ROLE MAP & HIERARCHY
+// AUTHORIZATION MIDDLEWARE
 // =====================================================
 
 const requireRole = (...roles) => {
@@ -3315,6 +3315,42 @@ app.post('/api/auth/login', authLimiter, validate(validators.login), async (req,
 // =====================================================
 
 app.use(authMiddleware);
+
+// =====================================================
+// MAINTENANCE MODE CHECK
+// =====================================================
+async function checkMaintenanceMode(req, res, next) {
+    try {
+        if (req.user?.role === 'Developer' || 
+            req.path.includes('/developer/maintenance') ||
+            req.path.includes('/auth/logout') ||
+            req.path.includes('/auth/verify') ||
+            req.path.includes('/me')) {
+            return next();
+        }
+
+        const { data } = await supabase
+            .from('system_settings')
+            .select('value, description')
+            .eq('key', 'maintenance_mode')
+            .maybeSingle();
+
+        if (data && data.value === 'true') {
+            return res.status(503).json({
+                success: false,
+                message: data.description || 'System is under maintenance. Please try again later.',
+                code: 'MAINTENANCE_MODE'
+            });
+        }
+
+        next();
+    } catch (err) {
+        console.error('Maintenance check error:', err.message);
+        next();
+    }
+}
+
+app.use(checkMaintenanceMode);
 
 // =====================================================
 // AUTHENTICATION ENDPOINTS
@@ -15176,202 +15212,187 @@ app.get('/api/reports/stats',
 );
 
 // =====================================================
-// SCHEDULED TASKS - Auto Session Management
+// SCHEDULED TASKS
 // =====================================================
 
-// Check every 30 seconds for session activation/completion
 setInterval(async () => {
     try {
+        // ---------- Nigeria time (WAT) ----------
         const now = new Date();
-        const currentTime = now.toTimeString().slice(0, 8);
-        const today = now.toISOString().split('T')[0];
-        
-        // 1. ACTIVATE SCHEDULED SESSIONS (University-Wide)
+        const watParts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Africa/Lagos',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false
+        }).formatToParts(now);
+
+        const get = (type) => watParts.find(p => p.type === type)?.value;
+        const today = `${get('year')}-${get('month')}-${get('day')}`;
+        const currentTime = `${get('hour')}:${get('minute')}:${get('second')}`;
+
+        // ---------- 1. ACTIVATE scheduled sessions ----------
         const { data: scheduledSessions } = await supabase
             .from('sessions')
             .select('*')
             .eq('status', 'scheduled')
-            // REMOVED: .eq('campus', campus)
-            .lte('start_time', currentTime);
-        
-        if (scheduledSessions && scheduledSessions.length > 0) {
+            .lte('date', today);
+
+        if (scheduledSessions?.length) {
             for (const session of scheduledSessions) {
-                if (session.date <= today) {
-                    const { error: updateError } = await supabase
+                const shouldStart =
+                    session.date < today ||
+                    (session.date === today && session.start_time <= currentTime);
+
+                if (shouldStart) {
+                    const { error } = await supabase
                         .from('sessions')
-                        .update({ 
-                            status: 'active', 
+                        .update({
+                            status: 'active',
                             started_at: new Date().toISOString(),
                             updated_at: new Date().toISOString()
                         })
-                        .eq('id', session.id);
-                    
-                    if (!updateError) {
-                        console.log(`✅ Session ${session.id} (${session.name}) auto-activated at ${currentTime}`);
-                        
-                        // ✅ Create bedcheck sessions for ALL hostels
+                        .eq('id', session.id)
+                        .eq('status', 'scheduled'); // only if still scheduled
+
+                    if (!error) {
+                        console.log(`✅ Session ${session.id} (${session.name}) AUTO-STARTED`);
                         await createUniversityWideBedcheckSessions(session.id);
-                        
-                        // ✅ Notify ALL RAs
-                        await supabase
-                            .from('notifications')
-                            .insert({
-                                title: '🔔 BedCheck Session Started',
-                                detail: `${session.name} has started`,
-                                body: `The BedCheck session for ${session.date} is now active. RAs can begin verification.`,
-                                type: 'system',
-                                priority: 'high',
-                                campus: null,  // University-wide
-                                recipient_role: 'RA',
-                                actor: 'System',
-                                action: 'Session Auto-Started',
-                                tone: 'green',
-                                read: false,
-                                created_at: new Date().toISOString()
-                            }).catch(() => {});
+
+                        await supabase.from('notifications').insert({
+                            title: '🔔 BedCheck Session Started',
+                            detail: `${session.name} has started`,
+                            body: `The BedCheck session for ${session.date} is now active. RAs can begin verification.`,
+                            type: 'system',
+                            priority: 'high',
+                            campus: null,
+                            recipient_role: 'RA',
+                            actor: 'System',
+                            action: 'Session Auto-Started',
+                            tone: 'green',
+                            read: false,
+                            created_at: new Date().toISOString()
+                        }).catch(() => {});
                     }
                 }
             }
         }
-        
-        // 2. COMPLETE ACTIVE SESSIONS (University-Wide)
+
+        // ---------- 2. COMPLETE active sessions ----------
         const { data: activeSessions } = await supabase
             .from('sessions')
             .select('*')
             .eq('status', 'active')
-            // REMOVED: .eq('campus', campus)
-            .lte('end_time', currentTime);
-        
-        if (activeSessions && activeSessions.length > 0) {
+            .lte('date', today);
+
+        if (activeSessions?.length) {
             for (const session of activeSessions) {
-                if (session.date <= today) {
-                    // ✅ Mark unverified as absent for ALL campuses
+                const shouldEnd =
+                    session.date < today ||
+                    (session.date === today && session.end_time <= currentTime);
+
+                if (shouldEnd) {
                     await markUnverifiedAsAbsentUniversityWide(session.id);
-                    
-                    const { error: updateError } = await supabase
+
+                    const { error } = await supabase
                         .from('sessions')
-                        .update({ 
-                            status: 'completed', 
+                        .update({
+                            status: 'completed',
                             completed_at: new Date().toISOString(),
                             updated_at: new Date().toISOString()
                         })
-                        .eq('id', session.id);
-                    
-                    if (!updateError) {
-                        console.log(`✅ Session ${session.id} (${session.name}) auto-completed at ${currentTime}`);
-                        
-                        // ✅ Notify ALL HRAs
-                        await supabase
-                            .from('notifications')
-                            .insert({
-                                title: '✅ BedCheck Session Completed',
-                                detail: `${session.name} has ended`,
-                                body: `The BedCheck session for ${session.date} is now completed. All unverified students have been marked absent.`,
-                                type: 'system',
-                                priority: 'medium',
-                                campus: null,  // University-wide
-                                recipient_role: 'HRA',
-                                actor: 'System',
-                                action: 'Session Auto-Completed',
-                                tone: 'blue',
-                                read: false,
-                                created_at: new Date().toISOString()
-                            }).catch(() => {});
+                        .eq('id', session.id)
+                        .eq('status', 'active');
+
+                    if (!error) {
+                        console.log(`✅ Session ${session.id} (${session.name}) AUTO-COMPLETED`);
+
+                        await supabase.from('notifications').insert({
+                            title: '✅ BedCheck Session Completed',
+                            detail: `${session.name} has ended`,
+                            body: `The BedCheck session for ${session.date} is now completed. Unverified students marked absent.`,
+                            type: 'system',
+                            priority: 'medium',
+                            campus: null,
+                            recipient_role: 'HRA',
+                            actor: 'System',
+                            action: 'Session Auto-Completed',
+                            tone: 'blue',
+                            read: false,
+                            created_at: new Date().toISOString()
+                        }).catch(() => {});
                     }
                 }
             }
         }
-        
-        // 3. AUTO-CREATE NEXT DAY'S SESSION (University-Wide)
-        if (currentTime === '00:00:00') {
-            // Check how many scheduled sessions exist
-            const { count, error: countError } = await supabase
-                .from('sessions')
-                .select('id', { count: 'exact', head: true })
-                .eq('status', 'scheduled');
-            
-            if (!countError) {
-                const scheduledCount = count || 0;
-                
-                if (scheduledCount < 5) {
-                    // ✅ Get ALL active hostels (both campuses)
-                    const { data: hostels, error: hostelsError } = await supabase
-                        .from('hostels')
-                        .select('id, campus')
-                        .eq('status', 'Active');
-                    
-                    if (!hostelsError && hostels && hostels.length > 0) {
-                        const nextDate = new Date();
-                        nextDate.setDate(nextDate.getDate() + 1);
-                        const dateStr = nextDate.toISOString().split('T')[0];
-                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                        const dayName = dayNames[nextDate.getDay()] || 'Night';
-                        
-                        // ✅ Check if session already exists for this date
-                        const { data: existing, error: existingError } = await supabase
+
+        // ---------- 3. 5 SESSIONS READY ----------
+        const { data: futureSessions, error: futureError } = await supabase
+            .from('sessions')
+            .select('id, date')
+            .in('status', ['scheduled', 'active'])
+            .gte('date', today)
+            .order('date', { ascending: true });
+
+        if (!futureError) {
+            const existingDates = new Set((futureSessions || []).map(s => s.date));
+            const needed = 5 - (futureSessions?.length || 0);
+
+            if (needed > 0) {
+                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                let created = 0;
+                let dayOffset = 0;
+
+                while (created < needed && dayOffset < 14) { // look up to 2 weeks ahead
+                    const next = new Date(now);
+                    next.setUTCDate(next.getUTCDate() + dayOffset);
+                    const nextParts = new Intl.DateTimeFormat('en-GB', {
+                        timeZone: 'Africa/Lagos',
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        weekday: 'long'
+                    }).formatToParts(next);
+
+                    const y = nextParts.find(p => p.type === 'year')?.value;
+                    const m = nextParts.find(p => p.type === 'month')?.value;
+                    const d = nextParts.find(p => p.type === 'day')?.value;
+                    const dateStr = `${y}-${m}-${d}`;
+                    const dayName = nextParts.find(p => p.type === 'weekday')?.value || 'Night';
+
+                    if (!existingDates.has(dateStr) && dateStr >= today) {
+                        const { error: insertError } = await supabase
                             .from('sessions')
-                            .select('id')
-                            .eq('date', dateStr)
-                            // REMOVED: .eq('campus', campus)
-                            .maybeSingle();
-                        
-                        if (!existingError && !existing) {
-                            // ✅ Create university-wide session
-                            const newSession = {
+                            .insert({
                                 name: `${dayName} Night BedCheck`,
                                 date: dateStr,
                                 start_time: '22:00:00',
                                 end_time: '23:30:00',
                                 status: 'scheduled',
                                 hostels_completed: 0,
-                                total_hostels: hostels.length || 0,
+                                total_hostels: 0,
                                 completion: 0,
                                 academic_session: '2026/2027',
                                 grace_period: 15,
                                 created_by: 'system',
-                                campus: null,  // ✅ University-wide
-                                campus_code: null,  // ✅ University-wide
+                                campus: null,
+                                campus_code: null,
                                 created_at: new Date().toISOString(),
                                 updated_at: new Date().toISOString()
-                            };
-                            
-                            const { error: insertError } = await supabase
-                                .from('sessions')
-                                .insert(newSession);
-                            
-                            if (!insertError) {
-                                console.log(`📋 Auto-created university-wide session for ${dateStr} (${scheduledCount + 1}/5)`);
-                                
-                                // ✅ Notify RASDs
-                                await supabase
-                                    .from('notifications')
-                                    .insert({
-                                        title: '📋 New BedCheck Session Scheduled',
-                                        detail: `${dayName} Night BedCheck for ${dateStr}`,
-                                        body: `A new BedCheck session has been auto-scheduled for ${dateStr}. It will start at 10:00 PM.`,
-                                        type: 'system',
-                                        priority: 'low',
-                                        campus: null,  // University-wide
-                                        recipient_role: 'RASD',
-                                        actor: 'System',
-                                        action: 'Session Auto-Scheduled',
-                                        tone: 'blue',
-                                        read: false,
-                                        created_at: new Date().toISOString()
-                                    }).catch(() => {});
-                            }
+                            });
+
+                        if (!insertError) {
+                            console.log(`📋 Auto-created session for ${dateStr}`);
+                            existingDates.add(dateStr);
+                            created++;
                         }
                     }
-                } else {
-                    console.log(`📋 Max scheduled sessions reached (${scheduledCount}/5). No new session created.`);
+                    dayOffset++;
                 }
             }
         }
-        
+
     } catch (error) {
         console.error('❌ Scheduler error:', error);
     }
-}, 30000); // Check every 30 seconds
+}, 30000); // every 30 seconds
 
 // =====================================================
 // CATCH-ALL 404 HANDLER
