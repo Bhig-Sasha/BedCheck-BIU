@@ -315,6 +315,26 @@
         @media (max-width:480px){ .modal-footer { padding:0.5rem 0.75rem; flex-direction:column; } .modal-footer .btn { width:100%; justify-content:center; } }
 
         .danger-text { color:#8a3328; }
+
+        .room-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:0.5rem; margin-top:0.5rem; }
+        .room-card {
+            background:#fbf7ef; border:1px solid #ded6c9; border-radius:0.5rem; padding:0.5rem 0.75rem;
+            cursor:pointer; transition:all 0.2s ease;
+        }
+        .room-card:hover { border-color:#d6ad4b; background:#f5efe6; }
+        .room-card .room-name { font-weight:700; font-size:0.85rem; }
+        .room-card .room-meta { font-size:0.6rem; color:#6b778b; }
+
+        .student-table { width:100%; border-collapse:collapse; font-size:0.7rem; margin-top:0.3rem; }
+        .student-table thead { background:#fbf7ef; font-size:0.5rem; text-transform:uppercase; letter-spacing:0.06em; color:#68768a; }
+        .student-table th { padding:0.3rem 0.5rem; font-weight:700; }
+        .student-table td { padding:0.3rem 0.5rem; border-top:1px solid #eee8de; }
+        .student-table tbody tr:hover { background:#fbf7ef; }
+        .student-table .status-badge-sm { font-size:0.5rem; padding:0.05rem 0.4rem; border-radius:999px; font-weight:600; }
+        .student-table .status-badge-sm.present { background:#e1f0e5; color:#2d6545; }
+        .student-table .status-badge-sm.absent { background:#f8e1dc; color:#8a3328; }
+        .student-table .status-badge-sm.verified { background:#e7edf5; color:#24466f; }
+        .student-table .status-badge-sm.pending { background:#eceff2; color:#536274; }
     </style>
 </head>
 <body>
@@ -539,7 +559,9 @@
             let students = [];
             let allStaff = [];
             let floorsFlats = [];
-            let drillState = { view: 'overview', sessionId: null, hostelId: null, raId: null };
+            let rooms = [];
+            let bedSpaces = [];
+            let drillState = { view: 'overview', sessionId: null, hostelId: null, floorId: null, roomId: null, raId: null };
 
             // =============================================
             // API
@@ -631,6 +653,22 @@
                 } catch { floorsFlats = []; return floorsFlats; }
             }
 
+            async function loadRooms(floorId) {
+                try {
+                    const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
+                    rooms = data.data || [];
+                    return rooms;
+                } catch { rooms = []; return rooms; }
+            }
+
+            async function loadBedSpaces(roomId) {
+                try {
+                    const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
+                    bedSpaces = data.data || [];
+                    return bedSpaces;
+                } catch { bedSpaces = []; return bedSpaces; }
+            }
+
             function getHostelStudents(hostelId) {
                 const hostel = hostels.find(h => h.id === hostelId);
                 if (!hostel) return [];
@@ -639,6 +677,10 @@
 
             function getStaffForHostel(hostelId) {
                 return allStaff.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId));
+            }
+
+            function getRoomStudents(roomId) {
+                return students.filter(s => s.room_id === roomId || s.room_id === parseInt(roomId) || s.room_code === (rooms.find(r => r.id === roomId)?.room_code));
             }
 
             // =============================================
@@ -658,7 +700,6 @@
             // CREATE SESSION
             // =============================================
             window.openNewSession = function() {
-                // Set default date to today
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('sessionDate').value = today;
                 document.getElementById('sessionName').value = '';
@@ -762,6 +803,10 @@
                     renderSessionDetail(container);
                 } else if (drillState.view === 'hostel') {
                     renderHostelDetail(container);
+                } else if (drillState.view === 'floor') {
+                    renderFloorDetail(container);
+                } else if (drillState.view === 'room') {
+                    renderRoomDetail(container);
                 } else if (drillState.view === 'ra') {
                     renderRAWorkspace(container);
                 } else {
@@ -880,6 +925,8 @@
                 drillState.view = 'session';
                 drillState.sessionId = sessionId;
                 drillState.hostelId = null;
+                drillState.floorId = null;
+                drillState.roomId = null;
                 drillState.raId = null;
                 renderScreen();
             };
@@ -977,12 +1024,15 @@
             }
 
             // =============================================
-            // HOSTEL DETAIL (within session) - NOW WITH REAL FLOORS
+            // HOSTEL DETAIL - WITH FLOORS
             // =============================================
             window.openHostelInSession = async function(hostelId) {
                 await loadFloorsFlats(hostelId);
                 drillState.view = 'hostel';
                 drillState.hostelId = hostelId;
+                drillState.floorId = null;
+                drillState.roomId = null;
+                drillState.raId = null;
                 renderScreen();
             };
 
@@ -1001,17 +1051,12 @@
                 const absent = total - present;
                 const pct = total > 0 ? Math.round((present / total) * 100) : 0;
 
-                // Get staff for this hostel
                 const hostelStaff = getStaffForHostel(hostel.id);
                 const hra = hostelStaff.find(s => s.role === 'HRA' || s.role === 'Hra');
                 const ras = hostelStaff.filter(s => s.role === 'RA' || s.role === 'Ra');
 
-                // Get floors from API - use real floorsFlats data
+                // Get floors from API
                 const floors = floorsFlats.filter(f => f.hostel_id === hostel.id || f.hostel_id === parseInt(hostel.id));
-
-                // If no floors in API, use hostel.total_floors
-                const floorNames = floors.length > 0 ? floors.map(f => f.name || f.code || f) : 
-                    Array.from({ length: hostel.total_floors || 3 }, (_, i) => `Floor ${i + 1}`);
 
                 container.innerHTML = `
                     <div class="breadcrumb">
@@ -1052,18 +1097,211 @@
 
                     <div style="background:white;border:1px solid #ded6c9;border-radius:0.75rem;padding:1rem;">
                         <h4 style="font-family:'Merriweather',serif;font-size:0.85rem;font-weight:700;margin-bottom:0.3rem;">Floors / Flats</h4>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:0.4rem;margin-top:0.5rem;">
-                            ${floorNames.map(f => `
-                                <div style="background:#fbf7ef;border:1px solid #ded6c9;border-radius:0.5rem;padding:0.5rem 0.6rem;cursor:pointer;" onclick="showToast('Opening ${f}','info')">
-                                    <div style="font-weight:700;font-size:0.85rem;">${f}</div>
-                                    <div style="font-size:0.6rem;color:#6b778b;">${hostel.rooms_per_floor || 18} rooms</div>
-                                </div>
-                            `).join('')}
-                        </div>
+                        ${floors.length === 0 ? `
+                            <div style="text-align:center;padding:1rem;color:#6b778b;font-size:0.8rem;border:1px dashed #ded6c9;border-radius:0.5rem;">
+                                <i class="fas fa-layer-group" style="display:block;font-size:1.2rem;margin-bottom:0.2rem;color:#a77915;"></i>
+                                No floors found for this hostel
+                            </div>
+                        ` : `
+                            <div class="room-grid">
+                                ${floors.map(f => `
+                                    <div class="room-card" onclick="openFloorInSession(${f.id})">
+                                        <div class="room-name">${f.name}</div>
+                                        <div class="room-meta">${f.room_count || 0} rooms</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
                     </div>
 
                     <div style="margin-top:0.5rem;">
                         <button class="btn btn-outline btn-sm" onclick="openSession(${drillState.sessionId})"><i class="fas fa-arrow-left"></i> Back to Session</button>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // FLOOR DETAIL - WITH ROOMS
+            // =============================================
+            window.openFloorInSession = async function(floorId) {
+                await loadRooms(floorId);
+                drillState.view = 'floor';
+                drillState.floorId = floorId;
+                drillState.roomId = null;
+                renderScreen();
+            };
+
+            function renderFloorDetail(container) {
+                const session = sessions.find(s => s.id === drillState.sessionId);
+                const hostel = hostels.find(h => h.id === drillState.hostelId);
+                const floor = floorsFlats.find(f => f.id === drillState.floorId);
+
+                if (!floor || !hostel || !session) {
+                    container.innerHTML =
+                        `<div style="padding:1rem;text-align:center;"><p style="color:#8a3328;">Floor not found</p><button class="btn btn-outline" onclick="openHostelInSession(${drillState.hostelId})"><i class="fas fa-arrow-left"></i> Back</button></div>`;
+                    return;
+                }
+
+                // Get room data
+                const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id || r.floor_flat_id === parseInt(floor.id));
+
+                container.innerHTML = `
+                    <div class="breadcrumb">
+                        <a onclick="drillToOverview()"><i class="fas fa-home"></i> Sessions</a>
+                        <span class="sep">/</span>
+                        <a onclick="openSession(${drillState.sessionId})">${session.name}</a>
+                        <span class="sep">/</span>
+                        <a onclick="openHostelInSession(${drillState.hostelId})">${hostel.name}</a>
+                        <span class="sep">/</span>
+                        <span style="font-weight:600;color:#17233c;">${floor.name}</span>
+                    </div>
+
+                    <div style="background:white;border:1px solid #ded6c9;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.3rem;">
+                            <div>
+                                <h2 style="font-family:'Merriweather',serif;font-size:1.2rem;font-weight:700;">${floor.name}</h2>
+                                <div style="font-size:0.7rem;color:#6b778b;">${hostel.name} · ${session.name}</div>
+                            </div>
+                            <span class="session-status active">● ${floorRooms.length} Rooms</span>
+                        </div>
+                    </div>
+
+                    <div style="background:white;border:1px solid #ded6c9;border-radius:0.75rem;padding:1rem;">
+                        <h4 style="font-family:'Merriweather',serif;font-size:0.85rem;font-weight:700;margin-bottom:0.3rem;">Rooms</h4>
+                        ${floorRooms.length === 0 ? `
+                            <div style="text-align:center;padding:1rem;color:#6b778b;font-size:0.8rem;border:1px dashed #ded6c9;border-radius:0.5rem;">
+                                <i class="fas fa-door-open" style="display:block;font-size:1.2rem;margin-bottom:0.2rem;color:#a77915;"></i>
+                                No rooms found on this floor
+                            </div>
+                        ` : `
+                            <div class="room-grid">
+                                ${floorRooms.map(r => {
+                                    const roomStudents = students.filter(s => s.room_id === r.id || s.room_id === parseInt(r.id) || s.room_code === r.room_code);
+                                    const totalStudents = roomStudents.length;
+                                    const presentStudents = roomStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
+                                    return `
+                                        <div class="room-card" onclick="openRoomInSession(${r.id})">
+                                            <div class="room-name">${r.room_code || r.full_code || 'Room ' + r.id}</div>
+                                            <div class="room-meta">${totalStudents} students · ${presentStudents} present</div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+
+                    <div style="margin-top:0.5rem;">
+                        <button class="btn btn-outline btn-sm" onclick="openHostelInSession(${drillState.hostelId})"><i class="fas fa-arrow-left"></i> Back to Hostel</button>
+                        <button class="btn btn-outline btn-sm" onclick="openSession(${drillState.sessionId})" style="margin-left:0.3rem;"><i class="fas fa-arrow-up"></i> Back to Session</button>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // ROOM DETAIL - WITH STUDENTS
+            // =============================================
+            window.openRoomInSession = async function(roomId) {
+                await loadBedSpaces(roomId);
+                drillState.view = 'room';
+                drillState.roomId = roomId;
+                renderScreen();
+            };
+
+            function renderRoomDetail(container) {
+                const session = sessions.find(s => s.id === drillState.sessionId);
+                const hostel = hostels.find(h => h.id === drillState.hostelId);
+                const floor = floorsFlats.find(f => f.id === drillState.floorId);
+                const room = rooms.find(r => r.id === drillState.roomId);
+
+                if (!room || !hostel || !session) {
+                    container.innerHTML =
+                        `<div style="padding:1rem;text-align:center;"><p style="color:#8a3328;">Room not found</p><button class="btn btn-outline" onclick="openFloorInSession(${drillState.floorId})"><i class="fas fa-arrow-left"></i> Back</button></div>`;
+                    return;
+                }
+
+                const roomStudents = students.filter(s => s.room_id === room.id || s.room_id === parseInt(room.id) || s.room_code === room.room_code);
+                const totalStudents = roomStudents.length;
+                const presentStudents = roomStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
+                const absentStudents = roomStudents.filter(s => s.status === 'Absent').length;
+                const beds = bedSpaces.filter(b => b.room_id === room.id || b.room_id === parseInt(room.id));
+
+                const statusClass = totalStudents > 0 && presentStudents === totalStudents ? 'completed' : presentStudents > 0 ? 'active' : 'pending';
+                const statusLabel = totalStudents > 0 && presentStudents === totalStudents ? 'Complete' : presentStudents > 0 ? 'In Progress' : 'Not Started';
+
+                container.innerHTML = `
+                    <div class="breadcrumb">
+                        <a onclick="drillToOverview()"><i class="fas fa-home"></i> Sessions</a>
+                        <span class="sep">/</span>
+                        <a onclick="openSession(${drillState.sessionId})">${session.name}</a>
+                        <span class="sep">/</span>
+                        <a onclick="openHostelInSession(${drillState.hostelId})">${hostel.name}</a>
+                        <span class="sep">/</span>
+                        <a onclick="openFloorInSession(${drillState.floorId})">${floor?.name || 'Floor'}</a>
+                        <span class="sep">/</span>
+                        <span style="font-weight:600;color:#17233c;">${room.room_code || room.full_code || 'Room ' + room.id}</span>
+                    </div>
+
+                    <div style="background:white;border:1px solid #ded6c9;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.3rem;">
+                            <div>
+                                <h2 style="font-family:'Merriweather',serif;font-size:1.2rem;font-weight:700;">${room.room_code || room.full_code || 'Room ' + room.id}</h2>
+                                <div style="font-size:0.7rem;color:#6b778b;">${hostel.name} · ${floor?.name || 'Floor'}</div>
+                            </div>
+                            <span class="session-status ${statusClass}">● ${statusLabel}</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.3rem;margin-top:0.5rem;background:#fbf7ef;border-radius:0.5rem;padding:0.3rem 0.6rem;">
+                            <div><span style="font-weight:600;">${totalStudents}</span> Students</div>
+                            <div><span style="font-weight:600;color:#2d6545;">${presentStudents}</span> Present</div>
+                            <div><span style="font-weight:600;color:#8a3328;">${absentStudents}</span> Absent</div>
+                            <div><span style="font-weight:600;">${totalStudents > 0 ? Math.round((presentStudents / totalStudents) * 100) : 0}%</span> Complete</div>
+                        </div>
+                    </div>
+
+                    <div style="background:white;border:1px solid #ded6c9;border-radius:0.75rem;padding:1rem;">
+                        <h4 style="font-family:'Merriweather',serif;font-size:0.85rem;font-weight:700;margin-bottom:0.3rem;">Students in this room</h4>
+                        ${roomStudents.length === 0 ? `
+                            <div style="text-align:center;padding:1rem;color:#6b778b;font-size:0.8rem;border:1px dashed #ded6c9;border-radius:0.5rem;">
+                                <i class="fas fa-user-graduate" style="display:block;font-size:1.2rem;margin-bottom:0.2rem;color:#a77915;"></i>
+                                No students assigned to this room
+                            </div>
+                        ` : `
+                            <table class="student-table">
+                                <thead>
+                                    <tr>
+                                        <th>Student</th>
+                                        <th>Matric</th>
+                                        <th>Bed</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${roomStudents.map(s => {
+                                        const bed = bedSpaces.find(b => b.id === s.bed_space_id || b.student_id === s.id);
+                                        const bedLabel = bed?.bed_code || s.bed_code || '—';
+                                        const statusClass = s.status === 'Present' ? 'present' : s.status === 'Verified' ? 'verified' : s.status === 'Absent' ? 'absent' : 'pending';
+                                        return `
+                                            <tr>
+                                                <td><strong>${s.name}</strong></td>
+                                                <td>${s.matric || '—'}</td>
+                                                <td>${bedLabel}</td>
+                                                <td><span class="status-badge-sm ${statusClass}">${s.status || 'Pending'}</span></td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline" style="font-size:0.5rem;padding:0.1rem 0.3rem;" onclick="showToast('Viewing ${s.name}','info')"><i class="fas fa-eye"></i></button>
+                                                    ${s.status !== 'Present' && s.status !== 'Verified' ? `<button class="btn btn-sm btn-primary" style="font-size:0.5rem;padding:0.1rem 0.3rem;" onclick="showToast('Verifying ${s.name}...','info')"><i class="fas fa-check"></i></button>` : ''}
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        `}
+                    </div>
+
+                    <div style="margin-top:0.5rem;">
+                        <button class="btn btn-outline btn-sm" onclick="openFloorInSession(${drillState.floorId})"><i class="fas fa-arrow-left"></i> Back to Floor</button>
+                        <button class="btn btn-outline btn-sm" onclick="openHostelInSession(${drillState.hostelId})" style="margin-left:0.3rem;"><i class="fas fa-arrow-up"></i> Back to Hostel</button>
+                        <button class="btn btn-outline btn-sm" onclick="openSession(${drillState.sessionId})" style="margin-left:0.3rem;"><i class="fas fa-arrow-up"></i> Back to Session</button>
                     </div>
                 `;
             }
@@ -1184,7 +1422,7 @@
             // NAVIGATION
             // =============================================
             window.drillToOverview = function() {
-                drillState = { view: 'overview', sessionId: null, hostelId: null, raId: null };
+                drillState = { view: 'overview', sessionId: null, hostelId: null, floorId: null, roomId: null, raId: null };
                 renderScreen();
             };
 
@@ -1314,7 +1552,6 @@
                     }
                 });
 
-                // Modal overlay clicks
                 document.querySelectorAll('.modal-overlay').forEach(function(el) {
                     el.addEventListener('click', function(e) {
                         if (e.target === this) this.classList.remove('show');
