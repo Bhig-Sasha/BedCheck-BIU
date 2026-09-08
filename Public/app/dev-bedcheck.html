@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BedCheck · Developer Console · BIU</title>
+  <title>BedCheck · Developer Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -227,6 +227,14 @@
     .ra-workspace { background:#fbf7ef; border-radius:0.5rem; padding:0.5rem 0.75rem; margin-top:0.5rem; border-left:3px solid #d6ad4b; }
     .ra-workspace .ra-name { font-weight:700; font-size:0.9rem; }
     .ra-workspace .ra-meta { font-size:0.6rem; color:#6b778b; }
+
+    .hostel-detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:0.4rem; margin-top:0.5rem; }
+    .hostel-detail-card { background:#fbf7ef; border:1px solid #ded6c9; border-radius:0.5rem; padding:0.5rem 0.6rem; }
+    .hostel-detail-card .label { font-size:0.55rem; color:#6b778b; text-transform:uppercase; letter-spacing:0.04em; }
+    .hostel-detail-card .value { font-weight:700; font-size:0.9rem; }
+
+    .back-btn { display:inline-flex; align-items:center; gap:0.3rem; padding:0.3rem 0.6rem; border-radius:0.5rem; background:#f5f1e8; border:1px solid #ded6c9; color:#17233c; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.2s ease; font-family:inherit; }
+    .back-btn:hover { background:#e8e2d6; }
   </style>
 </head>
 <body>
@@ -253,7 +261,7 @@
         <a href="./dev-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
       </nav>
       <div class="role-card">
-        <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">System Owner</span></div>
+        <div class="role-title"><i class="fas fa-shield-alt"></i> <span id="roleLabel">Loading...</span></div>
         <div class="role-scope" id="roleScope">Full system access</div>
       </div>
     </aside>
@@ -278,7 +286,7 @@
         <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
         <a href="./dev-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
       </nav>
-      <div class="drawer-footer" id="mobileRoleFooter">System Owner · Full access</div>
+      <div class="drawer-footer" id="mobileRoleFooter">Loading...</div>
     </aside>
 
     <main class="main-content">
@@ -299,12 +307,12 @@
             <span class="session-time" id="sessionTime">—</span>
             <div style="position:relative;">
               <button class="profile-btn" id="profileBtn">
-                <span class="profile-avatar" id="profileAvatar">SO</span>
-                <span class="profile-name" id="profileName">Sasha O.</span>
-                <span class="profile-role" id="profileRoleLabel">System Owner</span>
+                <span class="profile-avatar" id="profileAvatar">?</span>
+                <span class="profile-name" id="profileName">Loading...</span>
+                <span class="profile-role" id="profileRoleLabel">Loading...</span>
               </button>
               <div class="profile-dropdown" id="profileDropdown" style="display:none;position:absolute;top:calc(100%+0.5rem);right:0;background:white;border-radius:0.75rem;box-shadow:0 10px 40px rgba(0,0,0,0.15);border:1px solid #ded6c9;min-width:220px;padding:0.5rem;z-index:60;">
-                <div class="dropdown-user"><div class="name" id="dropdownUserName">Sasha O.</div><div class="role" id="dropdownUserRole">System Owner</div></div>
+                <div class="dropdown-user"><div class="name" id="dropdownUserName">Loading...</div><div class="role" id="dropdownUserRole">Loading...</div></div>
                 <div class="dropdown-divider" style="height:1px;background:#eee9e1;margin:0.3rem 0;"></div>
                 <button class="dropdown-item" style="display:flex;align-items:center;gap:0.7rem;padding:0.5rem 0.8rem;border-radius:0.5rem;color:#17233c;text-decoration:none;font-size:0.85rem;font-weight:600;border:none;background:transparent;width:100%;font-family:inherit;text-align:left;"><i class="fas fa-user"></i> My Account</button>
                 <button class="dropdown-item" style="display:flex;align-items:center;gap:0.7rem;padding:0.5rem 0.8rem;border-radius:0.5rem;color:#17233c;text-decoration:none;font-size:0.85rem;font-weight:600;border:none;background:transparent;width:100%;font-family:inherit;text-align:left;"><i class="fas fa-shield-alt"></i> Security</button>
@@ -343,7 +351,7 @@
       }
 
       let currentUser = null;
-      let currentRole = 'System Owner';
+      let currentRole = 'Loading...';
       let hostels = [];
       let students = [];
       let sessions = [];
@@ -392,13 +400,87 @@
       }
 
       function getInitials(name) {
-        if (!name) return 'SO';
+        if (!name) return '?';
         return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
       }
 
+      // ===== LOAD CURRENT USER FROM DB =====
+      async function loadCurrentUser() {
+        try {
+          const data = await apiCall('/me');
+          if (data.success && data.data) {
+            currentUser = data.data;
+            currentRole = currentUser.role || 'Developer';
+            
+            // Update profile elements
+            const initials = getInitials(currentUser.name);
+            document.getElementById('profileAvatar').textContent = initials;
+            document.getElementById('profileName').textContent = currentUser.name || 'Unknown User';
+            document.getElementById('profileRoleLabel').textContent = currentRole;
+            document.getElementById('dropdownUserName').textContent = currentUser.name || 'Unknown User';
+            document.getElementById('dropdownUserRole').textContent = currentRole;
+            document.getElementById('roleLabel').textContent = currentRole;
+            
+            // Update role scope based on role
+            const scopeMap = {
+              'Developer': 'Full system access · Developer Tools',
+              'Admin': 'Full system access',
+              'Administrator': 'Full system access',
+              'RASD': 'System oversight',
+              'HRA': 'Hostel management',
+              'RA': 'Room management'
+            };
+            document.getElementById('roleScope').textContent = scopeMap[currentRole] || 'Full system access';
+            document.getElementById('mobileRoleFooter').textContent = `${currentRole} · ${scopeMap[currentRole] || 'Full access'}`;
+            
+            // Store in session for persistence
+            sessionStorage.setItem('bedcheck_user', JSON.stringify(currentUser));
+            sessionStorage.setItem('bedcheck_role', currentRole);
+            
+            console.log('✅ User loaded:', currentUser.name, 'Role:', currentRole);
+            return currentUser;
+          }
+        } catch (error) {
+          console.error('Error loading user:', error);
+          // Fallback to session storage
+          const userData = sessionStorage.getItem('bedcheck_user');
+          if (userData) {
+            try {
+              currentUser = JSON.parse(userData);
+              currentRole = sessionStorage.getItem('bedcheck_role') || 'Developer';
+              document.getElementById('profileAvatar').textContent = getInitials(currentUser.name);
+              document.getElementById('profileName').textContent = currentUser.name || 'Unknown';
+              document.getElementById('profileRoleLabel').textContent = currentRole;
+              document.getElementById('roleLabel').textContent = currentRole;
+            } catch (e) {}
+          }
+        }
+        return currentUser;
+      }
+
       // ===== DATA LOAD =====
-      async function loadHostels() { try { const data = await apiCall('/hostels'); hostels = data.data || []; return hostels; } catch { hostels = []; return hostels; } }
-      async function loadStudents() { try { const data = await apiCall('/students?limit=5000'); students = data.data || []; return students; } catch { students = []; return students; } }
+      async function loadHostels() { 
+        try { 
+          const data = await apiCall('/hostels'); 
+          hostels = data.data || []; 
+          return hostels; 
+        } catch { 
+          hostels = []; 
+          return hostels; 
+        } 
+      }
+      
+      async function loadStudents() { 
+        try { 
+          const data = await apiCall('/students?limit=5000'); 
+          students = data.data || []; 
+          return students; 
+        } catch { 
+          students = []; 
+          return students; 
+        } 
+      }
+      
       async function loadSessions() {
         try {
           let data = await apiCall('/sessions?status=active&limit=5').catch(() => null);
@@ -412,7 +494,17 @@
           return sessions;
         } catch { sessions = []; return sessions; }
       }
-      async function loadScans() { try { const data = await apiCall('/bedcheck/scans?limit=50'); scans = data.data || []; return scans; } catch { scans = []; return scans; } }
+      
+      async function loadScans() { 
+        try { 
+          const data = await apiCall('/bedcheck/scans?limit=50'); 
+          scans = data.data || []; 
+          return scans; 
+        } catch { 
+          scans = []; 
+          return scans; 
+        } 
+      }
 
       // ===== RENDER =====
       function renderScreen() {
@@ -431,7 +523,9 @@
         return students.filter(s => s.hostel_id === hostelId || s.hostel_name === hostel.name);
       }
 
-      function getHostel(id) { return hostels.find(h => h.id === id); }
+      function getHostel(id) { 
+        return hostels.find(h => h.id === id); 
+      }
 
       // ---- OVERVIEW ----
       function renderOverview(container) {
@@ -552,7 +646,7 @@
       function renderHostel(container) {
         const hostel = getHostel(drillState.hostelId);
         if (!hostel) {
-          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Hostel not found. <a href="#" onclick="drillToOverview()" style="font-weight:600;color:#17233c;">Go back</a></p></div>`;
+          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Hostel not found. <a href="#" onclick="drillToOverview()" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
           return;
         }
         const hs = getHostelStudents(hostel.id);
@@ -778,19 +872,11 @@
 
       // ===== AUTH =====
       function checkAuth() {
-        const userData = sessionStorage.getItem('bedcheck_user');
         const token = sessionStorage.getItem('bedcheck_token');
-        if (!userData || !token) { window.location.replace('../Login.html'); return false; }
-        currentUser = JSON.parse(userData);
-        currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
-        document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) || 'SO';
-        document.getElementById('profileName').textContent = currentUser.name || 'Sasha O.';
-        document.getElementById('profileRoleLabel').textContent = currentRole;
-        document.getElementById('roleLabel').textContent = currentRole;
-        document.getElementById('roleScope').textContent = 'Full system access';
-        document.getElementById('mobileRoleFooter').textContent = `${currentRole} · Full access`;
-        document.getElementById('dropdownUserName').textContent = currentUser.name || 'Sasha O.';
-        document.getElementById('dropdownUserRole').textContent = currentRole;
+        if (!token) { 
+          window.location.replace('../Login.html'); 
+          return false; 
+        }
         return true;
       }
 
@@ -816,6 +902,9 @@
       async function init() {
         if (!checkAuth()) return;
         setDate();
+
+        // Load user from DB first
+        await loadCurrentUser();
 
         document.getElementById('menuToggle').addEventListener('click', function() {
           document.getElementById('mobileDrawer').classList.add('open');
