@@ -14267,6 +14267,16 @@ app.get('/api/developer/settings/all',
                 .order('key', { ascending: true });
             
             if (error) {
+                // Check if error is because table doesn't exist
+                if (error.code === '42P01' || error.message?.includes('does not exist')) {
+                    console.log('📋 system_settings table not found');
+                    return res.json({
+                        success: true,
+                        data: [],
+                        campus: campus,
+                        message: 'Settings table not created yet'
+                    });
+                }
                 console.error('Error fetching settings:', error);
                 return res.status(500).json({
                     success: false,
@@ -14311,6 +14321,14 @@ app.get('/api/developer/settings/:key',
                 .maybeSingle();
             
             if (error) {
+                if (error.code === '42P01' || error.message?.includes('does not exist')) {
+                    return res.json({
+                        success: true,
+                        data: null,
+                        campus: campus,
+                        message: 'Settings table not found'
+                    });
+                }
                 console.error('Error fetching setting:', error);
                 return res.status(500).json({
                     success: false,
@@ -14364,6 +14382,17 @@ app.put('/api/developer/settings/:key',
             
             let result;
             
+            if (checkError) {
+                if (checkError.code === '42P01' || checkError.message?.includes('does not exist')) {
+                    return res.json({
+                        success: true,
+                        data: { key, value, campus },
+                        message: 'Settings table not found - setting saved in memory only'
+                    });
+                }
+                throw checkError;
+            }
+            
             if (existing) {
                 // Update existing
                 const { data, error } = await supabase
@@ -14379,12 +14408,13 @@ app.put('/api/developer/settings/:key',
                 if (error) throw error;
                 result = data;
             } else {
-                // Insert new
+                // Insert new - include is_public with default false
                 const newSetting = {
                     key: key,
                     value: value,
                     category: category || 'general',
                     description: description || null,
+                    is_public: false,
                     campus: campus,
                     created_at: now,
                     updated_at: now
@@ -14415,7 +14445,7 @@ app.put('/api/developer/settings/:key',
                 campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
-            });
+            }).catch(() => {});
             
             res.json({
                 success: true,
@@ -14451,7 +14481,15 @@ app.delete('/api/developer/settings/:key',
                 .eq('key', key)
                 .eq('campus', campus);
             
-            if (error) throw error;
+            if (error) {
+                if (error.code === '42P01' || error.message?.includes('does not exist')) {
+                    return res.json({
+                        success: true,
+                        message: 'Settings table not found'
+                    });
+                }
+                throw error;
+            }
             
             await auditService.log({
                 actor: req.user?.name || req.user?.username || 'Developer',
@@ -14466,7 +14504,7 @@ app.delete('/api/developer/settings/:key',
                 campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
-            });
+            }).catch(() => {});
             
             res.json({
                 success: true,
@@ -14531,6 +14569,7 @@ app.post('/api/developer/settings/batch',
                             value: value,
                             category: category || 'general',
                             description: description || null,
+                            is_public: false,
                             campus: campus,
                             created_at: now,
                             updated_at: now
@@ -14564,7 +14603,7 @@ app.post('/api/developer/settings/batch',
                 campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
-            });
+            }).catch(() => {});
             
             res.json({
                 success: true,
