@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BedCheck · Developer Console</title>
+  <title>BedCheck · Developer Console · BIU</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
@@ -342,6 +342,14 @@
 
       const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
+      // Disable console.log in production
+      if (window.console) {
+        console.log = function() {};
+        console.warn = function() {};
+        console.info = function() {};
+        console.debug = function() {};
+      }
+
       function showToast(message, type = 'success') {
         const toast = document.getElementById('toast');
         toast.textContent = message;
@@ -437,11 +445,9 @@
             sessionStorage.setItem('bedcheck_user', JSON.stringify(currentUser));
             sessionStorage.setItem('bedcheck_role', currentRole);
             
-            console.log('✅ User loaded:', currentUser.name, 'Role:', currentRole);
             return currentUser;
           }
         } catch (error) {
-          console.error('Error loading user:', error);
           // Fallback to session storage
           const userData = sessionStorage.getItem('bedcheck_user');
           if (userData) {
@@ -462,9 +468,16 @@
       async function loadHostels() { 
         try { 
           const data = await apiCall('/hostels'); 
-          hostels = data.data || []; 
+          // Handle both array and object responses
+          if (Array.isArray(data.data)) {
+            hostels = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            hostels = Object.values(data.data);
+          } else {
+            hostels = [];
+          }
           return hostels; 
-        } catch { 
+        } catch (error) { 
           hostels = []; 
           return hostels; 
         } 
@@ -473,7 +486,13 @@
       async function loadStudents() { 
         try { 
           const data = await apiCall('/students?limit=5000'); 
-          students = data.data || []; 
+          if (Array.isArray(data.data)) {
+            students = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            students = Object.values(data.data);
+          } else {
+            students = [];
+          }
           return students; 
         } catch { 
           students = []; 
@@ -488,7 +507,7 @@
             data = await apiCall('/bedcheck/sessions?limit=10').catch(() => null);
           }
           if (data && data.data) {
-            const list = Array.isArray(data.data) ? data.data : [data.data];
+            const list = Array.isArray(data.data) ? data.data : Object.values(data.data);
             sessions = list.filter(s => s.status === 'active' || s.status === 'Active' || s.status === 'scheduled' || s.status === 'pending');
           } else { sessions = []; }
           return sessions;
@@ -498,7 +517,13 @@
       async function loadScans() { 
         try { 
           const data = await apiCall('/bedcheck/scans?limit=50'); 
-          scans = data.data || []; 
+          if (Array.isArray(data.data)) {
+            scans = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            scans = Object.values(data.data);
+          } else {
+            scans = [];
+          }
           return scans; 
         } catch { 
           scans = []; 
@@ -586,7 +611,11 @@
         const searchTerm = document.getElementById('hostelSearch')?.value.toLowerCase().trim() || '';
         const tbody = document.getElementById('hostelTableBody');
         if (!tbody) return;
-        const filtered = hostels.filter(h => !searchTerm || h.name.toLowerCase().includes(searchTerm));
+        
+        // Ensure hostels is an array
+        const hostelsArray = Array.isArray(hostels) ? hostels : [];
+        
+        const filtered = hostelsArray.filter(h => !searchTerm || (h.name && h.name.toLowerCase().includes(searchTerm)));
         if (filtered.length === 0) {
           tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6b778b;font-weight:600;"><i class="fas fa-search" style="font-size:1.2rem;display:block;margin-bottom:0.3rem;color:#a77915;"></i>No hostels found</td></tr>`;
           return;
@@ -604,7 +633,7 @@
           if (progress === 100) fillClass = 'completed';
           else if (progress > 0) fillClass = 'active';
           return `<tr class="clickable-row" onclick="drillToHostel('${h.id}')">
-            <td><div class="hostel-name">${h.name}</div><div class="hostel-meta">${h.gender || '—'} · ${h.campus || '—'}</div></td>
+            <td><div class="hostel-name">${h.name || 'Unknown'}</div><div class="hostel-meta">${h.gender || '—'} · ${h.campus || '—'}</div></td>
             <td><span class="fw-700">${total}</span></td>
             <td><span class="fw-700" style="color:#2d6545;">${present}</span></td>
             <td><span class="fw-700" style="color:#8a3328;">${absent}</span></td>
