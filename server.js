@@ -14244,28 +14244,44 @@ app.get('/api/developer/health/full',
     }
 );
 
+// =====================================================
+// SYSTEM SETTINGS ENDPOINTS - Developer Only
+// =====================================================
+
+/**
+ * GET ALL SYSTEM SETTINGS
+ * Returns all settings for the current campus
+ */
 app.get('/api/developer/settings/all',
     campusIsolation,
     requireRole('Developer'),
     async (req, res) => {
         try {
+            const campus = req.campus || 'Legacy';
+            
             const { data, error } = await supabase
                 .from('system_settings')
                 .select('*')
-                .eq('campus', req.campus)
+                .eq('campus', campus)
                 .order('category', { ascending: true })
                 .order('key', { ascending: true });
-
-            if (error) throw error;
-
+            
+            if (error) {
+                console.error('Error fetching settings:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch settings',
+                    code: 'DB_ERROR'
+                });
+            }
+            
             res.json({
                 success: true,
-                data: data,
-                count: data.length,
-                campus: req.campus
+                data: data || [],
+                campus: campus
             });
         } catch (error) {
-            console.error('Error fetching settings:', error);
+            console.error('Error in /developer/settings/all:', error);
             res.status(500).json({
                 success: false,
                 message: 'An error occurred. Please try again.',
@@ -14275,51 +14291,135 @@ app.get('/api/developer/settings/all',
     }
 );
 
+/**
+ * GET SINGLE SETTING
+ */
+app.get('/api/developer/settings/:key',
+    campusIsolation,
+    requireRole('Developer'),
+    validate([param('key').isString().withMessage('Invalid setting key')]),
+    async (req, res) => {
+        try {
+            const { key } = req.params;
+            const campus = req.campus || 'Legacy';
+            
+            const { data, error } = await supabase
+                .from('system_settings')
+                .select('*')
+                .eq('key', key)
+                .eq('campus', campus)
+                .maybeSingle();
+            
+            if (error) {
+                console.error('Error fetching setting:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch setting',
+                    code: 'DB_ERROR'
+                });
+            }
+            
+            res.json({
+                success: true,
+                data: data || null,
+                campus: campus
+            });
+        } catch (error) {
+            console.error('Error fetching setting:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+/**
+ * UPDATE SETTING (UPSERT)
+ */
 app.put('/api/developer/settings/:key',
     campusIsolation,
     requireRole('Developer'),
-    validate(validators.developerSettings),
+    validate([
+        param('key').isString().withMessage('Invalid setting key'),
+        body('value').notEmpty().withMessage('Value is required'),
+        body('category').optional().isString().withMessage('Category must be a string'),
+        body('description').optional().isString().withMessage('Description must be a string')
+    ]),
     async (req, res) => {
         try {
             const { key } = req.params;
             const { value, category, description } = req.body;
-
-            const { data, error } = await supabase
+            const campus = req.campus || 'Legacy';
+            const now = new Date().toISOString();
+            
+            // Check if setting exists
+            const { data: existing, error: checkError } = await supabase
                 .from('system_settings')
-                .upsert({
+                .select('id')
+                .eq('key', key)
+                .eq('campus', campus)
+                .maybeSingle();
+            
+            let result;
+            
+            if (existing) {
+                // Update existing
+                const { data, error } = await supabase
+                    .from('system_settings')
+                    .update({
+                        value: value,
+                        updated_at: now
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                result = data;
+            } else {
+                // Insert new
+                const newSetting = {
                     key: key,
                     value: value,
                     category: category || 'general',
                     description: description || null,
-                    updated_at: new Date().toISOString(),
-                    campus: req.campus
-                }, {
-                    onConflict: 'key'
-                })
-                .select()
-                .single();
-
-            if (error) throw error;
-
+                    campus: campus,
+                    created_at: now,
+                    updated_at: now
+                };
+                
+                const { data, error } = await supabase
+                    .from('system_settings')
+                    .insert(newSetting)
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                result = data;
+            }
+            
+            // Log audit
             await auditService.log({
-                actor: req.user.name || req.user.username,
-                actor_id: req.user.id,
+                actor: req.user?.name || req.user?.username || 'Developer',
+                actor_id: req.user?.id,
                 actor_role: 'Developer',
                 action: 'System Setting Updated',
                 module: 'system',
-                details: `Updated setting ${key} to ${value}`,
+                details: `Updated setting ${key} = ${value}`,
                 context: `Category: ${category || 'general'}`,
                 result: 'success',
                 category: 'system',
                 tone: 'gold',
-                campus: req.campus,
+                campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
             });
-
+            
             res.json({
                 success: true,
-                data: data,
+                data: result,
                 message: `Setting ${key} updated successfully`
             });
         } catch (error) {
@@ -14333,28 +14433,151 @@ app.put('/api/developer/settings/:key',
     }
 );
 
-app.get('/api/developer/users/all',
+/**
+ * DELETE SETTING
+ */
+app.delete('/api/developer/settings/:key',
     campusIsolation,
     requireRole('Developer'),
+    validate([param('key').isString().withMessage('Invalid setting key')]),
     async (req, res) => {
         try {
-            const { data, error } = await supabase
-                .from('staff')
-                .select('*')
-                .eq('campus', req.campus)
-                .order('role', { ascending: true })
-                .order('name', { ascending: true });
-
+            const { key } = req.params;
+            const campus = req.campus || 'Legacy';
+            
+            const { error } = await supabase
+                .from('system_settings')
+                .delete()
+                .eq('key', key)
+                .eq('campus', campus);
+            
             if (error) throw error;
-
+            
+            await auditService.log({
+                actor: req.user?.name || req.user?.username || 'Developer',
+                actor_id: req.user?.id,
+                actor_role: 'Developer',
+                action: 'System Setting Deleted',
+                module: 'system',
+                details: `Deleted setting ${key}`,
+                result: 'success',
+                category: 'system',
+                tone: 'red',
+                campus: campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+            
             res.json({
                 success: true,
-                data: data,
-                count: data.length,
-                campus: req.campus
+                message: `Setting ${key} deleted successfully`
             });
         } catch (error) {
-            console.error('Error fetching all users:', error);
+            console.error('Error deleting setting:', error);
+            res.status(500).json({
+                success: false,
+                message: 'An error occurred. Please try again.',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+/**
+ * BATCH UPDATE SETTINGS
+ */
+app.post('/api/developer/settings/batch',
+    campusIsolation,
+    requireRole('Developer'),
+    validate([
+        body('settings').isArray().withMessage('Settings must be an array')
+    ]),
+    async (req, res) => {
+        try {
+            const { settings } = req.body;
+            const campus = req.campus || 'Legacy';
+            const now = new Date().toISOString();
+            const results = [];
+            
+            for (const setting of settings) {
+                const { key, value, category, description } = setting;
+                if (!key) continue;
+                
+                try {
+                    const { data: existing } = await supabase
+                        .from('system_settings')
+                        .select('id')
+                        .eq('key', key)
+                        .eq('campus', campus)
+                        .maybeSingle();
+                    
+                    let result;
+                    if (existing) {
+                        const { data, error } = await supabase
+                            .from('system_settings')
+                            .update({
+                                value: value,
+                                updated_at: now
+                            })
+                            .eq('id', existing.id)
+                            .select()
+                            .single();
+                        
+                        if (error) throw error;
+                        result = data;
+                    } else {
+                        const newSetting = {
+                            key: key,
+                            value: value,
+                            category: category || 'general',
+                            description: description || null,
+                            campus: campus,
+                            created_at: now,
+                            updated_at: now
+                        };
+                        
+                        const { data, error } = await supabase
+                            .from('system_settings')
+                            .insert(newSetting)
+                            .select()
+                            .single();
+                        
+                        if (error) throw error;
+                        result = data;
+                    }
+                    results.push({ key, success: true, data: result });
+                } catch (err) {
+                    results.push({ key, success: false, error: err.message });
+                }
+            }
+            
+            await auditService.log({
+                actor: req.user?.name || req.user?.username || 'Developer',
+                actor_id: req.user?.id,
+                actor_role: 'Developer',
+                action: 'Batch Settings Updated',
+                module: 'system',
+                details: `Updated ${results.filter(r => r.success).length} settings`,
+                result: 'success',
+                category: 'system',
+                tone: 'gold',
+                campus: campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            });
+            
+            res.json({
+                success: true,
+                data: {
+                    results: results,
+                    total: results.length,
+                    successful: results.filter(r => r.success).length,
+                    failed: results.filter(r => !r.success).length
+                },
+                campus: campus
+            });
+        } catch (error) {
+            console.error('Error in batch settings update:', error);
             res.status(500).json({
                 success: false,
                 message: 'An error occurred. Please try again.',
