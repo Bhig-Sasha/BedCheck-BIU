@@ -1329,157 +1329,164 @@
         </main>
     </div>
 
-    <script>
-        (function() {
-            'use strict';
+<script>
+    (function() {
+        'use strict';
 
-            const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+        const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
-            function showToast(message, type = 'success') {
-                const toast = document.getElementById('toast');
-                toast.textContent = message;
-                toast.className = `toast ${type}`;
-                setTimeout(() => toast.classList.add('show'), 10);
-                setTimeout(() => toast.classList.remove('show'), 4000);
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+
+        let currentUser = null;
+        let currentRole = 'System Owner';
+        let staff = [];
+        let hostels = [];
+        let floors = [];
+        let selectedStaff = null;
+        let filteredStaff = [];
+        let editingId = null;
+
+        // =============================================
+        // HELPER: Find staff by ID (handles type mismatch)
+        // =============================================
+        function findStaffById(id) {
+            return staff.find(st => String(st.id) === String(id));
+        }
+
+        // =============================================
+        // API
+        // =============================================
+        async function apiCall(endpoint, options = {}) {
+            const token = sessionStorage.getItem('bedcheck_token');
+            if (!token) {
+                showToast('No auth token. Please login.', 'error');
+                setTimeout(() => window.location.replace('../Login.html'), 1500);
+                throw new Error('No token');
             }
-
-            let currentUser = null;
-            let currentRole = 'System Owner';
-            let staff = [];
-            let hostels = [];
-            let floors = [];
-            let selectedStaff = null;
-            let filteredStaff = [];
-            let editingId = null;
-
-            // =============================================
-            // API
-            // =============================================
-            async function apiCall(endpoint, options = {}) {
-                const token = sessionStorage.getItem('bedcheck_token');
-                if (!token) {
-                    showToast('No auth token. Please login.', 'error');
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                        ...(options.headers || {})
+                    }
+                });
+                if (response.status === 401) {
+                    showToast('Session expired. Please login.', 'error');
+                    sessionStorage.removeItem('bedcheck_token');
+                    sessionStorage.removeItem('bedcheck_user');
+                    sessionStorage.removeItem('bedcheck_role');
                     setTimeout(() => window.location.replace('../Login.html'), 1500);
-                    throw new Error('No token');
+                    throw new Error('Auth required');
                 }
-                try {
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-                        ...options,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`,
-                            ...(options.headers || {})
-                        }
-                    });
-                    if (response.status === 401) {
-                        showToast('Session expired. Please login.', 'error');
-                        sessionStorage.removeItem('bedcheck_token');
-                        sessionStorage.removeItem('bedcheck_user');
-                        sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => window.location.replace('../Login.html'), 1500);
-                        throw new Error('Auth required');
-                    }
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${errorText}`);
-                    }
-                    const data = await response.json();
-                    if (!data.success) throw new Error(data.message || 'API error');
-                    return data;
-                } catch (error) {
-                    if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
-                        showToast('Error: ' + error.message, 'error');
-                    }
-                    throw error;
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
+                const data = await response.json();
+                if (!data.success) throw new Error(data.message || 'API error');
+                return data;
+            } catch (error) {
+                if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
+                    showToast('Error: ' + error.message, 'error');
+                }
+                throw error;
             }
+        }
 
-            function getInitials(name) {
-                if (!name) return '?';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
+        function getInitials(name) {
+            if (!name) return '?';
+            return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        }
 
-            function getRoleBadge(role) {
-                const map = {
-                    'Administrator': 'admin',
-                    'RASD': 'rasd',
-                    'HRA': 'hra',
-                    'RA': 'ra'
-                };
-                const cls = map[role] || 'ra';
-                return `<span class="role-badge ${cls}">${role || '—'}</span>`;
-            }
+        function getRoleBadge(role) {
+            const map = {
+                'Administrator': 'admin',
+                'RASD': 'rasd',
+                'HRA': 'hra',
+                'RA': 'ra'
+            };
+            const cls = map[role] || 'ra';
+            return `<span class="role-badge ${cls}">${role || '—'}</span>`;
+        }
 
-            function getStatusBadge(status) {
-                const cls = status === 'Active' ? 'active' : 'inactive';
-                return `<span class="status-badge ${cls}">${status || 'Active'}</span>`;
-            }
+        function getStatusBadge(status) {
+            const cls = status === 'Active' ? 'active' : 'inactive';
+            return `<span class="status-badge ${cls}">${status || 'Active'}</span>`;
+        }
 
-            // =============================================
-            // LOAD ALL STAFF
-            // =============================================
-            async function loadStaff() {
-                try {
-                    let allStaff = [];
-                    let offset = 0;
-                    const limit = 100;
-                    let hasMore = true;
+        // =============================================
+        // LOAD ALL STAFF
+        // =============================================
+        async function loadStaff() {
+            try {
+                let allStaff = [];
+                let offset = 0;
+                const limit = 100;
+                let hasMore = true;
 
-                    while (hasMore) {
-                        const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
-                        const staffBatch = data.data || [];
+                while (hasMore) {
+                    const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
+                    const staffBatch = data.data || [];
 
-                        if (staffBatch.length === 0) {
+                    if (staffBatch.length === 0) {
+                        hasMore = false;
+                    } else {
+                        allStaff = allStaff.concat(staffBatch);
+                        offset += limit;
+                        if (staffBatch.length < limit) {
                             hasMore = false;
-                        } else {
-                            allStaff = allStaff.concat(staffBatch);
-                            offset += limit;
-                            if (staffBatch.length < limit) {
-                                hasMore = false;
-                            }
                         }
                     }
-
-                    staff = allStaff;
-                    return staff;
-                } catch (error) {
-                    console.error('Failed to load staff:', error);
-                    staff = [];
-                    return staff;
                 }
+
+                staff = allStaff;
+                return staff;
+            } catch (error) {
+                console.error('Failed to load staff:', error);
+                staff = [];
+                return staff;
             }
+        }
 
-            async function loadHostels() {
-                try {
-                    const data = await apiCall('/hostels');
-                    hostels = data.data || [];
-                    return hostels;
-                } catch { hostels = []; return hostels; }
-            }
+        async function loadHostels() {
+            try {
+                const data = await apiCall('/hostels');
+                hostels = data.data || [];
+                return hostels;
+            } catch { hostels = []; return hostels; }
+        }
 
-            async function loadFloors() {
-                try {
-                    const data = await apiCall('/floors-flats');
-                    floors = data.data || [];
-                    return floors;
-                } catch { floors = []; return floors; }
-            }
+        async function loadFloors() {
+            try {
+                const data = await apiCall('/floors-flats');
+                floors = data.data || [];
+                return floors;
+            } catch { floors = []; return floors; }
+        }
 
-            // =============================================
-            // STAFF DRAWER
-            // =============================================
-            function openStaffDrawer(staffMember) {
-                selectedStaff = staffMember;
-                const drawer = document.getElementById('staffDrawer');
-                const body = document.getElementById('drawerBody');
+        // =============================================
+        // STAFF DRAWER
+        // =============================================
+        function openStaffDrawer(staffMember) {
+            selectedStaff = staffMember;
+            const drawer = document.getElementById('staffDrawer');
+            const body = document.getElementById('drawerBody');
 
-                const initials = staffMember.name ? staffMember.name.split(' ').map(n => n[0]).join('').slice(0, 2)
-                    .toUpperCase() : '?';
-                const hostelName = staffMember.hostel_id ? hostels.find(h => h.id === staffMember.hostel_id)?.name || '—' :
-                    '—';
-                const floorName = staffMember.assigned_floor || '—';
+            const initials = staffMember.name ? staffMember.name.split(' ').map(n => n[0]).join('').slice(0, 2)
+                .toUpperCase() : '?';
+            const hostelName = staffMember.hostel_id ? hostels.find(h => String(h.id) === String(staffMember.hostel_id))?.name || '—' :
+                '—';
+            const floorName = staffMember.assigned_floor || '—';
 
-                body.innerHTML = `
+            body.innerHTML = `
                     <div class="profile-card">
                         <div class="avatar-lg">${initials}</div>
                         <div class="staff-name">${staffMember.name || 'Unknown'}</div>
@@ -1502,169 +1509,72 @@
                         <button class="btn-primary" onclick="resetPasswordStaff('${staffMember.id}')"><i class="fas fa-key"></i> Reset Password</button>
                     </div>
                 `;
-                drawer.classList.add('open');
+            drawer.classList.add('open');
+        }
+
+        function closeStaffDrawer() {
+            document.getElementById('staffDrawer').classList.remove('open');
+            selectedStaff = null;
+        }
+
+        // =============================================
+        // RESET PASSWORD - DEFAULT: password1
+        // =============================================
+        function resetPasswordStaff(id) {
+            const s = findStaffById(id);
+            if (!s) {
+                showToast('Staff not found', 'error');
+                return;
             }
-
-            function closeStaffDrawer() {
-                document.getElementById('staffDrawer').classList.remove('open');
-                selectedStaff = null;
+            if (confirm(`Reset password for ${s.name} to "password1"?`)) {
+                apiCall(`/staff/${id}/reset-password`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ password: 'password1' })
+                }).then(() => {
+                    showToast(`✅ Password reset for ${s.name} to "password1"`, 'success');
+                }).catch(() => {
+                    showToast('Failed to reset password', 'error');
+                });
             }
+        }
 
-            // =============================================
-            // RESET PASSWORD - DEFAULT: password1
-            // =============================================
-            function resetPasswordStaff(id) {
-                const staffMember = staff.find(s => s.id === id);
-                if (!staffMember) {
-                    showToast('Staff not found', 'error');
-                    return;
-                }
-                if (confirm(`Reset password for ${staffMember.name} to "password1"?`)) {
-                    apiCall(`/staff/${id}/reset-password`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ password: 'password1' })
-                    }).then(() => {
-                        showToast(`✅ Password reset for ${staffMember.name} to "password1"`, 'success');
-                    }).catch(() => {
-                        showToast('Failed to reset password', 'error');
-                    });
-                }
-            }
+        // =============================================
+        // FILTER STAFF - WITH HOSTEL GROUPING
+        // =============================================
+        function filterStaff() {
+            const search = (document.getElementById('staffSearch')?.value || '').toLowerCase();
+            const roleFilter = document.getElementById('filterRole')?.value || '';
+            const hostelFilter = document.getElementById('filterHostel')?.value || '';
+            const statusFilter = document.getElementById('filterStatus')?.value || '';
 
-            // =============================================
-            // FILTER STAFF - WITH HOSTEL GROUPING
-            // =============================================
-            function filterStaff() {
-                const search = (document.getElementById('staffSearch')?.value || '').toLowerCase();
-                const roleFilter = document.getElementById('filterRole')?.value || '';
-                const hostelFilter = document.getElementById('filterHostel')?.value || '';
-                const statusFilter = document.getElementById('filterStatus')?.value || '';
-
-                filteredStaff = staff.filter(s => {
-                    const nameMatch = `${s.name || ''} ${s.username || ''} ${s.email || ''}`.toLowerCase().includes(
+            filteredStaff = staff.filter(s => {
+                const nameMatch = `${s.name || ''} ${s.username || ''} ${s.email || ''}`.toLowerCase().includes(
                     search);
-                    const roleMatch = !roleFilter || s.role === roleFilter;
-                    const hostelMatch = !hostelFilter || s.hostel_id == hostelFilter;
-                    const statusMatch = !statusFilter || s.status === statusFilter;
-                    return nameMatch && roleMatch && hostelMatch && statusMatch;
-                });
+                const roleMatch = !roleFilter || s.role === roleFilter;
+                const hostelMatch = !hostelFilter || String(s.hostel_id) === String(hostelFilter);
+                const statusMatch = !statusFilter || s.status === statusFilter;
+                return nameMatch && roleMatch && hostelMatch && statusMatch;
+            });
 
-                renderTable();
-            }
+            renderTable();
+        }
 
-            // =============================================
-            // RENDER TABLE WITH HOSTEL GROUPING
-            // =============================================
-            function renderTable() {
-                const tbody = document.getElementById('staffTableBody');
-                if (!tbody) return;
+        // =============================================
+        // RENDER STAFF ROW
+        // =============================================
+        function renderStaffRow(s, isHRA = false) {
+            const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+            const hostelName = s.hostel_id ? hostels.find(h => String(h.id) === String(s.hostel_id))?.name || '—' : '—';
+            const room = s.assigned_room || s.room || '—';
+            const campus = s.campus || 'Legacy';
+            const rowClass = isHRA ? 'hra-row' : '';
 
-                if (filteredStaff.length === 0) {
-                    tbody.innerHTML =
-                        '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff found</td></tr>';
-                    updateStats();
-                    updateStaffCount();
-                    return;
-                }
+            // For HRA, show the role badge with gold highlight
+            const roleBadge = isHRA ? 
+                `<span class="role-badge hra" style="background:#d6ad4b;color:#10233f;font-weight:800;">HRA</span>` :
+                getRoleBadge(s.role);
 
-                // Separate non-hostel staff (Admins, RASD, and staff without hostel)
-                const nonHostelStaff = filteredStaff.filter(s => 
-                    s.role === 'Administrator' || s.role === 'RASD' || !s.hostel_id
-                );
-                
-                // Get hostel staff (HRA and RA with hostel_id)
-                const hostelStaff = filteredStaff.filter(s => 
-                    s.hostel_id && (s.role === 'HRA' || s.role === 'RA')
-                );
-
-                // Group hostel staff by hostel
-                const hostelGroups = {};
-                hostelStaff.forEach(s => {
-                    const hostelName = hostels.find(h => h.id === s.hostel_id)?.name || 'Unknown';
-                    if (!hostelGroups[hostelName]) {
-                        hostelGroups[hostelName] = [];
-                    }
-                    hostelGroups[hostelName].push(s);
-                });
-
-                // Sort hostel names
-                const sortedHostels = Object.keys(hostelGroups).sort((a, b) => {
-                    // Put "Unknown" at the end
-                    if (a === 'Unknown') return 1;
-                    if (b === 'Unknown') return -1;
-                    return a.localeCompare(b);
-                });
-
-                let html = '';
-
-                // 1. Non-hostel staff (Administrators and RASD first)
-                const sortedNonHostel = [...nonHostelStaff].sort((a, b) => {
-                    const order = { 'Administrator': 0, 'RASD': 1 };
-                    return (order[a.role] ?? 2) - (order[b.role] ?? 2);
-                });
-
-                sortedNonHostel.forEach(s => {
-                    html += renderStaffRow(s);
-                });
-
-                // 2. Hostel groups - HRA first, then RAs
-                sortedHostels.forEach(hostelName => {
-                    const members = hostelGroups[hostelName];
-                    
-                    // Get HRA for this hostel
-                    const hra = members.find(s => s.role === 'HRA');
-                    const ras = members.filter(s => s.role === 'RA');
-
-                    // If there's an HRA, render it first with a group header
-                    if (hra) {
-                        // Add a group header row
-                        const hostelObj = hostels.find(h => h.id === hra.hostel_id);
-                        const totalInHostel = members.length;
-                        html += `
-                            <tr class="group-header">
-                                <td colspan="8">
-                                    <div class="hostel-name">
-                                        <i class="fas fa-building" style="color:#d6ad4b;"></i>
-                                        ${hostelName}
-                                        <span class="badge-count">${totalInHostel} staff</span>
-                                        <span style="font-size:0.6rem;color:#6b778b;font-weight:400;">
-                                            ${hostelObj?.campus || 'Legacy'} Campus
-                                        </span>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                        // Render HRA
-                        html += renderStaffRow(hra, true);
-                    }
-
-                    // Render RAs
-                    ras.forEach(s => {
-                        html += renderStaffRow(s, false);
-                    });
-                });
-
-                tbody.innerHTML = html;
-                updateStats();
-                updateStaffCount();
-            }
-
-            // =============================================
-            // RENDER STAFF ROW
-            // =============================================
-            function renderStaffRow(s, isHRA = false) {
-                const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
-                const hostelName = s.hostel_id ? hostels.find(h => h.id === s.hostel_id)?.name || '—' : '—';
-                const room = s.assigned_room || s.room || '—';
-                const campus = s.campus || 'Legacy';
-                const rowClass = isHRA ? 'hra-row' : '';
-
-                // For HRA, show the role badge with gold highlight
-                const roleBadge = isHRA ? 
-                    `<span class="role-badge hra" style="background:#d6ad4b;color:#10233f;font-weight:800;">HRA</span>` :
-                    getRoleBadge(s.role);
-
-                return `
+            return `
                     <tr class="${rowClass}" onclick="openStaffDrawer(${JSON.stringify(s).replace(/"/g, '&quot;')})">
                         <td>
                             <div class="staff-cell">
@@ -1690,238 +1600,339 @@
                         </td>
                     </tr>
                 `;
+        }
+
+        // =============================================
+        // RENDER TABLE WITH HOSTEL GROUPING
+        // =============================================
+        function renderTable() {
+            const tbody = document.getElementById('staffTableBody');
+            if (!tbody) return;
+
+            if (filteredStaff.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="8" class="text-center text-muted" style="padding:1rem;">No staff found</td></tr>';
+                updateStats();
+                updateStaffCount();
+                return;
             }
 
-            function updateStats() {
-                const totalStaff = staff.length;
-                const admins = staff.filter(s => s.role === 'Administrator').length;
-                const rasd = staff.filter(s => s.role === 'RASD').length;
-                const hra = staff.filter(s => s.role === 'HRA').length;
-                const ra = staff.filter(s => s.role === 'RA').length;
+            // Separate non-hostel staff (Admins, RASD, and staff without hostel)
+            const nonHostelStaff = filteredStaff.filter(s => 
+                s.role === 'Administrator' || s.role === 'RASD' || !s.hostel_id
+            );
+            
+            // Get hostel staff (HRA and RA with hostel_id)
+            const hostelStaff = filteredStaff.filter(s => 
+                s.hostel_id && (s.role === 'HRA' || s.role === 'RA')
+            );
 
-                document.getElementById('statTotal').textContent = totalStaff;
-                document.getElementById('statAdmins').textContent = admins;
-                document.getElementById('statRASD').textContent = rasd;
-                document.getElementById('statHRA').textContent = hra;
-                document.getElementById('statRA').textContent = ra;
-            }
+            // Group hostel staff by hostel
+            const hostelGroups = {};
+            hostelStaff.forEach(s => {
+                const hostelName = hostels.find(h => String(h.id) === String(s.hostel_id))?.name || 'Unknown';
+                if (!hostelGroups[hostelName]) {
+                    hostelGroups[hostelName] = [];
+                }
+                hostelGroups[hostelName].push(s);
+            });
 
-            function updateStaffCount() {
-                const countEl = document.getElementById('staffCount');
-                if (countEl) {
-                    const filteredCount = filteredStaff.length;
-                    const totalCount = staff.length;
-                    countEl.innerHTML = `
+            // Sort hostel names
+            const sortedHostels = Object.keys(hostelGroups).sort((a, b) => {
+                // Put "Unknown" at the end
+                if (a === 'Unknown') return 1;
+                if (b === 'Unknown') return -1;
+                return a.localeCompare(b);
+            });
+
+            let html = '';
+
+            // 1. Non-hostel staff (Administrators and RASD first)
+            const sortedNonHostel = [...nonHostelStaff].sort((a, b) => {
+                const order = { 'Administrator': 0, 'RASD': 1 };
+                return (order[a.role] ?? 2) - (order[b.role] ?? 2);
+            });
+
+            sortedNonHostel.forEach(s => {
+                html += renderStaffRow(s);
+            });
+
+            // 2. Hostel groups - HRA first, then RAs
+            sortedHostels.forEach(hostelName => {
+                const members = hostelGroups[hostelName];
+                
+                // Get HRA for this hostel
+                const hra = members.find(s => s.role === 'HRA');
+                const ras = members.filter(s => s.role === 'RA');
+
+                // If there's an HRA, render it first with a group header
+                if (hra) {
+                    // Add a group header row
+                    const hostelObj = hostels.find(h => String(h.id) === String(hra.hostel_id));
+                    const totalInHostel = members.length;
+                    html += `
+                            <tr class="group-header">
+                                <td colspan="8">
+                                    <div class="hostel-name">
+                                        <i class="fas fa-building" style="color:#d6ad4b;"></i>
+                                        ${hostelName}
+                                        <span class="badge-count">${totalInHostel} staff</span>
+                                        <span style="font-size:0.6rem;color:#6b778b;font-weight:400;">
+                                            ${hostelObj?.campus || 'Legacy'} Campus
+                                        </span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    // Render HRA
+                    html += renderStaffRow(hra, true);
+                }
+
+                // Render RAs
+                ras.forEach(s => {
+                    html += renderStaffRow(s, false);
+                });
+            });
+
+            tbody.innerHTML = html;
+            updateStats();
+            updateStaffCount();
+        }
+
+        function updateStats() {
+            const totalStaff = staff.length;
+            const admins = staff.filter(s => s.role === 'Administrator').length;
+            const rasd = staff.filter(s => s.role === 'RASD').length;
+            const hra = staff.filter(s => s.role === 'HRA').length;
+            const ra = staff.filter(s => s.role === 'RA').length;
+
+            document.getElementById('statTotal').textContent = totalStaff;
+            document.getElementById('statAdmins').textContent = admins;
+            document.getElementById('statRASD').textContent = rasd;
+            document.getElementById('statHRA').textContent = hra;
+            document.getElementById('statRA').textContent = ra;
+        }
+
+        function updateStaffCount() {
+            const countEl = document.getElementById('staffCount');
+            if (countEl) {
+                const filteredCount = filteredStaff.length;
+                const totalCount = staff.length;
+                countEl.innerHTML = `
                         <span>Showing <strong>${filteredCount}</strong> of <strong>${totalCount}</strong> staff members</span>
                         <span style="font-size:0.6rem;color:#68768a;">Grouped by hostel</span>
                     `;
-                }
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('staffSearch').value = '';
+            document.getElementById('filterRole').value = '';
+            document.getElementById('filterHostel').value = '';
+            document.getElementById('filterStatus').value = '';
+            filterStaff();
+            showToast('Filters cleared', 'info');
+        }
+
+        // =============================================
+        // ADD / EDIT STAFF
+        // =============================================
+        function openAddStaff() {
+            editingId = null;
+            document.getElementById('dialogTitle').textContent = 'Add Staff';
+            document.getElementById('dialogSubmitBtn').textContent = 'Create Staff';
+            document.getElementById('staffName').value = '';
+            document.getElementById('staffUsername').value = '';
+            document.getElementById('staffEmail').value = '';
+            document.getElementById('staffPhone').value = '';
+            document.getElementById('staffRole').value = '';
+            document.getElementById('staffHostel').value = '';
+            document.getElementById('staffFloor').value = '';
+            document.getElementById('staffStatus').value = 'Active';
+            document.getElementById('staffPassword').value = '';
+            document.getElementById('hostelField').style.display = 'none';
+            document.getElementById('floorField').style.display = 'none';
+            populateHostels();
+            document.getElementById('addStaffDialog').classList.add('show');
+        }
+
+        function closeAddStaff() {
+            document.getElementById('addStaffDialog').classList.remove('show');
+        }
+
+        function editStaff(id) {
+            const s = findStaffById(id);
+            if (!s) { 
+                showToast('Staff not found', 'error'); 
+                return; 
+            }
+            editingId = id;
+            document.getElementById('dialogTitle').textContent = 'Edit Staff';
+            document.getElementById('dialogSubmitBtn').textContent = 'Update Staff';
+            document.getElementById('staffName').value = s.name || '';
+            document.getElementById('staffUsername').value = s.username || '';
+            document.getElementById('staffEmail').value = s.email || '';
+            document.getElementById('staffPhone').value = s.phone || '';
+            document.getElementById('staffRole').value = s.role || '';
+            document.getElementById('staffHostel').value = s.hostel_id || '';
+            document.getElementById('staffFloor').value = s.assigned_floor || '';
+            document.getElementById('staffStatus').value = s.status || 'Active';
+            document.getElementById('staffPassword').value = '';
+            populateHostels();
+            updateRoleFields();
+            document.getElementById('addStaffDialog').classList.add('show');
+        }
+
+        function populateHostels() {
+            const select = document.getElementById('staffHostel');
+            select.innerHTML = '<option value="">Select Hostel</option>';
+            hostels.forEach(h => {
+                const opt = document.createElement('option');
+                opt.value = h.id;
+                opt.textContent = h.name;
+                select.appendChild(opt);
+            });
+
+            const floorSelect = document.getElementById('staffFloor');
+            floorSelect.innerHTML = '<option value="">Select Floor</option>';
+            floors.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = f.code || f.name;
+                floorSelect.appendChild(opt);
+            });
+        }
+
+        function updateRoleFields() {
+            const role = document.getElementById('staffRole').value;
+            const hostelField = document.getElementById('hostelField');
+            const floorField = document.getElementById('floorField');
+
+            hostelField.style.display = 'none';
+            floorField.style.display = 'none';
+
+            if (role === 'HRA') {
+                hostelField.style.display = 'block';
+            } else if (role === 'RA') {
+                hostelField.style.display = 'block';
+                floorField.style.display = 'block';
+            }
+        }
+
+        function saveStaff() {
+            const name = document.getElementById('staffName').value.trim();
+            const username = document.getElementById('staffUsername').value.trim();
+            const email = document.getElementById('staffEmail').value.trim();
+            const phone = document.getElementById('staffPhone').value.trim();
+            const role = document.getElementById('staffRole').value;
+            const hostelId = document.getElementById('staffHostel').value;
+            const floorId = document.getElementById('staffFloor').value;
+            const status = document.getElementById('staffStatus').value;
+            const password = document.getElementById('staffPassword').value.trim() || 'password1';
+
+            if (!name || !username || !email || !role) {
+                showToast('Please fill in all required fields', 'warning');
+                return;
             }
 
-            function clearFilters() {
-                document.getElementById('staffSearch').value = '';
-                document.getElementById('filterRole').value = '';
-                document.getElementById('filterHostel').value = '';
-                document.getElementById('filterStatus').value = '';
-                filterStaff();
-                showToast('Filters cleared', 'info');
-            }
+            const payload = {
+                name,
+                username,
+                email,
+                phone: phone || null,
+                role,
+                hostel_id: hostelId || null,
+                assigned_floor: floorId || null,
+                status,
+                password: password
+            };
 
-            // =============================================
-            // ADD / EDIT STAFF
-            // =============================================
-            function openAddStaff() {
-                editingId = null;
-                document.getElementById('dialogTitle').textContent = 'Add Staff';
-                document.getElementById('dialogSubmitBtn').textContent = 'Create Staff';
-                document.getElementById('staffName').value = '';
-                document.getElementById('staffUsername').value = '';
-                document.getElementById('staffEmail').value = '';
-                document.getElementById('staffPhone').value = '';
-                document.getElementById('staffRole').value = '';
-                document.getElementById('staffHostel').value = '';
-                document.getElementById('staffFloor').value = '';
-                document.getElementById('staffStatus').value = 'Active';
-                document.getElementById('staffPassword').value = '';
-                document.getElementById('hostelField').style.display = 'none';
-                document.getElementById('floorField').style.display = 'none';
-                populateHostels();
-                document.getElementById('addStaffDialog').classList.add('show');
-            }
+            const isEdit = !!editingId;
+            const endpoint = isEdit ? `/staff/${editingId}` : '/staff';
+            const method = isEdit ? 'PUT' : 'POST';
 
-            function closeAddStaff() {
-                document.getElementById('addStaffDialog').classList.remove('show');
-            }
+            showToast(isEdit ? `Updating ${name}...` : `Creating ${name}...`, 'info');
 
-            function editStaff(id) {
-                const s = staff.find(st => st.id === id);
-                if (!s) { showToast('Staff not found', 'error'); return; }
-                editingId = id;
-                document.getElementById('dialogTitle').textContent = 'Edit Staff';
-                document.getElementById('dialogSubmitBtn').textContent = 'Update Staff';
-                document.getElementById('staffName').value = s.name || '';
-                document.getElementById('staffUsername').value = s.username || '';
-                document.getElementById('staffEmail').value = s.email || '';
-                document.getElementById('staffPhone').value = s.phone || '';
-                document.getElementById('staffRole').value = s.role || '';
-                document.getElementById('staffHostel').value = s.hostel_id || '';
-                document.getElementById('staffFloor').value = s.assigned_floor || '';
-                document.getElementById('staffStatus').value = s.status || 'Active';
-                document.getElementById('staffPassword').value = '';
-                populateHostels();
-                updateRoleFields();
-                document.getElementById('addStaffDialog').classList.add('show');
-            }
+            apiCall(endpoint, { method, body: JSON.stringify(payload) })
+                .then(() => {
+                    closeAddStaff();
+                    showToast(isEdit ? `Staff ${name} updated` : `Staff ${name} created with password: ${password}`, 'success');
+                    loadStaff().then(() => {
+                        filterStaff();
+                    });
+                })
+                .catch(() => {});
+        }
 
-            function populateHostels() {
-                const select = document.getElementById('staffHostel');
-                select.innerHTML = '<option value="">Select Hostel</option>';
-                hostels.forEach(h => {
-                    const opt = document.createElement('option');
-                    opt.value = h.id;
-                    opt.textContent = h.name;
-                    select.appendChild(opt);
-                });
+        // =============================================
+        // AUTH
+        // =============================================
+        function checkAuth() {
+            const userData = sessionStorage.getItem('bedcheck_user');
+            const token = sessionStorage.getItem('bedcheck_token');
+            if (!userData || !token) { window.location.replace('../Login.html'); return false; }
+            currentUser = JSON.parse(userData);
+            currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
+            document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) ||
+                'SO';
+            document.getElementById('profileName').textContent = currentUser.name || 'Sasha O.';
+            document.getElementById('profileRoleLabel').textContent = currentRole;
+            document.getElementById('roleLabel').textContent = currentRole;
+            document.getElementById('roleScope').textContent = 'Full system access';
+            document.getElementById('mobileRoleFooter').textContent = `${currentRole} · Full access`;
+            return true;
+        }
 
-                const floorSelect = document.getElementById('staffFloor');
-                floorSelect.innerHTML = '<option value="">Select Floor</option>';
-                floors.forEach(f => {
-                    const opt = document.createElement('option');
-                    opt.value = f.id;
-                    opt.textContent = f.code || f.name;
-                    floorSelect.appendChild(opt);
-                });
-            }
+        function handleLogout(e) {
+            if (e) e.preventDefault();
+            sessionStorage.removeItem('bedcheck_token');
+            sessionStorage.removeItem('bedcheck_user');
+            sessionStorage.removeItem('bedcheck_role');
+            window.location.replace('../Login.html');
+        }
 
-            function updateRoleFields() {
-                const role = document.getElementById('staffRole').value;
-                const hostelField = document.getElementById('hostelField');
-                const floorField = document.getElementById('floorField');
+        function setDate() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
 
-                hostelField.style.display = 'none';
-                floorField.style.display = 'none';
+        function openMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.add('open');
+            document.getElementById('drawerOverlay').classList.add('show');
+        }
 
-                if (role === 'HRA') {
-                    hostelField.style.display = 'block';
-                } else if (role === 'RA') {
-                    hostelField.style.display = 'block';
-                    floorField.style.display = 'block';
-                }
-            }
+        function closeMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.remove('open');
+            document.getElementById('drawerOverlay').classList.remove('show');
+        }
 
-            function saveStaff() {
-                const name = document.getElementById('staffName').value.trim();
-                const username = document.getElementById('staffUsername').value.trim();
-                const email = document.getElementById('staffEmail').value.trim();
-                const phone = document.getElementById('staffPhone').value.trim();
-                const role = document.getElementById('staffRole').value;
-                const hostelId = document.getElementById('staffHostel').value;
-                const floorId = document.getElementById('staffFloor').value;
-                const status = document.getElementById('staffStatus').value;
-                const password = document.getElementById('staffPassword').value.trim() || 'password1';
+        // Expose
+        window.openStaffDrawer = openStaffDrawer;
+        window.closeStaffDrawer = closeStaffDrawer;
+        window.openAddStaff = openAddStaff;
+        window.closeAddStaff = closeAddStaff;
+        window.editStaff = editStaff;
+        window.saveStaff = saveStaff;
+        window.updateRoleFields = updateRoleFields;
+        window.filterStaff = filterStaff;
+        window.clearFilters = clearFilters;
+        window.showToast = showToast;
+        window.handleLogout = handleLogout;
+        window.resetPasswordStaff = resetPasswordStaff;
+        window.findStaffById = findStaffById;
 
-                if (!name || !username || !email || !role) {
-                    showToast('Please fill in all required fields', 'warning');
-                    return;
-                }
+        // =============================================
+        // RENDER SCREEN
+        // =============================================
+        function renderScreen() {
+            const container = document.getElementById('screenContent');
 
-                const payload = {
-                    name,
-                    username,
-                    email,
-                    phone: phone || null,
-                    role,
-                    hostel_id: hostelId || null,
-                    assigned_floor: floorId || null,
-                    status,
-                    password: password
-                };
-
-                const isEdit = !!editingId;
-                const endpoint = isEdit ? `/staff/${editingId}` : '/staff';
-                const method = isEdit ? 'PUT' : 'POST';
-
-                showToast(isEdit ? `Updating ${name}...` : `Creating ${name}...`, 'info');
-
-                apiCall(endpoint, { method, body: JSON.stringify(payload) })
-                    .then(() => {
-                        closeAddStaff();
-                        showToast(isEdit ? `Staff ${name} updated` : `Staff ${name} created with password: ${password}`, 'success');
-                        loadStaff().then(() => {
-                            filterStaff();
-                        });
-                    })
-                    .catch(() => {});
-            }
-
-            // =============================================
-            // AUTH
-            // =============================================
-            function checkAuth() {
-                const userData = sessionStorage.getItem('bedcheck_user');
-                const token = sessionStorage.getItem('bedcheck_token');
-                if (!userData || !token) { window.location.replace('../Login.html'); return false; }
-                currentUser = JSON.parse(userData);
-                currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
-                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) ||
-                    'SO';
-                document.getElementById('profileName').textContent = currentUser.name || 'Sasha O.';
-                document.getElementById('profileRoleLabel').textContent = currentRole;
-                document.getElementById('roleLabel').textContent = currentRole;
-                document.getElementById('roleScope').textContent = 'Full system access';
-                document.getElementById('mobileRoleFooter').textContent = `${currentRole} · Full access`;
-                return true;
-            }
-
-            function handleLogout(e) {
-                if (e) e.preventDefault();
-                sessionStorage.removeItem('bedcheck_token');
-                sessionStorage.removeItem('bedcheck_user');
-                sessionStorage.removeItem('bedcheck_role');
-                window.location.replace('../Login.html');
-            }
-
-            function setDate() {
-                const now = new Date();
-                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-            }
-
-            function openMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.add('open');
-                document.getElementById('drawerOverlay').classList.add('show');
-            }
-
-            function closeMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.remove('open');
-                document.getElementById('drawerOverlay').classList.remove('show');
-            }
-
-            // Expose
-            window.openStaffDrawer = openStaffDrawer;
-            window.closeStaffDrawer = closeStaffDrawer;
-            window.openAddStaff = openAddStaff;
-            window.closeAddStaff = closeAddStaff;
-            window.editStaff = editStaff;
-            window.saveStaff = saveStaff;
-            window.updateRoleFields = updateRoleFields;
-            window.filterStaff = filterStaff;
-            window.clearFilters = clearFilters;
-            window.showToast = showToast;
-            window.handleLogout = handleLogout;
-            window.resetPasswordStaff = resetPasswordStaff;
-
-            // =============================================
-            // RENDER SCREEN
-            // =============================================
-            function renderScreen() {
-                const container = document.getElementById('screenContent');
-
-                container.innerHTML = `
+            container.innerHTML = `
                     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                         <div>
                             <p style="font-size:0.65rem;font-weight:600;color:#a77915;text-transform:uppercase;letter-spacing:0.06em;"><i class="fas fa-users"></i> Staff Management</p>
@@ -1989,47 +2000,47 @@
                     </div>
                 `;
 
-                populateHostels();
-                filterStaff();
-            }
+            populateHostels();
+            filterStaff();
+        }
 
-            // =============================================
-            // INIT
-            // =============================================
-            async function init() {
-                if (!checkAuth()) return;
-                setDate();
+        // =============================================
+        // INIT
+        // =============================================
+        async function init() {
+            if (!checkAuth()) return;
+            setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+            document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+            document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+            document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') { closeStaffDrawer();
-                        closeAddStaff(); }
-                });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { closeStaffDrawer();
+                    closeAddStaff(); }
+            });
 
-                try {
-                    document.getElementById('noticeText').textContent = 'Loading staff...';
-                    await Promise.all([loadStaff(), loadHostels(), loadFloors()]);
-                    renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${staff.length} staff members.`;
-                } catch (error) {
-                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
-                        showToast('Error loading data: ' + error.message, 'error');
-                    }
+            try {
+                document.getElementById('noticeText').textContent = 'Loading staff...';
+                await Promise.all([loadStaff(), loadHostels(), loadFloors()]);
+                renderScreen();
+                document.getElementById('noticeText').textContent = `Loaded ${staff.length} staff members.`;
+            } catch (error) {
+                document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
+                    showToast('Error loading data: ' + error.message, 'error');
                 }
             }
+        }
 
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', init);
-            } else {
-                init();
-            }
-        })();
-    </script>
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+</script>
 
 </body>
 </html>
