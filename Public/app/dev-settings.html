@@ -252,6 +252,7 @@
             align-items: center;
             gap: 0.5rem;
             flex-shrink: 0;
+            position: relative;
         }
         @media (max-width: 480px) { .header-right { gap: 0.3rem; } }
 
@@ -499,9 +500,6 @@
             width: 100%;
         }
 
-        /* ================================================
-           SETTINGS SECTIONS
-        ================================================ */
         .settings-section {
             display: none;
             background: #fffcf6;
@@ -541,9 +539,6 @@
             .section-footer { padding: 0.5rem 0.75rem; }
         }
 
-        /* ================================================
-           FORM ELEMENTS
-        ================================================ */
         .form-group { margin-bottom: 0.75rem; }
         .form-group label {
             display: block;
@@ -636,9 +631,6 @@
         .toggle input:checked+.slider::before { transform: translateX(18px); }
         .toggle.disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* ================================================
-           SYSTEM INFO
-        ================================================ */
         .system-info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -659,9 +651,6 @@
         .system-info-item .info-label { color: #68768a; }
         .system-info-item .info-value { font-weight: 500; }
 
-        /* ================================================
-           DANGER ZONE
-        ================================================ */
         .danger-zone {
             border: 2px solid #fecaca;
             border-radius: 0.5rem;
@@ -705,9 +694,6 @@
             .danger-item .btn { width: 100%; justify-content: center; }
         }
 
-        /* ================================================
-           FACE STATUS CARD
-        ================================================ */
         .face-status-card {
             display: flex;
             align-items: center;
@@ -722,9 +708,6 @@
         .face-status-card .title { font-weight: 600; font-size: 0.85rem; }
         .face-status-card .sub { font-size: 0.65rem; color: #68768a; }
 
-        /* ================================================
-           BUTTONS
-        ================================================ */
         .btn {
             display: inline-flex;
             align-items: center;
@@ -792,9 +775,6 @@
             background: #f5f1e8;
         }
 
-        /* ================================================
-           MODAL
-        ================================================ */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -878,9 +858,6 @@
             .modal-footer .btn { width: 100%; justify-content: center; }
         }
 
-        /* ================================================
-           TOAST
-        ================================================ */
         .toast {
             position: fixed;
             bottom: 1.5rem;
@@ -912,9 +889,6 @@
         .toast.error { background: #a84134; }
         .toast.info { background: #1e3a5f; }
 
-        /* ================================================
-           MOBILE OVERLAY
-        ================================================ */
         .drawer-overlay {
             position: fixed;
             inset: 0;
@@ -1049,7 +1023,6 @@
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
 
-        /* Profile dropdown */
         .profile-dropdown {
             position: absolute;
             top: calc(100% + 0.5rem);
@@ -1106,12 +1079,9 @@
 </head>
 <body>
 
-    <!-- TOAST -->
     <div id="toast" class="toast"></div>
 
-    <!-- ===== PORTAL ===== -->
     <div id="portalApp" class="app-wrapper">
-        <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <div class="brand-badge">S</div>
@@ -1132,7 +1102,7 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html" class="active"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
 
@@ -1142,7 +1112,6 @@
             </div>
         </aside>
 
-        <!-- Mobile -->
         <div class="drawer-overlay" id="drawerOverlay"></div>
         <aside class="mobile-drawer" id="mobileDrawer">
             <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
@@ -1164,13 +1133,12 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html" class="active"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">System Owner · Full access</div>
         </aside>
 
-        <!-- Main -->
         <main class="main-content">
             <header class="main-header">
                 <div class="header-inner">
@@ -1258,8 +1226,22 @@
 
             let currentUser = null;
             let currentRole = 'System Owner';
-            let pendingAction = null;
             let settingsCache = {};
+            let pendingAction = null;
+
+            // =============================================
+            // HELPER: Safe element text setter
+            // =============================================
+            function setElementText(id, value) {
+                const el = document.getElementById(id);
+                if (el) el.textContent = value;
+                return el;
+            }
+
+            function getInitials(name) {
+                if (!name) return 'SO';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
 
             // =============================================
             // API
@@ -1303,10 +1285,97 @@
                 }
             }
 
-            function getInitials(name) {
-                if (!name) return 'SO';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            // =============================================
+            // AUTH - SAFE VERSION
+            // =============================================
+            function checkAuth() {
+                const userData = sessionStorage.getItem('bedcheck_user');
+                const token = sessionStorage.getItem('bedcheck_token');
+                if (!userData || !token) {
+                    window.location.replace('../Login.html');
+                    return false;
+                }
+
+                currentUser = JSON.parse(userData);
+                currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
+
+                // Safe element updates
+                const initials = currentUser.initials || getInitials(currentUser.name) || 'SO';
+                const name = currentUser.name || 'Sasha O.';
+
+                setElementText('profileAvatar', initials);
+                setElementText('profileName', name);
+                setElementText('profileRoleLabel', currentRole);
+                setElementText('roleLabel', currentRole);
+                setElementText('roleScope', 'Full system access');
+                setElementText('mobileRoleFooter', `${currentRole} · Full access`);
+                setElementText('dropdownUserName', name);
+                setElementText('dropdownUserRole', currentRole);
+                setElementText('ownerAvatar', initials);
+                setElementText('ownerName', name);
+                setElementText('ownerRole', currentRole);
+
+                return true;
             }
+
+            function handleLogout(e) {
+                if (e) e.preventDefault();
+                sessionStorage.removeItem('bedcheck_token');
+                sessionStorage.removeItem('bedcheck_user');
+                sessionStorage.removeItem('bedcheck_role');
+                window.location.replace('../Login.html');
+            }
+
+            function setDate() {
+                const now = new Date();
+                const el = document.getElementById('currentDate');
+                if (el) {
+                    el.textContent = now.toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                }
+            }
+
+            function openMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('show');
+            }
+
+            function closeMobileDrawer() {
+                document.getElementById('mobileDrawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('show');
+            }
+
+            // =============================================
+            // MODAL HELPERS
+            // =============================================
+            window.closeModal = function(id) {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('show');
+            };
+
+            window.confirmAction = function() {
+                closeModal('confirmModal');
+                if (pendingAction === 'resetSettings') {
+                    showToast('🔄 Resetting settings to defaults...', 'warning');
+                    setTimeout(() => showToast('✅ Settings reset to defaults', 'success'), 1500);
+                } else if (pendingAction === 'transferOwnership') {
+                    showToast('🔄 Transferring System Ownership...', 'warning');
+                    setTimeout(() => showToast('✅ System Ownership transferred successfully', 'success'), 2000);
+                } else if (pendingAction === 'disableOwner') {
+                    showToast('🔒 Account disabled. Logging out...', 'warning');
+                    setTimeout(() => { sessionStorage.clear();
+                        window.location.href = '../Login.html'; }, 2000);
+                } else if (pendingAction === 'deleteOwner') {
+                    showToast('🗑️ Account deletion in progress...', 'error');
+                    setTimeout(() => { sessionStorage.clear();
+                        window.location.href = '../Login.html'; }, 2000);
+                }
+                pendingAction = null;
+            };
 
             // =============================================
             // LOAD USER DATA
@@ -1336,14 +1405,26 @@
             function updateUserUI(user) {
                 if (!user) return;
                 const initials = user.initials || getInitials(user.name) || 'SO';
-                document.getElementById('profileAvatar').textContent = initials;
-                document.getElementById('profileName').textContent = user.name || 'Sasha O.';
-                document.getElementById('profileRoleLabel').textContent = user.role || 'System Owner';
-                document.getElementById('roleLabel').textContent = user.role || 'System Owner';
-                document.getElementById('roleScope').textContent = 'Full system access';
-                document.getElementById('mobileRoleFooter').textContent = `${user.role || 'System Owner'} · Full access`;
-                document.getElementById('dropdownUserName').textContent = user.name || 'Sasha O.';
-                document.getElementById('dropdownUserRole').textContent = user.role || 'System Owner';
+                const name = user.name || 'Sasha O.';
+                const role = user.role || 'System Owner';
+
+                setElementText('profileAvatar', initials);
+                setElementText('profileName', name);
+                setElementText('profileRoleLabel', role);
+                setElementText('roleLabel', role);
+                setElementText('roleScope', 'Full system access');
+                setElementText('mobileRoleFooter', `${role} · Full access`);
+                setElementText('dropdownUserName', name);
+                setElementText('dropdownUserRole', role);
+                setElementText('ownerAvatar', initials);
+                setElementText('ownerName', name);
+                setElementText('ownerRole', role);
+
+                // Owner section
+                const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
+                const created = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A';
+                setElementText('ownerLastLogin', lastLogin);
+                setElementText('ownerCreated', created);
             }
 
             // =============================================
@@ -1407,67 +1488,44 @@
 
             function applySettingsToUI() {
                 // General
-                if (settingsCache.university_name) document.getElementById('university_name').value = settingsCache
-                    .university_name;
-                if (settingsCache.system_name) document.getElementById('system_name').value = settingsCache.system_name;
-                if (settingsCache.timezone) document.getElementById('timezone').value = settingsCache.timezone;
-                if (settingsCache.default_language) document.getElementById('default_language').value = settingsCache
-                    .default_language;
+                const setVal = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = val !== undefined && val !== null ? val : '';
+                };
+                const setChecked = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el) el.checked = val === 'true' || val === true;
+                };
 
-                // BedCheck
-                if (settingsCache.bedcheck_start) document.getElementById('bedcheck_start').value = settingsCache
-                    .bedcheck_start;
-                if (settingsCache.bedcheck_end) document.getElementById('bedcheck_end').value = settingsCache
-                    .bedcheck_end;
-                if (settingsCache.grace_period) document.getElementById('grace_period').value = settingsCache
-                    .grace_period;
-                if (settingsCache.auto_lock !== undefined) document.getElementById('auto_lock').checked = settingsCache
-                    .auto_lock === 'true';
-                if (settingsCache.auto_close !== undefined) document.getElementById('auto_close').checked = settingsCache
-                    .auto_close === 'true';
-                if (settingsCache.hra_approval !== undefined) document.getElementById('hra_approval').checked =
-                    settingsCache.hra_approval === 'true';
-
-                // Hostels
-                if (settingsCache.boys_hostels) document.getElementById('boys_hostels').value = settingsCache
-                    .boys_hostels;
-                if (settingsCache.girls_hostels) document.getElementById('girls_hostels').value = settingsCache
-                    .girls_hostels;
-                if (settingsCache.default_floors) document.getElementById('default_floors').value = settingsCache
-                    .default_floors;
-                if (settingsCache.default_capacity) document.getElementById('default_capacity').value = settingsCache
-                    .default_capacity;
-
-                // Face
-                if (settingsCache.auto_recognition !== undefined) document.getElementById('auto_recognition').checked =
-                    settingsCache.auto_recognition === 'true';
-                if (settingsCache.liveness_detection !== undefined) document.getElementById('liveness_detection')
-                    .checked = settingsCache.liveness_detection === 'true';
+                setVal('university_name', settingsCache.university_name);
+                setVal('system_name', settingsCache.system_name);
+                setVal('timezone', settingsCache.timezone);
+                setVal('default_language', settingsCache.default_language);
+                setVal('bedcheck_start', settingsCache.bedcheck_start);
+                setVal('bedcheck_end', settingsCache.bedcheck_end);
+                setVal('grace_period', settingsCache.grace_period);
+                setChecked('auto_lock', settingsCache.auto_lock);
+                setChecked('auto_close', settingsCache.auto_close);
+                setChecked('hra_approval', settingsCache.hra_approval);
+                setVal('boys_hostels', settingsCache.boys_hostels);
+                setVal('girls_hostels', settingsCache.girls_hostels);
+                setVal('default_floors', settingsCache.default_floors);
+                setVal('default_capacity', settingsCache.default_capacity);
+                setChecked('auto_recognition', settingsCache.auto_recognition);
+                setChecked('liveness_detection', settingsCache.liveness_detection);
                 if (settingsCache.recognition_threshold) {
                     const val = parseFloat(settingsCache.recognition_threshold);
-                    document.getElementById('recognition_threshold').value = val;
-                    document.getElementById('thresholdValue').textContent = val.toFixed(2);
+                    setVal('recognition_threshold', val);
+                    const thresholdDisplay = document.getElementById('thresholdValue');
+                    if (thresholdDisplay) thresholdDisplay.textContent = val.toFixed(2);
                 }
-
-                // Security
-                if (settingsCache.password_min_length) document.getElementById('password_min_length').value =
-                    settingsCache.password_min_length;
-                if (settingsCache.session_timeout) document.getElementById('session_timeout').value = settingsCache
-                    .session_timeout;
-                if (settingsCache.account_lockout !== undefined) document.getElementById('account_lockout').checked =
-                    settingsCache.account_lockout === 'true';
-                if (settingsCache.two_factor_auth !== undefined) document.getElementById('two_factor_auth').checked =
-                    settingsCache.two_factor_auth === 'true';
-
-                // Notifications
-                if (settingsCache.in_app_notifications !== undefined) document.getElementById('in_app_notifications')
-                    .checked = settingsCache.in_app_notifications === 'true';
-                if (settingsCache.email_notifications !== undefined) document.getElementById('email_notifications')
-                    .checked = settingsCache.email_notifications === 'true';
-
-                // System Owner
-                if (settingsCache.owner_2fa !== undefined) document.getElementById('owner_2fa').checked = settingsCache
-                    .owner_2fa === 'true';
+                setVal('password_min_length', settingsCache.password_min_length);
+                setVal('session_timeout', settingsCache.session_timeout);
+                setChecked('account_lockout', settingsCache.account_lockout);
+                setChecked('two_factor_auth', settingsCache.two_factor_auth);
+                setChecked('in_app_notifications', settingsCache.in_app_notifications);
+                setChecked('email_notifications', settingsCache.email_notifications);
+                setChecked('owner_2fa', settingsCache.owner_2fa);
             }
 
             // =============================================
@@ -1475,6 +1533,7 @@
             // =============================================
             function renderScreen() {
                 const container = document.getElementById('screenContent');
+                if (!container) return;
 
                 container.innerHTML = `
                     <div class="page-heading">
@@ -1721,7 +1780,7 @@
                     </div>
                 `;
 
-                // Initialize
+                // Initialize after render
                 loadAllData();
             }
 
@@ -1730,17 +1789,23 @@
             // =============================================
             async function loadAllData() {
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading settings...';
+                    const notice = document.getElementById('noticeText');
+                    if (notice) notice.textContent = 'Loading settings...';
+
                     await loadUserData();
                     await loadSettings();
                     await checkFaceAPIStatus();
 
                     const now = new Date();
-                    document.getElementById('lastUpdated').textContent = now.toLocaleDateString('en-US', { month: 'short',
-                        day: 'numeric', year: 'numeric' });
-                    document.getElementById('noticeText').textContent = 'Settings loaded successfully.';
+                    const lastUpdated = document.getElementById('lastUpdated');
+                    if (lastUpdated) {
+                        lastUpdated.textContent = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric',
+                            year: 'numeric' });
+                    }
+                    if (notice) notice.textContent = 'Settings loaded successfully.';
                 } catch (error) {
-                    document.getElementById('noticeText').textContent = 'Error loading settings. Please refresh.';
+                    const notice = document.getElementById('noticeText');
+                    if (notice) notice.textContent = 'Error loading settings. Please refresh.';
                     if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
@@ -1757,7 +1822,8 @@
                     navItem.classList.add('active');
                     const sectionId = navItem.dataset.section;
                     document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
-                    document.getElementById(`section-${sectionId}`).classList.add('active');
+                    const target = document.getElementById(`section-${sectionId}`);
+                    if (target) target.classList.add('active');
                 }
             });
 
@@ -1766,7 +1832,8 @@
             // =============================================
             document.addEventListener('input', function(e) {
                 if (e.target.id === 'recognition_threshold') {
-                    document.getElementById('thresholdValue').textContent = parseFloat(e.target.value).toFixed(2);
+                    const display = document.getElementById('thresholdValue');
+                    if (display) display.textContent = parseFloat(e.target.value).toFixed(2);
                 }
             });
 
@@ -1789,42 +1856,46 @@
                     const settings = {};
 
                     if (section === 'general') {
-                        settings.university_name = document.getElementById('university_name').value;
-                        settings.system_name = document.getElementById('system_name').value;
-                        settings.timezone = document.getElementById('timezone').value;
-                        settings.default_language = document.getElementById('default_language').value;
+                        settings.university_name = document.getElementById('university_name')?.value || '';
+                        settings.system_name = document.getElementById('system_name')?.value || '';
+                        settings.timezone = document.getElementById('timezone')?.value || '';
+                        settings.default_language = document.getElementById('default_language')?.value || '';
                     } else if (section === 'bedcheck') {
-                        settings.bedcheck_start = document.getElementById('bedcheck_start').value;
-                        settings.bedcheck_end = document.getElementById('bedcheck_end').value;
-                        settings.grace_period = document.getElementById('grace_period').value;
-                        settings.auto_lock = document.getElementById('auto_lock').checked ? 'true' : 'false';
-                        settings.auto_close = document.getElementById('auto_close').checked ? 'true' : 'false';
-                        settings.hra_approval = document.getElementById('hra_approval').checked ? 'true' : 'false';
+                        settings.bedcheck_start = document.getElementById('bedcheck_start')?.value || '';
+                        settings.bedcheck_end = document.getElementById('bedcheck_end')?.value || '';
+                        settings.grace_period = document.getElementById('grace_period')?.value || '';
+                        const autoLock = document.getElementById('auto_lock');
+                        settings.auto_lock = autoLock ? (autoLock.checked ? 'true' : 'false') : 'true';
+                        const autoClose = document.getElementById('auto_close');
+                        settings.auto_close = autoClose ? (autoClose.checked ? 'true' : 'false') : 'true';
+                        const hraApproval = document.getElementById('hra_approval');
+                        settings.hra_approval = hraApproval ? (hraApproval.checked ? 'true' : 'false') : 'true';
                     } else if (section === 'hostels') {
-                        settings.boys_hostels = document.getElementById('boys_hostels').value;
-                        settings.girls_hostels = document.getElementById('girls_hostels').value;
-                        settings.default_floors = document.getElementById('default_floors').value;
-                        settings.default_capacity = document.getElementById('default_capacity').value;
+                        settings.boys_hostels = document.getElementById('boys_hostels')?.value || '';
+                        settings.girls_hostels = document.getElementById('girls_hostels')?.value || '';
+                        settings.default_floors = document.getElementById('default_floors')?.value || '';
+                        settings.default_capacity = document.getElementById('default_capacity')?.value || '';
                     } else if (section === 'face') {
-                        settings.auto_recognition = document.getElementById('auto_recognition').checked ? 'true' :
-                            'false';
-                        settings.liveness_detection = document.getElementById('liveness_detection').checked ?
-                            'true' : 'false';
-                        settings.recognition_threshold = document.getElementById('recognition_threshold').value;
+                        const autoRec = document.getElementById('auto_recognition');
+                        settings.auto_recognition = autoRec ? (autoRec.checked ? 'true' : 'false') : 'true';
+                        const liveness = document.getElementById('liveness_detection');
+                        settings.liveness_detection = liveness ? (liveness.checked ? 'true' : 'false') : 'true';
+                        settings.recognition_threshold = document.getElementById('recognition_threshold')?.value || '0.55';
                     } else if (section === 'security') {
-                        settings.password_min_length = document.getElementById('password_min_length').value;
-                        settings.session_timeout = document.getElementById('session_timeout').value;
-                        settings.account_lockout = document.getElementById('account_lockout').checked ? 'true' :
-                            'false';
-                        settings.two_factor_auth = document.getElementById('two_factor_auth').checked ? 'true' :
-                            'false';
+                        settings.password_min_length = document.getElementById('password_min_length')?.value || '';
+                        settings.session_timeout = document.getElementById('session_timeout')?.value || '';
+                        const lockout = document.getElementById('account_lockout');
+                        settings.account_lockout = lockout ? (lockout.checked ? 'true' : 'false') : 'true';
+                        const twoFactor = document.getElementById('two_factor_auth');
+                        settings.two_factor_auth = twoFactor ? (twoFactor.checked ? 'true' : 'false') : 'true';
                     } else if (section === 'notifications') {
-                        settings.in_app_notifications = document.getElementById('in_app_notifications').checked ?
-                            'true' : 'false';
-                        settings.email_notifications = document.getElementById('email_notifications').checked ?
-                            'true' : 'false';
+                        const inApp = document.getElementById('in_app_notifications');
+                        settings.in_app_notifications = inApp ? (inApp.checked ? 'true' : 'false') : 'true';
+                        const email = document.getElementById('email_notifications');
+                        settings.email_notifications = email ? (email.checked ? 'true' : 'false') : 'true';
                     } else if (section === 'owner') {
-                        settings.owner_2fa = document.getElementById('owner_2fa').checked ? 'true' : 'false';
+                        const owner2fa = document.getElementById('owner_2fa');
+                        settings.owner_2fa = owner2fa ? (owner2fa.checked ? 'true' : 'false') : 'true';
                     }
 
                     const savePromises = Object.entries(settings).map(([key, value]) =>
@@ -1860,164 +1931,93 @@
             };
 
             window.resetAllSettings = function() {
-                document.getElementById('confirmTitle').textContent = 'Reset System Configuration';
-                document.getElementById('confirmMessage').textContent = 'Restore configurable settings to defaults?';
-                document.getElementById('confirmDetails').innerHTML =
-                    `<div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will reset all configurable settings to their default values.</div>`;
-                document.getElementById('confirmBtn').textContent = 'Reset';
+                const title = document.getElementById('confirmTitle');
+                const msg = document.getElementById('confirmMessage');
+                const details = document.getElementById('confirmDetails');
+                const btn = document.getElementById('confirmBtn');
+
+                if (title) title.textContent = 'Reset System Configuration';
+                if (msg) msg.textContent = 'Restore configurable settings to defaults?';
+                if (details) {
+                    details.innerHTML =
+                        `<div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will reset all configurable settings to their default values.</div>`;
+                }
+                if (btn) btn.textContent = 'Reset';
                 pendingAction = 'resetSettings';
-                document.getElementById('confirmModal').classList.add('show');
+                const modal = document.getElementById('confirmModal');
+                if (modal) modal.classList.add('show');
             };
 
             // =============================================
             // DANGER ZONE
             // =============================================
             window.transferOwnership = function() {
-                document.getElementById('confirmTitle').textContent = 'Transfer System Ownership';
-                document.getElementById('confirmMessage').textContent = 'Change the primary System Owner account?';
-                document.getElementById('confirmDetails').innerHTML = `
-                    <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will transfer System Owner privileges to another user.</div>
-                    <div class="form-group" style="margin-top:0.5rem;"><label>New System Owner</label>
-                        <select id="new_owner_select"><option value="">Select user</option><option value="admin">Admin User</option><option value="rasd">RASD User</option><option value="hra">HRA User</option></select>
-                    </div>
-                    <div class="form-group" style="margin-bottom:0;"><label style="display:flex;align-items:center;gap:0.4rem;font-weight:400;font-size:0.8rem;cursor:pointer;">
-                        <input type="checkbox" id="confirm_transfer" /> I confirm this transfer
-                    </label></div>
-                `;
-                document.getElementById('confirmBtn').textContent = 'Transfer';
+                const title = document.getElementById('confirmTitle');
+                const msg = document.getElementById('confirmMessage');
+                const details = document.getElementById('confirmDetails');
+                const btn = document.getElementById('confirmBtn');
+
+                if (title) title.textContent = 'Transfer System Ownership';
+                if (msg) msg.textContent = 'Change the primary System Owner account?';
+                if (details) {
+                    details.innerHTML = `
+                        <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will transfer System Owner privileges to another user.</div>
+                        <div class="form-group" style="margin-top:0.5rem;"><label>New System Owner</label>
+                            <select id="new_owner_select"><option value="">Select user</option><option value="admin">Admin User</option><option value="rasd">RASD User</option><option value="hra">HRA User</option></select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;"><label style="display:flex;align-items:center;gap:0.4rem;font-weight:400;font-size:0.8rem;cursor:pointer;">
+                            <input type="checkbox" id="confirm_transfer" /> I confirm this transfer
+                        </label></div>
+                    `;
+                }
+                if (btn) btn.textContent = 'Transfer';
                 pendingAction = 'transferOwnership';
-                document.getElementById('confirmModal').classList.add('show');
+                const modal = document.getElementById('confirmModal');
+                if (modal) modal.classList.add('show');
             };
 
             window.disableOwner = function() {
-                document.getElementById('confirmTitle').textContent = 'Disable System Owner';
-                document.getElementById('confirmMessage').textContent = 'Temporarily disable your account?';
-                document.getElementById('confirmDetails').innerHTML = `
-                    <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">Your account will be disabled and you will be logged out.</div>
-                    <div class="form-group" style="margin-top:0.5rem;"><label>Reason</label><input type="text" id="disable_reason" placeholder="Enter reason..." /></div>
-                `;
-                document.getElementById('confirmBtn').textContent = 'Disable';
+                const title = document.getElementById('confirmTitle');
+                const msg = document.getElementById('confirmMessage');
+                const details = document.getElementById('confirmDetails');
+                const btn = document.getElementById('confirmBtn');
+
+                if (title) title.textContent = 'Disable System Owner';
+                if (msg) msg.textContent = 'Temporarily disable your account?';
+                if (details) {
+                    details.innerHTML = `
+                        <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">Your account will be disabled and you will be logged out.</div>
+                        <div class="form-group" style="margin-top:0.5rem;"><label>Reason</label><input type="text" id="disable_reason" placeholder="Enter reason..." /></div>
+                    `;
+                }
+                if (btn) btn.textContent = 'Disable';
                 pendingAction = 'disableOwner';
-                document.getElementById('confirmModal').classList.add('show');
+                const modal = document.getElementById('confirmModal');
+                if (modal) modal.classList.add('show');
             };
 
             window.deleteOwner = function() {
-                document.getElementById('confirmTitle').textContent = 'Delete System Owner';
-                document.getElementById('confirmMessage').textContent = 'Permanently delete your account?';
-                document.getElementById('confirmDetails').innerHTML = `
-                    <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This action cannot be undone. All your data will be removed.</div>
-                    <div class="form-group" style="margin-top:0.5rem;"><label>Type CONFIRM to proceed</label><input type="text" id="delete_confirm_input" placeholder="Type CONFIRM" /></div>
-                    <div class="form-group" style="margin-bottom:0;"><label style="display:flex;align-items:center;gap:0.4rem;font-weight:400;font-size:0.8rem;cursor:pointer;">
-                        <input type="checkbox" id="confirm_delete" /> I understand this action cannot be undone
-                    </label></div>
-                `;
-                document.getElementById('confirmBtn').textContent = 'Delete';
+                const title = document.getElementById('confirmTitle');
+                const msg = document.getElementById('confirmMessage');
+                const details = document.getElementById('confirmDetails');
+                const btn = document.getElementById('confirmBtn');
+
+                if (title) title.textContent = 'Delete System Owner';
+                if (msg) msg.textContent = 'Permanently delete your account?';
+                if (details) {
+                    details.innerHTML = `
+                        <div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This action cannot be undone. All your data will be removed.</div>
+                        <div class="form-group" style="margin-top:0.5rem;"><label>Type CONFIRM to proceed</label><input type="text" id="delete_confirm_input" placeholder="Type CONFIRM" /></div>
+                        <div class="form-group" style="margin-bottom:0;"><label style="display:flex;align-items:center;gap:0.4rem;font-weight:400;font-size:0.8rem;cursor:pointer;">
+                            <input type="checkbox" id="confirm_delete" /> I understand this action cannot be undone
+                        </label></div>
+                    `;
+                }
+                if (btn) btn.textContent = 'Delete';
                 pendingAction = 'deleteOwner';
-                document.getElementById('confirmModal').classList.add('show');
+                const modal = document.getElementById('confirmModal');
+                if (modal) modal.classList.add('show');
             };
-
-            // =============================================
-            // CONFIRM ACTION
-            // =============================================
-            window.confirmAction = function() {
-                closeModal('confirmModal');
-                if (pendingAction === 'resetSettings') {
-                    showToast('🔄 Resetting settings to defaults...', 'warning');
-                    setTimeout(() => showToast('✅ Settings reset to defaults', 'success'), 1500);
-                } else if (pendingAction === 'transferOwnership') {
-                    showToast('🔄 Transferring System Ownership...', 'warning');
-                    setTimeout(() => showToast('✅ System Ownership transferred successfully', 'success'), 2000);
-                } else if (pendingAction === 'disableOwner') {
-                    showToast('🔒 Account disabled. Logging out...', 'warning');
-                    setTimeout(() => { sessionStorage.clear();
-                        window.location.href = '../Login.html'; }, 2000);
-                } else if (pendingAction === 'deleteOwner') {
-                    showToast('🗑️ Account deletion in progress...', 'error');
-                    setTimeout(() => { sessionStorage.clear();
-                        window.location.href = '../Login.html'; }, 2000);
-                }
-                pendingAction = null;
-            };
-
-            // =============================================
-            // MODAL HELPERS
-            // =============================================
-            window.closeModal = function(id) {
-                document.getElementById(id).classList.remove('show');
-            };
-
-            document.querySelectorAll('.modal-overlay').forEach(overlay => {
-                overlay.addEventListener('click', function(e) {
-                    if (e.target === this) this.classList.remove('show');
-                });
-            });
-
-            // =============================================
-            // AUTH
-            // =============================================
-            function checkAuth() {
-                const userData = sessionStorage.getItem('bedcheck_user');
-                const token = sessionStorage.getItem('bedcheck_token');
-                if (!userData || !token) { window.location.replace('../Login.html'); return false; }
-                currentUser = JSON.parse(userData);
-                currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
-                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) ||
-                    'SO';
-                document.getElementById('profileName').textContent = currentUser.name || 'Sasha O.';
-                document.getElementById('profileRoleLabel').textContent = currentRole;
-                document.getElementById('roleLabel').textContent = currentRole;
-                document.getElementById('roleScope').textContent = 'Full system access';
-                document.getElementById('mobileRoleFooter').textContent = `${currentRole} · Full access`;
-                document.getElementById('dropdownUserName').textContent = currentUser.name || 'Sasha O.';
-                document.getElementById('dropdownUserRole').textContent = currentRole;
-                return true;
-            }
-
-            function handleLogout(e) {
-                if (e) e.preventDefault();
-                sessionStorage.removeItem('bedcheck_token');
-                sessionStorage.removeItem('bedcheck_user');
-                sessionStorage.removeItem('bedcheck_role');
-                window.location.replace('../Login.html');
-            }
-
-            function setDate() {
-                const now = new Date();
-                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-            }
-
-            function openMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.add('open');
-                document.getElementById('drawerOverlay').classList.add('show');
-            }
-
-            function closeMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.remove('open');
-                document.getElementById('drawerOverlay').classList.remove('show');
-            }
-
-            // Profile dropdown
-            document.getElementById('profileBtn')?.addEventListener('click', function(e) {
-                e.stopPropagation();
-                document.getElementById('profileDropdown').classList.toggle('show');
-            });
-
-            document.addEventListener('click', function(e) {
-                const dropdown = document.getElementById('profileDropdown');
-                const btn = document.getElementById('profileBtn');
-                if (!btn?.contains(e.target) && !dropdown?.contains(e.target)) {
-                    dropdown?.classList.remove('show');
-                }
-            });
-
-            // Expose
-            window.showToast = showToast;
-            window.handleLogout = handleLogout;
 
             // =============================================
             // INIT
@@ -2026,20 +2026,57 @@
                 if (!checkAuth()) return;
                 setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                // Menu toggle
+                const menuToggle = document.getElementById('menuToggle');
+                if (menuToggle) menuToggle.addEventListener('click', openMobileDrawer);
 
-                document.addEventListener('keydown', (e) => {
+                const closeDrawerBtn = document.getElementById('closeDrawer');
+                if (closeDrawerBtn) closeDrawerBtn.addEventListener('click', closeMobileDrawer);
+
+                const overlay = document.getElementById('drawerOverlay');
+                if (overlay) overlay.addEventListener('click', closeMobileDrawer);
+
+                const logoutBtn = document.getElementById('logoutBtn');
+                if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
-                        document.getElementById('profileDropdown')?.classList.remove('show');
+                        document.querySelectorAll('.modal-overlay.show').forEach(m => {
+                            if (m) m.classList.remove('show');
+                        });
+                        const dropdown = document.getElementById('profileDropdown');
+                        if (dropdown) dropdown.classList.remove('show');
                     }
                     if (e.ctrlKey && e.key === 's') {
                         e.preventDefault();
                         saveAllSettings();
                     }
+                });
+
+                // Profile dropdown
+                const profileBtn = document.getElementById('profileBtn');
+                if (profileBtn) {
+                    profileBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const dropdown = document.getElementById('profileDropdown');
+                        if (dropdown) dropdown.classList.toggle('show');
+                    });
+                }
+
+                document.addEventListener('click', function(e) {
+                    const dropdown = document.getElementById('profileDropdown');
+                    const btn = document.getElementById('profileBtn');
+                    if (!btn?.contains(e.target) && !dropdown?.contains(e.target)) {
+                        if (dropdown) dropdown.classList.remove('show');
+                    }
+                });
+
+                // Modal overlay clicks
+                document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+                    overlay.addEventListener('click', function(e) {
+                        if (e.target === this) this.classList.remove('show');
+                    });
                 });
 
                 renderScreen();
@@ -2053,6 +2090,18 @@
             } else {
                 init();
             }
+
+            // Expose
+            window.showToast = showToast;
+            window.handleLogout = handleLogout;
+            window.closeModal = closeModal;
+            window.confirmAction = confirmAction;
+            window.saveSection = saveSection;
+            window.saveAllSettings = saveAllSettings;
+            window.resetAllSettings = resetAllSettings;
+            window.transferOwnership = transferOwnership;
+            window.disableOwner = disableOwner;
+            window.deleteOwner = deleteOwner;
         })();
     </script>
 
