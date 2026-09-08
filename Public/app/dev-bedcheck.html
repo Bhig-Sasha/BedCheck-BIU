@@ -420,7 +420,6 @@
             currentUser = data.data;
             currentRole = currentUser.role || 'Developer';
             
-            // Update profile elements
             const initials = getInitials(currentUser.name);
             document.getElementById('profileAvatar').textContent = initials;
             document.getElementById('profileName').textContent = currentUser.name || 'Unknown User';
@@ -429,7 +428,6 @@
             document.getElementById('dropdownUserRole').textContent = currentRole;
             document.getElementById('roleLabel').textContent = currentRole;
             
-            // Update role scope based on role
             const scopeMap = {
               'Developer': 'Full system access · Developer Tools',
               'Admin': 'Full system access',
@@ -441,14 +439,12 @@
             document.getElementById('roleScope').textContent = scopeMap[currentRole] || 'Full system access';
             document.getElementById('mobileRoleFooter').textContent = `${currentRole} · ${scopeMap[currentRole] || 'Full access'}`;
             
-            // Store in session for persistence
             sessionStorage.setItem('bedcheck_user', JSON.stringify(currentUser));
             sessionStorage.setItem('bedcheck_role', currentRole);
             
             return currentUser;
           }
         } catch (error) {
-          // Fallback to session storage
           const userData = sessionStorage.getItem('bedcheck_user');
           if (userData) {
             try {
@@ -468,7 +464,6 @@
       async function loadHostels() { 
         try { 
           const data = await apiCall('/hostels'); 
-          // Handle both array and object responses
           if (Array.isArray(data.data)) {
             hostels = data.data;
           } else if (data.data && typeof data.data === 'object') {
@@ -543,13 +538,15 @@
       }
 
       function getHostelStudents(hostelId) {
-        const hostel = hostels.find(h => h.id === hostelId);
+        const hostel = hostels.find(h => h.id === hostelId || h.id === parseInt(hostelId));
         if (!hostel) return [];
-        return students.filter(s => s.hostel_id === hostelId || s.hostel_name === hostel.name);
+        return students.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId) || s.hostel_name === hostel.name);
       }
 
       function getHostel(id) { 
-        return hostels.find(h => h.id === id); 
+        // Try both string and number comparison
+        const numId = parseInt(id);
+        return hostels.find(h => h.id === id || h.id === numId); 
       }
 
       // ---- OVERVIEW ----
@@ -612,7 +609,6 @@
         const tbody = document.getElementById('hostelTableBody');
         if (!tbody) return;
         
-        // Ensure hostels is an array
         const hostelsArray = Array.isArray(hostels) ? hostels : [];
         
         const filtered = hostelsArray.filter(h => !searchTerm || (h.name && h.name.toLowerCase().includes(searchTerm)));
@@ -632,14 +628,14 @@
           let fillClass = 'pending';
           if (progress === 100) fillClass = 'completed';
           else if (progress > 0) fillClass = 'active';
-          return `<tr class="clickable-row" onclick="drillToHostel('${h.id}')">
+          return `<tr class="clickable-row" onclick="drillToHostel(${h.id})">
             <td><div class="hostel-name">${h.name || 'Unknown'}</div><div class="hostel-meta">${h.gender || '—'} · ${h.campus || '—'}</div></td>
             <td><span class="fw-700">${total}</span></td>
             <td><span class="fw-700" style="color:#2d6545;">${present}</span></td>
             <td><span class="fw-700" style="color:#8a3328;">${absent}</span></td>
             <td class="progress-cell"><div class="progress-bar"><div class="fill ${fillClass}" style="width:${progress}%;"></div></div><div class="progress-text">${progress}%</div></td>
             <td><span class="status-badge ${statusClass}"><span class="dot"></span> ${statusText}</span></td>
-            <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();drillToHostel('${h.id}')"><i class="fas fa-chevron-right"></i> Open</button></td>
+            <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();drillToHostel(${h.id})"><i class="fas fa-chevron-right"></i> Open</button></td>
           </tr>`;
         }).join('');
       }
@@ -659,13 +655,15 @@
 
       // ---- DRILL: HOSTEL ----
       window.drillToHostel = function(hostelId) {
-        const hostel = getHostel(hostelId);
+        // Ensure we're using a number
+        const id = typeof hostelId === 'string' ? parseInt(hostelId) : hostelId;
+        const hostel = getHostel(id);
         if (!hostel) {
-          showToast('Hostel not found', 'error');
+          showToast('Hostel not found (ID: ' + id + ')', 'error');
           return;
         }
         drillState.view = 'hostel';
-        drillState.hostelId = hostelId;
+        drillState.hostelId = id;
         drillState.floor = null;
         drillState.flat = null;
         drillState.raId = null;
@@ -743,7 +741,7 @@
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
             <span class="sep">/</span>
-            <a onclick="drillToHostel('${drillState.hostelId}')">${hostel?.name || 'Hostel'}</a>
+            <a onclick="drillToHostel(${drillState.hostelId})">${hostel?.name || 'Hostel'}</a>
             <span class="sep">/</span>
             <span style="font-weight:600;color:#17233c;">Floor ${drillState.floor}</span>
           </div>
@@ -774,7 +772,7 @@
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
             <span class="sep">/</span>
-            <a onclick="drillToHostel('${drillState.hostelId}')">${hostel?.name || 'Hostel'}</a>
+            <a onclick="drillToHostel(${drillState.hostelId})">${hostel?.name || 'Hostel'}</a>
             <span class="sep">/</span>
             <a onclick="drillToFloor('${drillState.floor}')">Floor ${drillState.floor}</a>
             <span class="sep">/</span>
@@ -815,7 +813,7 @@
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
             <span class="sep">/</span>
-            <a onclick="drillToHostel('${drillState.hostelId}')">${hostel?.name || 'Hostel'}</a>
+            <a onclick="drillToHostel(${drillState.hostelId})">${hostel?.name || 'Hostel'}</a>
             <span class="sep">/</span>
             <span style="font-weight:600;color:#17233c;">${raName}</span>
           </div>
@@ -932,7 +930,6 @@
         if (!checkAuth()) return;
         setDate();
 
-        // Load user from DB first
         await loadCurrentUser();
 
         document.getElementById('menuToggle').addEventListener('click', function() {
