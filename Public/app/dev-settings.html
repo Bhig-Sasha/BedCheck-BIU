@@ -1025,7 +1025,7 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html" class="active"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
 
@@ -1056,7 +1056,7 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html" class="active"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">System Owner · Full access</div>
@@ -1150,6 +1150,8 @@
             let currentRole = 'System Owner';
             let settingsCache = {};
             let pendingAction = null;
+            let originalSettings = {};
+            let hasChanges = false;
 
             function setElementText(id, value) {
                 const el = document.getElementById(id);
@@ -1312,20 +1314,48 @@
             }
 
             // =============================================
-            // LOAD SETTINGS - Uses localStorage as fallback
+            // KEY MAPPING - DB keys to UI field IDs
+            // =============================================
+            const keyMap = {
+                'uni_name': 'university_name',
+                'uni_session': 'system_name',
+                'bc_start_time': 'bedcheck_start',
+                'bc_end_time': 'bedcheck_end',
+                'bc_grace_period': 'grace_period',
+                'sec_min_password': 'password_min_length',
+                'sec_max_attempts': 'max_attempts'
+            };
+
+            // Reverse map for saving
+            const reverseKeyMap = {
+                'university_name': 'uni_name',
+                'system_name': 'uni_session',
+                'bedcheck_start': 'bc_start_time',
+                'bedcheck_end': 'bc_end_time',
+                'grace_period': 'bc_grace_period',
+                'password_min_length': 'sec_min_password',
+                'max_attempts': 'sec_max_attempts'
+            };
+
+            // =============================================
+            // LOAD SETTINGS
             // =============================================
             async function loadSettings() {
                 try {
-                    // Try to load from API first
                     const response = await apiCall('/developer/settings/all').catch(() => ({ data: [] }));
                     const settings = response.data || [];
                     
                     if (settings.length > 0) {
-                        // Save to localStorage as fallback
                         const settingsObj = {};
-                        settings.forEach(s => { settingsObj[s.key] = s.value; });
+                        settings.forEach(s => { 
+                            settingsCache[s.key] = s.value;
+                            // Also store by UI key for easy access
+                            if (keyMap[s.key]) {
+                                settingsObj[keyMap[s.key]] = s.value;
+                            }
+                        });
+                        // Save to localStorage
                         localStorage.setItem('bedcheck_settings', JSON.stringify(settingsObj));
-                        settings.forEach(s => { settingsCache[s.key] = s.value; });
                     } else {
                         // Try localStorage
                         const saved = localStorage.getItem('bedcheck_settings');
@@ -1333,12 +1363,14 @@
                             try {
                                 const parsed = JSON.parse(saved);
                                 Object.entries(parsed).forEach(([key, value]) => {
-                                    settingsCache[key] = value;
+                                    settingsCache[reverseKeyMap[key] || key] = value;
                                 });
                             } catch (e) {}
                         }
                     }
                     
+                    // Store original values for change detection
+                    originalSettings = { ...settingsCache };
                     applySettingsToUI();
                     return settingsCache;
                 } catch (error) {
@@ -1349,10 +1381,11 @@
                         try {
                             const parsed = JSON.parse(saved);
                             Object.entries(parsed).forEach(([key, value]) => {
-                                settingsCache[key] = value;
+                                settingsCache[reverseKeyMap[key] || key] = value;
                             });
                         } catch (e) {}
                     }
+                    originalSettings = { ...settingsCache };
                     applySettingsToUI();
                     return settingsCache;
                 }
@@ -1368,33 +1401,93 @@
                     if (el) el.checked = val === 'true' || val === true;
                 };
 
-                setVal('university_name', settingsCache.university_name);
-                setVal('system_name', settingsCache.system_name);
-                setVal('timezone', settingsCache.timezone);
-                setVal('default_language', settingsCache.default_language);
-                setVal('bedcheck_start', settingsCache.bedcheck_start);
-                setVal('bedcheck_end', settingsCache.bedcheck_end);
-                setVal('grace_period', settingsCache.grace_period);
-                setChecked('auto_lock', settingsCache.auto_lock);
-                setChecked('auto_close', settingsCache.auto_close);
-                setChecked('hra_approval', settingsCache.hra_approval);
+                // Map DB keys to UI fields
+                setVal('university_name', settingsCache['uni_name']);
+                setVal('system_name', settingsCache['uni_session']);
+                setVal('bedcheck_start', settingsCache['bc_start_time']);
+                setVal('bedcheck_end', settingsCache['bc_end_time']);
+                setVal('grace_period', settingsCache['bc_grace_period']);
+                setVal('password_min_length', settingsCache['sec_min_password']);
+                setVal('max_attempts', settingsCache['sec_max_attempts']);
+                
+                // Toggles (not in DB yet, use defaults)
+                setChecked('auto_lock', settingsCache['auto_lock'] || 'true');
+                setChecked('auto_close', settingsCache['auto_close'] || 'true');
+                setChecked('hra_approval', settingsCache['hra_approval'] || 'true');
+
+                // Hide save buttons initially
+                document.querySelectorAll('.section-footer .btn-primary').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+                hasChanges = false;
             }
 
             // =============================================
-            // SAVE SETTINGS - Saves to API and localStorage
+            // DETECT CHANGES
+            // =============================================
+            function detectChanges() {
+                const fields = ['university_name', 'system_name', 'bedcheck_start', 'bedcheck_end', 'grace_period', 'password_min_length', 'max_attempts'];
+                let changed = false;
+                const toggles = ['auto_lock', 'auto_close', 'hra_approval'];
+                
+                for (const field of fields) {
+                    const el = document.getElementById(field);
+                    if (el) {
+                        const currentVal = el.value;
+                        const dbKey = reverseKeyMap[field];
+                        const originalVal = originalSettings[dbKey] || '';
+                        if (currentVal !== originalVal) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!changed) {
+                    for (const toggle of toggles) {
+                        const el = document.getElementById(toggle);
+                        if (el) {
+                            const currentVal = el.checked ? 'true' : 'false';
+                            const originalVal = originalSettings[toggle] || 'true';
+                            if (currentVal !== originalVal) {
+                                changed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                hasChanges = changed;
+                document.querySelectorAll('.section-footer .btn-primary').forEach(btn => {
+                    btn.style.display = changed ? 'inline-flex' : 'none';
+                });
+            }
+
+            // =============================================
+            // SAVE SETTINGS
             // =============================================
             async function saveSettingsToAPI(settings) {
                 const results = [];
-                for (const [key, value] of Object.entries(settings)) {
+                for (const [uiKey, value] of Object.entries(settings)) {
+                    const dbKey = reverseKeyMap[uiKey];
+                    if (!dbKey) {
+                        // For toggles that don't exist in DB yet
+                        const saved = localStorage.getItem('bedcheck_settings');
+                        const localSettings = saved ? JSON.parse(saved) : {};
+                        localSettings[uiKey] = value;
+                        localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
+                        results.push({ key: uiKey, success: true, data: { value } });
+                        continue;
+                    }
                     try {
-                        const response = await apiCall(`/developer/settings/${key}`, {
+                        const response = await apiCall(`/developer/settings/${dbKey}`, {
                             method: 'PUT',
                             body: JSON.stringify({ value })
                         });
-                        results.push({ key, success: true, data: response });
+                        results.push({ key: dbKey, success: true, data: response });
                     } catch (err) {
-                        console.error(`Failed to save ${key}:`, err);
-                        results.push({ key, success: false, error: err.message });
+                        console.error(`Failed to save ${dbKey}:`, err);
+                        results.push({ key: dbKey, success: false, error: err.message });
                     }
                 }
                 return results;
@@ -1421,6 +1514,7 @@
                         <nav class="settings-nav" id="settingsNav">
                             <button class="nav-item active" data-section="general"><i class="fas fa-cog"></i> General</button>
                             <button class="nav-item" data-section="bedcheck"><i class="fas fa-clipboard-check"></i> BedCheck</button>
+                            <button class="nav-item" data-section="security"><i class="fas fa-shield-alt"></i> Security</button>
                         </nav>
 
                         <div class="settings-content">
@@ -1431,17 +1525,17 @@
                                     <p>University information and system configuration</p>
                                 </div>
                                 <div class="section-body">
-                                    <div class="form-group"><label>University Name</label><input type="text" id="university_name" placeholder="Not configured" /></div>
-                                    <div class="form-group"><label>System Name</label><input type="text" id="system_name" placeholder="Not configured" /></div>
+                                    <div class="form-group"><label>University Name</label><input type="text" id="university_name" oninput="detectChanges()" placeholder="Not configured" /></div>
+                                    <div class="form-group"><label>Academic Session</label><input type="text" id="system_name" oninput="detectChanges()" placeholder="e.g. 2026/2027" /></div>
                                     <div class="form-row">
-                                        <div class="form-group"><label>Time Zone</label><select id="timezone"><option value="">Select timezone</option><option value="Africa/Lagos">Africa/Lagos (WAT)</option><option value="Africa/Abidjan">Africa/Abidjan (GMT)</option><option value="UTC">UTC</option></select></div>
-                                        <div class="form-group"><label>Default Language</label><select id="default_language"><option value="">Select language</option><option value="en">English</option></select></div>
+                                        <div class="form-group"><label>Time Zone</label><select id="timezone"><option value="Africa/Lagos">Africa/Lagos (WAT)</option><option value="Africa/Abidjan">Africa/Abidjan (GMT)</option><option value="UTC">UTC</option></select></div>
+                                        <div class="form-group"><label>Default Language</label><select id="default_language"><option value="en">English</option></select></div>
                                     </div>
                                     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #ded6c9;">
                                         <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">System Information</h4>
                                         <div class="system-info-grid">
-                                            <div class="system-info-item"><span class="info-label">Version</span><span class="info-value" id="systemVersion">—</span></div>
-                                            <div class="system-info-item"><span class="info-label">Environment</span><span class="info-value" id="systemEnvironment">—</span></div>
+                                            <div class="system-info-item"><span class="info-label">Version</span><span class="info-value" id="systemVersion">1.0.0</span></div>
+                                            <div class="system-info-item"><span class="info-label">Environment</span><span class="info-value" id="systemEnvironment">Production</span></div>
                                             <div class="system-info-item" style="grid-column:span 2;"><span class="info-label">Last Updated</span><span class="info-value" id="lastUpdated">—</span></div>
                                         </div>
                                     </div>
@@ -1457,30 +1551,57 @@
                                 </div>
                                 <div class="section-body">
                                     <div class="form-row">
-                                        <div class="form-group"><label>Start Time</label><input type="time" id="bedcheck_start" /></div>
-                                        <div class="form-group"><label>End Time</label><input type="time" id="bedcheck_end" /></div>
+                                        <div class="form-group"><label>Start Time</label><input type="time" id="bedcheck_start" oninput="detectChanges()" /></div>
+                                        <div class="form-group"><label>End Time</label><input type="time" id="bedcheck_end" oninput="detectChanges()" /></div>
                                     </div>
-                                    <div class="form-group"><label>Grace Period</label><select id="grace_period"><option value="">Select</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
+                                    <div class="form-group"><label>Grace Period</label><select id="grace_period" onchange="detectChanges()"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="auto_lock" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="auto_lock" onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Automatic Session Lock</div><div class="toggle-desc">Lock session automatically after end time</div></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="auto_close" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="auto_close" onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Automatic Session Close</div><div class="toggle-desc">Close session automatically after completion</div></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="hra_approval" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="hra_approval" onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Require HRA Approval</div><div class="toggle-desc">BedCheck submissions require HRA approval</div></div>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="section-footer"><button class="btn btn-primary" onclick="saveSection('bedcheck')">Save Changes</button></div>
+                            </div>
+
+                            <!-- Security -->
+                            <div class="settings-section" id="section-security">
+                                <div class="section-header">
+                                    <h3>Security Settings</h3>
+                                    <p>Authentication and password configuration</p>
+                                </div>
+                                <div class="section-body">
+                                    <div class="form-group"><label>Minimum Password Length</label>
+                                        <select id="password_min_length" onchange="detectChanges()">
+                                            <option value="6">6 characters</option>
+                                            <option value="8">8 characters</option>
+                                            <option value="10">10 characters</option>
+                                            <option value="12">12 characters</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group"><label>Maximum Login Attempts</label>
+                                        <select id="max_attempts" onchange="detectChanges()">
+                                            <option value="3">3 attempts</option>
+                                            <option value="5">5 attempts</option>
+                                            <option value="10">10 attempts</option>
+                                            <option value="0">Unlimited</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="section-footer"><button class="btn btn-primary" onclick="saveSection('security')">Save Changes</button></div>
                             </div>
                         </div>
                     </div>
@@ -1497,12 +1618,7 @@
                     await loadUserData();
                     await loadSettings();
 
-                    const version = document.getElementById('systemVersion');
-                    const env = document.getElementById('systemEnvironment');
                     const updated = document.getElementById('lastUpdated');
-
-                    if (version) version.textContent = settingsCache.system_version || '1.0.0';
-                    if (env) env.textContent = settingsCache.environment || 'Production';
                     if (updated) {
                         const now = new Date();
                         updated.textContent = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric',
@@ -1535,7 +1651,8 @@
             window.saveSection = async function(section) {
                 const names = {
                     'general': 'General Settings',
-                    'bedcheck': 'BedCheck Settings'
+                    'bedcheck': 'BedCheck Settings',
+                    'security': 'Security Settings'
                 };
 
                 try {
@@ -1547,10 +1664,6 @@
                         if (univ && univ.value) settings.university_name = univ.value;
                         const sys = document.getElementById('system_name');
                         if (sys && sys.value) settings.system_name = sys.value;
-                        const tz = document.getElementById('timezone');
-                        if (tz && tz.value) settings.timezone = tz.value;
-                        const lang = document.getElementById('default_language');
-                        if (lang && lang.value) settings.default_language = lang.value;
                     } else if (section === 'bedcheck') {
                         const start = document.getElementById('bedcheck_start');
                         if (start && start.value) settings.bedcheck_start = start.value;
@@ -1564,6 +1677,11 @@
                         if (autoClose) settings.auto_close = autoClose.checked ? 'true' : 'false';
                         const hra = document.getElementById('hra_approval');
                         if (hra) settings.hra_approval = hra.checked ? 'true' : 'false';
+                    } else if (section === 'security') {
+                        const pwdLen = document.getElementById('password_min_length');
+                        if (pwdLen && pwdLen.value) settings.password_min_length = pwdLen.value;
+                        const attempts = document.getElementById('max_attempts');
+                        if (attempts && attempts.value) settings.max_attempts = attempts.value;
                     }
 
                     if (Object.keys(settings).length === 0) {
@@ -1575,67 +1693,47 @@
                     const results = await saveSettingsToAPI(settings);
                     const successful = results.filter(r => r.success).length;
 
-                    // Save to localStorage as fallback
+                    // Update cache
+                    Object.entries(settings).forEach(([key, value]) => {
+                        const dbKey = reverseKeyMap[key];
+                        if (dbKey) {
+                            settingsCache[dbKey] = value;
+                        }
+                        originalSettings[key] = value;
+                    });
+
+                    // Update originalSettings for toggles
+                    const toggles = ['auto_lock', 'auto_close', 'hra_approval'];
+                    for (const toggle of toggles) {
+                        if (settings[toggle] !== undefined) {
+                            originalSettings[toggle] = settings[toggle];
+                        }
+                    }
+
+                    // Save to localStorage
                     const saved = localStorage.getItem('bedcheck_settings');
                     const localSettings = saved ? JSON.parse(saved) : {};
                     Object.entries(settings).forEach(([key, value]) => {
                         localSettings[key] = value;
-                        settingsCache[key] = value;
                     });
                     localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
 
                     if (successful === Object.keys(settings).length) {
                         showToast(`✅ ${names[section] || 'Settings'} saved successfully`, 'success');
                     } else if (successful > 0) {
-                        showToast(`⚠️ ${successful}/${Object.keys(settings).length} settings saved (${Object.keys(settings).length - successful} failed)`, 'warning');
+                        showToast(`⚠️ ${successful}/${Object.keys(settings).length} settings saved`, 'warning');
                     } else {
-                        // All failed, but we saved to localStorage
                         showToast(`💾 Settings saved locally (server unavailable)`, 'info');
-                    }
-                } catch (error) {
-                    // Save to localStorage as fallback
-                    const settings = {};
-                    if (section === 'general') {
-                        const univ = document.getElementById('university_name');
-                        if (univ && univ.value) settings.university_name = univ.value;
-                        const sys = document.getElementById('system_name');
-                        if (sys && sys.value) settings.system_name = sys.value;
-                        const tz = document.getElementById('timezone');
-                        if (tz && tz.value) settings.timezone = tz.value;
-                        const lang = document.getElementById('default_language');
-                        if (lang && lang.value) settings.default_language = lang.value;
-                    } else if (section === 'bedcheck') {
-                        const start = document.getElementById('bedcheck_start');
-                        if (start && start.value) settings.bedcheck_start = start.value;
-                        const end = document.getElementById('bedcheck_end');
-                        if (end && end.value) settings.bedcheck_end = end.value;
-                        const grace = document.getElementById('grace_period');
-                        if (grace && grace.value) settings.grace_period = grace.value;
-                        const autoLock = document.getElementById('auto_lock');
-                        if (autoLock) settings.auto_lock = autoLock.checked ? 'true' : 'false';
-                        const autoClose = document.getElementById('auto_close');
-                        if (autoClose) settings.auto_close = autoClose.checked ? 'true' : 'false';
-                        const hra = document.getElementById('hra_approval');
-                        if (hra) settings.hra_approval = hra.checked ? 'true' : 'false';
                     }
                     
-                    if (Object.keys(settings).length > 0) {
-                        const saved = localStorage.getItem('bedcheck_settings');
-                        const localSettings = saved ? JSON.parse(saved) : {};
-                        Object.entries(settings).forEach(([key, value]) => {
-                            localSettings[key] = value;
-                            settingsCache[key] = value;
-                        });
-                        localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
-                        showToast(`💾 Settings saved locally (server unavailable)`, 'info');
-                    } else {
-                        showToast('Error saving settings: ' + error.message, 'error');
-                    }
+                    detectChanges();
+                } catch (error) {
+                    showToast('Error saving settings: ' + error.message, 'error');
                 }
             };
 
             window.saveAllSettings = async function() {
-                const sections = ['general', 'bedcheck'];
+                const sections = ['general', 'bedcheck', 'security'];
                 let successCount = 0;
                 for (const section of sections) {
                     try {
@@ -1668,6 +1766,9 @@
                 if (modal) modal.classList.add('show');
             };
 
+            // =============================================
+            // INIT
+            // =============================================
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
@@ -1737,6 +1838,7 @@
             window.saveSection = saveSection;
             window.saveAllSettings = saveAllSettings;
             window.resetAllSettings = resetAllSettings;
+            window.detectChanges = detectChanges;
         })();
     </script>
 
