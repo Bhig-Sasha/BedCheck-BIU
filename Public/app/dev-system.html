@@ -1213,7 +1213,6 @@
                         enable ? 'warning' : 'success'
                     );
 
-                    // Update header badge
                     const badge = document.getElementById('statusBadge');
                     if (badge) {
                         if (enable) {
@@ -1250,12 +1249,10 @@
                         return;
                     }
 
-                    // Create Excel
                     const worksheet = XLSX.utils.json_to_sheet(rows);
                     const workbook = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
 
-                    // Reasonable column widths
                     worksheet['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 18 }));
 
                     const fileName = `BedCheck_Attendance_Backup_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -1267,11 +1264,10 @@
                 }
             };
 
-            // Keep the old name working too
             window.createBackup = window.createAttendanceBackup;
 
             // =============================================
-            // RENDER OVERVIEW (with Developer Tools + Data Management)
+            // RENDER OVERVIEW
             // =============================================
             function renderOverview() {
                 const container = document.getElementById('overviewContent');
@@ -1280,10 +1276,8 @@
                 const totalHostels = hostels.length;
                 const totalRooms = rooms.length;
                 const totalBeds = beds.length;
-                const totalRecords = students.length + staff.length + hostels.length + rooms.length + beds.length + auditLogs.length;
 
                 container.innerHTML = `
-                    <!-- System Stats -->
                     <div class="stats-row">
                         <div class="stat-item"><div class="stat-number navy">${totalStudents}</div><div class="stat-label">Students</div></div>
                         <div class="stat-item"><div class="stat-number green">${totalStaff}</div><div class="stat-label">Staff</div></div>
@@ -1291,7 +1285,6 @@
                         <div class="stat-item"><div class="stat-number purple">${totalRooms}</div><div class="stat-label">Rooms</div></div>
                     </div>
 
-                    <!-- Developer Tools Stats -->
                     <div class="stats-row">
                         <div class="stat-item"><div class="stat-number green">🟢</div><div class="stat-label">Server</div></div>
                         <div class="stat-item"><div class="stat-number green">🟢</div><div class="stat-label">API</div></div>
@@ -1299,7 +1292,6 @@
                         <div class="stat-item"><div class="stat-number purple">41%</div><div class="stat-label">Memory</div></div>
                     </div>
 
-                    <!-- System Services -->
                     <div class="card">
                         <div class="card-header"><h4>🟢 System Services</h4></div>
                         <div class="card-body">
@@ -1311,7 +1303,47 @@
                         </div>
                     </div>
 
-                    <!-- Backup Status -->
+                    <div class="card">
+                        <div class="card-header"><h4>🛠️ Developer Tools & Maintenance</h4></div>
+                        <div class="card-body">
+                            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                                <button class="btn btn-outline" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh Data</button>
+                                <button class="btn btn-warning" onclick="toggleMaintenance(true)"><i class="fas fa-tools"></i> Enable Maintenance</button>
+                                <button class="btn btn-outline" onclick="toggleMaintenance(false)"><i class="fas fa-check-circle"></i> Disable Maintenance</button>
+                            </div>
+                            <div style="font-size:0.65rem;color:#6b778b;padding-top:0.5rem;border-top:1px solid #eee9e1;">
+                                ⚠️ Some operations may temporarily interrupt service.
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // RENDER DATABASE (with Backup & Data Management)
+            // =============================================
+            function renderDatabase() {
+                const container = document.getElementById('databaseContent');
+                const totalRecords = students.length + staff.length + hostels.length + rooms.length + beds.length + auditLogs
+                    .length;
+
+                const tables = [
+                    { name: 'Students', records: students.length, size: '8.4 MB', updated: '2 min ago' },
+                    { name: 'Staff', records: staff.length, size: '84 KB', updated: '10 min ago' },
+                    { name: 'Hostels', records: hostels.length, size: '12 KB', updated: '1 day ago' },
+                    { name: 'Rooms', records: rooms.length, size: '126 KB', updated: '5 min ago' },
+                    { name: 'Bed Spaces', records: beds.length, size: '256 KB', updated: '2 min ago' },
+                    { name: 'Audit Logs', records: auditLogs.length, size: '3.6 MB', updated: '1 min ago' }
+                ];
+
+                container.innerHTML = `
+                    <div class="stats-row">
+                        <div class="stat-item"><div class="stat-number navy">${totalRecords.toLocaleString()}</div><div class="stat-label">Total Records</div></div>
+                        <div class="stat-item"><div class="stat-number green">${tables.length}</div><div class="stat-label">Tables</div></div>
+                        <div class="stat-item"><div class="stat-number gold">42.8 MB</div><div class="stat-label">Database Size</div></div>
+                        <div class="stat-item"><div class="stat-number teal">${new Date().toLocaleDateString()}</div><div class="stat-label">Last Backup</div></div>
+                    </div>
+
                     <div class="card">
                         <div class="card-header">
                             <h4>💾 Backup Status</h4>
@@ -1328,23 +1360,64 @@
                         </div>
                     </div>
 
-                    <!-- Developer Tools / Maintenance -->
                     <div class="card">
-                        <div class="card-header"><h4>🛠️ Developer Tools & Maintenance</h4></div>
+                        <div class="card-header"><h4>📊 Database Tables</h4></div>
                         <div class="card-body">
-                            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                                <button class="btn btn-outline" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh Data</button>
-                                <button class="btn btn-outline" onclick="createAttendanceBackup()"><i class="fas fa-file-excel"></i> Export Attendance (Excel)</button>
-                                <button class="btn btn-warning" onclick="toggleMaintenance(true)"><i class="fas fa-tools"></i> Enable Maintenance</button>
-                                <button class="btn btn-outline" onclick="toggleMaintenance(false)"><i class="fas fa-check-circle"></i> Disable Maintenance</button>
-                            </div>
-                            <div style="font-size:0.65rem;color:#6b778b;padding-top:0.5rem;border-top:1px solid #eee9e1;">
-                                ⚠️ Some operations may temporarily interrupt service.
+                            <div class="table-wrap">
+                                <table>
+                                    <thead><tr><th>Table</th><th>Records</th><th>Size</th><th>Last Updated</th></tr></thead>
+                                    <tbody>
+                                        ${tables.map(t => `
+                                            <tr>
+                                                <td style="font-weight:600;">${t.name}</td>
+                                                <td>${t.records.toLocaleString()}</td>
+                                                <td>${t.size}</td>
+                                                <td><span class="badge ${t.updated.includes('min') ? 'badge-success' : 'badge-warning'}">${t.updated}</span></td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Data Management -->
+                    <div class="card">
+                        <div class="card-header"><h4>📈 Database Health</h4></div>
+                        <div class="card-body">
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 2rem;">
+                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
+                                    <span>Connection</span>
+                                    <span class="status-indicator online"><span class="dot online"></span> Stable</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
+                                    <span>API</span>
+                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
+                                    <span>Authentication</span>
+                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;font-size:0.8rem;">
+                                    <span>Storage</span>
+                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
+                                </div>
+                            </div>
+                            <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #eee9e1;">
+                                <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:600;">
+                                    <span>Database Performance</span>
+                                    <span>94%</span>
+                                </div>
+                                <div style="height:4px;background:#eee9e1;border-radius:999px;overflow:hidden;margin-top:0.2rem;">
+                                    <div style="height:100%;width:94%;background:#d6ad4b;border-radius:999px;"></div>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:#6b778b;margin-top:0.15rem;">
+                                    <span>Avg Query: <strong>42 ms</strong></span>
+                                    <span>Failed Queries: <strong>3</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="card">
                         <div class="card-header"><h4>📁 Data Management</h4></div>
                         <div class="card-body">
@@ -1402,91 +1475,6 @@
                                     <div class="data-actions">
                                         <button class="btn btn-outline" onclick="createAttendanceBackup()"><i class="fas fa-file-excel"></i> Export Excel</button>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // =============================================
-            // RENDER DATABASE
-            // =============================================
-            function renderDatabase() {
-                const container = document.getElementById('databaseContent');
-                const totalRecords = students.length + staff.length + hostels.length + rooms.length + beds.length + auditLogs
-                    .length;
-
-                const tables = [
-                    { name: 'Students', records: students.length, size: '8.4 MB', updated: '2 min ago' },
-                    { name: 'Staff', records: staff.length, size: '84 KB', updated: '10 min ago' },
-                    { name: 'Hostels', records: hostels.length, size: '12 KB', updated: '1 day ago' },
-                    { name: 'Rooms', records: rooms.length, size: '126 KB', updated: '5 min ago' },
-                    { name: 'Bed Spaces', records: beds.length, size: '256 KB', updated: '2 min ago' },
-                    { name: 'Audit Logs', records: auditLogs.length, size: '3.6 MB', updated: '1 min ago' }
-                ];
-
-                container.innerHTML = `
-                    <div class="stats-row">
-                        <div class="stat-item"><div class="stat-number navy">${totalRecords.toLocaleString()}</div><div class="stat-label">Total Records</div></div>
-                        <div class="stat-item"><div class="stat-number green">${tables.length}</div><div class="stat-label">Tables</div></div>
-                        <div class="stat-item"><div class="stat-number gold">42.8 MB</div><div class="stat-label">Database Size</div></div>
-                        <div class="stat-item"><div class="stat-number teal">${new Date().toLocaleDateString()}</div><div class="stat-label">Last Backup</div></div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header"><h4>📊 Database Tables</h4></div>
-                        <div class="card-body">
-                            <div class="table-wrap">
-                                <table>
-                                    <thead><tr><th>Table</th><th>Records</th><th>Size</th><th>Last Updated</th></tr></thead>
-                                    <tbody>
-                                        ${tables.map(t => `
-                                            <tr>
-                                                <td style="font-weight:600;">${t.name}</td>
-                                                <td>${t.records.toLocaleString()}</td>
-                                                <td>${t.size}</td>
-                                                <td><span class="badge ${t.updated.includes('min') ? 'badge-success' : 'badge-warning'}">${t.updated}</span></td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header"><h4>📈 Database Health</h4></div>
-                        <div class="card-body">
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 2rem;">
-                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
-                                    <span>Connection</span>
-                                    <span class="status-indicator online"><span class="dot online"></span> Stable</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
-                                    <span>API</span>
-                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid #eee9e1;font-size:0.8rem;">
-                                    <span>Authentication</span>
-                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;padding:0.3rem 0;font-size:0.8rem;">
-                                    <span>Storage</span>
-                                    <span class="status-indicator online"><span class="dot online"></span> Operational</span>
-                                </div>
-                            </div>
-                            <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #eee9e1;">
-                                <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:600;">
-                                    <span>Database Performance</span>
-                                    <span>94%</span>
-                                </div>
-                                <div style="height:4px;background:#eee9e1;border-radius:999px;overflow:hidden;margin-top:0.2rem;">
-                                    <div style="height:100%;width:94%;background:#d6ad4b;border-radius:999px;"></div>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:#6b778b;margin-top:0.15rem;">
-                                    <span>Avg Query: <strong>42 ms</strong></span>
-                                    <span>Failed Queries: <strong>3</strong></span>
                                 </div>
                             </div>
                         </div>
