@@ -252,6 +252,8 @@
             align-items: center;
             gap: 0.5rem;
             flex-shrink: 0;
+            flex-wrap: wrap;
+            position: relative;
         }
         @media (max-width: 480px) { .header-right { gap: 0.3rem; } }
 
@@ -329,17 +331,57 @@
             .profile-role { display: none !important; }
         }
 
-        .logout-btn {
-            background: transparent;
-            border: none;
-            color: #68768a;
-            cursor: pointer;
-            font-size: 1rem;
-            padding: 0.4rem;
+        /* Profile dropdown */
+        .profile-dropdown {
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            right: 0;
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            border: 1px solid #ded6c9;
+            min-width: 220px;
+            padding: 0.5rem;
+            display: none;
+            z-index: 60;
         }
-        .logout-btn:hover { color: #17233c; }
-        @media (max-width: 480px) {
-            .logout-btn { font-size: 0.85rem; padding: 0.3rem; }
+        .profile-dropdown.show { display: block; }
+        .profile-dropdown .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            padding: 0.5rem 0.8rem;
+            border-radius: 0.5rem;
+            color: #17233c;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            width: 100%;
+            font-family: inherit;
+            text-align: left;
+        }
+        .profile-dropdown .dropdown-item:hover { background: #f5f1e8; }
+        .profile-dropdown .dropdown-item i { width: 1.1rem; color: #6b778b; }
+        .profile-dropdown .dropdown-divider {
+            height: 1px;
+            background: #eee9e1;
+            margin: 0.3rem 0;
+        }
+        .profile-dropdown .dropdown-user {
+            padding: 0.3rem 0.8rem 0.2rem;
+        }
+        .profile-dropdown .dropdown-user .name {
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+        .profile-dropdown .dropdown-user .role {
+            font-size: 0.7rem;
+            color: #6b778b;
+            font-weight: 600;
         }
 
         /* ================================================
@@ -971,60 +1013,6 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
-
-        /* Profile dropdown */
-        .profile-dropdown {
-            position: absolute;
-            top: calc(100% + 0.5rem);
-            right: 0;
-            background: white;
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-            border: 1px solid #ded6c9;
-            min-width: 220px;
-            padding: 0.5rem;
-            display: none;
-            z-index: 60;
-        }
-        .profile-dropdown.show { display: block; }
-        .profile-dropdown .dropdown-item {
-            display: flex;
-            align-items: center;
-            gap: 0.7rem;
-            padding: 0.5rem 0.8rem;
-            border-radius: 0.5rem;
-            color: #17233c;
-            text-decoration: none;
-            font-size: 0.85rem;
-            font-weight: 600;
-            transition: all 0.2s ease;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            width: 100%;
-            font-family: inherit;
-            text-align: left;
-        }
-        .profile-dropdown .dropdown-item:hover { background: #f5f1e8; }
-        .profile-dropdown .dropdown-item i { width: 1.1rem; color: #6b778b; }
-        .profile-dropdown .dropdown-divider {
-            height: 1px;
-            background: #eee9e1;
-            margin: 0.3rem 0;
-        }
-        .profile-dropdown .dropdown-user {
-            padding: 0.3rem 0.8rem 0.2rem;
-        }
-        .profile-dropdown .dropdown-user .name {
-            font-weight: 700;
-            font-size: 0.85rem;
-        }
-        .profile-dropdown .dropdown-user .role {
-            font-size: 0.7rem;
-            color: #6b778b;
-            font-weight: 600;
-        }
-        .header-right { position: relative; }
     </style>
 </head>
 <body>
@@ -1216,6 +1204,19 @@
             }
 
             // =============================================
+            // TAB SWITCHING
+            // =============================================
+            window.switchTab = function(tab) {
+                currentTab = tab;
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tab);
+                });
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.toggle('active', content.id === `tab-${tab}`);
+                });
+            };
+
+            // =============================================
             // LOAD DATA
             // =============================================
             async function loadStudents() {
@@ -1265,19 +1266,6 @@
                     return auditLogs;
                 } catch { auditLogs = []; return auditLogs; }
             }
-
-            // =============================================
-            // TAB SWITCHING
-            // =============================================
-            window.switchTab = function(tab) {
-                currentTab = tab;
-                document.querySelectorAll('.tab-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.tab === tab);
-                });
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.classList.toggle('active', content.id === `tab-${tab}`);
-                });
-            };
 
             // =============================================
             // RENDER SYSTEM OVERVIEW
@@ -1654,13 +1642,15 @@
             async function loadAllData() {
                 try {
                     document.getElementById('noticeText').textContent = 'Loading system data...';
-                    await Promise.all([
-                        loadStudents(),
-                        loadStaff(),
-                        loadHostels(),
-                        loadRooms(),
-                        loadBeds(),
-                        loadAuditLogs()
+                    
+                    // Use Promise.allSettled to prevent one failure from breaking everything
+                    await Promise.allSettled([
+                        loadStudents().catch(() => { students = []; }),
+                        loadStaff().catch(() => { staff = []; }),
+                        loadHostels().catch(() => { hostels = []; }),
+                        loadRooms().catch(() => { rooms = []; }),
+                        loadBeds().catch(() => { beds = []; }),
+                        loadAuditLogs().catch(() => { auditLogs = []; })
                     ]);
 
                     renderOverview();
@@ -1672,6 +1662,7 @@
                     document.getElementById('noticeText').textContent =
                         `Loaded ${students.length} students, ${staff.length} staff, ${hostels.length} hostels.`;
                 } catch (error) {
+                    console.error('Load error:', error);
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
                         showToast('Error loading data: ' + error.message, 'error');
@@ -1766,7 +1757,6 @@
                 document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
                 document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
