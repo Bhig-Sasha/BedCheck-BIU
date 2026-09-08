@@ -2208,7 +2208,11 @@ const auditService = {
                 .single();
 
             if (error) throw error;
-            console.log(`📝 Audit Log: ${params.actor} (${params.actor_role}) - ${params.action} [${params.result}]`);
+
+            if (process.env.NODE_ENV === 'development' || params.result === 'failure' || params.result === 'error') {
+                console.log(`📝 Audit Log: ${params.actor} (${params.actor_role}) - ${params.action} [${params.result}]`);
+            }
+
             return data;
         } catch (error) {
             console.error('❌ Failed to create audit log:', error);
@@ -15433,20 +15437,18 @@ app.use((err, req, res, next) => {
 // =====================================================
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 BIU BedCheck API v4.8.0 - Face-Only Verification`);
+    console.log(`\n🚀 BIU BedCheck API v4.8.0`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🔐 Mode: ${process.env.NODE_ENV || 'production'}`);
-    console.log(`🏢 RA Assignment System: ENABLED`);
-    console.log(`📸 Verification Method: FACE ONLY`);
-    console.log(`⏰ Auto-Session Management: ENABLED`);
-    console.log(`🎯 Embedding Dimension: ${EMBEDDING_DIMENSION}`);
-    console.log(`🎯 Threshold: ${FACE_VERIFICATION_THRESHOLD}`);
     
     try {
         const health = await faceService.checkHealth();
-        console.log(`📡 Face API: ${health.status === 'healthy' ? '✅ Connected' : '⚠️ Unavailable'}`);
+        if (health.status === 'healthy') {
+            console.log(`✅ Face API: Connected`);
+        } else {
+            console.log(`⚠️ Face API: Unavailable`);
+        }
     } catch {
-        console.log(`📡 Face API: ⚠️ Unavailable (circuit breaker active)`);
     }
     
     console.log(`\n✅ Ready for requests\n`);
@@ -15455,7 +15457,9 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 // Graceful shutdown
 const shutdown = () => {
     console.log('\n🛑 Shutting down gracefully...');
-    clearInterval(rateLimiterFirewall?.cleanupInterval);
+    if (rateLimiterFirewall?.cleanupInterval) {
+        clearInterval(rateLimiterFirewall.cleanupInterval);
+    }
     server.close(() => {
         console.log('✅ Server closed.');
         process.exit(0);
@@ -15469,19 +15473,22 @@ const shutdown = () => {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-// Error handlers
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error.message);
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development') {
         console.error(error.stack);
+    }
+    if (process.env.NODE_ENV !== 'production') {
         process.exit(1);
     }
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled Rejection:', reason?.message || reason);
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development') {
         console.error(reason?.stack);
+    }
+    if (process.env.NODE_ENV !== 'production') {
         process.exit(1);
     }
 });
