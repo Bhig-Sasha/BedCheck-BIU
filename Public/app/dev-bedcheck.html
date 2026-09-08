@@ -235,6 +235,11 @@
 
     .back-btn { display:inline-flex; align-items:center; gap:0.3rem; padding:0.3rem 0.6rem; border-radius:0.5rem; background:#f5f1e8; border:1px solid #ded6c9; color:#17233c; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.2s ease; font-family:inherit; }
     .back-btn:hover { background:#e8e2d6; }
+
+    .empty-state { padding:2rem; text-align:center; color:#6b778b; }
+    .empty-state i { font-size:2rem; display:block; margin-bottom:0.5rem; color:#a77915; }
+    .empty-state .title { font-size:1rem; font-weight:600; color:#17233c; margin-bottom:0.3rem; }
+    .empty-state .subtitle { font-size:0.8rem; }
   </style>
 </head>
 <body>
@@ -364,8 +369,13 @@
       let students = [];
       let sessions = [];
       let scans = [];
+      
+      // Data structures for drill-down
+      let floorsFlats = [];
+      let rooms = [];
+      let bedSpaces = [];
 
-      let drillState = { view: 'overview', hostelId: null, floor: null, flat: null, raId: null };
+      let drillState = { view: 'overview', hostelId: null, floorId: null, flatId: null, roomId: null, raId: null };
 
       // ===== API =====
       async function apiCall(endpoint, options = {}) {
@@ -526,13 +536,65 @@
         } 
       }
 
+      // ===== LOAD FLOORS, ROOMS, BED SPACES =====
+      async function loadFloorsFlats(hostelId) {
+        try {
+          const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
+          if (Array.isArray(data.data)) {
+            floorsFlats = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            floorsFlats = Object.values(data.data);
+          } else {
+            floorsFlats = [];
+          }
+          return floorsFlats;
+        } catch {
+          floorsFlats = [];
+          return floorsFlats;
+        }
+      }
+
+      async function loadRooms(floorId) {
+        try {
+          const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
+          if (Array.isArray(data.data)) {
+            rooms = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            rooms = Object.values(data.data);
+          } else {
+            rooms = [];
+          }
+          return rooms;
+        } catch {
+          rooms = [];
+          return rooms;
+        }
+      }
+
+      async function loadBedSpaces(roomId) {
+        try {
+          const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
+          if (Array.isArray(data.data)) {
+            bedSpaces = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            bedSpaces = Object.values(data.data);
+          } else {
+            bedSpaces = [];
+          }
+          return bedSpaces;
+        } catch {
+          bedSpaces = [];
+          return bedSpaces;
+        }
+      }
+
       // ===== RENDER =====
       function renderScreen() {
         const container = document.getElementById('screenContent');
         if (drillState.view === 'overview') renderOverview(container);
         else if (drillState.view === 'hostel') renderHostel(container);
         else if (drillState.view === 'floor') renderFloor(container);
-        else if (drillState.view === 'flat') renderFlat(container);
+        else if (drillState.view === 'room') renderRoom(container);
         else if (drillState.view === 'ra') renderRAWorkspace(container);
         else renderOverview(container);
       }
@@ -544,13 +606,37 @@
       }
 
       function getHostel(id) { 
-        // Try both string and number comparison
         const numId = parseInt(id);
         return hostels.find(h => h.id === id || h.id === numId); 
       }
 
+      function getFloor(id) {
+        const numId = parseInt(id);
+        return floorsFlats.find(f => f.id === id || f.id === numId);
+      }
+
+      function getRoom(id) {
+        const numId = parseInt(id);
+        return rooms.find(r => r.id === id || r.id === numId);
+      }
+
+      function renderEmptyState(container, message, icon = 'fa-building') {
+        container.innerHTML = `
+          <div class="empty-state">
+            <i class="fas ${icon}"></i>
+            <div class="title">No Data Available</div>
+            <div class="subtitle">${message}</div>
+          </div>
+        `;
+      }
+
       // ---- OVERVIEW ----
       function renderOverview(container) {
+        if (hostels.length === 0) {
+          renderEmptyState(container, 'No hostels found in the system.');
+          return;
+        }
+
         const totalStudents = students.length;
         const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
         const absent = students.filter(s => s.status === 'Absent').length;
@@ -654,18 +740,21 @@
       }
 
       // ---- DRILL: HOSTEL ----
-      window.drillToHostel = function(hostelId) {
-        // Ensure we're using a number
+      window.drillToHostel = async function(hostelId) {
         const id = typeof hostelId === 'string' ? parseInt(hostelId) : hostelId;
         const hostel = getHostel(id);
         if (!hostel) {
           showToast('Hostel not found (ID: ' + id + ')', 'error');
           return;
         }
+        
+        await loadFloorsFlats(id);
+        
         drillState.view = 'hostel';
         drillState.hostelId = id;
-        drillState.floor = null;
-        drillState.flat = null;
+        drillState.floorId = null;
+        drillState.flatId = null;
+        drillState.roomId = null;
         drillState.raId = null;
         renderScreen();
       };
@@ -682,7 +771,8 @@
         const absent = hs.filter(s => s.status === 'Absent').length;
         const progress = total > 0 ? Math.round((present / total) * 100) : 0;
 
-        const floors = ['Ground', '1', '2', '3', '4', '5'];
+        const floors = floorsFlats.filter(f => f.type === 'floor' || f.type === 'Floor');
+        const flats = floorsFlats.filter(f => f.type === 'flat' || f.type === 'Flat');
 
         container.innerHTML = `
           <div class="breadcrumb">
@@ -695,6 +785,7 @@
               <h2>${hostel.name} <span style="font-size:0.7rem;font-weight:400;color:#6b778b;">${hostel.gender || '—'} · ${hostel.campus || '—'}</span></h2>
               <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
                 <span class="status-badge ${progress === 100 ? 'completed' : 'active'}"><span class="dot"></span> ${progress}%</span>
+                <span class="status-badge active"><span class="dot"></span> ${floorsFlats.length} Floors/Flats</span>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.3rem;margin-top:0.5rem;background:#fbf7ef;border-radius:0.5rem;padding:0.4rem 0.6rem;">
@@ -705,91 +796,226 @@
             </div>
             <div style="margin-top:0.5rem;">
               <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">HRA &amp; RA Team</p>
-              <div class="staff-list">
-                <span class="staff-tag"><i class="fas fa-user-tie"></i> HRA: Sarah Johnson</span>
-                <span class="staff-tag"><i class="fas fa-user"></i> John Peter (RA)</span>
-                <span class="staff-tag"><i class="fas fa-user"></i> David Mark (RA)</span>
-                <span class="staff-tag"><i class="fas fa-user"></i> Michael Paul (RA)</span>
-                <span class="staff-tag"><i class="fas fa-user"></i> Daniel James (RA)</span>
-              </div>
-              <div style="margin-top:0.3rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
-                <button class="btn btn-sm btn-outline" onclick="drillToRA('john-peter')"><i class="fas fa-eye"></i> View John Peter's BedCheck</button>
-                <button class="btn btn-sm btn-outline" onclick="drillToRA('david-mark')"><i class="fas fa-eye"></i> View David Mark's BedCheck</button>
+              <div class="staff-list" id="staffList">
+                <span class="staff-tag"><i class="fas fa-spinner fa-spin"></i> Loading staff...</span>
               </div>
             </div>
           </div>
           <div style="margin-top:0.5rem;">
             <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Floors / Flats</p>
-            <div class="flat-grid">
-              ${floors.map(f => `<div class="flat-card" onclick="drillToFloor('${f}')"><div class="flat-name">Floor ${f}</div><div class="flat-meta">${Math.floor(Math.random()*5)+2} flats</div></div>`).join('')}
-            </div>
+            ${floors.length > 0 || flats.length > 0 ? `
+              ${floors.length > 0 ? `
+                <div class="flat-grid">
+                  ${floors.map(f => `
+                    <div class="flat-card" onclick="drillToFloor(${f.id})">
+                      <div class="flat-name">${f.name}</div>
+                      <div class="flat-meta">${f.room_count || 0} rooms</div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              ${flats.length > 0 ? `
+                <div style="margin-top:0.5rem;">
+                  <p style="font-size:0.55rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Flats</p>
+                  <div class="flat-grid">
+                    ${flats.map(f => `
+                      <div class="flat-card" onclick="drillToFloor(${f.id})">
+                        <div class="flat-name">${f.name}</div>
+                        <div class="flat-meta">${f.room_count || 0} rooms</div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            ` : `
+              <div class="empty-state" style="padding:1rem;">
+                <i class="fas fa-layer-group" style="font-size:1.5rem;"></i>
+                <div class="subtitle">No floors or flats found for this hostel</div>
+              </div>
+            `}
           </div>
         `;
+
+        // Load staff asynchronously
+        loadStaffForHostel(hostel.id);
       }
 
-      // ---- FLOOR ----
-      window.drillToFloor = function(floor) {
+      async function loadStaffForHostel(hostelId) {
+        try {
+          const data = await apiCall(`/staff?hostel_id=${hostelId}&limit=100`);
+          let staff = [];
+          if (Array.isArray(data.data)) {
+            staff = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            staff = Object.values(data.data);
+          }
+          
+          const staffList = document.getElementById('staffList');
+          if (staffList && staff.length > 0) {
+            const hra = staff.find(s => s.role === 'HRA' || s.role === 'Hra');
+            const ras = staff.filter(s => s.role === 'RA' || s.role === 'Ra');
+            
+            let html = '';
+            if (hra) {
+              html += `<span class="staff-tag"><i class="fas fa-user-tie"></i> HRA: ${hra.name}</span>`;
+            }
+            ras.forEach(ra => {
+              html += `<span class="staff-tag"><i class="fas fa-user"></i> ${ra.name} (RA)</span>`;
+            });
+            if (ras.length === 0 && !hra) {
+              html = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
+            }
+            staffList.innerHTML = html;
+          } else if (staffList) {
+            staffList.innerHTML = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
+          }
+        } catch (error) {
+          // Silently fail - staff is not critical
+          const staffList = document.getElementById('staffList');
+          if (staffList) {
+            staffList.innerHTML = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">Staff data unavailable</span>`;
+          }
+        }
+      }
+
+      // ---- DRILL: FLOOR ----
+      window.drillToFloor = async function(floorId) {
+        const id = typeof floorId === 'string' ? parseInt(floorId) : floorId;
+        const floor = getFloor(id);
+        if (!floor) {
+          showToast('Floor/Flat not found (ID: ' + id + ')', 'error');
+          return;
+        }
+        
+        await loadRooms(id);
+        
         drillState.view = 'floor';
-        drillState.floor = floor;
-        drillState.flat = null;
+        drillState.floorId = id;
+        drillState.roomId = null;
         renderScreen();
       };
+
       function renderFloor(container) {
         const hostel = getHostel(drillState.hostelId);
-        const flats = ['101', '102', '103', '104', '105'];
+        const floor = getFloor(drillState.floorId);
+        if (!floor) {
+          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Floor/Flat not found. <a href="#" onclick="drillToHostel(${drillState.hostelId})" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
+          return;
+        }
+
         container.innerHTML = `
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
             <span class="sep">/</span>
             <a onclick="drillToHostel(${drillState.hostelId})">${hostel?.name || 'Hostel'}</a>
             <span class="sep">/</span>
-            <span style="font-weight:600;color:#17233c;">Floor ${drillState.floor}</span>
+            <span style="font-weight:600;color:#17233c;">${floor.name}</span>
           </div>
           <div class="drill-card">
-            <div class="head"><h2>Floor ${drillState.floor} · ${hostel?.name}</h2></div>
-            <div class="flat-grid">
-              ${flats.map(f => `<div class="flat-card" onclick="drillToFlat('${f}')"><div class="flat-name">Flat ${f}</div><div class="flat-meta">4 students</div></div>`).join('')}
+            <div class="head">
+              <h2>${floor.name} <span style="font-size:0.7rem;font-weight:400;color:#6b778b;">${floor.type || 'Floor'} · ${hostel?.name}</span></h2>
+              <span class="status-badge active"><span class="dot"></span> ${rooms.length} Rooms</span>
             </div>
+            ${rooms.length > 0 ? `
+              <div class="flat-grid">
+                ${rooms.map(r => `
+                  <div class="flat-card" onclick="drillToRoom(${r.id})">
+                    <div class="flat-name">${r.room_code || r.full_code || 'Room ' + r.id}</div>
+                    <div class="flat-meta">${r.capacity || 0} beds · ${r.occupied || 0} occupied</div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <div class="empty-state" style="padding:1rem;">
+                <i class="fas fa-door-open" style="font-size:1.5rem;"></i>
+                <div class="subtitle">No rooms found in this ${floor.type || 'floor'}</div>
+              </div>
+            `}
           </div>
         `;
       }
 
-      // ---- FLAT ----
-      window.drillToFlat = function(flat) {
-        drillState.view = 'flat';
-        drillState.flat = flat;
+      // ---- DRILL: ROOM ----
+      window.drillToRoom = async function(roomId) {
+        const id = typeof roomId === 'string' ? parseInt(roomId) : roomId;
+        const room = getRoom(id);
+        if (!room) {
+          showToast('Room not found (ID: ' + id + ')', 'error');
+          return;
+        }
+        
+        await loadBedSpaces(id);
+        
+        drillState.view = 'room';
+        drillState.roomId = id;
         renderScreen();
       };
-      function renderFlat(container) {
+
+      function renderRoom(container) {
         const hostel = getHostel(drillState.hostelId);
-        const mockStudents = [
-          { name: 'John Doe', room: '101', bed: 'Bed 1', status: 'Present' },
-          { name: 'David Smith', room: '101', bed: 'Bed 2', status: 'Absent' },
-          { name: 'Michael James', room: '101', bed: 'Bed 3', status: 'Not Checked' },
-          { name: 'Samuel Peter', room: '101', bed: 'Bed 4', status: 'Present' },
-        ];
+        const floor = getFloor(drillState.floorId);
+        const room = getRoom(drillState.roomId);
+        
+        if (!room) {
+          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Room not found. <a href="#" onclick="drillToFloor(${drillState.floorId})" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
+          return;
+        }
+
+        const roomStudents = students.filter(s => s.room_id === room.id || s.room_id === parseInt(room.id) || s.room_code === room.room_code);
+        const beds = bedSpaces.filter(b => b.room_id === room.id || b.room_id === parseInt(room.id));
+
         container.innerHTML = `
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
             <span class="sep">/</span>
             <a onclick="drillToHostel(${drillState.hostelId})">${hostel?.name || 'Hostel'}</a>
             <span class="sep">/</span>
-            <a onclick="drillToFloor('${drillState.floor}')">Floor ${drillState.floor}</a>
+            <a onclick="drillToFloor(${drillState.floorId})">${floor?.name || 'Floor'}</a>
             <span class="sep">/</span>
-            <span style="font-weight:600;color:#17233c;">Flat ${drillState.flat}</span>
+            <span style="font-weight:600;color:#17233c;">${room.room_code || room.full_code || 'Room ' + room.id}</span>
           </div>
           <div class="drill-card">
-            <div class="head"><h2>Flat ${drillState.flat} · ${hostel?.name}</h2></div>
-            <div style="margin-top:0.5rem;">
-              ${mockStudents.map(s => `
-                <div class="student-check-row">
-                  <span class="sname">${s.name}</span>
-                  <span class="sroom">${s.room} · ${s.bed}</span>
-                  <span class="sstatus ${s.status === 'Present' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status}</span>
-                  <button class="btn btn-sm btn-outline" style="font-size:0.55rem;padding:0.15rem 0.4rem;"><i class="fas fa-check"></i> Verify</button>
-                </div>
-              `).join('')}
+            <div class="head">
+              <h2>${room.room_code || room.full_code || 'Room ' + room.id}</h2>
+              <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
+                <span class="status-badge active"><span class="dot"></span> ${beds.length} Beds</span>
+                <span class="status-badge ${roomStudents.length > 0 ? 'completed' : 'pending'}"><span class="dot"></span> ${roomStudents.length} Students</span>
+              </div>
             </div>
+            ${beds.length > 0 ? `
+              <div style="margin-top:0.5rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.3rem;">
+                ${beds.map(b => {
+                  const student = students.find(s => s.id === b.student_id || s.bed_space_id === b.id);
+                  const status = student ? (student.status || 'Present') : 'Available';
+                  const statusClass = status === 'Present' || status === 'Verified' ? 'present' : status === 'Absent' ? 'absent' : 'pending';
+                  return `
+                    <div style="background:#fbf7ef;border:1px solid #ded6c9;border-radius:0.5rem;padding:0.3rem 0.5rem;">
+                      <div style="font-weight:700;font-size:0.7rem;">${b.bed_code || 'Bed ' + b.id}</div>
+                      <div style="font-size:0.6rem;color:#6b778b;">${student ? student.name : 'Available'}</div>
+                      <div style="font-size:0.55rem;font-weight:600;color:${status === 'Present' || status === 'Verified' ? '#2d6545' : status === 'Absent' ? '#8a3328' : '#6b778b'};">${status}</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : `
+              <div class="empty-state" style="padding:0.5rem;">
+                <i class="fas fa-bed" style="font-size:1.2rem;"></i>
+                <div class="subtitle">No bed spaces found in this room</div>
+              </div>
+            `}
+            ${roomStudents.length > 0 ? `
+              <div style="margin-top:0.5rem;border-top:1px solid #eee8de;padding-top:0.5rem;">
+                <p style="font-size:0.6rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Students in this room</p>
+                ${roomStudents.map(s => `
+                  <div class="student-check-row">
+                    <span class="sname">${s.name}</span>
+                    <span class="sroom">${s.matric || 'N/A'}</span>
+                    <span class="sstatus ${s.status === 'Present' || s.status === 'Verified' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status || 'Unknown'}</span>
+                    <button class="btn btn-sm btn-outline" style="font-size:0.55rem;padding:0.15rem 0.4rem;"><i class="fas fa-check"></i> Verify</button>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
           </div>
         `;
       }
@@ -800,15 +1026,14 @@
         drillState.raId = raId;
         renderScreen();
       };
+      
       function renderRAWorkspace(container) {
         const hostel = getHostel(drillState.hostelId);
         const raName = drillState.raId === 'john-peter' ? 'John Peter' : 'David Mark';
-        const mockStudents = [
-          { name: 'John Doe', room: '101', bed: 'Bed 1', status: 'Present' },
-          { name: 'David Smith', room: '101', bed: 'Bed 2', status: 'Absent' },
-          { name: 'Michael James', room: '102', bed: 'Bed 1', status: 'Not Checked' },
-          { name: 'Samuel Peter', room: '102', bed: 'Bed 2', status: 'Present' },
-        ];
+        
+        // Fetch students for this RA's room assignments
+        const raStudents = students.filter(s => s.hostel_id === drillState.hostelId);
+        
         container.innerHTML = `
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
@@ -834,20 +1059,25 @@
               <button class="btn btn-sm btn-primary"><i class="fas fa-search"></i> Search</button>
             </div>
             <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
-              <button class="btn btn-sm btn-outline" style="background:#e1f0e5;border-color:#2d6545;">All (${mockStudents.length})</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#2d6545;">Present (2)</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#8a3328;">Absent (1)</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#a77915;">Not Checked (1)</button>
+              <button class="btn btn-sm btn-outline" style="background:#e1f0e5;border-color:#2d6545;">All (${raStudents.length})</button>
+              <button class="btn btn-sm btn-outline" style="border-color:#2d6545;">Present (${raStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length})</button>
+              <button class="btn btn-sm btn-outline" style="border-color:#8a3328;">Absent (${raStudents.filter(s => s.status === 'Absent').length})</button>
+              <button class="btn btn-sm btn-outline" style="border-color:#a77915;">Not Checked (${raStudents.filter(s => s.status !== 'Present' && s.status !== 'Verified' && s.status !== 'Absent').length})</button>
             </div>
             <div style="margin-top:0.5rem;">
-              ${mockStudents.map(s => `
+              ${raStudents.length > 0 ? raStudents.map(s => `
                 <div class="student-check-row">
                   <span class="sname">${s.name}</span>
-                  <span class="sroom">${s.room} · ${s.bed}</span>
-                  <span class="sstatus ${s.status === 'Present' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status}</span>
+                  <span class="sroom">${s.room_code || 'N/A'} · ${s.bed_code || 'N/A'}</span>
+                  <span class="sstatus ${s.status === 'Present' || s.status === 'Verified' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status || 'Not Checked'}</span>
                   <button class="btn btn-sm btn-primary" style="font-size:0.55rem;padding:0.15rem 0.5rem;"><i class="fas fa-camera"></i> Verify</button>
                 </div>
-              `).join('')}
+              `).join('') : `
+                <div class="empty-state" style="padding:0.5rem;">
+                  <i class="fas fa-user-graduate" style="font-size:1.2rem;"></i>
+                  <div class="subtitle">No students assigned to this RA</div>
+                </div>
+              `}
             </div>
             <div style="margin-top:0.5rem;font-size:0.6rem;color:#6b778b;border-top:1px solid #eee8de;padding-top:0.3rem;">
               <i class="fas fa-info-circle"></i> Verification records will retain the RA (${raName}) and the actual staff performing the action.
@@ -860,8 +1090,9 @@
       window.drillToOverview = function() {
         drillState.view = 'overview';
         drillState.hostelId = null;
-        drillState.floor = null;
-        drillState.flat = null;
+        drillState.floorId = null;
+        drillState.flatId = null;
+        drillState.roomId = null;
         drillState.raId = null;
         renderScreen();
       };
