@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -976,7 +977,7 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html" class="active"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
 
@@ -1007,7 +1008,7 @@
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html" class="active"><i class="fas fa-server"></i> System</a>
-                <a href="./dev-Security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
+                <a href="./dev-security.html"><i class="fas fa-shield-alt"></i> Security &amp; Recovery</a>
                 <a href="./dev-settings.html"><i class="fas fa-sliders-h"></i> Settings</a>
             </nav>
             <div class="drawer-footer" id="mobileRoleFooter">System Owner · Full access</div>
@@ -1024,8 +1025,8 @@
                         </div>
                     </div>
                     <div class="header-right">
-                        <span class="status-badge">
-                            <span class="dot"></span> System Online
+                        <span class="status-badge" id="statusBadge">
+                            <span class="dot"></span> Online
                         </span>
                         <div style="position:relative;">
                             <button class="profile-btn" id="profileBtn">
@@ -1190,6 +1191,86 @@
             }
 
             // =============================================
+            // MAINTENANCE MODE (real)
+            // =============================================
+            window.toggleMaintenance = async function(enable) {
+                const action = enable ? 'enable' : 'disable';
+                if (!confirm(`Are you sure you want to ${action} maintenance mode?`)) return;
+
+                try {
+                    showToast(`${enable ? 'Enabling' : 'Disabling'} maintenance mode...`, 'info');
+
+                    await apiCall('/developer/maintenance', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            enabled: enable,
+                            message: enable ? 'System is under maintenance. Please try again later.' : null
+                        })
+                    });
+
+                    showToast(
+                        enable ? '⚠️ Maintenance mode ENABLED' : '✅ Maintenance mode DISABLED',
+                        enable ? 'warning' : 'success'
+                    );
+
+                    // Update header badge
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) {
+                        if (enable) {
+                            badge.innerHTML = '<span class="dot" style="background:#a84134;"></span> Maintenance';
+                            badge.style.background = '#f8e1dc';
+                            badge.style.color = '#9b3c31';
+                            badge.style.borderColor = '#9b3c31';
+                        } else {
+                            badge.innerHTML = '<span class="dot"></span> Online';
+                            badge.style.background = '#e1f0e5';
+                            badge.style.color = '#2d6545';
+                            badge.style.borderColor = '#2d6545';
+                        }
+                    }
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                }
+            };
+
+            // =============================================
+            // ATTENDANCE + SESSION BACKUP → Excel (real)
+            // =============================================
+            window.createAttendanceBackup = async function() {
+                if (!confirm('Export all session + attendance data to Excel?')) return;
+
+                try {
+                    showToast('Generating attendance backup...', 'info');
+
+                    const response = await apiCall('/developer/backup/attendance');
+                    const rows = response.data || [];
+
+                    if (rows.length === 0) {
+                        showToast('No attendance data found to export', 'warning');
+                        return;
+                    }
+
+                    // Create Excel
+                    const worksheet = XLSX.utils.json_to_sheet(rows);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
+
+                    // Reasonable column widths
+                    worksheet['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 18 }));
+
+                    const fileName = `BedCheck_Attendance_Backup_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                    XLSX.writeFile(workbook, fileName);
+
+                    showToast(`✅ Backup downloaded (${rows.length} records)`, 'success');
+                } catch (error) {
+                    showToast('Backup failed: ' + error.message, 'error');
+                }
+            };
+
+            // Keep the old name working too
+            window.createBackup = window.createAttendanceBackup;
+
+            // =============================================
             // RENDER OVERVIEW (with Developer Tools + Data Management)
             // =============================================
             function renderOverview() {
@@ -1234,7 +1315,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h4>💾 Backup Status</h4>
-                            <button class="card-action" onclick="createBackup()">Backup Now</button>
+                            <button class="card-action" onclick="createAttendanceBackup()">Export Excel</button>
                         </div>
                         <div class="card-body">
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;">
@@ -1252,11 +1333,10 @@
                         <div class="card-header"><h4>🛠️ Developer Tools & Maintenance</h4></div>
                         <div class="card-body">
                             <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                                <button class="btn btn-outline" onclick="showToast('Clearing cache...','info')"><i class="fas fa-broom"></i> Clear Cache</button>
-                                <button class="btn btn-outline" onclick="showToast('Syncing database...','info')"><i class="fas fa-sync-alt"></i> Sync Database</button>
-                                <button class="btn btn-outline" onclick="showToast('Forcing backup...','info')"><i class="fas fa-database"></i> Force Backup</button>
-                                <button class="btn btn-outline" onclick="showToast('Restarting services...','info')"><i class="fas fa-power-off"></i> Restart Services</button>
-                                <button class="btn btn-warning" onclick="showToast('⚠️ Maintenance mode enabled','warning')"><i class="fas fa-tools"></i> Enable Maintenance</button>
+                                <button class="btn btn-outline" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh Data</button>
+                                <button class="btn btn-outline" onclick="createAttendanceBackup()"><i class="fas fa-file-excel"></i> Export Attendance (Excel)</button>
+                                <button class="btn btn-warning" onclick="toggleMaintenance(true)"><i class="fas fa-tools"></i> Enable Maintenance</button>
+                                <button class="btn btn-outline" onclick="toggleMaintenance(false)"><i class="fas fa-check-circle"></i> Disable Maintenance</button>
                             </div>
                             <div style="font-size:0.65rem;color:#6b778b;padding-top:0.5rem;border-top:1px solid #eee9e1;">
                                 ⚠️ Some operations may temporarily interrupt service.
@@ -1320,7 +1400,7 @@
                                     <div class="data-count">— records</div>
                                     <div class="data-description">BedCheck participation records</div>
                                     <div class="data-actions">
-                                        <button class="btn btn-outline" onclick="showToast('Exporting attendance...','info')"><i class="fas fa-download"></i> Export</button>
+                                        <button class="btn btn-outline" onclick="createAttendanceBackup()"><i class="fas fa-file-excel"></i> Export Excel</button>
                                     </div>
                                 </div>
                             </div>
@@ -1568,11 +1648,6 @@
                 loadAllData();
             };
 
-            window.createBackup = function() {
-                showToast('Creating database backup...', 'info');
-                setTimeout(() => showToast('✅ Backup created successfully', 'success'), 1500);
-            };
-
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -1634,6 +1709,10 @@
 
             window.showToast = showToast;
             window.handleLogout = handleLogout;
+            window.refreshData = refreshData;
+            window.toggleMaintenance = toggleMaintenance;
+            window.createAttendanceBackup = createAttendanceBackup;
+            window.createBackup = createAttendanceBackup;
 
             async function init() {
                 if (!checkAuth()) return;

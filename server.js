@@ -14763,6 +14763,139 @@ app.post('/api/developer/maintenance',
 );
 
 // =====================================================
+// ATTENDANCE + SESSION BACKUP
+// =====================================================
+app.get('/api/developer/backup/attendance',
+    campusIsolation,
+    requireRole('Developer'),
+    async (req, res) => {
+        try {
+            const campus = req.query.campus || req.campus;
+            const fromDate = req.query.from;
+            const toDate = req.query.to;
+
+            // 1. Get all sessions
+            let sessionQuery = supabase
+                .from('sessions')
+                .select('id, name, date, status, start_time, end_time, campus, created_at')
+                .order('date', { ascending: false });
+
+            if (campus && campus !== 'all') {
+                sessionQuery = sessionQuery.eq('campus', campus);
+            }
+            if (fromDate) sessionQuery = sessionQuery.gte('date', fromDate);
+            if (toDate) sessionQuery = sessionQuery.lte('date', toDate);
+
+            const { data: sessions, error: sessionError } = await sessionQuery;
+            if (sessionError) throw sessionError;
+
+            if (!sessions || sessions.length === 0) {
+                return res.json({ success: true, data: [], message: 'No sessions found' });
+            }
+
+            const sessionIds = sessions.map(s => s.id);
+
+            // 2. Get attendance records
+            const { data: attendance, error: attError } = await supabase
+                .from('bedcheck_attendance')          // ← change if needed
+                .select(`
+                    id,
+                    session_id,
+                    student_id,
+                    status,
+                    verified_at,
+                    verified_by,
+                    students (
+                        name,
+                        matric,
+                        hostel_name,
+                        room_code,
+                        bed_code,
+                        campus,
+                        gender,
+                        level
+                    )
+                `)
+                .in('session_id', sessionIds);
+
+            if (attError) throw attError;
+
+            // 3. Flatten for Excel
+            const rows = [];
+
+            for (const session of sessions) {
+                const sessionRecords = (attendance || []).filter(a => a.session_id === session.id);
+
+                if (sessionRecords.length === 0) {
+                    rows.push({
+                        session_date: session.date,
+                        session_name: session.name,
+                        session_status: session.status,
+                        campus: session.campus || '—',
+                        hostel: '—',
+                        student_name: '—',
+                        matric: '—',
+                        room: '—',
+                        bed: '—',
+                        attendance_status: 'No records',
+                        verified_at: '—',
+                        verified_by: '—'
+                    });
+                    continue;
+                }
+
+                for (const rec of sessionRecords) {
+                    const student = rec.students || {};
+                    rows.push({
+                        session_date: session.date,
+                        session_name: session.name,
+                        session_status: session.status,
+                        campus: student.campus || session.campus || '—',
+                        hostel: student.hostel_name || '—',
+                        student_name: student.name || '—',
+                        matric: student.matric || '—',
+                        room: student.room_code || '—',
+                        bed: student.bed_code || '—',
+                        attendance_status: rec.status || '—',
+                        verified_at: rec.verified_at ? new Date(rec.verified_at).toLocaleString() : '—',
+                        verified_by: rec.verified_by || '—'
+                    });
+                }
+            }
+
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: 'Developer',
+                action: 'Attendance Backup Exported',
+                module: 'system',
+                details: `Exported ${rows.length} attendance rows for ${sessions.length} sessions`,
+                result: 'success',
+                campus: req.campus
+            });
+
+            res.json({
+                success: true,
+                data: rows,
+                meta: {
+                    sessions: sessions.length,
+                    records: rows.length,
+                    generated_at: new Date().toISOString()
+                }
+            });
+
+        } catch (error) {
+            console.error('Attendance backup error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to generate attendance backup',
+                code: 'SERVER_ERROR'
+            });
+        }
+    }
+);
+
+// =====================================================
 // REPORTS ENDPOINTS
 // =====================================================
 
