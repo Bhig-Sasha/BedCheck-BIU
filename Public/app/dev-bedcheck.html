@@ -206,8 +206,10 @@
     .drill-card { background:white; border:1px solid #ded6c9; border-radius:0.75rem; padding:1rem; margin-bottom:0.75rem; }
     .drill-card .head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; }
     .drill-card .head h2 { font-family:'Merriweather',serif; font-weight:700; font-size:1.2rem; }
-    .staff-list { display:flex; flex-wrap:wrap; gap:0.3rem 0.8rem; margin-top:0.3rem; }
-    .staff-tag { background:#f5f1e8; padding:0.15rem 0.6rem; border-radius:999px; font-size:0.65rem; font-weight:600; }
+    .staff-list { display:flex; flex-wrap:wrap; gap:0.2rem 0.4rem; margin-top:0.3rem; max-height:200px; overflow-y:auto; padding:0.2rem; }
+    .staff-tag { background:#f5f1e8; padding:0.1rem 0.5rem; border-radius:999px; font-size:0.6rem; font-weight:600; white-space:nowrap; }
+    .staff-tag.hra { background:#d6ad4b; color:#10233f; }
+    .staff-tag.ra { background:#e8f0fe; color:#1a3a5c; }
 
     .flat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.4rem; margin-top:0.5rem; }
     .flat-card { background:#fbf7ef; border:1px solid #ded6c9; border-radius:0.5rem; padding:0.5rem 0.6rem; cursor:pointer; transition:background 0.15s; }
@@ -228,18 +230,15 @@
     .ra-workspace .ra-name { font-weight:700; font-size:0.9rem; }
     .ra-workspace .ra-meta { font-size:0.6rem; color:#6b778b; }
 
-    .hostel-detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:0.4rem; margin-top:0.5rem; }
-    .hostel-detail-card { background:#fbf7ef; border:1px solid #ded6c9; border-radius:0.5rem; padding:0.5rem 0.6rem; }
-    .hostel-detail-card .label { font-size:0.55rem; color:#6b778b; text-transform:uppercase; letter-spacing:0.04em; }
-    .hostel-detail-card .value { font-weight:700; font-size:0.9rem; }
-
-    .back-btn { display:inline-flex; align-items:center; gap:0.3rem; padding:0.3rem 0.6rem; border-radius:0.5rem; background:#f5f1e8; border:1px solid #ded6c9; color:#17233c; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.2s ease; font-family:inherit; }
-    .back-btn:hover { background:#e8e2d6; }
-
     .empty-state { padding:2rem; text-align:center; color:#6b778b; }
     .empty-state i { font-size:2rem; display:block; margin-bottom:0.5rem; color:#a77915; }
     .empty-state .title { font-size:1rem; font-weight:600; color:#17233c; margin-bottom:0.3rem; }
     .empty-state .subtitle { font-size:0.8rem; }
+
+    .staff-scroll { max-height:180px; overflow-y:auto; padding:0.2rem 0.1rem; scrollbar-width:thin; }
+    .staff-scroll::-webkit-scrollbar { width:3px; }
+    .staff-scroll::-webkit-scrollbar-track { background:#eee9e1; border-radius:3px; }
+    .staff-scroll::-webkit-scrollbar-thumb { background:#d6ad4b; border-radius:3px; }
   </style>
 </head>
 <body>
@@ -369,6 +368,7 @@
       let students = [];
       let sessions = [];
       let scans = [];
+      let allStaff = [];
       
       // Data structures for drill-down
       let floorsFlats = [];
@@ -536,6 +536,24 @@
         } 
       }
 
+      // ===== LOAD ALL STAFF =====
+      async function loadAllStaff() {
+        try {
+          const data = await apiCall('/staff?limit=5000');
+          if (Array.isArray(data.data)) {
+            allStaff = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            allStaff = Object.values(data.data);
+          } else {
+            allStaff = [];
+          }
+          return allStaff;
+        } catch {
+          allStaff = [];
+          return allStaff;
+        }
+      }
+
       // ===== LOAD FLOORS, ROOMS, BED SPACES =====
       async function loadFloorsFlats(hostelId) {
         try {
@@ -618,6 +636,10 @@
       function getRoom(id) {
         const numId = parseInt(id);
         return rooms.find(r => r.id === id || r.id === numId);
+      }
+
+      function getStaffForHostel(hostelId) {
+        return allStaff.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId));
       }
 
       function renderEmptyState(container, message, icon = 'fa-building') {
@@ -748,7 +770,10 @@
           return;
         }
         
-        await loadFloorsFlats(id);
+        await Promise.all([
+          loadFloorsFlats(id),
+          loadAllStaff()
+        ]);
         
         drillState.view = 'hostel';
         drillState.hostelId = id;
@@ -774,6 +799,24 @@
         const floors = floorsFlats.filter(f => f.type === 'floor' || f.type === 'Floor');
         const flats = floorsFlats.filter(f => f.type === 'flat' || f.type === 'Flat');
 
+        // Get staff for this hostel only
+        const hostelStaff = getStaffForHostel(hostel.id);
+        const hra = hostelStaff.find(s => s.role === 'HRA' || s.role === 'Hra' || s.role === 'HRA');
+        const ras = hostelStaff.filter(s => s.role === 'RA' || s.role === 'Ra' || s.role === 'ra');
+
+        let staffHtml = '';
+        if (hra) {
+          staffHtml += `<span class="staff-tag hra"><i class="fas fa-user-tie"></i> HRA: ${hra.name}</span>`;
+        }
+        if (ras.length > 0) {
+          staffHtml += ras.map(ra => 
+            `<span class="staff-tag ra"><i class="fas fa-user"></i> ${ra.name} (RA)</span>`
+          ).join('');
+        }
+        if (!hra && ras.length === 0) {
+          staffHtml = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
+        }
+
         container.innerHTML = `
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
@@ -786,6 +829,7 @@
               <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
                 <span class="status-badge ${progress === 100 ? 'completed' : 'active'}"><span class="dot"></span> ${progress}%</span>
                 <span class="status-badge active"><span class="dot"></span> ${floorsFlats.length} Floors/Flats</span>
+                <span class="status-badge active"><span class="dot"></span> ${ras.length} RAs</span>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.3rem;margin-top:0.5rem;background:#fbf7ef;border-radius:0.5rem;padding:0.4rem 0.6rem;">
@@ -795,10 +839,18 @@
               <div><span style="font-weight:600;">${progress}%</span> Completion</div>
             </div>
             <div style="margin-top:0.5rem;">
-              <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">HRA &amp; RA Team</p>
-              <div class="staff-list" id="staffList">
-                <span class="staff-tag"><i class="fas fa-spinner fa-spin"></i> Loading staff...</span>
+              <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">HRA &amp; RA Team <span style="font-weight:400;font-size:0.55rem;">(${ras.length} RAs)</span></p>
+              <div class="staff-scroll">
+                <div class="staff-list">
+                  ${staffHtml}
+                </div>
               </div>
+              ${ras.length > 0 ? `
+                <div style="margin-top:0.3rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
+                  <button class="btn btn-sm btn-outline" onclick="drillToRA('${ras[0]?.id || 'first-ra'}')"><i class="fas fa-eye"></i> View ${ras[0]?.name || 'First RA'}'s BedCheck</button>
+                  ${ras.length > 1 ? `<button class="btn btn-sm btn-outline" onclick="drillToRA('${ras[1]?.id || 'second-ra'}')"><i class="fas fa-eye"></i> View ${ras[1]?.name || 'Second RA'}'s BedCheck</button>` : ''}
+                </div>
+              ` : ''}
             </div>
           </div>
           <div style="margin-top:0.5rem;">
@@ -835,47 +887,6 @@
             `}
           </div>
         `;
-
-        // Load staff asynchronously
-        loadStaffForHostel(hostel.id);
-      }
-
-      async function loadStaffForHostel(hostelId) {
-        try {
-          const data = await apiCall(`/staff?hostel_id=${hostelId}&limit=100`);
-          let staff = [];
-          if (Array.isArray(data.data)) {
-            staff = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            staff = Object.values(data.data);
-          }
-          
-          const staffList = document.getElementById('staffList');
-          if (staffList && staff.length > 0) {
-            const hra = staff.find(s => s.role === 'HRA' || s.role === 'Hra');
-            const ras = staff.filter(s => s.role === 'RA' || s.role === 'Ra');
-            
-            let html = '';
-            if (hra) {
-              html += `<span class="staff-tag"><i class="fas fa-user-tie"></i> HRA: ${hra.name}</span>`;
-            }
-            ras.forEach(ra => {
-              html += `<span class="staff-tag"><i class="fas fa-user"></i> ${ra.name} (RA)</span>`;
-            });
-            if (ras.length === 0 && !hra) {
-              html = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
-            }
-            staffList.innerHTML = html;
-          } else if (staffList) {
-            staffList.innerHTML = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
-          }
-        } catch (error) {
-          // Silently fail - staff is not critical
-          const staffList = document.getElementById('staffList');
-          if (staffList) {
-            staffList.innerHTML = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">Staff data unavailable</span>`;
-          }
-        }
       }
 
       // ---- DRILL: FLOOR ----
@@ -1029,10 +1040,13 @@
       
       function renderRAWorkspace(container) {
         const hostel = getHostel(drillState.hostelId);
-        const raName = drillState.raId === 'john-peter' ? 'John Peter' : 'David Mark';
         
-        // Fetch students for this RA's room assignments
-        const raStudents = students.filter(s => s.hostel_id === drillState.hostelId);
+        // Find the RA by ID
+        const ra = allStaff.find(s => s.id === drillState.raId || s.id === parseInt(drillState.raId));
+        const raName = ra ? ra.name : 'RA';
+        
+        // Get students for this hostel
+        const raStudents = students.filter(s => s.hostel_id === drillState.hostelId || s.hostel_id === parseInt(drillState.hostelId));
         
         container.innerHTML = `
           <div class="breadcrumb">
@@ -1117,9 +1131,9 @@
       async function loadAllData() {
         try {
           document.getElementById('noticeText').textContent = 'Loading BedCheck data...';
-          await Promise.all([loadHostels(), loadStudents(), loadSessions(), loadScans()]);
+          await Promise.all([loadHostels(), loadStudents(), loadSessions(), loadScans(), loadAllStaff()]);
           renderScreen();
-          document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels, ${students.length} students.`;
+          document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels, ${students.length} students, ${allStaff.length} staff.`;
         } catch (error) {
           document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
           if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
