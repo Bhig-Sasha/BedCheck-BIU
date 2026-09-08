@@ -810,6 +810,7 @@
         .toast.success { background: #3f755d; }
         .toast.error { background: #a84134; }
         .toast.info { background: #1e3a5f; }
+        .toast.warning { background: #a77915; }
 
         .drawer-overlay {
             position: fixed;
@@ -1310,16 +1311,50 @@
                 setElementText('dropdownUserRole', role);
             }
 
+            // =============================================
+            // LOAD SETTINGS - Uses localStorage as fallback
+            // =============================================
             async function loadSettings() {
                 try {
+                    // Try to load from API first
                     const response = await apiCall('/developer/settings/all').catch(() => ({ data: [] }));
                     const settings = response.data || [];
-                    settings.forEach(s => { settingsCache[s.key] = s.value; });
+                    
+                    if (settings.length > 0) {
+                        // Save to localStorage as fallback
+                        const settingsObj = {};
+                        settings.forEach(s => { settingsObj[s.key] = s.value; });
+                        localStorage.setItem('bedcheck_settings', JSON.stringify(settingsObj));
+                        settings.forEach(s => { settingsCache[s.key] = s.value; });
+                    } else {
+                        // Try localStorage
+                        const saved = localStorage.getItem('bedcheck_settings');
+                        if (saved) {
+                            try {
+                                const parsed = JSON.parse(saved);
+                                Object.entries(parsed).forEach(([key, value]) => {
+                                    settingsCache[key] = value;
+                                });
+                            } catch (e) {}
+                        }
+                    }
+                    
                     applySettingsToUI();
                     return settingsCache;
                 } catch (error) {
                     console.error('Error loading settings:', error);
-                    return {};
+                    // Try localStorage
+                    const saved = localStorage.getItem('bedcheck_settings');
+                    if (saved) {
+                        try {
+                            const parsed = JSON.parse(saved);
+                            Object.entries(parsed).forEach(([key, value]) => {
+                                settingsCache[key] = value;
+                            });
+                        } catch (e) {}
+                    }
+                    applySettingsToUI();
+                    return settingsCache;
                 }
             }
 
@@ -1343,6 +1378,26 @@
                 setChecked('auto_lock', settingsCache.auto_lock);
                 setChecked('auto_close', settingsCache.auto_close);
                 setChecked('hra_approval', settingsCache.hra_approval);
+            }
+
+            // =============================================
+            // SAVE SETTINGS - Saves to API and localStorage
+            // =============================================
+            async function saveSettingsToAPI(settings) {
+                const results = [];
+                for (const [key, value] of Object.entries(settings)) {
+                    try {
+                        const response = await apiCall(`/developer/settings/${key}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ value })
+                        });
+                        results.push({ key, success: true, data: response });
+                    } catch (err) {
+                        console.error(`Failed to save ${key}:`, err);
+                        results.push({ key, success: false, error: err.message });
+                    }
+                }
+                return results;
             }
 
             function renderScreen() {
@@ -1442,12 +1497,10 @@
                     await loadUserData();
                     await loadSettings();
 
-                    // System info - use actual data or show "—"
                     const version = document.getElementById('systemVersion');
                     const env = document.getElementById('systemEnvironment');
                     const updated = document.getElementById('lastUpdated');
 
-                    // Try to get system info from settings or use defaults
                     if (version) version.textContent = settingsCache.system_version || '1.0.0';
                     if (env) env.textContent = settingsCache.environment || 'Production';
                     if (updated) {
@@ -1513,34 +1566,71 @@
                         if (hra) settings.hra_approval = hra.checked ? 'true' : 'false';
                     }
 
-                    // Only save if there are settings to save
                     if (Object.keys(settings).length === 0) {
                         showToast('No changes to save', 'info');
                         return;
                     }
 
-                    const savePromises = Object.entries(settings).map(([key, value]) =>
-                        apiCall(`/developer/settings/${key}`, {
-                            method: 'PUT',
-                            body: JSON.stringify({ value })
-                        }).catch((err) => {
-                            console.error(`Failed to save ${key}:`, err);
-                            return null;
-                        })
-                    );
+                    // Save to API
+                    const results = await saveSettingsToAPI(settings);
+                    const successful = results.filter(r => r.success).length;
 
-                    const results = await Promise.all(savePromises);
-                    const successful = results.filter(r => r !== null).length;
-
-                    Object.entries(settings).forEach(([key, value]) => { settingsCache[key] = value; });
+                    // Save to localStorage as fallback
+                    const saved = localStorage.getItem('bedcheck_settings');
+                    const localSettings = saved ? JSON.parse(saved) : {};
+                    Object.entries(settings).forEach(([key, value]) => {
+                        localSettings[key] = value;
+                        settingsCache[key] = value;
+                    });
+                    localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
 
                     if (successful === Object.keys(settings).length) {
                         showToast(`✅ ${names[section] || 'Settings'} saved successfully`, 'success');
+                    } else if (successful > 0) {
+                        showToast(`⚠️ ${successful}/${Object.keys(settings).length} settings saved (${Object.keys(settings).length - successful} failed)`, 'warning');
                     } else {
-                        showToast(`⚠️ ${successful}/${Object.keys(settings).length} settings saved`, 'warning');
+                        // All failed, but we saved to localStorage
+                        showToast(`💾 Settings saved locally (server unavailable)`, 'info');
                     }
                 } catch (error) {
-                    showToast('Error saving settings: ' + error.message, 'error');
+                    // Save to localStorage as fallback
+                    const settings = {};
+                    if (section === 'general') {
+                        const univ = document.getElementById('university_name');
+                        if (univ && univ.value) settings.university_name = univ.value;
+                        const sys = document.getElementById('system_name');
+                        if (sys && sys.value) settings.system_name = sys.value;
+                        const tz = document.getElementById('timezone');
+                        if (tz && tz.value) settings.timezone = tz.value;
+                        const lang = document.getElementById('default_language');
+                        if (lang && lang.value) settings.default_language = lang.value;
+                    } else if (section === 'bedcheck') {
+                        const start = document.getElementById('bedcheck_start');
+                        if (start && start.value) settings.bedcheck_start = start.value;
+                        const end = document.getElementById('bedcheck_end');
+                        if (end && end.value) settings.bedcheck_end = end.value;
+                        const grace = document.getElementById('grace_period');
+                        if (grace && grace.value) settings.grace_period = grace.value;
+                        const autoLock = document.getElementById('auto_lock');
+                        if (autoLock) settings.auto_lock = autoLock.checked ? 'true' : 'false';
+                        const autoClose = document.getElementById('auto_close');
+                        if (autoClose) settings.auto_close = autoClose.checked ? 'true' : 'false';
+                        const hra = document.getElementById('hra_approval');
+                        if (hra) settings.hra_approval = hra.checked ? 'true' : 'false';
+                    }
+                    
+                    if (Object.keys(settings).length > 0) {
+                        const saved = localStorage.getItem('bedcheck_settings');
+                        const localSettings = saved ? JSON.parse(saved) : {};
+                        Object.entries(settings).forEach(([key, value]) => {
+                            localSettings[key] = value;
+                            settingsCache[key] = value;
+                        });
+                        localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
+                        showToast(`💾 Settings saved locally (server unavailable)`, 'info');
+                    } else {
+                        showToast('Error saving settings: ' + error.message, 'error');
+                    }
                 }
             };
 
