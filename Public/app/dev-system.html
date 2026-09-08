@@ -941,10 +941,112 @@
             100% { transform: rotate(360deg); }
         }
 
+        /* ================================================
+           MAINTENANCE MODAL
+        ================================================ */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(16, 35, 63, 0.5);
+            display: none;
+            place-items: center;
+            z-index: 80;
+            padding: 1rem;
+            animation: fadeIn 0.25s ease;
+        }
+        .modal-overlay.show {
+            display: grid;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal {
+            background: #fffcf6;
+            border-radius: 0.75rem;
+            border: 2px solid #d6ad4b;
+            max-width: 480px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .modal-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #ded6c9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #10233f;
+            color: white;
+            border-radius: 0.75rem 0.75rem 0 0;
+        }
+        .modal-header h3 {
+            font-family: 'Merriweather', serif;
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .modal-header .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            color: rgba(255,255,255,0.6);
+            padding: 0.2rem;
+        }
+        .modal-header .close-btn:hover { color: white; }
+
+        .modal-body {
+            padding: 1rem;
+        }
+
+        .modal-footer {
+            padding: 0.75rem 1rem;
+            border-top: 1px solid #ded6c9;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 0.75rem;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #cbd2db;
+            border-radius: 0.4rem;
+            font-size: 0.8rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #a77915;
+            box-shadow: 0 0 0 3px rgba(167, 121, 21, 0.08);
+        }
+
         .text-muted { color: #6b778b; }
         .text-center { text-align: center; }
         .fw-700 { font-weight: 700; }
         .mt-2 { margin-top: 0.3rem; }
+        .mb-2 { margin-bottom: 0.3rem; }
 
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
@@ -956,6 +1058,42 @@
 
     <div id="toast" class="toast"></div>
 
+    <!-- ==============================================
+    MAINTENANCE CONFIRMATION MODAL
+    ============================================== -->
+    <div class="modal-overlay" id="maintenanceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="maintenanceModalTitle">Enable Maintenance Mode</h3>
+                <button class="close-btn" onclick="closeMaintenanceModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="maintenanceModalMessage" style="font-size:0.85rem;color:#17233c;margin-bottom:0.75rem;">
+                    Are you sure you want to enable maintenance mode?
+                </p>
+                <div class="form-group" id="maintenanceMessageGroup" style="display:none;">
+                    <label for="maintenanceMessageInput">Message shown to users</label>
+                    <input type="text" id="maintenanceMessageInput"
+                           value="System is under maintenance. Please try again later."
+                           placeholder="Enter maintenance message..." />
+                </div>
+                <div style="font-size:0.7rem;color:#68768a;margin-top:0.5rem;">
+                    <i class="fas fa-exclamation-triangle" style="color:#d4af37;"></i>
+                    Non-Developer users will be blocked from using the system.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeMaintenanceModal()">Cancel</button>
+                <button class="btn btn-warning" id="maintenanceConfirmBtn" onclick="confirmMaintenanceAction()">
+                    Enable Maintenance
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==============================================
+    MAIN PORTAL
+    ============================================== -->
     <div id="portalApp" class="app-wrapper">
         <aside class="sidebar" id="sidebar">
             <div class="brand">
@@ -1087,6 +1225,7 @@
             let beds = [];
             let auditLogs = [];
             let currentTab = 'overview';
+            let pendingMaintenanceEnable = false;
 
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -1142,6 +1281,134 @@
                 });
             };
 
+            // =============================================
+            // MAINTENANCE MODE - FIXED
+            // =============================================
+            function showMaintenanceModal(enable) {
+                pendingMaintenanceEnable = enable;
+
+                const modal = document.getElementById('maintenanceModal');
+                const title = document.getElementById('maintenanceModalTitle');
+                const message = document.getElementById('maintenanceModalMessage');
+                const msgGroup = document.getElementById('maintenanceMessageGroup');
+                const confirmBtn = document.getElementById('maintenanceConfirmBtn');
+                const messageInput = document.getElementById('maintenanceMessageInput');
+
+                if (enable) {
+                    title.textContent = 'Enable Maintenance Mode';
+                    message.textContent = 'Are you sure you want to enable maintenance mode? All non-Developer users will be blocked.';
+                    msgGroup.style.display = 'block';
+                    confirmBtn.textContent = 'Enable Maintenance';
+                    confirmBtn.className = 'btn btn-warning';
+                    if (messageInput) messageInput.value = 'System is under maintenance. Please try again later.';
+                } else {
+                    title.textContent = 'Disable Maintenance Mode';
+                    message.textContent = 'Are you sure you want to disable maintenance mode and restore normal access?';
+                    msgGroup.style.display = 'none';
+                    confirmBtn.textContent = 'Disable Maintenance';
+                    confirmBtn.className = 'btn btn-primary';
+                }
+
+                modal.classList.add('show');
+            }
+
+            function closeMaintenanceModal() {
+                document.getElementById('maintenanceModal')?.classList.remove('show');
+                pendingMaintenanceEnable = false;
+            }
+
+            async function executeMaintenanceToggle(enable, message) {
+                try {
+                    showToast(`${enable ? 'Enabling' : 'Disabling'} maintenance mode...`, 'info');
+
+                    const payload = {
+                        enabled: enable,
+                        message: message || (enable
+                            ? 'System is under maintenance. Please try again later.'
+                            : 'Maintenance mode disabled')
+                    };
+
+                    await apiCall('/developer/maintenance', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    showToast(
+                        enable ? '⚠️ Maintenance mode ENABLED' : '✅ Maintenance mode DISABLED',
+                        enable ? 'warning' : 'success'
+                    );
+
+                    // Update header badge
+                    const badge = document.querySelector('.header-right .status-badge');
+                    if (badge) {
+                        if (enable) {
+                            badge.innerHTML = '<span class="dot" style="background:#a84134;"></span> Maintenance';
+                            badge.style.background = '#f8e1dc';
+                            badge.style.color = '#9b3c31';
+                            badge.style.borderColor = '#9b3c31';
+                        } else {
+                            badge.innerHTML = '<span class="dot"></span> Online';
+                            badge.style.background = '#e1f0e5';
+                            badge.style.color = '#2d6545';
+                            badge.style.borderColor = '#2d6545';
+                        }
+                    }
+
+                    closeMaintenanceModal();
+                } catch (error) {
+                    showToast('Error: ' + error.message, 'error');
+                }
+            }
+
+            window.toggleMaintenance = function(enable) {
+                showMaintenanceModal(enable);
+            };
+
+            window.confirmMaintenanceAction = function() {
+                const messageInput = document.getElementById('maintenanceMessageInput');
+                const customMessage = messageInput ? messageInput.value.trim() : '';
+                executeMaintenanceToggle(pendingMaintenanceEnable, customMessage);
+            };
+
+            window.closeMaintenanceModal = closeMaintenanceModal;
+
+            // =============================================
+            // ATTENDANCE + SESSION BACKUP → Excel
+            // =============================================
+            window.createAttendanceBackup = async function() {
+                if (!confirm('Export all session + attendance data to Excel?')) return;
+
+                try {
+                    showToast('Generating attendance backup...', 'info');
+
+                    const response = await apiCall('/developer/backup/attendance');
+                    const rows = response.data || [];
+
+                    if (rows.length === 0) {
+                        showToast('No attendance data found to export', 'warning');
+                        return;
+                    }
+
+                    const worksheet = XLSX.utils.json_to_sheet(rows);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
+
+                    worksheet['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 18 }));
+
+                    const fileName = `BedCheck_Attendance_Backup_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                    XLSX.writeFile(workbook, fileName);
+
+                    showToast(`✅ Backup downloaded (${rows.length} records)`, 'success');
+                } catch (error) {
+                    showToast('Backup failed: ' + error.message, 'error');
+                }
+            };
+
+            window.createBackup = window.createAttendanceBackup;
+
+            // =============================================
+            // LOAD DATA FUNCTIONS
+            // =============================================
             async function loadStudents() {
                 try {
                     const data = await apiCall('/students?limit=1000');
@@ -1191,83 +1458,7 @@
             }
 
             // =============================================
-            // MAINTENANCE MODE (real)
-            // =============================================
-            window.toggleMaintenance = async function(enable) {
-                const action = enable ? 'enable' : 'disable';
-                if (!confirm(`Are you sure you want to ${action} maintenance mode?`)) return;
-
-                try {
-                    showToast(`${enable ? 'Enabling' : 'Disabling'} maintenance mode...`, 'info');
-
-                    await apiCall('/developer/maintenance', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            enabled: enable,
-                            message: enable ? 'System is under maintenance. Please try again later.' : null
-                        })
-                    });
-
-                    showToast(
-                        enable ? '⚠️ Maintenance mode ENABLED' : '✅ Maintenance mode DISABLED',
-                        enable ? 'warning' : 'success'
-                    );
-
-                    const badge = document.getElementById('statusBadge');
-                    if (badge) {
-                        if (enable) {
-                            badge.innerHTML = '<span class="dot" style="background:#a84134;"></span> Maintenance';
-                            badge.style.background = '#f8e1dc';
-                            badge.style.color = '#9b3c31';
-                            badge.style.borderColor = '#9b3c31';
-                        } else {
-                            badge.innerHTML = '<span class="dot"></span> Online';
-                            badge.style.background = '#e1f0e5';
-                            badge.style.color = '#2d6545';
-                            badge.style.borderColor = '#2d6545';
-                        }
-                    }
-                } catch (error) {
-                    showToast('Error: ' + error.message, 'error');
-                }
-            };
-
-            // =============================================
-            // ATTENDANCE + SESSION BACKUP → Excel (real)
-            // =============================================
-            window.createAttendanceBackup = async function() {
-                if (!confirm('Export all session + attendance data to Excel?')) return;
-
-                try {
-                    showToast('Generating attendance backup...', 'info');
-
-                    const response = await apiCall('/developer/backup/attendance');
-                    const rows = response.data || [];
-
-                    if (rows.length === 0) {
-                        showToast('No attendance data found to export', 'warning');
-                        return;
-                    }
-
-                    const worksheet = XLSX.utils.json_to_sheet(rows);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
-
-                    worksheet['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 18 }));
-
-                    const fileName = `BedCheck_Attendance_Backup_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                    XLSX.writeFile(workbook, fileName);
-
-                    showToast(`✅ Backup downloaded (${rows.length} records)`, 'success');
-                } catch (error) {
-                    showToast('Backup failed: ' + error.message, 'error');
-                }
-            };
-
-            window.createBackup = window.createAttendanceBackup;
-
-            // =============================================
-            // RENDER OVERVIEW
+            // RENDER FUNCTIONS
             // =============================================
             function renderOverview() {
                 const container = document.getElementById('overviewContent');
@@ -1319,9 +1510,6 @@
                 `;
             }
 
-            // =============================================
-            // RENDER DATABASE (with Backup & Data Management)
-            // =============================================
             function renderDatabase() {
                 const container = document.getElementById('databaseContent');
                 const totalRecords = students.length + staff.length + hostels.length + rooms.length + beds.length + auditLogs
@@ -1482,9 +1670,6 @@
                 `;
             }
 
-            // =============================================
-            // RENDER FACE ENGINE
-            // =============================================
             function renderFaceEngine() {
                 const container = document.getElementById('faceContent');
                 const enrolled = students.filter(s => s.face_enrolled === true).length;
@@ -1713,6 +1898,7 @@
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
                         document.getElementById('profileDropdown')?.classList.remove('show');
+                        closeMaintenanceModal();
                     }
                     if (e.ctrlKey && e.key === 'r') {
                         e.preventDefault();
