@@ -505,9 +505,9 @@
         }
         .section-body { padding: 1rem; }
         .section-footer {
+            display: none;
             padding: 0.75rem 1rem;
             border-top: 1px solid #ded6c9;
-            display: flex;
             justify-content: flex-end;
             gap: 0.5rem;
             flex-wrap: wrap;
@@ -550,6 +550,12 @@
         .form-group select:focus {
             border-color: #a77915;
             box-shadow: 0 0 0 3px rgba(167, 121, 21, 0.08);
+        }
+        .form-group input:disabled,
+        .form-group select:disabled {
+            background: #f5f1e8;
+            color: #6b778b;
+            cursor: not-allowed;
         }
         .form-row {
             display: grid;
@@ -608,7 +614,7 @@
         }
         .toggle input:checked+.slider { background: #d6ad4b; }
         .toggle input:checked+.slider::before { transform: translateX(18px); }
-        .toggle.disabled { opacity: 0.5; cursor: not-allowed; }
+        .toggle input:disabled+.slider { opacity: 0.5; cursor: not-allowed; }
 
         .system-info-grid {
             display: grid;
@@ -1021,7 +1027,7 @@
                 <a href="./dev-staff.html"><i class="fas fa-users"></i> Staff &amp; Roles</a>
                 <a href="./dev-hostels.html"><i class="fas fa-building"></i> Hostels</a>
                 <a href="./dev-bedcheck.html"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-
+                <a href="./dev-sessions.html" class="active"><i class="fas fa-calendar-check"></i> Sessions</a>
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
@@ -1052,7 +1058,7 @@
                 <a href="./dev-staff.html"><i class="fas fa-users"></i> Staff &amp; Roles</a>
                 <a href="./dev-hostels.html"><i class="fas fa-building"></i> Hostels</a>
                 <a href="./dev-bedcheck.html"><i class="fas fa-clipboard-check"></i> BedCheck</a>
-
+                <a href="./dev-sessions.html" class="active"><i class="fas fa-calendar-check"></i> Sessions</a>
                 <div class="nav-label">System</div>
                 <a href="./dev-reports-audit.html"><i class="fas fa-history"></i> Reports &amp; Audit</a>
                 <a href="./dev-system.html"><i class="fas fa-server"></i> System</a>
@@ -1152,6 +1158,7 @@
             let pendingAction = null;
             let originalSettings = {};
             let hasChanges = false;
+            let isEditMode = false;
 
             function setElementText(id, value) {
                 const el = document.getElementById(id);
@@ -1326,7 +1333,6 @@
                 'sec_max_attempts': 'max_attempts'
             };
 
-            // Reverse map for saving
             const reverseKeyMap = {
                 'university_name': 'uni_name',
                 'system_name': 'uni_session',
@@ -1349,15 +1355,12 @@
                         const settingsObj = {};
                         settings.forEach(s => { 
                             settingsCache[s.key] = s.value;
-                            // Also store by UI key for easy access
                             if (keyMap[s.key]) {
                                 settingsObj[keyMap[s.key]] = s.value;
                             }
                         });
-                        // Save to localStorage
                         localStorage.setItem('bedcheck_settings', JSON.stringify(settingsObj));
                     } else {
-                        // Try localStorage
                         const saved = localStorage.getItem('bedcheck_settings');
                         if (saved) {
                             try {
@@ -1369,13 +1372,11 @@
                         }
                     }
                     
-                    // Store original values for change detection
                     originalSettings = { ...settingsCache };
                     applySettingsToUI();
                     return settingsCache;
                 } catch (error) {
                     console.error('Error loading settings:', error);
-                    // Try localStorage
                     const saved = localStorage.getItem('bedcheck_settings');
                     if (saved) {
                         try {
@@ -1401,31 +1402,73 @@
                     if (el) el.checked = val === 'true' || val === true;
                 };
 
-                // Map DB keys to UI fields
-                setVal('university_name', settingsCache['uni_name']);
-                setVal('system_name', settingsCache['uni_session']);
-                setVal('bedcheck_start', settingsCache['bc_start_time']);
-                setVal('bedcheck_end', settingsCache['bc_end_time']);
-                setVal('grace_period', settingsCache['bc_grace_period']);
-                setVal('password_min_length', settingsCache['sec_min_password']);
-                setVal('max_attempts', settingsCache['sec_max_attempts']);
+                setVal('university_name', settingsCache['uni_name'] || '');
+                setVal('system_name', settingsCache['uni_session'] || '');
+                setVal('bedcheck_start', settingsCache['bc_start_time'] || '');
+                setVal('bedcheck_end', settingsCache['bc_end_time'] || '');
+                setVal('grace_period', settingsCache['bc_grace_period'] || '10');
+                setVal('password_min_length', settingsCache['sec_min_password'] || '8');
+                setVal('max_attempts', settingsCache['sec_max_attempts'] || '5');
                 
-                // Toggles (not in DB yet, use defaults)
                 setChecked('auto_lock', settingsCache['auto_lock'] || 'true');
                 setChecked('auto_close', settingsCache['auto_close'] || 'true');
                 setChecked('hra_approval', settingsCache['hra_approval'] || 'true');
 
-                // Hide save buttons initially
-                document.querySelectorAll('.section-footer .btn-primary').forEach(btn => {
-                    btn.style.display = 'none';
-                });
+                // Disable all inputs initially
+                setEditMode(false);
                 hasChanges = false;
+                updateActionButtons();
+            }
+
+            // =============================================
+            // EDIT MODE TOGGLE
+            // =============================================
+            function setEditMode(enabled) {
+                isEditMode = enabled;
+                const inputs = document.querySelectorAll('#section-general input, #section-general select, #section-bedcheck input, #section-bedcheck select, #section-security input, #section-security select');
+                inputs.forEach(el => {
+                    el.disabled = !enabled;
+                });
+                // Toggles are not disabled, they just show/hide the edit state
+                updateActionButtons();
+            }
+
+            function updateActionButtons() {
+                const editBtn = document.getElementById('editBtn');
+                const saveBtn = document.getElementById('saveBtn');
+                const cancelBtn = document.getElementById('cancelBtn');
+                
+                if (editBtn) {
+                    if (isEditMode) {
+                        editBtn.style.display = 'none';
+                    } else {
+                        editBtn.style.display = 'inline-flex';
+                    }
+                }
+                
+                if (saveBtn) {
+                    if (isEditMode && hasChanges) {
+                        saveBtn.style.display = 'inline-flex';
+                    } else {
+                        saveBtn.style.display = 'none';
+                    }
+                }
+                
+                if (cancelBtn) {
+                    if (isEditMode) {
+                        cancelBtn.style.display = 'inline-flex';
+                    } else {
+                        cancelBtn.style.display = 'none';
+                    }
+                }
             }
 
             // =============================================
             // DETECT CHANGES
             // =============================================
             function detectChanges() {
+                if (!isEditMode) return;
+                
                 const fields = ['university_name', 'system_name', 'bedcheck_start', 'bedcheck_end', 'grace_period', 'password_min_length', 'max_attempts'];
                 let changed = false;
                 const toggles = ['auto_lock', 'auto_close', 'hra_approval'];
@@ -1458,40 +1501,134 @@
                 }
                 
                 hasChanges = changed;
-                document.querySelectorAll('.section-footer .btn-primary').forEach(btn => {
-                    btn.style.display = changed ? 'inline-flex' : 'none';
-                });
+                updateActionButtons();
             }
 
             // =============================================
-            // SAVE SETTINGS
+            // EDIT / CANCEL / SAVE
             // =============================================
-            async function saveSettingsToAPI(settings) {
-                const results = [];
-                for (const [uiKey, value] of Object.entries(settings)) {
-                    const dbKey = reverseKeyMap[uiKey];
-                    if (!dbKey) {
-                        // For toggles that don't exist in DB yet
-                        const saved = localStorage.getItem('bedcheck_settings');
-                        const localSettings = saved ? JSON.parse(saved) : {};
-                        localSettings[uiKey] = value;
-                        localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
-                        results.push({ key: uiKey, success: true, data: { value } });
-                        continue;
-                    }
-                    try {
-                        const response = await apiCall(`/developer/settings/${dbKey}`, {
-                            method: 'PUT',
-                            body: JSON.stringify({ value })
-                        });
-                        results.push({ key: dbKey, success: true, data: response });
-                    } catch (err) {
-                        console.error(`Failed to save ${dbKey}:`, err);
-                        results.push({ key: dbKey, success: false, error: err.message });
-                    }
+            window.enableEdit = function() {
+                setEditMode(true);
+                showToast('✏️ Edit mode enabled - make your changes', 'info');
+            };
+
+            window.cancelEdit = function() {
+                // Revert to original values
+                applySettingsToUI();
+                setEditMode(false);
+                showToast('Changes discarded', 'info');
+            };
+
+            window.saveAllSettings = async function() {
+                if (!isEditMode || !hasChanges) {
+                    showToast('No changes to save', 'info');
+                    return;
                 }
-                return results;
-            }
+
+                try {
+                    showToast('Saving settings...', 'info');
+                    const settings = {};
+
+                    // Collect all settings
+                    const fields = ['university_name', 'system_name', 'bedcheck_start', 'bedcheck_end', 'grace_period', 'password_min_length', 'max_attempts'];
+                    const toggles = ['auto_lock', 'auto_close', 'hra_approval'];
+                    
+                    for (const field of fields) {
+                        const el = document.getElementById(field);
+                        if (el && el.value) {
+                            settings[field] = el.value;
+                        }
+                    }
+                    
+                    for (const toggle of toggles) {
+                        const el = document.getElementById(toggle);
+                        if (el) {
+                            settings[toggle] = el.checked ? 'true' : 'false';
+                        }
+                    }
+
+                    if (Object.keys(settings).length === 0) {
+                        showToast('No changes to save', 'info');
+                        return;
+                    }
+
+                    // Save to API
+                    const results = [];
+                    for (const [uiKey, value] of Object.entries(settings)) {
+                        const dbKey = reverseKeyMap[uiKey];
+                        if (!dbKey) {
+                            // For toggles that don't exist in DB yet
+                            const saved = localStorage.getItem('bedcheck_settings');
+                            const localSettings = saved ? JSON.parse(saved) : {};
+                            localSettings[uiKey] = value;
+                            localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
+                            results.push({ key: uiKey, success: true });
+                            continue;
+                        }
+                        try {
+                            await apiCall(`/developer/settings/${dbKey}`, {
+                                method: 'PUT',
+                                body: JSON.stringify({ value })
+                            });
+                            results.push({ key: dbKey, success: true });
+                        } catch (err) {
+                            console.error(`Failed to save ${dbKey}:`, err);
+                            results.push({ key: dbKey, success: false });
+                        }
+                    }
+
+                    // Update cache
+                    Object.entries(settings).forEach(([key, value]) => {
+                        const dbKey = reverseKeyMap[key];
+                        if (dbKey) {
+                            settingsCache[dbKey] = value;
+                        }
+                        originalSettings[key] = value;
+                    });
+
+                    // Save to localStorage
+                    const saved = localStorage.getItem('bedcheck_settings');
+                    const localSettings = saved ? JSON.parse(saved) : {};
+                    Object.entries(settings).forEach(([key, value]) => {
+                        localSettings[key] = value;
+                    });
+                    localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
+
+                    const successful = results.filter(r => r.success).length;
+                    
+                    if (successful === results.length) {
+                        showToast('✅ All settings saved successfully', 'success');
+                    } else if (successful > 0) {
+                        showToast(`⚠️ ${successful}/${results.length} settings saved`, 'warning');
+                    } else {
+                        showToast('💾 Settings saved locally (server unavailable)', 'info');
+                    }
+                    
+                    setEditMode(false);
+                    hasChanges = false;
+                    updateActionButtons();
+                } catch (error) {
+                    showToast('Error saving settings: ' + error.message, 'error');
+                }
+            };
+
+            window.resetAllSettings = function() {
+                const title = document.getElementById('confirmTitle');
+                const msg = document.getElementById('confirmMessage');
+                const details = document.getElementById('confirmDetails');
+                const btn = document.getElementById('confirmBtn');
+
+                if (title) title.textContent = 'Reset System Configuration';
+                if (msg) msg.textContent = 'Restore configurable settings to defaults?';
+                if (details) {
+                    details.innerHTML =
+                        `<div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will reset all configurable settings to their default values.</div>`;
+                }
+                if (btn) btn.textContent = 'Reset';
+                pendingAction = 'resetSettings';
+                const modal = document.getElementById('confirmModal');
+                if (modal) modal.classList.add('show');
+            };
 
             function renderScreen() {
                 const container = document.getElementById('screenContent');
@@ -1506,7 +1643,9 @@
                         </div>
                         <div class="actions">
                             <button class="btn btn-outline" onclick="resetAllSettings()" style="font-size:0.65rem;padding:0.3rem 0.6rem;"><i class="fas fa-undo"></i> Reset Defaults</button>
-                            <button class="btn btn-primary" onclick="saveAllSettings()" style="font-size:0.65rem;padding:0.3rem 0.6rem;"><i class="fas fa-save"></i> Save All</button>
+                            <button class="btn btn-primary" id="editBtn" onclick="enableEdit()" style="font-size:0.65rem;padding:0.3rem 0.6rem;"><i class="fas fa-edit"></i> Edit</button>
+                            <button class="btn btn-success" id="saveBtn" onclick="saveAllSettings()" style="display:none;font-size:0.65rem;padding:0.3rem 0.6rem;"><i class="fas fa-save"></i> Save</button>
+                            <button class="btn btn-outline" id="cancelBtn" onclick="cancelEdit()" style="display:none;font-size:0.65rem;padding:0.3rem 0.6rem;"><i class="fas fa-times"></i> Cancel</button>
                         </div>
                     </div>
 
@@ -1525,11 +1664,11 @@
                                     <p>University information and system configuration</p>
                                 </div>
                                 <div class="section-body">
-                                    <div class="form-group"><label>University Name</label><input type="text" id="university_name" oninput="detectChanges()" placeholder="Not configured" /></div>
-                                    <div class="form-group"><label>Academic Session</label><input type="text" id="system_name" oninput="detectChanges()" placeholder="e.g. 2026/2027" /></div>
+                                    <div class="form-group"><label>University Name</label><input type="text" id="university_name" disabled oninput="detectChanges()" placeholder="Not configured" /></div>
+                                    <div class="form-group"><label>Academic Session</label><input type="text" id="system_name" disabled oninput="detectChanges()" placeholder="e.g. 2026/2027" /></div>
                                     <div class="form-row">
-                                        <div class="form-group"><label>Time Zone</label><select id="timezone"><option value="Africa/Lagos">Africa/Lagos (WAT)</option><option value="Africa/Abidjan">Africa/Abidjan (GMT)</option><option value="UTC">UTC</option></select></div>
-                                        <div class="form-group"><label>Default Language</label><select id="default_language"><option value="en">English</option></select></div>
+                                        <div class="form-group"><label>Time Zone</label><select id="timezone" disabled><option value="Africa/Lagos">Africa/Lagos (WAT)</option><option value="Africa/Abidjan">Africa/Abidjan (GMT)</option><option value="UTC">UTC</option></select></div>
+                                        <div class="form-group"><label>Default Language</label><select id="default_language" disabled><option value="en">English</option></select></div>
                                     </div>
                                     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #ded6c9;">
                                         <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">System Information</h4>
@@ -1540,7 +1679,6 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="section-footer"><button class="btn btn-primary" onclick="saveSection('general')">Save Changes</button></div>
                             </div>
 
                             <!-- BedCheck -->
@@ -1551,30 +1689,29 @@
                                 </div>
                                 <div class="section-body">
                                     <div class="form-row">
-                                        <div class="form-group"><label>Start Time</label><input type="time" id="bedcheck_start" oninput="detectChanges()" /></div>
-                                        <div class="form-group"><label>End Time</label><input type="time" id="bedcheck_end" oninput="detectChanges()" /></div>
+                                        <div class="form-group"><label>Start Time</label><input type="time" id="bedcheck_start" disabled oninput="detectChanges()" /></div>
+                                        <div class="form-group"><label>End Time</label><input type="time" id="bedcheck_end" disabled oninput="detectChanges()" /></div>
                                     </div>
-                                    <div class="form-group"><label>Grace Period</label><select id="grace_period" onchange="detectChanges()"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
+                                    <div class="form-group"><label>Grace Period</label><select id="grace_period" disabled onchange="detectChanges()"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="auto_lock" onchange="detectChanges()" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="auto_lock" disabled onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Automatic Session Lock</div><div class="toggle-desc">Lock session automatically after end time</div></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="auto_close" onchange="detectChanges()" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="auto_close" disabled onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Automatic Session Close</div><div class="toggle-desc">Close session automatically after completion</div></div>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <div class="toggle-group">
-                                            <label class="toggle"><input type="checkbox" id="hra_approval" onchange="detectChanges()" /><span class="slider"></span></label>
+                                            <label class="toggle"><input type="checkbox" id="hra_approval" disabled onchange="detectChanges()" /><span class="slider"></span></label>
                                             <div><div class="toggle-label">Require HRA Approval</div><div class="toggle-desc">BedCheck submissions require HRA approval</div></div>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="section-footer"><button class="btn btn-primary" onclick="saveSection('bedcheck')">Save Changes</button></div>
                             </div>
 
                             <!-- Security -->
@@ -1585,7 +1722,7 @@
                                 </div>
                                 <div class="section-body">
                                     <div class="form-group"><label>Minimum Password Length</label>
-                                        <select id="password_min_length" onchange="detectChanges()">
+                                        <select id="password_min_length" disabled onchange="detectChanges()">
                                             <option value="6">6 characters</option>
                                             <option value="8">8 characters</option>
                                             <option value="10">10 characters</option>
@@ -1593,7 +1730,7 @@
                                         </select>
                                     </div>
                                     <div class="form-group"><label>Maximum Login Attempts</label>
-                                        <select id="max_attempts" onchange="detectChanges()">
+                                        <select id="max_attempts" disabled onchange="detectChanges()">
                                             <option value="3">3 attempts</option>
                                             <option value="5">5 attempts</option>
                                             <option value="10">10 attempts</option>
@@ -1601,7 +1738,6 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="section-footer"><button class="btn btn-primary" onclick="saveSection('security')">Save Changes</button></div>
                             </div>
                         </div>
                     </div>
@@ -1648,124 +1784,6 @@
                 }
             });
 
-            window.saveSection = async function(section) {
-                const names = {
-                    'general': 'General Settings',
-                    'bedcheck': 'BedCheck Settings',
-                    'security': 'Security Settings'
-                };
-
-                try {
-                    showToast(`Saving ${names[section] || 'Settings'}...`, 'info');
-                    const settings = {};
-
-                    if (section === 'general') {
-                        const univ = document.getElementById('university_name');
-                        if (univ && univ.value) settings.university_name = univ.value;
-                        const sys = document.getElementById('system_name');
-                        if (sys && sys.value) settings.system_name = sys.value;
-                    } else if (section === 'bedcheck') {
-                        const start = document.getElementById('bedcheck_start');
-                        if (start && start.value) settings.bedcheck_start = start.value;
-                        const end = document.getElementById('bedcheck_end');
-                        if (end && end.value) settings.bedcheck_end = end.value;
-                        const grace = document.getElementById('grace_period');
-                        if (grace && grace.value) settings.grace_period = grace.value;
-                        const autoLock = document.getElementById('auto_lock');
-                        if (autoLock) settings.auto_lock = autoLock.checked ? 'true' : 'false';
-                        const autoClose = document.getElementById('auto_close');
-                        if (autoClose) settings.auto_close = autoClose.checked ? 'true' : 'false';
-                        const hra = document.getElementById('hra_approval');
-                        if (hra) settings.hra_approval = hra.checked ? 'true' : 'false';
-                    } else if (section === 'security') {
-                        const pwdLen = document.getElementById('password_min_length');
-                        if (pwdLen && pwdLen.value) settings.password_min_length = pwdLen.value;
-                        const attempts = document.getElementById('max_attempts');
-                        if (attempts && attempts.value) settings.max_attempts = attempts.value;
-                    }
-
-                    if (Object.keys(settings).length === 0) {
-                        showToast('No changes to save', 'info');
-                        return;
-                    }
-
-                    // Save to API
-                    const results = await saveSettingsToAPI(settings);
-                    const successful = results.filter(r => r.success).length;
-
-                    // Update cache
-                    Object.entries(settings).forEach(([key, value]) => {
-                        const dbKey = reverseKeyMap[key];
-                        if (dbKey) {
-                            settingsCache[dbKey] = value;
-                        }
-                        originalSettings[key] = value;
-                    });
-
-                    // Update originalSettings for toggles
-                    const toggles = ['auto_lock', 'auto_close', 'hra_approval'];
-                    for (const toggle of toggles) {
-                        if (settings[toggle] !== undefined) {
-                            originalSettings[toggle] = settings[toggle];
-                        }
-                    }
-
-                    // Save to localStorage
-                    const saved = localStorage.getItem('bedcheck_settings');
-                    const localSettings = saved ? JSON.parse(saved) : {};
-                    Object.entries(settings).forEach(([key, value]) => {
-                        localSettings[key] = value;
-                    });
-                    localStorage.setItem('bedcheck_settings', JSON.stringify(localSettings));
-
-                    if (successful === Object.keys(settings).length) {
-                        showToast(`✅ ${names[section] || 'Settings'} saved successfully`, 'success');
-                    } else if (successful > 0) {
-                        showToast(`⚠️ ${successful}/${Object.keys(settings).length} settings saved`, 'warning');
-                    } else {
-                        showToast(`💾 Settings saved locally (server unavailable)`, 'info');
-                    }
-                    
-                    detectChanges();
-                } catch (error) {
-                    showToast('Error saving settings: ' + error.message, 'error');
-                }
-            };
-
-            window.saveAllSettings = async function() {
-                const sections = ['general', 'bedcheck', 'security'];
-                let successCount = 0;
-                for (const section of sections) {
-                    try {
-                        await saveSection(section);
-                        successCount++;
-                    } catch (e) { console.error(`Failed to save ${section}:`, e); }
-                }
-                if (successCount === sections.length) {
-                    showToast('✅ All settings saved successfully', 'success');
-                } else {
-                    showToast(`⚠️ ${successCount}/${sections.length} sections saved`, 'warning');
-                }
-            };
-
-            window.resetAllSettings = function() {
-                const title = document.getElementById('confirmTitle');
-                const msg = document.getElementById('confirmMessage');
-                const details = document.getElementById('confirmDetails');
-                const btn = document.getElementById('confirmBtn');
-
-                if (title) title.textContent = 'Reset System Configuration';
-                if (msg) msg.textContent = 'Restore configurable settings to defaults?';
-                if (details) {
-                    details.innerHTML =
-                        `<div style="font-size:0.8rem;color:#68768a;margin-top:0.3rem;">This will reset all configurable settings to their default values.</div>`;
-                }
-                if (btn) btn.textContent = 'Reset';
-                pendingAction = 'resetSettings';
-                const modal = document.getElementById('confirmModal');
-                if (modal) modal.classList.add('show');
-            };
-
             // =============================================
             // INIT
             // =============================================
@@ -1792,10 +1810,7 @@
                         });
                         const dropdown = document.getElementById('profileDropdown');
                         if (dropdown) dropdown.classList.remove('show');
-                    }
-                    if (e.ctrlKey && e.key === 's') {
-                        e.preventDefault();
-                        saveAllSettings();
+                        if (isEditMode) cancelEdit();
                     }
                 });
 
@@ -1835,10 +1850,12 @@
             window.handleLogout = handleLogout;
             window.closeModal = closeModal;
             window.confirmAction = confirmAction;
-            window.saveSection = saveSection;
+            window.enableEdit = enableEdit;
+            window.cancelEdit = cancelEdit;
             window.saveAllSettings = saveAllSettings;
             window.resetAllSettings = resetAllSettings;
             window.detectChanges = detectChanges;
+            window.applySettingsToUI = applySettingsToUI;
         })();
     </script>
 
