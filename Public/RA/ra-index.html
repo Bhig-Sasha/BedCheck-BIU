@@ -504,7 +504,6 @@
             // =============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
             const ITEMS_PER_PAGE = 10;
-            const DEBUG = false;
 
             // =============================================
             // TOAST
@@ -533,6 +532,7 @@
             let assignedFloor = '';
             let assignedFloorName = '';
             let assignedArea = '';
+            let assignedFloorId = null;
             let currentSession = null;
             let sessionStatus = 'closed';
             let isSessionActive = false;
@@ -547,15 +547,6 @@
             let sessionCheckerInterval = null;
             let lastLoggedSessionId = null;
             let isLoadingComplete = false;
-
-            // =============================================
-            // DEBUG LOGGING
-            // =============================================
-            function debugLog(...args) {
-                if (DEBUG) {
-                    console.log(...args);
-                }
-            }
 
             // =============================================
             // API HELPER
@@ -768,6 +759,14 @@
             }
 
             // =============================================
+            // NORMALIZE STRING FOR COMPARISON
+            // =============================================
+            function normalize(str) {
+                if (!str) return '';
+                return String(str).toLowerCase().trim().replace(/\s+/g, ' ');
+            }
+
+            // =============================================
             // DATA LOADING
             // =============================================
             async function loadStudents() {
@@ -781,16 +780,62 @@
                 const data = await apiCall(endpoint);
                 allStudents = data.data || [];
                 
+                // =============================================
+                // FILTERING STRATEGY (STRICT - never show other flats):
+                // 
+                // 1. If we have assigned rooms → filter by room_id
+                // 2. Else if we have assignedFloorId → filter by floor_flat_id
+                // 3. Else if we have assignedArea → filter by floor_name
+                // 4. Otherwise → EMPTY (never show everything)
+                // =============================================
+                
                 if (assignedRooms.length > 0) {
+                    // STRATEGY 1: Filter by assigned room IDs
                     const assignedRoomIds = assignedRooms.map(r => r.id);
+                    
                     filteredStudents = allStudents.filter(s => 
                         s.room_id && assignedRoomIds.includes(s.room_id)
                     );
+                    
+                } else if (assignedFloorId) {
+                    // STRATEGY 2: Filter by floor_flat_id
+                    const roomsInArea = await getRoomsForFloor(assignedFloorId);
+                    const roomIdsInArea = roomsInArea.map(r => r.id);
+                    
+                    filteredStudents = allStudents.filter(s => 
+                        s.room_id && roomIdsInArea.includes(s.room_id)
+                    );
+                    
+                } else if (assignedArea) {
+                    // STRATEGY 3: Filter by floor_name (fallback)
+                    const myArea = normalize(assignedArea);
+                    
+                    filteredStudents = allStudents.filter(s => {
+                        const studentArea = normalize(s.floor_name || s.floor || '');
+                        return studentArea === myArea || 
+                               studentArea.includes(myArea) || 
+                               myArea.includes(studentArea);
+                    });
+                    
                 } else {
-                    filteredStudents = allStudents;
+                    // STRATEGY 4: Nothing assigned → show nothing (safety)
+                    filteredStudents = [];
+                    showToast('No rooms assigned to you. Contact your HRA.', 'info');
                 }
                 
                 return filteredStudents;
+            }
+
+            // =============================================
+            // GET ROOMS FOR A SPECIFIC FLOOR/FLAT
+            // =============================================
+            async function getRoomsForFloor(floorId) {
+                try {
+                    const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
+                    return data.data || [];
+                } catch (error) {
+                    return [];
+                }
             }
 
             async function loadHostels() {
@@ -839,20 +884,13 @@
                         globalSessionData = data.data;
                         globalSessionActive = true;
                         currentSession = data.data;
-                        
-                        if (lastLoggedSessionId !== data.data.id) {
-                            debugLog('📋 Night session active:', data.data.id, data.data.name);
-                            lastLoggedSessionId = data.data.id;
-                        }
+                        lastLoggedSessionId = data.data.id;
                         return data.data;
                     } else {
                         globalSessionData = null;
                         globalSessionActive = false;
                         currentSession = null;
-                        if (lastLoggedSessionId !== null) {
-                            debugLog('📋 No night session active');
-                            lastLoggedSessionId = null;
-                        }
+                        lastLoggedSessionId = null;
                         return null;
                     }
                 } catch (error) {
@@ -944,13 +982,6 @@
                             }
                         }
                         
-                        debugLog('📋 Session status:', {
-                            sessionStatus,
-                            isSessionActive,
-                            isRASessionActive,
-                            globalSessionActive,
-                            effectiveStatus
-                        });
                         return data;
                     }
                     
@@ -998,6 +1029,30 @@
                         assignedFloorName = userData.assigned_floor_name || userData.assigned_flat_name || '';
                         assignedArea = assignedFloorName || assignedFloor || '';
                         
+                        // =============================================
+                        // RESOLVE assignedFloorId (the numeric ID)
+                        // =============================================
+                        assignedFloorId = null;
+                        
+                        // If assigned_floor is numeric, use it directly
+                        if (assignedFloor && !isNaN(assignedFloor)) {
+                            assignedFloorId = parseInt(assignedFloor);
+                        }
+                        
+                        // Otherwise, look up by name in floorsFlats
+                        if (!assignedFloorId && assignedArea && floorsFlats.length > 0) {
+                            const match = floorsFlats.find(f => 
+                                normalize(f.name) === normalize(assignedArea) ||
+                                normalize(f.name).includes(normalize(assignedArea)) ||
+                                normalize(assignedArea).includes(normalize(f.name))
+                            );
+                            if (match) {
+                                assignedFloorId = match.id;
+                                assignedFloorName = match.name;
+                                assignedArea = match.name;
+                            }
+                        }
+                        
                         if (assignedHostelId && !assignedHostelName) {
                             const hostel = hostels.find(h => h.id === assignedHostelId);
                             if (hostel) {
@@ -1029,6 +1084,10 @@
                         assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
                         assignedFloorName = currentUser.assigned_floor_name || currentUser.assigned_flat_name || '';
                         assignedArea = assignedFloorName || assignedFloor || '';
+                        
+                        if (assignedFloor && !isNaN(assignedFloor)) {
+                            assignedFloorId = parseInt(assignedFloor);
+                        }
                         
                         if (assignedHostelId && !assignedHostelName && hostels.length > 0) {
                             const hostel = hostels.find(h => h.id === assignedHostelId);
@@ -1549,7 +1608,7 @@
                 if (pageStudents.length === 0) {
                     tbody.innerHTML =
                         `<tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">
-                            ${filteredStudents.length === 0 ? 'No students assigned.' : 'No students match the filter.'}
+                            ${filteredStudents.length === 0 ? 'No students assigned to your area.' : 'No students match the filter.'}
                         </td></tr>`;
                     updatePagination(displayStudents.length);
                     return;
@@ -1667,6 +1726,10 @@
                 assignedFloorName = currentUser.assigned_floor_name || '';
                 assignedArea = assignedFloorName || assignedFloor || '';
 
+                if (assignedFloor && !isNaN(assignedFloor)) {
+                    assignedFloorId = parseInt(assignedFloor);
+                }
+
                 return true;
             }
 
@@ -1725,7 +1788,7 @@
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-                // 1. Show skeleton immediately (already in HTML, but ensure it's there)
+                // 1. Show skeleton immediately
                 renderSkeleton();
 
                 // 2. Update header with session data we already have
@@ -1754,6 +1817,7 @@
                             if (floor) {
                                 assignedFloorName = floor.name;
                                 assignedArea = floor.name;
+                                assignedFloorId = floor.id;
                             }
                         }
                     }
@@ -1762,6 +1826,7 @@
                     updateHeader();
 
                     // 7. Students + session status can run together
+                    //    IMPORTANT: rooms are already loaded above, so filtering is safe
                     await Promise.allSettled([
                         loadStudents(),
                         loadSessionStatus()
