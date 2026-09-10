@@ -339,6 +339,53 @@
             font-size: 0.7rem;
             color: #6b778b;
         }
+
+        /* ===== SKELETON LOADERS ===== */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.5s infinite;
+            border-radius: 0.5rem;
+        }
+        @keyframes skeleton-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .skeleton-text { height: 0.8rem; width: 100%; }
+        .skeleton-text-sm { height: 0.6rem; width: 60%; }
+        .skeleton-badge { height: 1.5rem; width: 5rem; border-radius: 9999px; }
+        .skeleton-avatar { height: 2rem; width: 2rem; border-radius: 50%; flex-shrink: 0; }
+        .skeleton-metric { height: 1.5rem; width: 3rem; }
+        .skeleton-title { height: 2rem; width: 60%; }
+        .skeleton-card-title { height: 1rem; width: 40%; }
+        .skeleton-row { height: 2.5rem; width: 100%; }
+        .skeleton-banner { height: 5rem; width: 100%; }
+
+        .loading-hint {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            color: #a77915;
+            font-weight: 600;
+        }
+        .loading-hint .dot-pulse {
+            display: inline-flex;
+            gap: 0.15rem;
+        }
+        .loading-hint .dot-pulse span {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #d6ad4b;
+            animation: dot-pulse 1.2s infinite;
+        }
+        .loading-hint .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-hint .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes dot-pulse {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -408,7 +455,41 @@
             </header>
             <div class="content-container">
                 <div id="screenContent">
-                    <div class="loading-spinner"><i class="fas fa-spinner"></i></div>
+                    <!-- Skeleton placeholder — replaced progressively during load -->
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
+                            <h1 class="skeleton" style="height:2.25rem;width:12rem;"></h1>
+                            <div class="skeleton skeleton-text" style="width:16rem;margin-top:0.5rem;"></div>
+                        </div>
+                    </div>
+                    <div class="session-banner">
+                        <div class="session-icon">🌙</div>
+                        <div class="session-info">
+                            <div class="session-title skeleton" style="height:1.5rem;width:10rem;"></div>
+                            <div class="skeleton skeleton-text" style="width:8rem;margin-top:0.4rem;"></div>
+                        </div>
+                        <span class="skeleton skeleton-badge"></span>
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -465,6 +546,7 @@
             let globalSessionData = null;
             let sessionCheckerInterval = null;
             let lastLoggedSessionId = null;
+            let isLoadingComplete = false;
 
             // =============================================
             // DEBUG LOGGING
@@ -542,14 +624,10 @@
                 return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
             }
 
-            // =============================================
-            // IMPROVED: formatDate - Handles all date formats
-            // =============================================
             function formatDate(dateStr) {
                 if (!dateStr) return '—';
                 
                 try {
-                    // Handle MySQL/PostgreSQL datetime format: YYYY-MM-DD HH:MM:SS
                     if (typeof dateStr === 'string' && dateStr.includes(' ')) {
                         const parts = dateStr.split(' ');
                         if (parts.length === 2) {
@@ -565,7 +643,6 @@
                         }
                     }
                     
-                    // Handle date-only format: YYYY-MM-DD
                     if (typeof dateStr === 'string' && dateStr.includes('-') && !dateStr.includes(':')) {
                         const dateObj = new Date(dateStr);
                         if (!isNaN(dateObj.getTime())) {
@@ -577,7 +654,6 @@
                         }
                     }
                     
-                    // Handle timestamp with timezone
                     const dateObj = new Date(dateStr);
                     if (!isNaN(dateObj.getTime())) {
                         return dateObj.toLocaleDateString('en-US', { 
@@ -587,23 +663,17 @@
                         });
                     }
                     
-                    // If all parsing fails, return the original
                     return dateStr;
                 } catch (e) {
                     return dateStr || '—';
                 }
             }
 
-            // =============================================
-            // IMPROVED: formatTimeStr - Handles all time formats
-            // =============================================
             function formatTimeStr(timeStr) {
                 if (!timeStr) return '—';
                 
                 try {
-                    // Handle MySQL/PostgreSQL time format: HH:MM:SS or HH:MM:SS.mmm
                     if (typeof timeStr === 'string' && timeStr.includes(':')) {
-                        // Extract HH:MM:SS from full datetime
                         let timePart = timeStr;
                         if (timeStr.includes(' ')) {
                             timePart = timeStr.split(' ')[1];
@@ -612,7 +682,6 @@
                             timePart = timeStr.split('T')[1];
                         }
                         
-                        // Remove milliseconds and timezone
                         timePart = timePart.replace(/\.\d+/, '');
                         timePart = timePart.replace(/[+-]\d{2}:\d{2}$/, '');
                         timePart = timePart.replace(/Z$/, '');
@@ -629,7 +698,6 @@
                         }
                     }
                     
-                    // Try parsing as Date object
                     const dateObj = new Date(timeStr);
                     if (!isNaN(dateObj.getTime())) {
                         return dateObj.toLocaleTimeString('en-US', { 
@@ -645,9 +713,6 @@
                 }
             }
 
-            // =============================================
-            // NEW: formatSessionDate - Specifically for session display
-            // =============================================
             function formatSessionDate(dateStr) {
                 if (!dateStr) return '—';
                 
@@ -667,9 +732,6 @@
                 }
             }
 
-            // =============================================
-            // NEW: formatSessionTime - Specifically for session display
-            // =============================================
             function formatSessionTime(timeStr) {
                 if (!timeStr) return '—';
                 
@@ -802,7 +864,7 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS - Clean UI States
+            // LOAD SESSION STATUS
             // =============================================
             async function loadSessionStatus() {
                 try {
@@ -853,7 +915,6 @@
                             currentSession = global;
                         }
                         
-                        // Update bedScanStatus from sessions
                         if (data.sessions) {
                             const latestSession = data.sessions.find(s => s.status === 'started' || s.status === 'ready');
                             if (latestSession && latestSession.id) {
@@ -1158,7 +1219,50 @@
             }
 
             // =============================================
-            // RENDER DASHBOARD - Clean Night Session UI (No Assigned Rooms, No Activity Log)
+            // RENDER SKELETON
+            // =============================================
+            function renderSkeleton() {
+                const container = document.getElementById('screenContent');
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
+                            <h1 class="skeleton" style="height:2.25rem;width:12rem;"></h1>
+                            <div class="skeleton skeleton-text" style="width:16rem;margin-top:0.5rem;"></div>
+                        </div>
+                    </div>
+                    <div class="session-banner">
+                        <div class="session-icon">🌙</div>
+                        <div class="session-info">
+                            <div class="session-title skeleton" style="height:1.5rem;width:10rem;"></div>
+                            <div class="skeleton skeleton-text" style="width:8rem;margin-top:0.4rem;"></div>
+                        </div>
+                        <span class="skeleton skeleton-badge"></span>
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    </div>
+                `;
+            }
+
+            // =============================================
+            // RENDER DASHBOARD (full data)
             // =============================================
             function renderDashboard() {
                 const container = document.getElementById('screenContent');
@@ -1182,7 +1286,6 @@
                     if (hraStaff) hraName = hraStaff.name;
                 }
 
-                // Clean session state
                 let sessionDisplay = {
                     title: 'Night BedCheck',
                     statusText: 'No session available',
@@ -1222,35 +1325,28 @@
 
                 const sessionName = currentSession?.name || 'Night BedCheck';
                 
-                // =============================================
-                // IMPROVED: Use the new format functions with better handling
-                // =============================================
                 let sessionDate = '—';
                 let sessionStart = '—';
                 let sessionEnd = '—';
                 let sessionGrace = '15';
                 
                 if (currentSession) {
-                    // Format date - try multiple possible fields
                     if (currentSession.date) {
                         sessionDate = formatSessionDate(currentSession.date);
                     } else if (currentSession.created_at) {
                         sessionDate = formatSessionDate(currentSession.created_at);
                     }
                     
-                    // Format start time
                     if (currentSession.start_time) {
                         sessionStart = formatSessionTime(currentSession.start_time);
                     } else if (currentSession.created_at) {
                         sessionStart = formatSessionTime(currentSession.created_at);
                     }
                     
-                    // Format end time
                     if (currentSession.end_time) {
                         sessionEnd = formatSessionTime(currentSession.end_time);
                     }
                     
-                    // Get grace period
                     if (currentSession.grace_period) {
                         sessionGrace = currentSession.grace_period;
                     }
@@ -1617,7 +1713,7 @@
             window.changePage = changePage;
 
             // =============================================
-            // INIT
+            // INIT — PROGRESSIVE LOADING
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1629,23 +1725,28 @@
                 document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
+                // 1. Show skeleton immediately (already in HTML, but ensure it's there)
+                renderSkeleton();
+
+                // 2. Update header with session data we already have
+                updateHeader();
+
                 try {
-                    // 1. Parallel – these three have no mutual dependency
+                    // 3. Parallel – these three have no mutual dependency
                     const [hostelsResult, roomsResult, staffResult] = await Promise.allSettled([
                         loadHostels(),
                         loadAssignedRooms(),
                         loadStaff()
                     ]);
 
-                    // Soft-fail any that rejected
                     if (hostelsResult.status === 'rejected') hostels = [];
                     if (roomsResult.status === 'rejected') assignedRooms = [];
                     if (staffResult.status === 'rejected') staffMembers = [];
 
-                    // 2. Profile needs hostels (already loaded)
+                    // 4. Profile needs hostels (already loaded)
                     await loadUserProfile();
 
-                    // 3. Floors need assignedHostelId (now known)
+                    // 5. Floors need assignedHostelId (now known)
                     if (assignedHostelId) {
                         await loadFloorsFlats();
                         if (assignedFloor && !assignedFloorName && !isNaN(assignedFloor)) {
@@ -1657,21 +1758,30 @@
                         }
                     }
 
-                    // 4. Students + session status can run together
+                    // 6. Update header again now that profile is loaded
+                    updateHeader();
+
+                    // 7. Students + session status can run together
                     await Promise.allSettled([
                         loadStudents(),
                         loadSessionStatus()
                     ]);
 
-                    updateHeader();
+                    // 8. Final render with all data
                     renderDashboard();
                     startSessionChecker();
                     addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
 
                 } catch (error) {
-                    const errorMessage = error.message || 'Failed to load dashboard data.';
-                    showError(errorMessage);
-                    showToast('Error: ' + errorMessage, 'error');
+                    // If we have partial data, show the dashboard with a toast
+                    if (filteredStudents.length > 0 || hostels.length > 0) {
+                        renderDashboard();
+                        showToast('Some data failed to load. Displaying partial results.', 'info');
+                    } else {
+                        const errorMessage = error.message || 'Failed to load dashboard data.';
+                        showError(errorMessage);
+                        showToast('Error: ' + errorMessage, 'error');
+                    }
                 }
             }
 
