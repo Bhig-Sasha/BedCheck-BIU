@@ -392,7 +392,6 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1);
             display: block;
         }
         #modalOverlayCanvas {
@@ -400,7 +399,6 @@
             top: 0; left: 0;
             width: 100%; height: 100%;
             pointer-events: none;
-            transform: scaleX(-1);
         }
 
         .modal-face-guide {
@@ -1499,7 +1497,7 @@
         window.closeEnrollmentModal = closeEnrollmentModal;
 
         // ============================================================
-        // MODAL: CAMERA
+        // MODAL: CAMERA  (environment preferred, no mirroring)
         // ============================================================
         async function initModalCamera() {
             try {
@@ -1509,12 +1507,23 @@
 
                 if (state.modalStream) stopModalCamera();
 
-                state.modalStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: false
-                });
+                // Prefer the back camera; fall back to front if unavailable.
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+                        audio: false
+                    });
+                } catch (err) {
+                    console.warn('Back camera not available, falling back to front camera:', err);
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                        audio: false
+                    });
+                }
 
-                modalVideo.srcObject = state.modalStream;
+                state.modalStream = stream;
+                modalVideo.srcObject = stream;
                 await modalVideo.play();
                 state.modalCameraReady = true;
 
@@ -1635,7 +1644,10 @@
                     const box = detection.detection.box;
                     const score = detection.detection.score;
                     const faceRatio = box.height / h;
-                    const drawX = w - box.x - box.width;
+
+                    // No mirroring: draw at real coordinates (back camera)
+                    const drawX = box.x;
+                    const drawY = box.y;
 
                     const sizeGood = faceRatio >= CONFIG.MIN_FACE_RATIO && faceRatio <= CONFIG.MAX_FACE_RATIO;
                     const scoreGood = score >= CONFIG.MIN_SCORE;
@@ -1643,13 +1655,13 @@
 
                     modalCtx.strokeStyle = isGood ? '#4ade80' : (scoreGood ? '#fbbf24' : '#f87171');
                     modalCtx.lineWidth = 3;
-                    modalCtx.strokeRect(drawX, box.y, box.width, box.height);
+                    modalCtx.strokeRect(drawX, drawY, box.width, box.height);
 
                     if (detection.landmarks) {
                         modalCtx.fillStyle = 'rgba(214,173,75,0.7)';
                         for (const p of detection.landmarks.positions) {
                             modalCtx.beginPath();
-                            modalCtx.arc(w - p.x, p.y, 1.5, 0, Math.PI * 2);
+                            modalCtx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
                             modalCtx.fill();
                         }
                     }
@@ -1713,7 +1725,7 @@
         }
 
         // ============================================================
-        // MODAL: CAPTURE
+        // MODAL: CAPTURE  (no flipping — matches back camera)
         // ============================================================
         function modalCaptureFrame() {
             if (state.modalFrames.length >= CONFIG.TOTAL_POSES) return;
@@ -1723,10 +1735,9 @@
             const h = modalVideo.videoHeight || 480;
             modalCaptureCanvas.width = w;
             modalCaptureCanvas.height = h;
-            ctx.save();
-            ctx.scale(-1, 1);
-            ctx.drawImage(modalVideo, -w, 0, w, h);
-            ctx.restore();
+
+            // Draw exactly as the camera provides it (no mirroring)
+            ctx.drawImage(modalVideo, 0, 0, w, h);
 
             const imageData = modalCaptureCanvas.toDataURL('image/jpeg', 0.92);
             const pose = POSES[state.modalFrames.length] || POSES[0];
