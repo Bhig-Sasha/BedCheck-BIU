@@ -589,6 +589,37 @@
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
             
             // =============================================
+            // REQUEST CACHE + DEDUPLICATION
+            // =============================================
+            const CACHE_TTL_MS = 8000;
+            const requestCache = new Map();
+            const inflightRequests = new Map();
+
+            function getCacheKey(endpoint, options = {}) {
+                const method = (options.method || 'GET').toUpperCase();
+                return `${method}:${endpoint}`;
+            }
+
+            function getCachedResponse(key) {
+                const entry = requestCache.get(key);
+                if (!entry) return null;
+                if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+                    requestCache.delete(key);
+                    return null;
+                }
+                return entry.promise;
+            }
+
+            function setCachedResponse(key, promise) {
+                requestCache.set(key, { promise, timestamp: Date.now() });
+            }
+
+            function clearCache() {
+                requestCache.clear();
+                inflightRequests.clear();
+            }
+
+            // =============================================
             // STATE
             // =============================================
             let currentUser = null;
@@ -632,6 +663,7 @@
             let cameraFacingMode = 'user';
             let isApiHealthy = false;
             let apiHealthChecked = false;
+            let initComplete = false;
 
             // =============================================
             // HELPERS
@@ -721,7 +753,7 @@
             }
 
             // =============================================
-            // AUTHENTICATED API HELPER
+            // AUTHENTICATED API HELPER (with dedup + cache)
             // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
@@ -734,63 +766,97 @@
                     throw new Error('No authentication token');
                 }
 
-                let retries = 3;
-                let delay = 1000;
-                
-                while (retries > 0) {
-                    try {
-                        const headers = {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`,
-                            ...(options.headers || {})
-                        };
-                        
-                        const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
-                        
-                        if (response.status === 429) {
-                            if (retries > 1) {
-                                const waitTime = delay * (4 - retries);
-                                await new Promise(resolve => setTimeout(resolve, waitTime));
-                                retries--;
-                                continue;
-                            } else {
-                                showToast('Too many requests. Please wait a moment and try again.', 'error');
-                                throw new Error('Rate limit exceeded');
-                            }
-                        }
-                        
-                        if (response.status === 401) {
-                            showToast('Session expired. Please login again.', 'error');
-                            sessionStorage.removeItem('bedcheck_token');
-                            sessionStorage.removeItem('bedcheck_user');
-                            sessionStorage.removeItem('bedcheck_role');
-                            setTimeout(() => {
-                                window.location.replace('../Login.html');
-                            }, 1500);
-                            throw new Error('Authentication required');
-                        }
-                        
-                        if (!response.ok) {
-                            const errorText = await response.text();
-                            throw new Error(`HTTP ${response.status}: ${errorText}`);
-                        }
-                        const data = await response.json();
-                        
-                        if (data.success === false) {
-                            throw new Error(data.message || 'API error');
-                        }
-                        
-                        return data;
-                        
-                    } catch (error) {
-                        if (error.message.includes('429') || error.message.includes('Rate limit')) {
-                            retries--;
-                            if (retries === 0) throw error;
-                            continue;
-                        }
-                        throw error;
-                    }
+                const method = (options.method || 'GET').toUpperCase();
+                const cacheKey = getCacheKey(endpoint, options);
+
+                // For GET requests: check cache first
+                if (method === 'GET') {
+                    const cached = getCachedResponse(cacheKey);
+                    if (cached) return cached;
+
+                    // If same request is already in flight, reuse that promise
+                    const inflight = inflightRequests.get(cacheKey);
+                    if (inflight) return inflight;
                 }
+
+                // Build the request promise
+                const requestPromise = (async () => {
+                    let retries = 2;
+                    let delay = 2000;
+                    
+                    while (retries > 0) {
+                        try {
+                            const headers = {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`,
+                                ...(options.headers || {})
+                            };
+                            
+                            const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+                            
+                            if (response.status === 429) {
+                                if (retries > 1) {
+                                    // Exponential backoff
+                                    const waitTime = delay * (3 - retries);
+                                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                                    retries--;
+                                    continue;
+                                } else {
+                                    // Give up silently — don't spam the user
+                                    throw new Error('Rate limit exceeded');
+                                }
+                            }
+                            
+                            if (response.status === 401) {
+                                showToast('Session expired. Please login again.', 'error');
+                                sessionStorage.removeItem('bedcheck_token');
+                                sessionStorage.removeItem('bedcheck_user');
+                                sessionStorage.removeItem('bedcheck_role');
+                                setTimeout(() => {
+                                    window.location.replace('../Login.html');
+                                }, 1500);
+                                throw new Error('Authentication required');
+                            }
+                            
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                            }
+                            const data = await response.json();
+                            
+                            if (data.success === false) {
+                                throw new Error(data.message || 'API error');
+                            }
+                            
+                            return data;
+                            
+                        } catch (error) {
+                            if (error.message.includes('429') || error.message.includes('Rate limit')) {
+                                retries--;
+                                if (retries === 0) throw error;
+                                continue;
+                            }
+                            throw error;
+                        }
+                    }
+                })();
+
+                // Track in-flight requests for GET
+                if (method === 'GET') {
+                    inflightRequests.set(cacheKey, requestPromise);
+                    
+                    // Cache successful responses
+                    requestPromise
+                        .then(() => {
+                            setCachedResponse(cacheKey, requestPromise);
+                            inflightRequests.delete(cacheKey);
+                        })
+                        .catch(() => {
+                            inflightRequests.delete(cacheKey);
+                        });
+                }
+
+                return requestPromise;
             }
 
             // =============================================
@@ -829,30 +895,19 @@
                     };
                     
                 } catch (error) {
-                    if (error.message && error.message.includes('429')) {
-                        const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
-                        if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
-                            return { 
-                                enrolled: true, 
-                                has_embedding: true, 
-                                status: 'enrolled', 
-                                verification_count: 0, 
-                                confidence_score: null, 
-                                last_verified: null,
-                                embedding_dimension: 0,
-                                face_image_url: null,
-                                _cached: true
-                            };
-                        }
+                    // Fallback to local student data on error
+                    const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
+                    if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
                         return { 
-                            enrolled: false, 
-                            has_embedding: false, 
-                            status: 'pending', 
+                            enrolled: true, 
+                            has_embedding: true, 
+                            status: 'enrolled', 
                             verification_count: 0, 
                             confidence_score: null, 
                             last_verified: null,
                             embedding_dimension: 0,
-                            face_image_url: null
+                            face_image_url: null,
+                            _cached: true
                         };
                     }
                     
@@ -1680,7 +1735,7 @@
             }
 
             // =============================================
-            // LOAD SESSION DATA
+            // LOAD SESSION DATA (single pass — no duplicate calls)
             // =============================================
             async function loadSessionData() {
                 try {
@@ -1688,25 +1743,36 @@
                         return;
                     }
                     
-                    // 1. Get global session
-                    try {
-                        const globalSession = await apiCall('/sessions/active');
-                        if (globalSession && globalSession.data && globalSession.is_active) {
+                    // 1. Fetch global session AND RA status in parallel
+                    const [globalSessionResult, statusResult] = await Promise.allSettled([
+                        apiCall('/sessions/active'),
+                        apiCall('/ra/bedcheck/status')
+                    ]);
+                    
+                    // 2. Process global session
+                    let globalSession = null;
+                    if (globalSessionResult.status === 'fulfilled') {
+                        const gs = globalSessionResult.value;
+                        if (gs && gs.data && gs.is_active) {
+                            globalSession = gs.data;
                             globalSessionActive = true;
-                            currentSession = globalSession.data;
+                            currentSession = gs.data;
                         } else {
                             globalSessionActive = false;
                             currentSession = null;
                         }
-                    } catch (e) {
+                    } else {
                         globalSessionActive = false;
                         currentSession = null;
                     }
                     
-                    // 2. Get RA session status
+                    // 3. Process RA status
                     let sessionIsActive = false;
-                    try {
-                        const statusData = await apiCall('/ra/bedcheck/status');
+                    let activeSessionId = null;
+                    let statusData = null;
+                    
+                    if (statusResult.status === 'fulfilled') {
+                        statusData = statusResult.value;
                         
                         if (statusData && statusData.data) {
                             const data = statusData.data;
@@ -1741,8 +1807,14 @@
                                 isSessionActive = false;
                                 sessionIsActive = false;
                             }
+                            
+                            if (data.active_session) {
+                                currentSession = data.active_session;
+                                activeSessionId = data.active_session.session_id || data.active_session.id;
+                            }
                         }
-                    } catch (e) {
+                    } else {
+                        // RA status failed — fall back to global session state
                         if (globalSessionActive) {
                             sessionStatus = 'ready';
                             isSessionActive = true;
@@ -1756,42 +1828,21 @@
                         }
                     }
                     
-                    // =========================================================
-                    // 3. CLEAR OR LOAD SCANS BASED ON SESSION STATE
-                    // =========================================================
-                    
-                    // If there's NO active session, clear all statuses
+                    // 4. If no active session, clear scan statuses
                     if (!sessionIsActive && !hasCompletedToday && effectiveStatus !== 'completed') {
-                        // No active session - reset all statuses to pending
                         bedScanStatus = {};
                         completedRooms = [];
                     } else {
-                        // There IS an active session OR session was completed today - load scans
-                        let activeSessionId = null;
-                        
-                        // Try to get from RA status first
-                        try {
-                            const statusData = await apiCall('/ra/bedcheck/status');
-                            if (statusData && statusData.data) {
-                                const data = statusData.data;
-                                if (data.active_session) {
-                                    activeSessionId = data.active_session.session_id || data.active_session.id;
-                                }
-                            }
-                        } catch (e) {}
-                        
-                        // If not found, use currentSession
+                        // 5. Load scans for active/completed session
                         if (!activeSessionId && currentSession) {
                             activeSessionId = currentSession.id;
                         }
                         
-                        // If we have a session ID, load ALL scans for this session
                         if (activeSessionId) {
                             try {
                                 const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
                                 
                                 if (scansData && scansData.data) {
-                                    // Reset bedScanStatus - we're reloading from DB
                                     bedScanStatus = {};
                                     
                                     scansData.data.forEach(scan => {
@@ -1821,43 +1872,34 @@
                                     });
                                 }
                             } catch (scanError) {
-                                // Silent fail
+                                // Silent fail — will fall back to student statuses below
                             }
                         }
                         
-                        // Also update from students table status as fallback (only for active/completed sessions)
-                        try {
-                            const studentsData = await apiCall(`/students?hostel_id=${assignedHostelId}`);
-                            if (studentsData && studentsData.data) {
-                                studentsData.data.forEach(student => {
-                                    // If student status is Verified or Present and no scan record yet
-                                    if ((student.status === 'Verified' || student.status === 'Present') && 
-                                        !bedScanStatus[student.id]) {
-                                        bedScanStatus[student.id] = {
-                                            verified: true,
-                                            status: student.status,
-                                            time: student.updated_at || now(),
-                                            confidence: null,
-                                            method: 'from-student-status'
-                                        };
-                                    }
-                                    // If student status is Absent and no scan record yet
-                                    if (student.status === 'Absent' && !bedScanStatus[student.id]) {
-                                        bedScanStatus[student.id] = {
-                                            verified: false,
-                                            status: 'Absent',
-                                            time: student.updated_at || now(),
-                                            method: 'from-student-status'
-                                        };
-                                    }
-                                });
+                        // 6. Fallback: use local student data for statuses we don't have
+                        hostelStudents.forEach(student => {
+                            if (!bedScanStatus[student.id]) {
+                                if (student.status === 'Verified' || student.status === 'Present') {
+                                    bedScanStatus[student.id] = {
+                                        verified: true,
+                                        status: student.status,
+                                        time: student.updated_at || now(),
+                                        confidence: null,
+                                        method: 'from-student-status'
+                                    };
+                                } else if (student.status === 'Absent') {
+                                    bedScanStatus[student.id] = {
+                                        verified: false,
+                                        status: 'Absent',
+                                        time: student.updated_at || now(),
+                                        method: 'from-student-status'
+                                    };
+                                }
                             }
-                        } catch (e) {
-                            // Silent fail
-                        }
+                        });
                     }
                     
-                    // 5. Update completed rooms based on loaded status
+                    // 7. Update completed rooms
                     if (availableRooms.length > 0) {
                         completedRooms = [];
                         availableRooms.forEach(room => {
@@ -1876,12 +1918,13 @@
             }
 
             // =============================================
-            // START SESSION CHECKER
+            // START SESSION CHECKER (slower interval — 3 min)
             // =============================================
             function startSessionChecker() {
                 if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
                 sessionCheckerInterval = setInterval(async () => {
                     try {
+                        // Clear cache so we get fresh session data
                         const oldEffectiveStatus = effectiveStatus;
                         await loadSessionData();
                         if (oldEffectiveStatus !== effectiveStatus) {
@@ -1890,7 +1933,7 @@
                     } catch (error) {
                         // Silent fail
                     }
-                }, 90000);
+                }, 180000); // 3 minutes
             }
 
             // =============================================
@@ -2029,29 +2072,6 @@
                 const hasValidSessionData = sessionInfoParts.length > 0;
                 const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
-                // Pre-check face status
-                if (currentRoom && roomStudents.length > 0) {
-                    for (const student of roomStudents) {
-                        if (!studentFaceStatus[student.id]) {
-                            try {
-                                const faceStatus = await checkStudentFaceStatus(student.id);
-                                studentFaceStatus[student.id] = faceStatus;
-                            } catch (error) {
-                                studentFaceStatus[student.id] = {
-                                    enrolled: false,
-                                    has_embedding: false,
-                                    status: 'error',
-                                    verification_count: 0,
-                                    confidence_score: null,
-                                    last_verified: null,
-                                    embedding_dimension: 0,
-                                    face_image_url: null
-                                };
-                            }
-                        }
-                    }
-                }
-
                 // Build room list HTML
                 let roomListHtml = '';
                 if (allRooms.length > 0) {
@@ -2111,7 +2131,6 @@
                     studentCardsHtml = roomStudents.map(s => {
                         const scan = bedScanStatus[s.id];
                         
-                        // Determine status based on scan or student status
                         let isVerified = false;
                         let statusLabel = 'Pending';
                         let statusClass = 'pending';
@@ -2119,7 +2138,6 @@
                         let isSessionEnded = effectiveStatus === 'completed' || hasCompletedToday;
                         let isSessionLive = isSessionActive && (effectiveStatus === 'started' || effectiveStatus === 'ready');
                         
-                        // ONLY show verified/absent status if session is active or completed
                         if (isSessionLive || isSessionEnded) {
                             if (scan) {
                                 if (scan.verified === true || scan.status === 'Verified' || scan.status === 'Present') {
@@ -2132,7 +2150,6 @@
                                     statusClass = 'absent';
                                 }
                             } else {
-                                // Check if student has a status from the students table
                                 if (s.status === 'Verified' || s.status === 'Present') {
                                     isVerified = true;
                                     statusLabel = '✓ Verified';
@@ -2143,19 +2160,12 @@
                                     statusClass = 'absent';
                                 }
                             }
-                        } else {
-                            // No active session - everything is Pending
-                            statusLabel = 'Pending';
-                            statusClass = 'pending';
-                            isVerified = false;
-                            isAbsent = false;
                         }
                         
                         const bedLabel = getStudentBed(s.id) || '—';
                         const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
                         const verifiedTime = scan?.time ? formatTimestampForDisplay(scan.time) : '';
                         
-                        // Can verify only if: NOT verified, NOT absent, session is active, NOT completed
                         const canVerify = !isVerified && !isAbsent && isSessionLive && 
                                          effectiveStatus !== 'completed' && !hasCompletedToday;
                         
@@ -2216,7 +2226,6 @@
                 }
 
                 container.innerHTML = `
-                    <!-- Night Session Banner -->
                     <div class="session-banner ${effectiveStatus === 'started' ? 'active' : effectiveStatus === 'completed' || hasCompletedToday ? 'completed' : 'draft'}">
                         <div class="session-icon">🌙</div>
                         <div class="session-info">
@@ -2233,7 +2242,6 @@
                         </div>
                     </div>
 
-                    <!-- Progress Cards -->
                     <div class="progress-grid">
                         <div class="progress-card"><div class="num" style="color:#2d6545;">${stats.completedRoomsCount}</div><div class="label">Rooms Done</div></div>
                         <div class="progress-card"><div class="num" style="color:#1e3a5f;">${stats.verified}</div><div class="label">Verified</div></div>
@@ -2241,7 +2249,6 @@
                         <div class="progress-card"><div class="num" style="color:#a84134;">${stats.absent}</div><div class="label">Absent</div></div>
                     </div>
 
-                    <!-- Rooms + Students -->
                     <div class="rooms-layout mt-4">
                         <div>
                             <div class="card" style="padding:0.75rem;">
@@ -2303,7 +2310,6 @@
                         </div>
                     </div>
 
-                    <!-- Footer -->
                     <div class="night-session-footer">
                         BedCheck System · Benson Idahosa University
                     </div>
@@ -2438,8 +2444,7 @@
             window.startVerification = startVerification;
             window.switchCamera = switchCamera;
 
-            // =============================================
-            // INIT — PROGRESSIVE LOADING
+            // =============================================            // INIT — PROGRESSIVE LOADING (single fetch per endpoint)
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -2460,7 +2465,7 @@
                     // 3. Face health check – non-blocking
                     checkFaceApiHealth().catch(() => {});
 
-                    // 4. Load all independent data in parallel
+                    // 4. Load all independent data in parallel (single fetch each)
                     const results = await Promise.allSettled([
                         apiCall('/hostels'),
                         apiCall('/students'),
@@ -2522,7 +2527,7 @@
                     // 9. Build room structure
                     buildRoomStructure();
 
-                    // 10. Load session data (scans, status)
+                    // 10. Load session data (single call per session endpoint)
                     await loadSessionData();
 
                     // 11. Pick initial room
@@ -2534,6 +2539,8 @@
                     // 12. Final render with all data
                     await renderBedCheck();
                     startSessionChecker();
+
+                    initComplete = true;
 
                 } catch (error) {
                     // If we have partial data, show the BedCheck with a toast

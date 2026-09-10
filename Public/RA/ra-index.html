@@ -767,6 +767,68 @@
             }
 
             // =============================================
+            // SAFE ID COMPARISON (string vs number)
+            // =============================================
+            function sameId(a, b) {
+                if (a == null || b == null) return false;
+                return String(a) === String(b);
+            }
+
+            // =============================================
+            // EXTRACT ROOMS FROM VARIOUS RESPONSE SHAPES
+            // =============================================
+            function extractRooms(data) {
+                if (!data) return [];
+                // Shape 1: { data: { rooms: [...] } }
+                if (data.data && Array.isArray(data.data.rooms)) return data.data.rooms;
+                // Shape 2: { data: [...] }
+                if (data.data && Array.isArray(data.data)) return data.data;
+                // Shape 3: { rooms: [...] }
+                if (Array.isArray(data.rooms)) return data.rooms;
+                // Shape 4: { data: { data: [...] } }
+                if (data.data && data.data.data && Array.isArray(data.data.data)) return data.data.data;
+                // Shape 5: raw array
+                if (Array.isArray(data)) return data;
+                return [];
+            }
+
+            // =============================================
+            // NARROW ROOMS TO A SPECIFIC FLOOR (when API returns extras)
+            // =============================================
+            function narrowRoomsToFloor(rooms, floorId, floorName) {
+                if (!Array.isArray(rooms) || rooms.length === 0) return [];
+                
+                // If rooms have floor_flat_id or floor_id, filter strictly
+                const hasFloorField = rooms.some(r => 
+                    r.floor_flat_id != null || r.floor_id != null || r.floor != null
+                );
+                
+                if (hasFloorField && floorId != null) {
+                    const narrowed = rooms.filter(r => {
+                        const rFloor = r.floor_flat_id ?? r.floor_id;
+                        return sameId(rFloor, floorId);
+                    });
+                    if (narrowed.length > 0) return narrowed;
+                }
+                
+                // If rooms have floor_name, try matching
+                const hasFloorName = rooms.some(r => r.floor_name || r.floor);
+                if (hasFloorName && floorName) {
+                    const myFloor = normalize(floorName);
+                    const narrowed = rooms.filter(r => {
+                        const rFloorName = normalize(r.floor_name || r.floor || '');
+                        return rFloorName === myFloor || 
+                               rFloorName.includes(myFloor) || 
+                               myFloor.includes(rFloorName);
+                    });
+                    if (narrowed.length > 0) return narrowed;
+                }
+                
+                // No way to narrow → return as-is
+                return rooms;
+            }
+
+            // =============================================
             // DATA LOADING
             // =============================================
             async function loadStudents() {
@@ -790,20 +852,22 @@
                 // =============================================
                 
                 if (assignedRooms.length > 0) {
-                    // STRATEGY 1: Filter by assigned room IDs
+                    // STRATEGY 1: Filter by assigned room IDs (with safe comparison)
                     const assignedRoomIds = assignedRooms.map(r => r.id);
                     
                     filteredStudents = allStudents.filter(s => 
-                        s.room_id && assignedRoomIds.includes(s.room_id)
+                        s.room_id != null && 
+                        assignedRoomIds.some(id => sameId(id, s.room_id))
                     );
                     
-                } else if (assignedFloorId) {
+                } else if (assignedFloorId != null) {
                     // STRATEGY 2: Filter by floor_flat_id
                     const roomsInArea = await getRoomsForFloor(assignedFloorId);
                     const roomIdsInArea = roomsInArea.map(r => r.id);
                     
                     filteredStudents = allStudents.filter(s => 
-                        s.room_id && roomIdsInArea.includes(s.room_id)
+                        s.room_id != null && 
+                        roomIdsInArea.some(id => sameId(id, s.room_id))
                     );
                     
                 } else if (assignedArea) {
@@ -828,14 +892,47 @@
 
             // =============================================
             // GET ROOMS FOR A SPECIFIC FLOOR/FLAT
+            // (with hostel fallback)
             // =============================================
             async function getRoomsForFloor(floorId) {
+                if (floorId == null) return [];
+
+                // Attempt 1: /rooms?floor_flat_id=X
                 try {
                     const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
-                    return data.data || [];
+                    const rooms = extractRooms(data);
+                    if (rooms.length > 0) {
+                        return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
+                    }
                 } catch (error) {
-                    return [];
+                    // Continue to fallback
                 }
+
+                // Attempt 2: /rooms?hostel_id=Y and filter by floor
+                if (assignedHostelId) {
+                    try {
+                        const data = await apiCall(`/rooms?hostel_id=${assignedHostelId}`);
+                        const rooms = extractRooms(data);
+                        if (rooms.length > 0) {
+                            return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
+                        }
+                    } catch (error) {
+                        // Continue
+                    }
+                }
+
+                // Attempt 3: /rooms (all) and filter
+                try {
+                    const data = await apiCall(`/rooms`);
+                    const rooms = extractRooms(data);
+                    if (rooms.length > 0) {
+                        return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
+                    }
+                } catch (error) {
+                    // Give up
+                }
+
+                return [];
             }
 
             async function loadHostels() {
@@ -861,15 +958,51 @@
                 }
             }
 
+            // =============================================
+            // LOAD ASSIGNED ROOMS (with floor fallback)
+            // =============================================
             async function loadAssignedRooms() {
                 try {
                     const data = await apiCall('/ra/rooms');
-                    assignedRooms = data.data?.rooms || [];
+                    const rooms = extractRooms(data);
+                    
+                    // Narrow to the RA's assigned floor if API returned extras
+                    if (rooms.length > 0 && assignedFloorId != null) {
+                        assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedFloorName);
+                    } else if (rooms.length > 0 && assignedArea) {
+                        assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedArea);
+                    } else {
+                        assignedRooms = rooms;
+                    }
+                    
                     hasLoadedRooms = true;
+
+                    // =============================================
+                    // FALLBACK: If still empty but we have a floor assignment,
+                    // load rooms for that floor directly.
+                    // =============================================
+                    if (assignedRooms.length === 0 && assignedFloorId != null) {
+                        const floorRooms = await getRoomsForFloor(assignedFloorId);
+                        if (floorRooms.length > 0) {
+                            assignedRooms = floorRooms;
+                        }
+                    }
+
                     return assignedRooms;
                 } catch (error) {
                     assignedRooms = [];
                     hasLoadedRooms = true;
+
+                    // =============================================
+                    // FALLBACK on error: try loading rooms for the floor
+                    // =============================================
+                    if (assignedFloorId != null) {
+                        const floorRooms = await getRoomsForFloor(assignedFloorId);
+                        if (floorRooms.length > 0) {
+                            assignedRooms = floorRooms;
+                        }
+                    }
+
                     return assignedRooms;
                 }
             }
@@ -1008,6 +1141,39 @@
             }
 
             // =============================================
+            // RESOLVE FLOOR (by ID or name)
+            // =============================================
+            function resolveFloorFromFloors() {
+                if (!floorsFlats || floorsFlats.length === 0) return;
+
+                // If assigned_floor is numeric, look up by ID
+                if (assignedFloor && !isNaN(assignedFloor)) {
+                    const match = floorsFlats.find(f => sameId(f.id, assignedFloor));
+                    if (match) {
+                        assignedFloorId = match.id;
+                        assignedFloorName = match.name;
+                        assignedArea = match.name;
+                        return;
+                    }
+                }
+
+                // Otherwise, look up by name (assignedFloorName or assignedArea or assignedFloor)
+                const lookupName = assignedFloorName || assignedArea || assignedFloor;
+                if (lookupName) {
+                    const target = normalize(lookupName);
+                    const match = floorsFlats.find(f => {
+                        const name = normalize(f.name);
+                        return name === target || name.includes(target) || target.includes(name);
+                    });
+                    if (match) {
+                        assignedFloorId = match.id;
+                        assignedFloorName = match.name;
+                        assignedArea = match.name;
+                    }
+                }
+            }
+
+            // =============================================
             // LOAD USER PROFILE
             // =============================================
             async function loadUserProfile() {
@@ -1029,35 +1195,20 @@
                         assignedFloorName = userData.assigned_floor_name || userData.assigned_flat_name || '';
                         assignedArea = assignedFloorName || assignedFloor || '';
                         
-                        // =============================================
-                        // RESOLVE assignedFloorId (the numeric ID)
-                        // =============================================
+                        // Resolve floor ID if numeric
                         assignedFloorId = null;
-                        
-                        // If assigned_floor is numeric, use it directly
                         if (assignedFloor && !isNaN(assignedFloor)) {
                             assignedFloorId = parseInt(assignedFloor);
                         }
                         
-                        // Otherwise, look up by name in floorsFlats
-                        if (!assignedFloorId && assignedArea && floorsFlats.length > 0) {
-                            const match = floorsFlats.find(f => 
-                                normalize(f.name) === normalize(assignedArea) ||
-                                normalize(f.name).includes(normalize(assignedArea)) ||
-                                normalize(assignedArea).includes(normalize(f.name))
-                            );
-                            if (match) {
-                                assignedFloorId = match.id;
-                                assignedFloorName = match.name;
-                                assignedArea = match.name;
-                            }
+                        // Try resolving from floorsFlats if already loaded
+                        if (floorsFlats.length > 0) {
+                            resolveFloorFromFloors();
                         }
                         
                         if (assignedHostelId && !assignedHostelName) {
-                            const hostel = hostels.find(h => h.id === assignedHostelId);
-                            if (hostel) {
-                                assignedHostelName = hostel.name;
-                            }
+                            const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
+                            if (hostel) assignedHostelName = hostel.name;
                         }
                         
                         if (!assignedHostelId && currentUser.hostel_id) {
@@ -1067,11 +1218,9 @@
                             assignedHostelName = currentUser.hostel;
                         }
                         
-                        if (!assignedHostelId) {
-                            if (hostels.length > 0) {
-                                assignedHostelId = hostels[0].id;
-                                assignedHostelName = hostels[0].name;
-                            }
+                        if (!assignedHostelId && hostels.length > 0) {
+                            assignedHostelId = hostels[0].id;
+                            assignedHostelName = hostels[0].name;
                         }
                         
                         return userData;
@@ -1090,10 +1239,8 @@
                         }
                         
                         if (assignedHostelId && !assignedHostelName && hostels.length > 0) {
-                            const hostel = hostels.find(h => h.id === assignedHostelId);
-                            if (hostel) {
-                                assignedHostelName = hostel.name;
-                            }
+                            const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
+                            if (hostel) assignedHostelName = hostel.name;
                         }
                         
                         if (!assignedHostelId && hostels.length > 0) {
@@ -1335,13 +1482,13 @@
                 const pending = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status).length || 0;
                 const completionRate = totalStudents > 0 ? Math.round(((verified + absent) / totalStudents) * 100) : 0;
 
-                const hostelInfo = hostels.find(h => h.id === assignedHostelId);
+                const hostelInfo = hostels.find(h => sameId(h.id, assignedHostelId));
 
                 let hraName = 'Not Assigned';
                 let currentRAName = currentUser?.name || 'Not Assigned';
 
                 if (assignedHostelId) {
-                    const hraStaff = staffMembers.find(s => s.hostel_id === assignedHostelId && s.role === 'HRA' && s.status === 'Active');
+                    const hraStaff = staffMembers.find(s => sameId(s.hostel_id, assignedHostelId) && s.role === 'HRA' && s.status === 'Active');
                     if (hraStaff) hraName = hraStaff.name;
                 }
 
@@ -1796,43 +1943,37 @@
 
                 try {
                     // 3. Parallel – these three have no mutual dependency
-                    const [hostelsResult, roomsResult, staffResult] = await Promise.allSettled([
+                    const [hostelsResult, staffResult] = await Promise.allSettled([
                         loadHostels(),
-                        loadAssignedRooms(),
                         loadStaff()
                     ]);
 
                     if (hostelsResult.status === 'rejected') hostels = [];
-                    if (roomsResult.status === 'rejected') assignedRooms = [];
                     if (staffResult.status === 'rejected') staffMembers = [];
 
-                    // 4. Profile needs hostels (already loaded)
+                    // 4. Load profile (needs hostels to resolve hostel name)
                     await loadUserProfile();
 
-                    // 5. Floors need assignedHostelId (now known)
+                    // 5. Load floors for this hostel (needed to resolve floor name)
                     if (assignedHostelId) {
                         await loadFloorsFlats();
-                        if (assignedFloor && !assignedFloorName && !isNaN(assignedFloor)) {
-                            const floor = floorsFlats.find(f => f.id === parseInt(assignedFloor));
-                            if (floor) {
-                                assignedFloorName = floor.name;
-                                assignedArea = floor.name;
-                                assignedFloorId = floor.id;
-                            }
-                        }
+                        // Re-resolve floor now that floors are available
+                        resolveFloorFromFloors();
                     }
 
-                    // 6. Update header again now that profile is loaded
+                    // 6. Load assigned rooms (with floor fallback — needs assignedFloorId)
+                    await loadAssignedRooms();
+
+                    // 7. Update header again now that rooms + floor are resolved
                     updateHeader();
 
-                    // 7. Students + session status can run together
-                    //    IMPORTANT: rooms are already loaded above, so filtering is safe
+                    // 8. Students + session status can run together
                     await Promise.allSettled([
                         loadStudents(),
                         loadSessionStatus()
                     ]);
 
-                    // 8. Final render with all data
+                    // 9. Final render with all data
                     renderDashboard();
                     startSessionChecker();
                     addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
