@@ -83,21 +83,43 @@
         .input-group { display: flex; flex-direction: column; gap: 0.3rem; }
         .input-group label { font-weight: 700; font-size: 0.9rem; }
         .input-icon-wrap { position: relative; }
-        .input-icon-wrap i { position: absolute; left: 0.75rem; top: 0.75rem; color: #68768a; font-size: 1.1rem; pointer-events: none; }
+        .input-icon-wrap i { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #68768a; font-size: 1.1rem; pointer-events: none; z-index: 1; }
         .input-icon-wrap input { 
-            width: 100%; padding: 0.75rem 0.75rem 0.75rem 2.5rem; 
-            border: 1px solid #cbd2db; border-radius: 0.5rem; 
-            background: white; font-size: 0.9rem; outline: none; 
+            width: 100%; 
+            padding: 0.75rem 2.75rem 0.75rem 2.5rem;   /* right padding reserved for the eye button */
+            border: 1px solid #cbd2db; 
+            border-radius: 0.5rem; 
+            background: white; 
+            font-size: 0.9rem; 
+            outline: none; 
             transition: border 0.15s, box-shadow 0.15s; 
         }
         .input-icon-wrap input:focus { border-color: #a77915; box-shadow: 0 0 0 2px rgba(214,173,75,0.3); }
+
         .password-toggle { 
-            position: absolute; right: 0.6rem; top: 0.6rem; 
-            background: transparent; border: none; color: #68768a; 
-            cursor: pointer; padding: 0.2rem 0.3rem; border-radius: 0.25rem; 
-            font-size: 1.1rem; display: flex; align-items: center; justify-content: center; 
+            position: absolute; 
+            right: 0.5rem; 
+            top: 50%; 
+            transform: translateY(-50%);          /* perfectly centered vertically */
+            background: transparent; 
+            border: none; 
+            color: #68768a; 
+            cursor: pointer; 
+            padding: 0.35rem; 
+            border-radius: 0.25rem; 
+            font-size: 1rem; 
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            width: 2rem; 
+            height: 2rem; 
+            line-height: 1; 
+            z-index: 2;                            /* stay above the input */
         }
-        .password-toggle:hover { background: #eef2f6; }
+        .password-toggle:hover { background: #eef2f6; color: #17233c; }
+        .password-toggle:focus { outline: 2px solid #d6ad4b; outline-offset: 1px; }
+        .password-toggle i { pointer-events: none; }   /* ensure the icon doesn't steal clicks */
+
         .remember-forgot { display: flex; align-items: center; justify-content: space-between; font-size: 0.9rem; color: #536274; }
         .remember-forgot label { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; }
         .remember-forgot input[type="checkbox"] { width: 1rem; height: 1rem; accent-color: #a77915; }
@@ -442,7 +464,7 @@
                         <div class="input-icon-wrap">
                             <i class="fas fa-lock"></i>
                             <input type="password" placeholder="Enter your password" id="passwordInput" autocomplete="current-password" required />
-                            <button type="button" class="password-toggle" id="togglePasswordBtn" aria-label="Show password">
+                            <button type="button" class="password-toggle" id="togglePasswordBtn" aria-label="Show password" aria-pressed="false" title="Show password">
                                 <i class="fas fa-eye" id="eyeIcon"></i>
                             </button>
                         </div>
@@ -477,8 +499,8 @@
             </div>
             <div class="modal-body" id="modalBody"></div>
             <div class="modal-footer" id="modalFooter">
-                <button class="btn-outline" onclick="closeResetModal()" style="font-size:0.8rem;">Cancel</button>
-                <button class="btn-gold" id="modalActionBtn" onclick="handleModalAction()" style="font-size:0.8rem;">Send Reset Code</button>
+                <button class="btn-outline" id="modalCancelBtn" onclick="closeResetModal()" style="font-size:0.8rem;">Cancel</button>
+                <button class="btn-gold" id="modalActionBtn" data-default-label="Send Reset Code" onclick="handleModalAction()" style="font-size:0.8rem;">Send Reset Code</button>
             </div>
         </div>
     </div>
@@ -619,17 +641,32 @@
         }
 
         // ============================================================
-        // PASSWORD VISIBILITY (login form)
+        // PASSWORD VISIBILITY (login form) — robust version
         // ============================================================
-
         let showPassword = false;
-        if (toggleBtn) {
+        if (toggleBtn && passwordInput) {
             toggleBtn.addEventListener('click', function(e) {
                 e.preventDefault();
+                e.stopPropagation();
+
                 showPassword = !showPassword;
+
+                // Swap the input type
                 passwordInput.type = showPassword ? 'text' : 'password';
-                eyeIcon.className = showPassword ? 'fas fa-eye-slash' : 'fas fa-eye';
+
+                // Update the icon
+                if (eyeIcon) {
+                    eyeIcon.classList.toggle('fa-eye', !showPassword);
+                    eyeIcon.classList.toggle('fa-eye-slash', showPassword);
+                }
+
+                // Accessibility
                 toggleBtn.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
+                toggleBtn.setAttribute('aria-pressed', String(showPassword));
+                toggleBtn.setAttribute('title', showPassword ? 'Hide password' : 'Show password');
+
+                // Keep focus on the input so typing continues
+                passwordInput.focus();
             });
         }
 
@@ -781,8 +818,8 @@
                                 <input id="newPassword" type="password" value="${resetData.newPassword}" placeholder="Enter new password" 
                                        oninput="window.updateResetField('newPassword', this.value); window.checkPasswordStrength(this.value);" 
                                        style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.75rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.9rem;outline:none;font-family:inherit;background:white;color:#17233c;" />
-                                <button type="button" onclick="toggleModalPasswordVisibility('newPassword')" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#9ca3af;cursor:pointer;">
-                                    <i class="fas fa-eye"></i>
+                                <button type="button" onclick="toggleModalPasswordVisibility('newPassword')" aria-label="Show password" title="Show password" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#9ca3af;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:1.6rem;height:1.6rem;">
+                                    <i class="fas fa-eye" style="pointer-events:none;"></i>
                                 </button>
                             </div>
                         </div>
@@ -803,8 +840,8 @@
                                 <input id="confirmPassword" type="password" value="${resetData.confirmPassword}" placeholder="Confirm your password" 
                                        oninput="window.updateResetField('confirmPassword', this.value)" 
                                        style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.75rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.9rem;outline:none;font-family:inherit;background:white;color:#17233c;" />
-                                <button type="button" onclick="toggleModalPasswordVisibility('confirmPassword')" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#9ca3af;cursor:pointer;">
-                                    <i class="fas fa-eye"></i>
+                                <button type="button" onclick="toggleModalPasswordVisibility('confirmPassword')" aria-label="Show password" title="Show password" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#9ca3af;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:1.6rem;height:1.6rem;">
+                                    <i class="fas fa-eye" style="pointer-events:none;"></i>
                                 </button>
                             </div>
                         </div>
@@ -1061,7 +1098,27 @@
         window.toggleModalPasswordVisibility = function(id) {
             const input = document.getElementById(id);
             if (!input) return;
-            input.type = input.type === 'password' ? 'text' : 'password';
+
+            const isNowVisible = input.type === 'password';
+            input.type = isNowVisible ? 'text' : 'password';
+
+            // Find the sibling button and swap its icon
+            const wrap = input.parentElement;
+            const btn = wrap ? wrap.querySelector('button') : null;
+            const icon = btn ? btn.querySelector('i') : null;
+
+            if (icon) {
+                icon.classList.toggle('fa-eye', !isNowVisible);
+                icon.classList.toggle('fa-eye-slash', isNowVisible);
+            }
+
+            if (btn) {
+                btn.setAttribute('aria-label', isNowVisible ? 'Hide password' : 'Show password');
+                btn.setAttribute('title', isNowVisible ? 'Hide password' : 'Show password');
+            }
+
+            // Keep focus so typing continues
+            input.focus();
         };
 
         window.resendCode = async function() {
