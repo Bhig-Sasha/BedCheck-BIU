@@ -649,9 +649,11 @@
             let bedScanStatus = {};
             let completedRooms = [];
             let roomStructure = {};
-            let sessionCheckerInterval = null;
+            let sessionCheckerTimeout = null;
+            let sessionCheckerFailures = 0;
             let studentFaceStatus = {};
             let currentVerificationAttempts = 0;
+            let faceStatusFetched = {};   // Memoization: studentId -> true once fetched
 
             // Face verification modal state
             let selectedStudent = null;
@@ -774,12 +776,10 @@
                     const cached = getCachedResponse(cacheKey);
                     if (cached) return cached;
 
-                    // If same request is already in flight, reuse that promise
                     const inflight = inflightRequests.get(cacheKey);
                     if (inflight) return inflight;
                 }
 
-                // Build the request promise
                 const requestPromise = (async () => {
                     let retries = 2;
                     let delay = 2000;
@@ -796,13 +796,11 @@
                             
                             if (response.status === 429) {
                                 if (retries > 1) {
-                                    // Exponential backoff
                                     const waitTime = delay * (3 - retries);
                                     await new Promise(resolve => setTimeout(resolve, waitTime));
                                     retries--;
                                     continue;
                                 } else {
-                                    // Give up silently — don't spam the user
                                     throw new Error('Rate limit exceeded');
                                 }
                             }
@@ -841,11 +839,9 @@
                     }
                 })();
 
-                // Track in-flight requests for GET
                 if (method === 'GET') {
                     inflightRequests.set(cacheKey, requestPromise);
                     
-                    // Cache successful responses
                     requestPromise
                         .then(() => {
                             setCachedResponse(cacheKey, requestPromise);
@@ -861,67 +857,93 @@
 
             // =============================================
             // CHECK IF STUDENT HAS FACE ENROLLED
+            // Memoized: only fetches once per student per page load
             // =============================================
-            async function checkStudentFaceStatus(studentId) {
-                try {
-                    const result = await apiCall(`/students/${studentId}/face-status`);
-                    
-                    if (result && result.success && result.data) {
-                        const data = result.data;
-                        const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
-                        const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
+            async function checkStudentFaceStatus(studentId, forceRefresh = false) {
+                const id = String(studentId);
+
+                // Return cached result if we've already fetched this student
+                if (!forceRefresh && faceStatusFetched[id] && studentFaceStatus[id]) {
+                    return studentFaceStatus[id];
+                }
+
+                // If already in-flight, wait for it
+                if (!forceRefresh && studentFaceStatus[id] && studentFaceStatus[id].__inflight) {
+                    return studentFaceStatus[id].__inflight;
+                }
+
+                const fetchPromise = (async () => {
+                    try {
+                        const result = await apiCall(`/students/${studentId}/face-status`);
                         
-                        return {
-                            enrolled: enrolled,
-                            has_embedding: hasEmbedding,
-                            status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
-                            verification_count: data.verification_count || 0,
-                            confidence_score: data.confidence_score || null,
-                            last_verified: data.last_verified || null,
-                            embedding_dimension: data.embedding_dimension || 0,
-                            face_image_url: data.face_image_url || null
-                        };
-                    }
-                    
-                    return { 
-                        enrolled: false, 
-                        has_embedding: false, 
-                        status: 'pending', 
-                        verification_count: 0, 
-                        confidence_score: null, 
-                        last_verified: null,
-                        embedding_dimension: 0,
-                        face_image_url: null
-                    };
-                    
-                } catch (error) {
-                    // Fallback to local student data on error
-                    const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
-                    if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
+                        if (result && result.success && result.data) {
+                            const data = result.data;
+                            const enrolled = data.face_enrolled === true || data.enrollment_status === 'enrolled';
+                            const hasEmbedding = data.has_embedding === true || data.embedding_dimension > 0;
+                            
+                            return {
+                                enrolled: enrolled,
+                                has_embedding: hasEmbedding,
+                                status: data.enrollment_status || (enrolled ? 'enrolled' : 'pending'),
+                                verification_count: data.verification_count || 0,
+                                confidence_score: data.confidence_score || null,
+                                last_verified: data.last_verified || null,
+                                embedding_dimension: data.embedding_dimension || 0,
+                                face_image_url: data.face_image_url || null
+                            };
+                        }
+                        
                         return { 
-                            enrolled: true, 
-                            has_embedding: true, 
-                            status: 'enrolled', 
+                            enrolled: false, 
+                            has_embedding: false, 
+                            status: 'pending', 
                             verification_count: 0, 
                             confidence_score: null, 
                             last_verified: null,
                             embedding_dimension: 0,
-                            face_image_url: null,
-                            _cached: true
+                            face_image_url: null
+                        };
+                        
+                    } catch (error) {
+                        // Fallback to local student data
+                        const localStudent = hostelStudents.find(s => s.id === parseInt(studentId));
+                        if (localStudent && (localStudent.face_enrolled === true || localStudent.face_enrolled === 1)) {
+                            return { 
+                                enrolled: true, 
+                                has_embedding: true, 
+                                status: 'enrolled', 
+                                verification_count: 0, 
+                                confidence_score: null, 
+                                last_verified: null,
+                                embedding_dimension: 0,
+                                face_image_url: null,
+                                _cached: true
+                            };
+                        }
+                        
+                        return { 
+                            enrolled: false, 
+                            has_embedding: false, 
+                            status: 'error', 
+                            verification_count: 0, 
+                            confidence_score: null, 
+                            last_verified: null,
+                            embedding_dimension: 0,
+                            face_image_url: null
                         };
                     }
-                    
-                    return { 
-                        enrolled: false, 
-                        has_embedding: false, 
-                        status: 'error', 
-                        verification_count: 0, 
-                        confidence_score: null, 
-                        last_verified: null,
-                        embedding_dimension: 0,
-                        face_image_url: null
-                    };
-                }
+                })();
+
+                // Store in-flight marker
+                studentFaceStatus[id] = { __inflight: fetchPromise };
+
+                const resolved = await fetchPromise;
+
+                // Replace with resolved value
+                studentFaceStatus[id] = resolved;
+                faceStatusFetched[id] = true;
+
+                return resolved;
             }
 
             // =============================================
@@ -942,6 +964,7 @@
                     }
 
                     if (!response.ok) {
+                        // 502, 503, etc. → treat as unhealthy but don't crash
                         isApiHealthy = false;
                         apiHealthChecked = true;
                         return false;
@@ -970,7 +993,8 @@
                     );
 
                 } catch (error) {
-                    isApiHealthy = true;
+                    // Network error / timeout / 502 → assume unhealthy
+                    isApiHealthy = false;
                 }
 
                 apiHealthChecked = true;
@@ -1236,6 +1260,7 @@
                 document.getElementById('modalRoomLabel').textContent = currentRoom || '—';
                 document.getElementById('modalBedLabel').textContent = getStudentBed(student.id) || '—';
 
+                // Use memoized fetch — won't spam the endpoint
                 const faceStatus = await checkStudentFaceStatus(student.id);
                 studentFaceStatus[student.id] = faceStatus;
                 
@@ -1246,7 +1271,7 @@
                 const hasEnrollment = faceStatus.enrolled === true;
                 const hasEmbedding = faceStatus.has_embedding === true;
                 const isPartial = hasEnrollment && !hasEmbedding;
-                const hasError = faceStatus.error !== undefined;
+                const hasError = faceStatus.status === 'error';
                 
                 if (hasError) {
                     faceStatusEl.textContent = '⚠️ Status Check Failed';
@@ -1254,7 +1279,6 @@
                     verifyBtn.disabled = true;
                     verifyBtn.innerHTML = '⚠️ Check Failed';
                     verifyBtn.title = 'Could not check face enrollment status. Please try again.';
-                    showToast(`⚠️ Could not check face status: ${faceStatus.error || 'Unknown error'}`, 'error');
                     
                 } else if (hasEnrollment && hasEmbedding) {
                     faceStatusEl.textContent = '✅ Face Enrolled';
@@ -1265,9 +1289,6 @@
                     
                     if (faceStatus.verification_count > 0) {
                         faceStatusEl.textContent += ` (${faceStatus.verification_count} verified)`;
-                    }
-                    if (faceStatus.confidence_score) {
-                        faceStatusEl.textContent += ` · ${Math.round(faceStatus.confidence_score * 100)}%`;
                     }
                     if (faceStatus.embedding_dimension > 0) {
                         faceStatusEl.textContent += ` · ${faceStatus.embedding_dimension}d`;
@@ -1432,7 +1453,6 @@
                             confidence: confidencePercent
                         };
 
-                        // Get the correct session ID
                         let sessionId = currentSession?.id || null;
                         if (!sessionId) {
                             try {
@@ -1462,7 +1482,6 @@
                                 })
                             });
                             
-                            // Also update student status
                             try {
                                 await apiCall(`/students/${student.id}/status`, {
                                     method: 'PUT',
@@ -1749,7 +1768,7 @@
                         apiCall('/ra/bedcheck/status')
                     ]);
                     
-                    // 2. Process global session
+                    // 2. Process global session — fail gracefully
                     let globalSession = null;
                     if (globalSessionResult.status === 'fulfilled') {
                         const gs = globalSessionResult.value;
@@ -1762,12 +1781,16 @@
                             currentSession = null;
                         }
                     } else {
-                        globalSessionActive = false;
-                        currentSession = null;
+                        // Fetch failed — keep the previous state instead of resetting
+                        // (prevents UI flicker on network hiccups)
+                        if (!initComplete) {
+                            globalSessionActive = false;
+                            currentSession = null;
+                        }
                     }
                     
                     // 3. Process RA status
-                    let sessionIsActive = false;
+                    let sessionIsActive = isSessionActive;
                     let activeSessionId = null;
                     let statusData = null;
                     
@@ -1814,17 +1837,19 @@
                             }
                         }
                     } else {
-                        // RA status failed — fall back to global session state
-                        if (globalSessionActive) {
-                            sessionStatus = 'ready';
-                            isSessionActive = true;
-                            effectiveStatus = 'ready';
-                            sessionIsActive = true;
-                        } else {
-                            sessionStatus = 'closed';
-                            isSessionActive = false;
-                            effectiveStatus = 'closed';
-                            sessionIsActive = false;
+                        // RA status failed — keep previous state
+                        if (!initComplete) {
+                            if (globalSessionActive) {
+                                sessionStatus = 'ready';
+                                isSessionActive = true;
+                                effectiveStatus = 'ready';
+                                sessionIsActive = true;
+                            } else {
+                                sessionStatus = 'closed';
+                                isSessionActive = false;
+                                effectiveStatus = 'closed';
+                                sessionIsActive = false;
+                            }
                         }
                     }
                     
@@ -1872,11 +1897,11 @@
                                     });
                                 }
                             } catch (scanError) {
-                                // Silent fail — will fall back to student statuses below
+                                // Silent fail
                             }
                         }
                         
-                        // 6. Fallback: use local student data for statuses we don't have
+                        // 6. Fallback: use local student data
                         hostelStudents.forEach(student => {
                             if (!bedScanStatus[student.id]) {
                                 if (student.status === 'Verified' || student.status === 'Present') {
@@ -1911,29 +1936,82 @@
                     }
                     
                 } catch (error) {
-                    sessionStatus = 'closed';
-                    isSessionActive = false;
-                    currentSession = null;
+                    if (!initComplete) {
+                        sessionStatus = 'closed';
+                        isSessionActive = false;
+                        currentSession = null;
+                    }
                 }
             }
 
             // =============================================
-            // START SESSION CHECKER (slower interval — 3 min)
+            // START SESSION CHECKER
+            // — Recursive setTimeout: no overlap possible
+            // — Exponential backoff on failures
+            // — Skips polls when tab is hidden
             // =============================================
+            const SESSION_CHECK_BASE_INTERVAL = 120000; // 2 minutes
+            const SESSION_CHECK_MAX_INTERVAL = 600000;  // 10 minutes cap
+
             function startSessionChecker() {
-                if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
-                sessionCheckerInterval = setInterval(async () => {
+                // Clear any existing timer
+                if (sessionCheckerTimeout) {
+                    clearTimeout(sessionCheckerTimeout);
+                    sessionCheckerTimeout = null;
+                }
+
+                const runCheck = async () => {
+                    // Skip the check if the tab is hidden
+                    if (document.hidden) {
+                        scheduleNext();
+                        return;
+                    }
+
                     try {
-                        // Clear cache so we get fresh session data
                         const oldEffectiveStatus = effectiveStatus;
+                        const oldSessionActive = isSessionActive;
+
                         await loadSessionData();
-                        if (oldEffectiveStatus !== effectiveStatus) {
+
+                        // Reset failure counter on success
+                        sessionCheckerFailures = 0;
+
+                        // Re-render only if something meaningfully changed
+                        if (oldEffectiveStatus !== effectiveStatus || oldSessionActive !== isSessionActive) {
                             renderBedCheck();
                         }
                     } catch (error) {
-                        // Silent fail
+                        sessionCheckerFailures++;
                     }
-                }, 180000); // 3 minutes
+
+                    scheduleNext();
+                };
+
+                const scheduleNext = () => {
+                    // Exponential backoff: 2min → 4min → 8min → 10min (cap)
+                    const backoffMultiplier = Math.min(sessionCheckerFailures, 3);
+                    const interval = Math.min(
+                        SESSION_CHECK_BASE_INTERVAL * Math.pow(2, backoffMultiplier),
+                        SESSION_CHECK_MAX_INTERVAL
+                    );
+
+                    if (sessionCheckerTimeout) clearTimeout(sessionCheckerTimeout);
+                    sessionCheckerTimeout = setTimeout(runCheck, interval);
+                };
+
+                // Kick off the first check after the base interval
+                scheduleNext();
+
+                // Re-check when the tab becomes visible again
+                if (!window._visibilityListenerAttached) {
+                    document.addEventListener('visibilitychange', () => {
+                        if (!document.hidden && sessionCheckerTimeout) {
+                            clearTimeout(sessionCheckerTimeout);
+                            sessionCheckerTimeout = setTimeout(runCheck, 1000);
+                        }
+                    });
+                    window._visibilityListenerAttached = true;
+                }
             }
 
             // =============================================
@@ -2072,6 +2150,15 @@
                 const hasValidSessionData = sessionInfoParts.length > 0;
                 const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
+                // Pre-check face status for the current room (memoized)
+                if (currentRoom && roomStudents.length > 0) {
+                    for (const student of roomStudents) {
+                        if (!faceStatusFetched[student.id]) {
+                            await checkStudentFaceStatus(student.id);
+                        }
+                    }
+                }
+
                 // Build room list HTML
                 let roomListHtml = '';
                 if (allRooms.length > 0) {
@@ -2174,7 +2261,7 @@
                         let faceLabel = '⚠️ No Face';
                         let faceColor = '#a84134';
                         
-                        if (faceStatus) {
+                        if (faceStatus && !faceStatus.__inflight) {
                             hasFace = faceStatus.enrolled === true && faceStatus.has_embedding === true;
                             
                             if (hasFace) {
@@ -2187,6 +2274,9 @@
                                 faceLabel = '⚠️ Error';
                                 faceColor = '#a84134';
                             }
+                        } else if (faceStatus && faceStatus.__inflight) {
+                            faceLabel = '⏳ Checking...';
+                            faceColor = '#68768a';
                         }
 
                         return `
@@ -2444,7 +2534,8 @@
             window.startVerification = startVerification;
             window.switchCamera = switchCamera;
 
-            // =============================================            // INIT — PROGRESSIVE LOADING (single fetch per endpoint)
+            // =============================================
+            // INIT — PROGRESSIVE LOADING
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -2465,7 +2556,7 @@
                     // 3. Face health check – non-blocking
                     checkFaceApiHealth().catch(() => {});
 
-                    // 4. Load all independent data in parallel (single fetch each)
+                    // 4. Load all independent data in parallel
                     const results = await Promise.allSettled([
                         apiCall('/hostels'),
                         apiCall('/students'),
@@ -2543,7 +2634,6 @@
                     initComplete = true;
 
                 } catch (error) {
-                    // If we have partial data, show the BedCheck with a toast
                     if (hostelStudents.length > 0 || hostels.length > 0 || availableRooms.length > 0) {
                         await renderBedCheck();
                         showToast('Some data failed to load. Displaying partial results.', 'info');
