@@ -957,12 +957,11 @@
         let currentSession = null;
         let selectedRoom = null;
         let selectedStudent = null;
-        let modalData = null;
         let roomStructure = { areas: [] };
         let selectedAreaKey = null;
         let editingRAId = null;
         let hasRenderedOnce = false;
-        let expandedRAId = null; // which RA row is expanded inline
+        let expandedRAId = null;
 
         // ---------- REQUEST DEDUP + CACHE ----------
         const requestCache = new Map();
@@ -1058,7 +1057,7 @@
         }
 
         // =============================================
-        // AUTHENTICATED API HELPER (silent, with 429 retry)
+        // AUTHENTICATED API HELPER
         // =============================================
         async function apiCall(endpoint, options = {}, retries = 2) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -1155,7 +1154,7 @@
         }
 
         // =============================================
-        // HELPERS: area extraction from room code
+        // HELPERS
         // =============================================
         function getAreaFromRoomCode(code) {
             if (!code) return null;
@@ -1168,7 +1167,7 @@
         }
 
         // =============================================
-        // LOAD RAs THE CORRECT WAY (from /hra/ras)
+        // LOAD RAs
         // =============================================
         async function loadRAs() {
             try {
@@ -1586,7 +1585,7 @@
         }
 
         // =============================================
-        // SAVE ASSIGNMENT — SAFE VERSION
+        // SAVE ASSIGNMENT
         // =============================================
         async function saveAssignment() {
             try {
@@ -1651,7 +1650,6 @@
                 const currentRA = staff.find(s => s.id == raId);
                 const currentRoomIds = (currentRA?.assigned_room_ids || []).map(Number).filter(id => !isNaN(id) && id > 0);
 
-                // STEP 1: Clear existing rooms
                 if (currentRoomIds.length > 0) {
                     try {
                         await apiCall('/hra/assign-rooms', {
@@ -1664,7 +1662,6 @@
                     } catch (clearErr) { /* silent */ }
                 }
 
-                // STEP 2: Assign new rooms
                 await apiCall('/hra/assign-rooms', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -1724,7 +1721,7 @@
         }
 
         // =============================================
-        // INLINE EXPAND — Toggle expand/collapse
+        // INLINE EXPAND
         // =============================================
         function toggleRAExpand(raId) {
             if (expandedRAId === raId) {
@@ -1749,7 +1746,6 @@
             selectedStudent = null;
             expandedRAId = raId;
             renderReviewBedCheck();
-            // After re-render, keep scroll position
             const detailPanel = document.querySelector(`#detail-row-${raId} .detail-panel`);
             if (detailPanel) {
                 detailPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1766,7 +1762,6 @@
             }
         }
 
-        // Build the inline expanded detail HTML for one RA
         function buildInlineDetailHtml(ra) {
             const area = ra.assigned_floor || '';
             let areaRooms = getRoomsForArea(area);
@@ -1787,7 +1782,6 @@
                 roomStudents[room] = areaStudents.filter(s => s.room === room);
             });
 
-            // Pick default selected room
             let activeRoom = selectedRoom;
             if (!activeRoom || !areaRooms.includes(activeRoom)) {
                 activeRoom = areaRooms[0] || null;
@@ -1795,7 +1789,6 @@
 
             const activeStudent = selectedStudent || (roomStudents[activeRoom] || [])[0] || null;
 
-            // Group rooms for the large grid
             const roomGroups = {};
             areaRooms.forEach(room => {
                 let groupKey = area;
@@ -1826,7 +1819,6 @@
             return `
                 <div class="detail-panel">
                     <div class="detail-grid">
-                        <!-- COLUMN 1: RA Info + Rooms Grid -->
                         <div class="detail-panel-box">
                             <div class="panel-title"><i class="fas fa-door-open"></i> Rooms · ${areaRooms.length}</div>
 
@@ -1861,7 +1853,6 @@
                             </div>
                         </div>
 
-                        <!-- COLUMN 2: Beds for selected room -->
                         <div class="detail-panel-box">
                             <div class="panel-title"><i class="fas fa-bed"></i> Room ${activeRoom || '—'}</div>
                             ${activeRoom ? (() => {
@@ -1887,7 +1878,6 @@
                             })() : '<p class="text-muted text-sm p-3 text-center">Select a room to view beds</p>'}
                         </div>
 
-                        <!-- COLUMN 3: Student details -->
                         <div class="detail-panel-box detail-panel-student">
                             <div class="panel-title"><i class="fas fa-user-circle"></i> Student Details</div>
                             ${activeStudent ? `
@@ -1909,7 +1899,6 @@
                         </div>
                     </div>
 
-                    <!-- Exceptions row -->
                     <div style="display:grid;grid-template-columns:1fr;gap:1rem;margin-top:1rem;padding-top:1rem;border-top:1px solid #eee8de;">
                         <div>
                             <div class="panel-title" style="font-size:0.7rem;margin-bottom:0.5rem;">⚠️ Exceptions</div>
@@ -1921,7 +1910,6 @@
                         </div>
                     </div>
 
-                    <!-- Actions -->
                     <div class="detail-actions-bar">
                         <button class="btn-danger" onclick="event.stopPropagation();window.showToast('Return to RA dialog opened','error')">
                             <i class="fas fa-undo"></i> Return to RA
@@ -2173,29 +2161,6 @@
                     </div>
                 </div>
 
-                <div class="card mt-4" style="border-color:#d8c79e;background:#fff9e9;">
-                    <div class="review-actions-bar">
-                        <div>
-                            <div class="font-bold">Review Actions</div>
-                            <p class="text-sm text-muted">${submittedCount} of ${totalRAs} RAs have submitted</p>
-                        </div>
-                        <div class="actions">
-                            ${!isLocked ? `
-                                <button class="btn-outline" onclick="window.showToast('Return to RA dialog opened', 'error')">
-                                    <i class="fas fa-undo"></i> Return to RA
-                                </button>
-                                <button class="btn-primary" onclick="window.showToast('Review saved as draft')">
-                                    <i class="fas fa-save"></i> Save Review
-                                </button>
-                            ` : ''}
-                            <button class="btn-success" onclick="window.showToast('BedCheck approved!', 'success')" ${submittedCount === 0 ? 'disabled' : ''}>
-                                <i class="fas fa-check"></i> Approve BedCheck
-                            </button>
-                        </div>
-                    </div>
-                    ${isLocked ? `<p class="text-xs text-muted mt-2">🔒 Session is locked. Only Approve action is available.</p>` : ''}
-                </div>
-
                 <div class="mt-6 pt-4 border-t text-center">
                     <p class="text-xs text-muted">
                         BedCheck · Benson Idahosa University
@@ -2204,7 +2169,6 @@
             `;
             swapContent(html);
 
-            // Expose globals
             window.showToast = showToast;
             window.toggleRAExpand = toggleRAExpand;
             window.closeInlineExpand = closeInlineExpand;
@@ -2404,7 +2368,6 @@
             });
         }
 
-        // Expose globals
         window.showToast = showToast;
         window.toggleRAExpand = toggleRAExpand;
         window.closeInlineExpand = closeInlineExpand;
