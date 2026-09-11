@@ -146,6 +146,7 @@
         .badge-completed { background: #d1fae5; color: #065f46; }
         .badge-editable { background: #fef3c7; color: #92400e; }
         .badge-absent { background: #f8e1dc; color: #9b3c31; }
+        .badge-multi { background: #e7edf5; color: #24466f; }
 
         /* ----- CARDS ----- */
         .card { border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; padding: 1.25rem; }
@@ -352,17 +353,28 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.3rem 0.6rem;
+            padding: 0.4rem 0.6rem;
             border: 1px solid #eee8de;
             border-radius: 0.4rem;
             cursor: pointer;
             background: white;
             font-size: 0.8rem;
             transition: all 0.15s;
+            position: relative;
         }
         .area-radio-grid label:hover { background: #f5f1e8; border-color: #a77915; }
+        .area-radio-grid label.has-assignment { border-left: 3px solid #d6ad4b; }
         .area-radio-grid label input[type="radio"]:checked + span { font-weight: 700; }
         .area-radio-grid label .count { font-size: 0.6rem; color: #6b778b; margin-left: auto; }
+        .area-radio-grid label .assigned-info {
+            display: block;
+            font-size: 0.55rem;
+            color: #a77915;
+            font-weight: 600;
+            margin-top: 0.15rem;
+            width: 100%;
+        }
+        .area-radio-grid label .assigned-info i { font-size: 0.5rem; }
 
         .modal-footer {
             display: flex;
@@ -696,38 +708,6 @@
                 padding: 0.25rem 0.4rem;
             }
         }
-
-        @media (max-width: 480px) {
-            .page-heading .action-group {
-                flex-direction: column;
-                width: 100%;
-            }
-            .page-heading .action-group .btn-gold,
-            .page-heading .action-group .session-status-badge {
-                width: 100%;
-                justify-content: center;
-            }
-            .review-actions-bar .actions {
-                flex-direction: column;
-            }
-            .review-actions-bar .actions button {
-                width: 100%;
-            }
-        }
-
-        @media (max-width: 640px) {
-            .modal-box {
-                border-radius: 1rem 1rem 0 0;
-                max-height: 94vh;
-            }
-            .modal-footer {
-                flex-direction: column-reverse;
-                gap: 0.5rem;
-            }
-            .modal-footer button {
-                width: 100%;
-            }
-        }
     </style>
 </head>
 <body>
@@ -763,14 +743,14 @@
 
                 <div class="field" style="margin-bottom:1rem;">
                     <label>Assign Area <span class="text-muted">*</span></label>
-                    <p class="text-xs text-muted mb-1">Select the floor or flat area this RA will be responsible for</p>
+                    <p class="text-xs text-muted mb-1">Select the floor or flat area this RA will be responsible for. <strong>Multiple RAs can share the same floor</strong> — just give them different room ranges.</p>
                     <div id="assignAreaList" class="area-radio-grid"></div>
                 </div>
 
                 <div id="roomRangeContainer" style="display:none;margin-top:1rem;padding-top:1rem;border-top:1px solid #eee8de;">
                     <div class="field" style="margin-bottom:0.75rem;">
                         <label>Room Range <span class="text-muted">(Optional)</span></label>
-                        <p class="text-xs text-muted">Select specific rooms for this RA, or leave blank to assign all rooms in the area</p>
+                        <p class="text-xs text-muted">Select specific rooms for this RA. <strong>If sharing a floor, pick different ranges for each RA</strong> (e.g. A01–A09 for one, A10–A18 for another).</p>
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
                         <div class="field">
@@ -786,12 +766,19 @@
                             </select>
                         </div>
                     </div>
-                    <p class="text-xs text-muted mt-1">Leave both blank to assign all rooms in the selected area</p>
+                    <div id="roomRangeHint" class="text-xs text-muted mt-1" style="display:none;">
+                        <i class="fas fa-info-circle" style="color:#a77915;"></i> <span id="roomRangeHintText"></span>
+                    </div>
                 </div>
 
                 <div id="currentAssignmentInfo" style="display:none;margin-top:1rem;padding:0.75rem;background:#fff9e9;border-radius:0.5rem;border:1px solid #d8c79e;">
                     <p class="text-sm font-bold text-gold"><i class="fas fa-info-circle"></i> Current Assignment</p>
                     <div class="mt-1 text-sm" id="currentAssignmentDetails"></div>
+                </div>
+
+                <div id="otherRAsInfo" style="display:none;margin-top:1rem;padding:0.75rem;background:#e7edf5;border-radius:0.5rem;border:1px solid #bfd0e3;">
+                    <p class="text-sm font-bold" style="color:#24466f;"><i class="fas fa-users"></i> Other RAs on this floor</p>
+                    <div class="mt-1 text-sm" id="otherRAsDetails"></div>
                 </div>
             </div>
 
@@ -1259,7 +1246,7 @@
             }
 
             // =============================================
-            // LOAD SESSION STATUS (single source of truth)
+            // LOAD SESSION STATUS
             // =============================================
             let sessionStatusPromise = null;
 
@@ -1462,8 +1449,26 @@
                 return roomStructure.areas.find(a => (a.rooms || []).includes(roomCode)) || null;
             }
 
+            // Get all RAs already assigned to a floor (excluding one RA by id if editing)
+            function getRAsOnArea(areaKey, excludeRAId = null) {
+                return staff.filter(s =>
+            (s.role === 'RA' || s.role === 'Resident Advisor') &&
+                    s.assigned_floor === areaKey &&
+                    (excludeRAId == null || s.id != excludeRAId)
+                );
+            }
+
+            // Get rooms already taken by other RAs on the same floor
+            function getTakenRoomsOnArea(areaKey, excludeRAId = null) {
+                const taken = new Set();
+                getRAsOnArea(areaKey, excludeRAId).forEach(ra => {
+                    (ra.assigned_rooms || []).forEach(code => taken.add(code));
+                });
+                return taken;
+            }
+
             // =============================================
-            // ASSIGN RA MODAL
+            // ASSIGN RA MODAL — MULTI-RA PER FLOOR
             // =============================================
             function openAssignRA(raId = null) {
                 if (isSessionActive) {
@@ -1495,17 +1500,28 @@
                 } else {
                     areaContainer.innerHTML = roomStructure.areas.map(area => {
                         const displayName = area.name || area.key;
-                        const assignedRA = staff.find(s => 
-                            (s.role === 'RA' || s.role === 'Resident Advisor') && 
-                            s.assigned_floor === area.key
-                        );
-                        const isAssigned = assignedRA && (raId ? assignedRA.id != raId : true);
+
+                        // All RAs on this floor except the one we're editing
+                        const assignedRAs = getRAsOnArea(area.key, raId);
+                        const totalRoomsInArea = area.rooms ? area.rooms.length : 0;
+                        const assignedRoomCount = assignedRAs.reduce((sum, ra) => sum + (ra.assigned_rooms?.length || 0), 0);
+                        const unassignedRoomCount = Math.max(0, totalRoomsInArea - assignedRoomCount);
+
+                        const assignedNames = assignedRAs.map(r => r.name).join(', ');
+                        const hasAssignments = assignedRAs.length > 0;
+
                         return `
-                            <label onclick="window.selectAreaForAssignment('${area.key}')" ${isAssigned ? 'style="opacity:0.6;border-color:#a84134;"' : ''}>
-                                <input type="radio" name="assignArea" value="${area.key}" ${isAssigned ? 'disabled' : ''} />
+                            <label onclick="window.selectAreaForAssignment('${area.key}')"
+                                   class="${hasAssignments ? 'has-assignment' : ''}">
+                                <input type="radio" name="assignArea" value="${area.key}" />
                                 <span>${displayName}</span>
-                                <span class="count">${area.rooms ? area.rooms.length : 0} rooms</span>
-                                ${isAssigned ? `<span class="badge badge-absent" style="font-size:0.5rem;margin-left:0.3rem;">Assigned to ${assignedRA.name}</span>` : ''}
+                                <span class="count">${totalRoomsInArea} rooms</span>
+                                ${hasAssignments ? `
+                                    <span class="assigned-info" title="${assignedNames}">
+                                        <i class="fas fa-user-check"></i>
+                                        ${assignedRAs.length} RA${assignedRAs.length > 1 ? 's' : ''} · ${unassignedRoomCount} free room${unassignedRoomCount !== 1 ? 's' : ''}
+                                    </span>
+                                ` : ''}
                             </label>
                         `;
                     }).join('');
@@ -1513,6 +1529,8 @@
 
                 document.getElementById('roomRangeContainer').style.display = 'none';
                 document.getElementById('currentAssignmentInfo').style.display = 'none';
+                document.getElementById('otherRAsInfo').style.display = 'none';
+                document.getElementById('roomRangeHint').style.display = 'none';
                 document.getElementById('removeAssignmentBtn').style.display = 'none';
                 selectedAreaKey = null;
                 editingRAId = null;
@@ -1585,6 +1603,38 @@
                     roomList.map(r => `<option value="${r}">${r}</option>`).join('');
                 endSelect.innerHTML = '<option value="">End...</option>' + 
                     roomList.map(r => `<option value="${r}">${r}</option>`).join('');
+
+                // Show hint if other RAs already on this floor
+                const otherRAs = getRAsOnArea(areaKey, editingRAId);
+                const hintEl = document.getElementById('roomRangeHint');
+                const hintTextEl = document.getElementById('roomRangeHintText');
+
+                if (otherRAs.length > 0) {
+                    const takenRooms = getTakenRoomsOnArea(areaKey, editingRAId);
+                    const takenList = Array.from(takenRooms).sort().join(', ');
+                    hintEl.style.display = 'block';
+                    hintTextEl.innerHTML = `Already taken by other RAs: <strong>${takenList}</strong>. Pick a different range for this RA.`;
+                } else {
+                    hintEl.style.display = 'none';
+                }
+
+                // Show info card with other RAs
+                const infoCard = document.getElementById('otherRAsInfo');
+                const infoDetails = document.getElementById('otherRAsDetails');
+                if (otherRAs.length > 0) {
+                    infoDetails.innerHTML = otherRAs.map(ra => {
+                        const codes = ra.assigned_rooms && ra.assigned_rooms.length > 0
+                            ? ra.assigned_rooms.slice().sort().join(', ')
+                            : 'All rooms';
+                        return `<div class="flex-between" style="padding:0.2rem 0;">
+                            <span><i class="fas fa-user" style="color:#24466f;"></i> ${ra.name}</span>
+                            <span class="text-xs">${codes}</span>
+                        </div>`;
+                    }).join('');
+                    infoCard.style.display = 'block';
+                } else {
+                    infoCard.style.display = 'none';
+                }
             }
 
             function closeAssignRA() {
@@ -1594,7 +1644,7 @@
             }
 
             // =============================================
-            // SAVE ASSIGNMENT (FIXED)
+            // SAVE ASSIGNMENT — ALLOWS MULTI-RA PER FLOOR
             // =============================================
             async function saveAssignment() {
                 try {
@@ -1640,6 +1690,23 @@
                         return;
                     }
 
+                    // Soft warning if rooms overlap with other RAs on the same floor
+                    const otherRAs = getRAsOnArea(areaKey, raId);
+                    if (otherRAs.length > 0) {
+                        const taken = getTakenRoomsOnArea(areaKey, raId);
+                        const overlap = assignedRoomCodes.filter(c => taken.has(c));
+                        if (overlap.length > 0) {
+                            const names = otherRAs.map(r => r.name).join(', ');
+                            if (!confirm(
+                                `⚠️ Room overlap detected!\n\n` +
+                                `These rooms are already assigned to ${names}:\n${overlap.join(', ')}\n\n` +
+                                `Do you want to continue and overwrite?`
+                            )) {
+                                return;
+                            }
+                        }
+                    }
+
                     await apiCall('/hra/assign-rooms', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -1648,10 +1715,12 @@
                         })
                     });
 
-                    showToast(`Assigned ${roomIds.length} rooms successfully`, 'success');
+                    const msg = otherRAs.length > 0
+                        ? `Assigned ${roomIds.length} rooms to ${staff.find(s => s.id == raId)?.name} (shared floor)`
+                        : `Assigned ${roomIds.length} rooms successfully`;
+                    showToast(msg, 'success');
                     closeAssignRA();
 
-                    // Force clean reload of real data
                     clearRequestCache();
                     await loadRAs();
                     renderReviewBedCheck();
@@ -1663,7 +1732,7 @@
             }
 
             // =============================================
-            // REMOVE ASSIGNMENT (FIXED)
+            // REMOVE ASSIGNMENT
             // =============================================
             async function removeAssignment() {
                 if (!editingRAId) return;
@@ -2064,6 +2133,10 @@
                                                 roomRangeDisplay = `${prefix}${firstNum} - ${prefix}${lastNum}`;
                                             }
                                         }
+
+                                        // Check if this floor has multiple RAs
+                                        const raCountOnFloor = getRAsOnArea(area).length;
+                                        const isShared = raCountOnFloor > 1;
                                         
                                         let actionBtn = '';
                                         if (status === 'Submitted' || status === 'Under Review' || status === 'Completed') {
@@ -2080,7 +2153,10 @@
                                         return `
                                             <tr class="ra-row" onclick="${!isLocked ? `window.openAssignRA('${ra.id}')` : ''}" style="${!isLocked ? 'cursor:pointer;' : ''}">
                                                 <td><i class="fas fa-user" style="color:#a77915;width:1.2rem;"></i> ${ra.name}</td>
-                                                <td><span class="ra-meta-info">${area}</span></td>
+                                                <td>
+                                                    <span class="ra-meta-info">${area}</span>
+                                                    ${isShared ? `<span class="badge badge-multi" style="font-size:0.5rem;margin-left:0.3rem;">Shared (${raCountOnFloor})</span>` : ''}
+                                                </td>
                                                 <td><span class="room-range-tag">${roomRangeDisplay}</span></td>
                                                 <td><span class="ra-meta-info">${raVerified} / ${raStudents.length}</span></td>
                                                 <td>${statusBadge(status)}</td>
@@ -2140,7 +2216,7 @@
             }
 
             // =============================================
-            // DATA LOADING (OPTIMIZED + DEDUPED)
+            // DATA LOADING
             // =============================================
             async function loadAllData() {
                 try {
@@ -2187,15 +2263,12 @@
                     setNotice(`${hostelData.name} · Review BedCheck`);
                     updateUserDisplay();
 
-                    // First render with hostel name
                     renderReviewBedCheck();
 
-                    // Session status
                     await loadSessionStatus(true);
 
                     const hostelId = hostelData.id;
 
-                    // Parallel: students, floors, rooms, scans, sessions (NOT staff)
                     const [studentsRes, floorsRes, roomsRes, scansRes, sessionsRes] = await Promise.allSettled([
                         cachedApiCall(`/students?hostel_id=${hostelId}`)
                             .catch(() => cachedApiCall('/students').then(r => ({
@@ -2215,10 +2288,8 @@
                         cachedApiCall(`/sessions?hostel_id=${hostelId}`)
                     ]);
 
-                    // Load RAs from correct endpoint
                     await loadRAs();
 
-                    // Process results
                     students = studentsRes.status === 'fulfilled' ? (studentsRes.value.data || []) : [];
                     floors = floorsRes.status === 'fulfilled' ? (floorsRes.value.data || []) : [];
                     
