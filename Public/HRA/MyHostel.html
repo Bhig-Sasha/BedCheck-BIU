@@ -806,20 +806,57 @@
             }
 
             // =============================================
+            // REQUEST DEDUP + CACHE (fixes 429 errors)
+            // =============================================
+            const requestCache = new Map();
+            const inflightRequests = new Map();
+            const CACHE_TTL = 3000; // 3 seconds
+
+            async function cachedApiCall(endpoint, options = {}, ttl = CACHE_TTL) {
+                const key = endpoint + '|' + (options.method || 'GET');
+
+                if (inflightRequests.has(key)) {
+                    return inflightRequests.get(key);
+                }
+
+                const cached = requestCache.get(key);
+                if (cached && (Date.now() - cached.time) < ttl) {
+                    return cached.data;
+                }
+
+                const promise = apiCall(endpoint, options)
+                    .then(data => {
+                        requestCache.set(key, { data, time: Date.now() });
+                        inflightRequests.delete(key);
+                        return data;
+                    })
+                    .catch(err => {
+                        inflightRequests.delete(key);
+                        throw err;
+                    });
+
+                inflightRequests.set(key, promise);
+                return promise;
+            }
+
+            function clearRequestCache() {
+                requestCache.clear();
+                inflightRequests.clear();
+            }
+
+            // =============================================
             // SMOOTH SKELETON → CONTENT SWAP
             // =============================================
             function swapContent(html, animate = true) {
                 const el = document.getElementById('screenContent');
                 if (!el) return;
 
-                // First paint: don't fade the skeleton out
                 if (!hasRenderedOnce) {
                     el.innerHTML = `<div class="fade-in-content">${html}</div>`;
                     hasRenderedOnce = true;
                     return;
                 }
 
-                // Subsequent paints: cross-fade
                 if (animate) {
                     el.classList.add('swapping');
                     setTimeout(() => {
@@ -844,7 +881,10 @@
                 return null;
             }
 
-            async function apiCall(endpoint, options = {}) {
+            // =============================================
+            // AUTHENTICATED API HELPER (with 429 retry)
+            // =============================================
+            async function apiCall(endpoint, options = {}, retries = 2) {
                 const token = sessionStorage.getItem('bedcheck_token');
                 
                 if (!token) {
@@ -874,6 +914,19 @@
                         throw new Error('Authentication required');
                     }
 
+                    // ===== 429 HANDLING =====
+                    if (response.status === 429) {
+                        if (retries > 0) {
+                            const wait = (3 - retries) * 1000;
+                            console.warn(`429 Rate limited on ${endpoint}. Retrying in ${wait}ms...`);
+                            await new Promise(r => setTimeout(r, wait));
+                            return apiCall(endpoint, options, retries - 1);
+                        }
+                        const err = new Error('Rate limited');
+                        err.silent = true;
+                        throw err;
+                    }
+
                     if (!response.ok) {
                         const errorText = await response.text();
                         throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -884,7 +937,10 @@
                     }
                     return data;
                 } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    if (!error.silent &&
+                        !error.message.includes('Authentication required') &&
+                        !error.message.includes('No authentication token') &&
+                        !error.message.includes('Rate limited')) {
                         showToast('Error: ' + error.message, 'error');
                     }
                     throw error;
@@ -896,13 +952,13 @@
                     const staffId = getStaffId();
                     if (!staffId) return null;
 
-                    const staffResult = await apiCall(`/staff/${staffId}`);
+                    const staffResult = await cachedApiCall(`/staff/${staffId}`);
                     if (!staffResult.success || !staffResult.data) return null;
 
                     const staffData = staffResult.data;
                     
                     if (staffData.hostel_id) {
-                        const hostelResult = await apiCall(`/hostels/${staffData.hostel_id}`);
+                        const hostelResult = await cachedApiCall(`/hostels/${staffData.hostel_id}`);
                         if (hostelResult.success && hostelResult.data) {
                             return hostelResult.data;
                         }
@@ -914,48 +970,68 @@
                 }
             }
 
-            async function loadSessionStatus() {
-                try {
-                    const sessionResult = await apiCall('/sessions/active');
-                    
-                    if (sessionResult && sessionResult.data && sessionResult.is_active) {
-                        currentSession = sessionResult.data;
-                        isSessionActive = true;
-                    } else {
-                        if (hostelData && hostelData.id) {
-                            const hostelSessionResult = await apiCall(`/sessions?hostel_id=${hostelData.id}`);
-                            if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
-                                const latest = hostelSessionResult.data[0];
-                                currentSession = latest;
-                                const status = latest.status || 'Closed';
-                                isSessionActive = status === 'Active' || status === 'Running' || status === 'Open' || status === 'started';
-                            } else {
-                                currentSession = null;
-                                isSessionActive = false;
+            // =============================================
+            // LOAD SESSION STATUS (coalesced)
+            // =============================================
+            let sessionStatusPromise = null;
+
+            async function loadSessionStatus(force = false) {
+                if (sessionStatusPromise && !force) {
+                    return sessionStatusPromise;
+                }
+
+                sessionStatusPromise = (async () => {
+                    try {
+                        let result = { isSessionActive: false, session: null };
+
+                        try {
+                            const sessionResult = await cachedApiCall('/sessions/active', {}, 5000);
+                            if (sessionResult && sessionResult.data && sessionResult.is_active) {
+                                currentSession = sessionResult.data;
+                                isSessionActive = true;
+                                result = { isSessionActive, session: currentSession };
                             }
-                        } else {
+                        } catch (e) { /* silent */ }
+
+                        if (!isSessionActive && hostelData && hostelData.id) {
+                            try {
+                                const hostelSessionResult = await cachedApiCall(`/sessions?hostel_id=${hostelData.id}`, {}, 5000);
+                                if (hostelSessionResult && hostelSessionResult.data && hostelSessionResult.data.length > 0) {
+                                    const latest = hostelSessionResult.data[0];
+                                    currentSession = latest;
+                                    const status = latest.status || 'Closed';
+                                    isSessionActive = status === 'Active' || status === 'Running' || status === 'Open' || status === 'started';
+                                    result = { isSessionActive, session: currentSession };
+                                } else {
+                                    currentSession = null;
+                                    isSessionActive = false;
+                                }
+                            } catch (e) { /* silent */ }
+                        } else if (!hostelData) {
                             currentSession = null;
                             isSessionActive = false;
                         }
-                    }
 
-                    if (isSessionActive && currentSession) {
-                        try {
-                            const statusResult = await apiCall('/ra/bedcheck/status');
-                            if (statusResult && statusResult.data) {
-                                if (statusResult.data.effective_status === 'started') {
-                                    isSessionActive = true;
-                                } else if (statusResult.data.effective_status === 'completed') {
-                                    isSessionActive = false;
+                        if (isSessionActive && currentSession) {
+                            try {
+                                const statusResult = await cachedApiCall('/ra/bedcheck/status', {}, 5000);
+                                if (statusResult && statusResult.data) {
+                                    if (statusResult.data.effective_status === 'started') {
+                                        isSessionActive = true;
+                                    } else if (statusResult.data.effective_status === 'completed') {
+                                        isSessionActive = false;
+                                    }
                                 }
-                            }
-                        } catch (e) {}
-                    }
+                            } catch (e) { /* silent */ }
+                        }
 
-                    return { isSessionActive, session: currentSession };
-                } catch (error) {
-                    return { isSessionActive: false, session: null };
-                }
+                        return result;
+                    } finally {
+                        setTimeout(() => { sessionStatusPromise = null; }, 1000);
+                    }
+                })();
+
+                return sessionStatusPromise;
             }
 
             function startSessionChecker() {
@@ -963,12 +1039,12 @@
                 sessionCheckerInterval = setInterval(async () => {
                     try {
                         const oldStatus = isSessionActive;
-                        await loadSessionStatus();
+                        await loadSessionStatus(true);
                         if (oldStatus !== isSessionActive) {
                             renderMyHostel();
                         }
                     } catch (error) {}
-                }, 30000);
+                }, 90000); // 90 seconds — was 30s (too aggressive)
             }
 
             function updateUserDisplay() {
@@ -1005,7 +1081,7 @@
                     floors.forEach(floor => {
                         const floorRooms = rooms.filter(r => r.floor_flat_id === floor.id);
                         if (floorRooms.length > 0) {
-                            const sortedRooms = floorRooms.sort((a, b) => a.room_code.localeCompare(b.room_code));
+                            const sortedRooms = floorRooms.slice().sort((a, b) => a.room_code.localeCompare(b.room_code));
                             const roomCodes = sortedRooms.map(r => r.room_code);
                             
                             hostelStructure.floors.push({
@@ -1110,7 +1186,6 @@
                 const chevron = element.querySelector('.chevron');
                 const floorName = element.querySelector('span:first-child')?.textContent?.trim() || '';
                 
-                // Close all dropdowns first
                 document.querySelectorAll('.floor-dropdown .dropdown-content').forEach(el => {
                     if (el !== content) {
                         el.classList.remove('open');
@@ -1119,7 +1194,6 @@
                     }
                 });
                 
-                // Toggle the clicked one
                 if (content.classList.contains('open')) {
                     content.classList.remove('open');
                     chevron.classList.remove('open');
@@ -1132,7 +1206,7 @@
             }
 
             // =============================================
-            // DATA LOADING (PROGRESSIVE)
+            // DATA LOADING (OPTIMIZED + DEDUPED)
             // =============================================
             async function loadAllData() {
                 try {
@@ -1171,7 +1245,12 @@
                     // ---------- 3. First render — hostel name visible immediately ----------
                     renderMyHostel();
 
-                    // ---------- 4. Load everything else in PARALLEL ----------
+                    // ---------- 4. Session status FIRST (single coalesced call) ----------
+                    await loadSessionStatus(true);
+
+                    // ---------- 5. Load everything else in PARALLEL (deduped + filtered) ----------
+                    const hostelId = hostelData.id;
+
                     const [
                         studentsRes,
                         staffRes,
@@ -1179,19 +1258,32 @@
                         roomsRes,
                         sessionsRes
                     ] = await Promise.allSettled([
-                        apiCall('/students').then(r => (r.data || []).filter(s => s.hostel_id === hostelData.id)),
-                        apiCall('/staff').then(r => (r.data || []).filter(s => s.hostel_id === hostelData.id)),
-                        apiCall('/floors-flats').then(r => (r.data || []).filter(f => f.hostel_id === hostelData.id)),
-                        apiCall(`/rooms?hostel_id=${hostelData.id}`).then(r => r.data || []),
-                        apiCall(`/sessions?hostel_id=${hostelData.id}`).then(r => r.data || [])
+                        cachedApiCall(`/students?hostel_id=${hostelId}`)
+                            .catch(() => cachedApiCall('/students').then(r => ({
+                                data: (r.data || []).filter(s => s.hostel_id === hostelId)
+                            }))),
+
+                        cachedApiCall(`/staff?hostel_id=${hostelId}`)
+                            .catch(() => cachedApiCall('/staff').then(r => ({
+                                data: (r.data || []).filter(s => s.hostel_id === hostelId)
+                            }))),
+
+                        cachedApiCall(`/floors-flats?hostel_id=${hostelId}`)
+                            .catch(() => cachedApiCall('/floors-flats').then(r => ({
+                                data: (r.data || []).filter(f => f.hostel_id === hostelId)
+                            }))),
+
+                        cachedApiCall(`/rooms?hostel_id=${hostelId}`),
+
+                        cachedApiCall(`/sessions?hostel_id=${hostelId}`)
                     ]);
 
-                    // ---------- 5. Process results safely ----------
-                    students = studentsRes.status === 'fulfilled' ? studentsRes.value : [];
-                    staff = staffRes.status === 'fulfilled' ? staffRes.value : [];
-                    floors = floorsRes.status === 'fulfilled' ? floorsRes.value : [];
-                    rooms = roomsRes.status === 'fulfilled' ? roomsRes.value : [];
-                    sessions = sessionsRes.status === 'fulfilled' ? sessionsRes.value : [];
+                    // ---------- 6. Process results safely ----------
+                    students = studentsRes.status === 'fulfilled' ? (studentsRes.value.data || []) : [];
+                    staff = staffRes.status === 'fulfilled' ? (staffRes.value.data || []) : [];
+                    floors = floorsRes.status === 'fulfilled' ? (floorsRes.value.data || []) : [];
+                    rooms = roomsRes.status === 'fulfilled' ? (roomsRes.value.data || []) : [];
+                    sessions = sessionsRes.status === 'fulfilled' ? (sessionsRes.value.data || []) : [];
 
                     if (roomsRes.status !== 'fulfilled') {
                         showToast('Rooms data temporarily unavailable', 'error');
@@ -1220,11 +1312,9 @@
                     recentActivities.sort((a, b) => new Date(b.date) - new Date(a.date));
                     recentActivities = recentActivities.slice(0, 10);
 
-                    // ---------- 6. Session status + structure ----------
-                    await loadSessionStatus();
+                    // ---------- 7. Build room structure + final render ----------
                     buildRoomStructure();
 
-                    // ---------- 7. Final full render ----------
                     const now = new Date();
                     const dateEl = document.getElementById('currentDate');
                     if (dateEl) {
@@ -1237,7 +1327,10 @@
                     startSessionChecker();
 
                 } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    if (!error.silent &&
+                        !error.message.includes('Authentication required') &&
+                        !error.message.includes('No authentication token') &&
+                        !error.message.includes('Rate limited')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
                     setNotice('Error loading data. Please refresh.');
