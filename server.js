@@ -612,9 +612,18 @@ class InsightFaceService {
 
 const faceService = new InsightFaceService(FACE_API_URL);
 
-// In-process face queue (limits concurrent Face API calls)
+// In-process face queue
 const faceQueue = require('./faceQueue');
 console.log(`Face queue ready (concurrency=${process.env.FACE_CONCURRENCY || 3})`);
+
+// Rate queues (auth, registration, general)
+const {
+  authRateQueue,
+  registrationRateQueue,
+  generalRateQueue,
+} = require('./rateQueue');
+
+console.log('Rate queues ready (auth + registration + general)');
 
 // =====================================================
 // SESSION MANAGEMENT FUNCTIONS
@@ -3020,145 +3029,158 @@ app.get('/api/public/bed-spaces', async (req, res) => {
 // PUBLIC STUDENT REGISTRATION
 // =============================================
 app.post('/api/public/students/register', registrationLimiter, async (req, res) => {
+    const key = req.clientIp || req.ip || req.connection.remoteAddress;
+
     try {
-        const raw = req.body || {};
+        await registrationRateQueue.add(key, async () => {
+            const raw = req.body || {};
 
-        const allowed = [
-            'name', 'matric', 'gender', 'phone', 'email',
-            'faculty', 'department', 'level', 'session', 'campus',
-            'hostel_id', 'hostel_name',
-            'room_id', 'room_code',
-            'bed_space_id', 'bed_code',
-            'emergency_name', 'emergency_relation', 'emergency_phone'
-        ];
+            const allowed = [
+                'name', 'matric', 'gender', 'phone', 'email',
+                'faculty', 'department', 'level', 'session', 'campus',
+                'hostel_id', 'hostel_name',
+                'room_id', 'room_code',
+                'bed_space_id', 'bed_code',
+                'emergency_name', 'emergency_relation', 'emergency_phone'
+            ];
 
-        const studentData = {};
-        for (const key of allowed) {
-            if (raw[key] !== undefined && raw[key] !== null && raw[key] !== '') {
-                studentData[key] = typeof raw[key] === 'string'
-                    ? raw[key].trim()
-                    : raw[key];
+            const studentData = {};
+            for (const field of allowed) {
+                if (raw[field] !== undefined && raw[field] !== null && raw[field] !== '') {
+                    studentData[field] = typeof raw[field] === 'string'
+                        ? raw[field].trim()
+                        : raw[field];
+                }
             }
-        }
 
-        const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
-        for (const field of required) {
-            if (!studentData[field]) {
-                return res.status(400).json({
+            const required = ['name', 'matric', 'gender', 'phone', 'faculty', 'department', 'level', 'session', 'campus'];
+            for (const field of required) {
+                if (!studentData[field]) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Missing required field: ${field}`,
+                        code: 'MISSING_FIELD'
+                    });
+                }
+            }
+
+            studentData.matric = String(studentData.matric).toUpperCase();
+            if (!['Legacy', 'Heritage'].includes(studentData.campus)) {
+                studentData.campus = 'Legacy';
+            }
+
+            const { data: existing, error: checkError } = await supabase
+                .from('students')
+                .select('id, face_enrolled, status')
+                .eq('matric', studentData.matric)
+                .maybeSingle();
+
+            if (checkError) {
+                console.error('Check existing error:', checkError);
+                return res.status(500).json({
                     success: false,
-                    message: `Missing required field: ${field}`,
-                    code: 'MISSING_FIELD'
+                    message: 'Database error',
+                    code: 'DB_ERROR'
                 });
             }
-        }
 
-        studentData.matric = String(studentData.matric).toUpperCase();
-        if (!['Legacy', 'Heritage'].includes(studentData.campus)) {
-            studentData.campus = 'Legacy';
-        }
+            let result;
+            let isUpdate = false;
+            const now = new Date().toISOString();
 
-        const { data: existing, error: checkError } = await supabase
-            .from('students')
-            .select('id, face_enrolled, status')
-            .eq('matric', studentData.matric)
-            .maybeSingle();
+            if (existing) {
+                isUpdate = true;
 
-        if (checkError) {
-            console.error('Check existing error:', checkError);
-            return res.status(500).json({
+                const { face_enrolled, status, ...safeUpdate } = studentData;
+
+                const { data, error } = await supabase
+                    .from('students')
+                    .update({
+                        ...safeUpdate,
+                        updated_at: now
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+
+                if (error) {
+                    console.error('Update student error:', error);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to update student',
+                        code: 'UPDATE_ERROR'
+                    });
+                }
+                result = data;
+            } else {
+                const { data, error } = await supabase
+                    .from('students')
+                    .insert({
+                        ...studentData,
+                        status: 'Present',
+                        face_enrolled: false,
+                        created_at: now,
+                        updated_at: now
+                    })
+                    .select()
+                    .single();
+
+                if (error) {
+                    console.error('Create student error:', error);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to create student',
+                        code: 'CREATE_ERROR'
+                    });
+                }
+                result = data;
+            }
+
+            if (studentData.bed_space_id) {
+                const bedId = parseInt(studentData.bed_space_id, 10);
+                if (!Number.isNaN(bedId)) {
+                    const { data: bed } = await supabase
+                        .from('bed_spaces')
+                        .select('id, status, student_id')
+                        .eq('id', bedId)
+                        .maybeSingle();
+
+                    if (bed && 
+                        (bed.status === 'available' || bed.status === 'Available') && 
+                        !bed.student_id) {
+                        
+                        await supabase
+                            .from('bed_spaces')
+                            .update({
+                                status: 'occupied',
+                                student_id: result.id,
+                                updated_at: now
+                            })
+                            .eq('id', bedId)
+                            .eq('status', bed.status); // optimistic concurrency
+                    }
+                }
+            }
+
+            return res.json({
+                success: true,
+                data: result,
+                is_update: isUpdate,
+                message: isUpdate ? 'Student updated successfully' : 'Student registered successfully'
+            });
+        });
+    } catch (err) {
+        // Rate queue limit hit
+        if (err.code === 'RATE_LIMIT_EXCEEDED') {
+            return res.status(429).json({
                 success: false,
-                message: 'Database error',
-                code: 'DB_ERROR'
+                message: 'Too many registration attempts. Please try again later.',
+                retryAfter: err.retryAfter,
+                code: 'REGISTRATION_RATE_LIMIT'
             });
         }
 
-        let result;
-        let isUpdate = false;
-        const now = new Date().toISOString();
-
-        if (existing) {
-            isUpdate = true;
-
-            const { face_enrolled, status, ...safeUpdate } = studentData;
-
-            const { data, error } = await supabase
-                .from('students')
-                .update({
-                    ...safeUpdate,
-                    updated_at: now
-                })
-                .eq('id', existing.id)
-                .select()
-                .single();
-
-            if (error) {
-                console.error('Update student error:', error);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to update student',
-                    code: 'UPDATE_ERROR'
-                });
-            }
-            result = data;
-        } else {
-            const { data, error } = await supabase
-                .from('students')
-                .insert({
-                    ...studentData,
-                    status: 'Present',
-                    face_enrolled: false,
-                    created_at: now,
-                    updated_at: now
-                })
-                .select()
-                .single();
-
-            if (error) {
-                console.error('Create student error:', error);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to create student',
-                    code: 'CREATE_ERROR'
-                });
-            }
-            result = data;
-        }
-
-        if (studentData.bed_space_id) {
-            const bedId = parseInt(studentData.bed_space_id, 10);
-            if (!Number.isNaN(bedId)) {
-                const { data: bed } = await supabase
-                    .from('bed_spaces')
-                    .select('id, status, student_id')
-                    .eq('id', bedId)
-                    .maybeSingle();
-
-                if (bed && 
-                    (bed.status === 'available' || bed.status === 'Available') && 
-                    !bed.student_id) {
-                    
-                    await supabase
-                        .from('bed_spaces')
-                        .update({
-                            status: 'occupied',
-                            student_id: result.id,
-                            updated_at: now
-                        })
-                        .eq('id', bedId)
-                        .eq('status', bed.status); // optimistic concurrency
-                }
-            }
-        }
-
-        res.json({
-            success: true,
-            data: result,
-            is_update: isUpdate,
-            message: isUpdate ? 'Student updated successfully' : 'Student registered successfully'
-        });
-
-    } catch (error) {
-        console.error('Public registration error:', error);
+        console.error('Public registration error:', err);
         res.status(500).json({
             success: false,
             message: 'An error occurred. Please try again.',
@@ -3172,139 +3194,154 @@ app.post('/api/public/students/register', registrationLimiter, async (req, res) 
 // =====================================================
 app.post('/api/auth/login', authLimiter, validate(validators.login), async (req, res) => {
     const { username, password } = req.body;
-    const identifier = req.ip || req.connection.remoteAddress;
-    
+    const identifier = req.clientIp || req.ip || req.connection.remoteAddress;
+    const key = `${username}:${identifier}`;   // stricter: username + IP
+
     try {
-        if (authFirewall.isAuthenticationBlocked(identifier)) {
+        await authRateQueue.add(key, async () => {
+            // ---------- existing firewall check ----------
+            if (authFirewall.isAuthenticationBlocked(identifier)) {
+                return res.status(429).json({
+                    success: false,
+                    message: 'Too many login attempts. Please try again later.',
+                    code: 'AUTH_BLOCKED'
+                });
+            }
+
+            const { data, error } = await supabase
+                .from('staff')
+                .select(`
+                    id, 
+                    username, 
+                    role, 
+                    name, 
+                    initials, 
+                    scope, 
+                    hostel_id,
+                    assigned_floor, 
+                    assigned_room, 
+                    is_admin, 
+                    email, 
+                    phone, 
+                    department, 
+                    staff_id, 
+                    joined, 
+                    status, 
+                    password, 
+                    campus, 
+                    campus_code,
+                    hostels!hostel_id (
+                        id,
+                        name,
+                        type
+                    )
+                `)
+                .eq('username', username)
+                .maybeSingle();
+            
+            if (error) {
+                console.error('Login error:', error);
+                authFirewall.recordFailedAttempt(identifier);
+                await auditEvents.loginFailed(username, req);
+                return res.status(500).json({ 
+                    success: false, 
+                    message: 'An error occurred during login. Please try again.',
+                    code: 'LOGIN_ERROR'
+                });
+            }
+            
+            if (!data) {
+                authFirewall.recordFailedAttempt(identifier);
+                await auditEvents.loginFailed(username, req);
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Invalid username or password',
+                    code: 'INVALID_CREDENTIALS'
+                });
+            }
+
+            const user = data;
+
+            let validPassword = false;
+            try {
+                validPassword = await bcrypt.compare(password, user.password);
+            } catch (e) {
+                console.error('Password verification error:', e);
+                validPassword = false;
+            }
+
+            if (!validPassword) {
+                authFirewall.recordFailedAttempt(identifier);
+                await auditEvents.loginFailed(username, req);
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Invalid username or password',
+                    code: 'INVALID_CREDENTIALS'
+                });
+            }
+
+            if (user.status !== 'Active') {
+                authFirewall.recordFailedAttempt(identifier);
+                await auditEvents.loginFailed(username, req);
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Account is inactive. Please contact administrator.',
+                    code: 'ACCOUNT_INACTIVE'
+                });
+            }
+
+            authFirewall.resetFailedAttempts(identifier);
+
+            req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
+
+            await supabase
+                .from('staff')
+                .update({ last_login: new Date().toISOString() })
+                .eq('id', user.id);
+
+            const token = generateToken(user);
+
+            await auditEvents.loginSuccess(user, req);
+
+            const { password: _, ...userWithoutPassword } = user;
+
+            const formattedUser = {
+                ...userWithoutPassword,
+                hostel: user.hostels?.name || null,
+                hostel_name: user.hostels?.name || null,
+                hostel_type: user.hostels?.type || null,
+                assigned_floor: user.assigned_floor,
+                assigned_room: user.assigned_room,
+                hostels: undefined
+            };
+
+            const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
+
+            return res.json({ 
+                success: true, 
+                data: {
+                    user: formattedUser,
+                    token: token,
+                    expiresIn: process.env.JWT_EXPIRY || '8h',
+                    campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
+                    redirect: redirectUrl
+                },
+                role: user.role
+            });
+        });
+    } catch (err) {
+        // Rate queue limit hit
+        if (err.code === 'RATE_LIMIT_EXCEEDED') {
             return res.status(429).json({
                 success: false,
                 message: 'Too many login attempts. Please try again later.',
-                code: 'AUTH_BLOCKED'
+                retryAfter: err.retryAfter,
+                code: 'AUTH_RATE_LIMIT'
             });
         }
 
-        const { data, error } = await supabase
-            .from('staff')
-            .select(`
-                id, 
-                username, 
-                role, 
-                name, 
-                initials, 
-                scope, 
-                hostel_id,
-                assigned_floor, 
-                assigned_room, 
-                is_admin, 
-                email, 
-                phone, 
-                department, 
-                staff_id, 
-                joined, 
-                status, 
-                password, 
-                campus, 
-                campus_code,
-                hostels!hostel_id (
-                    id,
-                    name,
-                    type
-                )
-            `)
-            .eq('username', username)
-            .maybeSingle();
-        
-        if (error) {
-            console.error('Login error:', error);
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred during login. Please try again.',
-                code: 'LOGIN_ERROR'
-            });
-        }
-        
-        if (!data) {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Invalid username or password',
-                code: 'INVALID_CREDENTIALS'
-            });
-        }
-
-        const user = data;
-
-        let validPassword = false;
-        try {
-            validPassword = await bcrypt.compare(password, user.password);
-        } catch (e) {
-            console.error('Password verification error:', e);
-            validPassword = false;
-        }
-
-        if (!validPassword) {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Invalid username or password',
-                code: 'INVALID_CREDENTIALS'
-            });
-        }
-
-        if (user.status !== 'Active') {
-            authFirewall.recordFailedAttempt(identifier);
-            await auditEvents.loginFailed(username, req);
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Account is inactive. Please contact administrator.',
-                code: 'ACCOUNT_INACTIVE'
-            });
-        }
-
-        authFirewall.resetFailedAttempts(identifier);
-
-        req.campus = user.campus || process.env.DEFAULT_CAMPUS || 'Legacy';
-
-        await supabase
-            .from('staff')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', user.id);
-
-        const token = generateToken(user);
-
-        await auditEvents.loginSuccess(user, req);
-
-        const { password: _, ...userWithoutPassword } = user;
-
-        const formattedUser = {
-            ...userWithoutPassword,
-            hostel: user.hostels?.name || null,
-            hostel_name: user.hostels?.name || null,
-            hostel_type: user.hostels?.type || null,
-            assigned_floor: user.assigned_floor,
-            assigned_room: user.assigned_room,
-            hostels: undefined
-        };
-
-        const redirectUrl = DASHBOARD_ROUTES[user.role] || '/index.html';
-
-        res.json({ 
-            success: true, 
-            data: {
-                user: formattedUser,
-                token: token,
-                expiresIn: process.env.JWT_EXPIRY || '8h',
-                campus: user.campus || process.env.DEFAULT_CAMPUS || 'Legacy',
-                redirect: redirectUrl
-            },
-            role: user.role
-        });
-    } catch (error) {
-        console.error('Login error:', error);
+        // Any other unexpected error
+        console.error('Login error:', err);
         authFirewall.recordFailedAttempt(identifier);
         res.status(500).json({ 
             success: false, 
@@ -13148,166 +13185,178 @@ app.post('/api/bedcheck/scan-with-face',
         body('session_id').optional().isInt()
     ]),
     async (req, res) => {
+        const key = `${req.user?.id || 'anon'}:${req.clientIp}`;
+
         try {
-            const { session_id, image, room_id, threshold = FACE_VERIFICATION_THRESHOLD, scanner_id } = req.body;
+            await generalRateQueue.add(key, () =>
+                faceQueue.add(async () => {
+                    const { session_id, image, room_id, threshold = FACE_VERIFICATION_THRESHOLD, scanner_id } = req.body;
 
-            const validation = faceService.validateImage(image);
-            if (!validation.valid) {
-                return res.status(400).json({
-                    success: false,
-                    message: validation.error,
-                    code: 'INVALID_IMAGE'
-                });
-            }
-
-            let query = supabase.from('students')
-                .select('id, name, matric, hostel_id, room_id, room_code, campus')
-                .eq('campus', req.campus)
-                .eq('face_enrolled', true)
-                .eq('room_id', room_id);
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
-                query = query.eq('hostel_id', req.user.hostel_id);
-            }
-            
-            const { data: students, error: studentsError } = await query;
-            
-            if (studentsError) {
-                console.error('Fetch students error:', studentsError);
-                return res.status(500).json({
-                    success: false,
-                    message: 'An error occurred. Please try again.',
-                    code: 'SERVER_ERROR'
-                });
-            }
-
-            if (!students || students.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'No students found with face enrolled in this room',
-                    code: 'NO_STUDENTS_FOUND'
-                });
-            }
-
-            const studentIds = students.map(s => s.id);
-            const { data: faceData, error: faceError } = await supabase
-                .from('student_face')
-                .select('student_id, face_embedding, verification_count')
-                .in('student_id', studentIds)
-                .eq('campus', req.campus)
-                .eq('is_active', true);
-
-            if (faceError || !faceData || faceData.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'No face embeddings found for students in this room',
-                    code: 'NO_FACE_EMBEDDINGS'
-                });
-            }
-
-            const embeddings = faceData.map(f => f.face_embedding);
-            const faceStudentIds = faceData.map(f => f.student_id);
-
-            const result = await faceQueue.add(() =>
-                faceService.verifyMultiple(
-                    image,
-                    embeddings,
-                    faceStudentIds,
-                    threshold
-                )
-            );
-
-            let matchedStudent = null;
-            let scanResult = null;
-            
-            if (result.success && result.student_id) {
-                matchedStudent = students.find(s => s.id === result.student_id);
-                
-                if (matchedStudent) {
-                    const studentFace = faceData.find(f => f.student_id === matchedStudent.id);
-                    await supabase
-                        .from('student_face')
-                        .update({
-                            last_verified: new Date().toISOString(),
-                            verification_count: (studentFace?.verification_count || 0) + 1,
-                            confidence_score: result.confidence || null,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('student_id', matchedStudent.id);
-
-                    const newScan = {
-                        session_id: session_id || null,
-                        student_id: matchedStudent.id,
-                        room: matchedStudent.room_code || null,
-                        bed_number: null,
-                        status: 'Verified',
-                        scanner_id: scanner_id || 'Face-001',
-                        campus: req.campus,
-                        created_at: new Date().toISOString()
-                    };
-                    
-                    const { data: scanData, error: scanError } = await supabase
-                        .from('bedcheck_scans')
-                        .insert(newScan)
-                        .select()
-                        .single();
-                    
-                    if (!scanError) {
-                        scanResult = scanData;
-                        
-                        await supabase
-                            .from('students')
-                            .update({ 
-                                status: 'Present',
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('id', matchedStudent.id);
+                    const validation = faceService.validateImage(image);
+                    if (!validation.valid) {
+                        return res.status(400).json({
+                            success: false,
+                            message: validation.error,
+                            code: 'INVALID_IMAGE'
+                        });
                     }
-                }
+
+                    let query = supabase.from('students')
+                        .select('id, name, matric, hostel_id, room_id, room_code, campus')
+                        .eq('campus', req.campus)
+                        .eq('face_enrolled', true)
+                        .eq('room_id', room_id);
+                    
+                    if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+                        query = query.eq('hostel_id', req.user.hostel_id);
+                    }
+                    
+                    const { data: students, error: studentsError } = await query;
+                    
+                    if (studentsError) {
+                        console.error('Fetch students error:', studentsError);
+                        return res.status(500).json({
+                            success: false,
+                            message: 'An error occurred. Please try again.',
+                            code: 'SERVER_ERROR'
+                        });
+                    }
+
+                    if (!students || students.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            message: 'No students found with face enrolled in this room',
+                            code: 'NO_STUDENTS_FOUND'
+                        });
+                    }
+
+                    const studentIds = students.map(s => s.id);
+                    const { data: faceData, error: faceError } = await supabase
+                        .from('student_face')
+                        .select('student_id, face_embedding, verification_count')
+                        .in('student_id', studentIds)
+                        .eq('campus', req.campus)
+                        .eq('is_active', true);
+
+                    if (faceError || !faceData || faceData.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            message: 'No face embeddings found for students in this room',
+                            code: 'NO_FACE_EMBEDDINGS'
+                        });
+                    }
+
+                    const embeddings = faceData.map(f => f.face_embedding);
+                    const faceStudentIds = faceData.map(f => f.student_id);
+
+                    const verification = await faceService.verifyMultiple(
+                        image,
+                        embeddings,
+                        faceStudentIds,
+                        threshold
+                    );
+
+                    let matchedStudent = null;
+                    let scanResult = null;
+                    
+                    if (verification.success && verification.student_id) {
+                        matchedStudent = students.find(s => s.id === verification.student_id);
+                        
+                        if (matchedStudent) {
+                            const studentFace = faceData.find(f => f.student_id === matchedStudent.id);
+                            await supabase
+                                .from('student_face')
+                                .update({
+                                    last_verified: new Date().toISOString(),
+                                    verification_count: (studentFace?.verification_count || 0) + 1,
+                                    confidence_score: verification.confidence || null,
+                                    updated_at: new Date().toISOString()
+                                })
+                                .eq('student_id', matchedStudent.id);
+
+                            const newScan = {
+                                session_id: session_id || null,
+                                student_id: matchedStudent.id,
+                                room: matchedStudent.room_code || null,
+                                bed_number: null,
+                                status: 'Verified',
+                                scanner_id: scanner_id || 'Face-001',
+                                campus: req.campus,
+                                created_at: new Date().toISOString()
+                            };
+                            
+                            const { data: scanData, error: scanError } = await supabase
+                                .from('bedcheck_scans')
+                                .insert(newScan)
+                                .select()
+                                .single();
+                            
+                            if (!scanError) {
+                                scanResult = scanData;
+                                
+                                await supabase
+                                    .from('students')
+                                    .update({ 
+                                        status: 'Present',
+                                        updated_at: new Date().toISOString()
+                                    })
+                                    .eq('id', matchedStudent.id);
+                            }
+                        }
+                    }
+
+                    await auditService.log({
+                        actor: req.user.name || req.user.username,
+                        actor_id: req.user.id,
+                        actor_role: req.user.role,
+                        action: matchedStudent ? 'Face Scan Verified' : 'Face Scan Failed',
+                        module: 'bedcheck',
+                        details: matchedStudent 
+                            ? `${matchedStudent.name} (${matchedStudent.matric}) verified via face scan`
+                            : `Face verification failed in room ${room_id}`,
+                        context: `Session: ${session_id || 'N/A'}`,
+                        result: matchedStudent ? 'success' : 'failed',
+                        category: 'bedcheck',
+                        tone: matchedStudent ? 'green' : 'red',
+                        hostel_id: matchedStudent?.hostel_id || req.user.hostel_id,
+                        room_id: room_id,
+                        student_id: matchedStudent?.id || null,
+                        session_id: session_id || null,
+                        campus: req.campus,
+                        ip_address: req.clientIp,
+                        user_agent: req.userAgent
+                    });
+
+                    return res.json({
+                        success: true,
+                        data: {
+                            verified: !!matchedStudent,
+                            student: matchedStudent ? {
+                                id: matchedStudent.id,
+                                name: matchedStudent.name,
+                                matric: matchedStudent.matric,
+                                room_code: matchedStudent.room_code
+                            } : null,
+                            confidence: verification.confidence || 0,
+                            threshold: verification.threshold || threshold,
+                            scan: scanResult,
+                            message: matchedStudent ? 'Attendance recorded' : 'No match found'
+                        },
+                        campus: req.campus
+                    });
+                })
+            );
+        } catch (err) {
+            if (err.code === 'RATE_LIMIT_EXCEEDED') {
+                return res.status(429).json({
+                    success: false,
+                    message: 'Too many verification attempts. Please wait a moment.',
+                    retryAfter: err.retryAfter,
+                    code: 'FACE_RATE_LIMIT'
+                });
             }
 
-            await auditService.log({
-                actor: req.user.name || req.user.username,
-                actor_id: req.user.id,
-                actor_role: req.user.role,
-                action: matchedStudent ? 'Face Scan Verified' : 'Face Scan Failed',
-                module: 'bedcheck',
-                details: matchedStudent 
-                    ? `${matchedStudent.name} (${matchedStudent.matric}) verified via face scan`
-                    : `Face verification failed in room ${room_id}`,
-                context: `Session: ${session_id || 'N/A'}`,
-                result: matchedStudent ? 'success' : 'failed',
-                category: 'bedcheck',
-                tone: matchedStudent ? 'green' : 'red',
-                hostel_id: matchedStudent?.hostel_id || req.user.hostel_id,
-                room_id: room_id,
-                student_id: matchedStudent?.id || null,
-                session_id: session_id || null,
-                campus: req.campus,
-                ip_address: req.clientIp,
-                user_agent: req.userAgent
-            });
-
-            res.json({
-                success: true,
-                data: {
-                    verified: !!matchedStudent,
-                    student: matchedStudent ? {
-                        id: matchedStudent.id,
-                        name: matchedStudent.name,
-                        matric: matchedStudent.matric,
-                        room_code: matchedStudent.room_code
-                    } : null,
-                    confidence: result.confidence || 0,
-                    threshold: result.threshold || threshold,
-                    scan: scanResult,
-                    message: matchedStudent ? 'Attendance recorded' : 'No match found'
-                },
-                campus: req.campus
-            });
-
-        } catch (error) {
-            console.error('Face scan error:', error);
+            console.error('Face scan error:', err);
             res.status(500).json({
                 success: false,
                 message: 'An error occurred. Please try again.',
