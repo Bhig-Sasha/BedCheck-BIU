@@ -746,7 +746,7 @@
     </div>
   </main>
 
-  <script>
+<script>
     (function() {
       'use strict';
 
@@ -778,6 +778,7 @@
       let currentSession = null;
       let sessionStatus = 'draft';
       let bedSpaces = [];
+      let bedSpacesTotal = 0; // real total from API (not just loaded rows)
       let isLoading = false;
 
       // ============================================================
@@ -870,12 +871,63 @@
         } catch { sessions = []; currentSession = null; sessionStatus = 'draft'; return sessions; }
       }
 
+      // ============================================================
+      // LOAD ALL BED SPACES (paginate — no 1000-row cap)
+      // ============================================================
       async function loadBedSpaces() {
         try {
-          const data = await apiCall('/bed-spaces?limit=1000');
-          bedSpaces = data.data || [];
+          const PAGE_SIZE = 500;      // server-friendly batch size
+          let all = [];
+          let offset = 0;
+          let hasMore = true;
+          let total = null;
+          let safetyCounter = 0;
+          const MAX_PAGES = 100;      // hard safety cap (100 * 500 = 50,000 rows)
+
+          while (hasMore && safetyCounter < MAX_PAGES) {
+            safetyCounter++;
+
+            const res = await apiCall(`/bed-spaces?limit=${PAGE_SIZE}&offset=${offset}`);
+
+            // Try to read the real total from common response shapes
+            if (total === null) {
+              total =
+                res.total ??
+                res.meta?.total ??
+                res.pagination?.total ??
+                null;
+            }
+
+            const batch = res.data || [];
+
+            if (batch.length === 0) {
+              hasMore = false;
+            } else {
+              all = all.concat(batch);
+              offset += PAGE_SIZE;
+
+              // Stop early if we already have everything
+              if (total !== null && all.length >= total) {
+                hasMore = false;
+              }
+              // If the server returned fewer rows than we asked for, we're done
+              if (batch.length < PAGE_SIZE) {
+                hasMore = false;
+              }
+            }
+          }
+
+          bedSpaces = all;
+          bedSpacesTotal = total ?? all.length;
+
+          console.log(`[bed-spaces] Loaded ${all.length} rows (API total: ${total ?? 'unknown'})`);
           return bedSpaces;
-        } catch { bedSpaces = []; return bedSpaces; }
+        } catch (e) {
+          console.warn('Failed to load bed spaces:', e);
+          bedSpaces = [];
+          bedSpacesTotal = 0;
+          return bedSpaces;
+        }
       }
 
       // ============================================================
@@ -1011,7 +1063,13 @@
         const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
         const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
         const totalStaff = staffMembers.length || 0;
-        const totalBeds = bedSpaces.length || 0;
+
+        // ✅ Real bedspace totals (from API, not capped at 1000)
+        const totalBeds = bedSpacesTotal || bedSpaces.length || 0;
+        const occupiedBeds = bedSpaces.filter(b =>
+          b.status === 'occupied' || b.student_id
+        ).length || 0;
+        const availableBeds = Math.max(0, totalBeds - occupiedBeds);
 
         const isLive = sessionStatus === 'active';
         const isScheduled = sessionStatus === 'scheduled';
@@ -1116,9 +1174,9 @@
             </div>
             <div class="metric-card">
               <div class="metric-icon gold"><i class="fas fa-bed"></i></div>
-              <div class="metric-value">${totalBeds}</div>
+              <div class="metric-value">${totalBeds.toLocaleString()}</div>
               <div class="metric-title">Bedspaces</div>
-              <div class="metric-detail">${totalStudents} occupied · ${Math.max(0, totalBeds - totalStudents)} available</div>
+              <div class="metric-detail">${occupiedBeds} occupied · ${availableBeds} available</div>
             </div>
             <div class="metric-card">
               <div class="metric-icon purple"><i class="fas fa-building"></i></div>
@@ -1128,7 +1186,7 @@
             </div>
           </div>
 
-          <!-- LIVE BEDCHECK (full width now) -->
+          <!-- LIVE BEDCHECK -->
           <div class="card mt-4">
             <div class="card-title"><i class="fas fa-clipboard-check"></i> Live BedCheck</div>
             <div class="live-banner mt-1" style="background:linear-gradient(135deg,#10233f 0%,#1a3a5c 100%);border-radius:0.5rem;padding:0.6rem 0.8rem;">
