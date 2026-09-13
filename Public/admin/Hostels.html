@@ -290,6 +290,21 @@
         /* Error state */
         .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.75rem; padding: 1rem; color: #991b1b; }
         .error-box i { font-size: 1.5rem; margin-bottom: 0.5rem; }
+
+        /* ============================================= */
+        /* ===== SKELETON LOADER (added) ===== */
+        /* ============================================= */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
     </style>
 </head>
 <body>
@@ -500,6 +515,7 @@
         let currentRole = 'Administrator';
         let hostels = [];
         let students = [];
+        let studentsLoaded = false;
         let allFloorsFlats = [];
         let allRooms = [];
         let allBedSpaces = [];
@@ -683,12 +699,14 @@
         }
 
         async function loadStudents() {
+            if (studentsLoaded) return students;
             try {
                 const data = await apiCall('/students');
                 students = data.data || [];
+                studentsLoaded = true;
                 return students;
             } catch (error) {
-                students = [];
+                students = students || [];
                 return students;
             }
         }
@@ -747,7 +765,7 @@
             });
 
             container.innerHTML = `
-                <div class="page-heading">
+                <div class="page-heading fade-in">
                     <div>
                         <p class="eyebrow"><i class="fas fa-building"></i> Accommodation Structure</p>
                         <h1>Hostel Configuration</h1>
@@ -759,7 +777,7 @@
                     </div>
                 </div>
 
-                <div class="metric-grid">
+                <div class="metric-grid fade-in">
                     <div class="metric-card">
                         <div class="metric-icon navy"><i class="fas fa-building"></i></div>
                         <div class="metric-value">${total}</div>
@@ -786,7 +804,7 @@
                     </div>
                 </div>
 
-                <div class="grid-3 mt-4" id="hostelsGrid"></div>
+                <div class="grid-3 mt-4 fade-in" id="hostelsGrid"></div>
                 <div class="card mt-4" id="hostelDetail" style="display:none;"></div>
             `;
 
@@ -1104,15 +1122,12 @@
                 const available = totalBeds - occupied;
                 const pct = totalBeds > 0 ? Math.round((occupied / totalBeds) * 100) : 0;
                 
-                // ✅ FIXED: Clean up the label display
                 let displayLabel = label;
                 
                 if (isFlat) {
-                    // Remove "Flat " prefix if it exists, then add it back cleanly
                     let cleanLabel = label.replace(/^Flat\s*/i, '').replace(/^F/i, '');
                     displayLabel = `Flat ${cleanLabel}`;
                 } else {
-                    // Remove "Floor " prefix if it exists, then add it back cleanly
                     let cleanLabel = label.replace(/^Floor\s*/i, '');
                     displayLabel = `Floor ${cleanLabel}`;
                 }
@@ -1128,7 +1143,6 @@
                 });
             });
             
-            // Sort by number
             floorData.sort((a, b) => {
                 const aNum = parseInt(a.value.replace(/^Flat\s*/i, '').replace(/^F/i, '').replace(/^Floor\s*/i, '')) || 0;
                 const bNum = parseInt(b.value.replace(/^Flat\s*/i, '').replace(/^F/i, '').replace(/^Floor\s*/i, '')) || 0;
@@ -1186,7 +1200,6 @@
             const title = document.getElementById('floorTitle');
             const isFlat = getHostelType(selectedHostelForRoom) === 'flat';
             if (title) {
-                // ✅ FIXED: Clean up the title display
                 let cleanLabel = floorValue.replace(/^Flat\s*/i, '').replace(/^F/i, '');
                 title.textContent = isFlat ? `Flat ${cleanLabel}` : `Floor ${floorValue}`;
             }
@@ -1499,7 +1512,13 @@
         // =============================================
         // ASSIGN STUDENT MODAL
         // =============================================
-        function openAssignStudentModal(roomId, bedLabel) {
+        async function openAssignStudentModal(roomId, bedLabel) {
+            // Ensure students are loaded before opening
+            if (!studentsLoaded) {
+                showToast('Loading students...', 'warning');
+                await loadStudents();
+            }
+
             selectedRoom = allRooms.find(r => String(r.id) === String(roomId));
             selectedBed = bedLabel;
             
@@ -1768,6 +1787,48 @@
         }
 
         // =============================================
+        // SKELETON (instant first paint)
+        // =============================================
+        function showHostelSkeleton() {
+            const container = document.getElementById('screenContent');
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow"><i class="fas fa-building"></i> Accommodation Structure</p>
+                        <div class="skeleton" style="height:1.8rem;width:16rem;margin-top:0.4rem;"></div>
+                        <div class="skeleton" style="height:0.75rem;width:20rem;margin-top:0.5rem;"></div>
+                    </div>
+                    <div class="action-group">
+                        <div class="skeleton" style="height:2.1rem;width:6rem;border-radius:0.5rem;"></div>
+                        <div class="skeleton" style="height:2.1rem;width:7rem;border-radius:0.5rem;"></div>
+                    </div>
+                </div>
+
+                <div class="metric-grid">
+                    ${Array(4).fill(0).map(() => `
+                        <div class="metric-card">
+                            <div class="skeleton" style="height:1.4rem;width:2.8rem;"></div>
+                            <div class="skeleton" style="height:0.7rem;width:4.5rem;margin-top:0.4rem;"></div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="grid-3 mt-4">
+                    ${Array(6).fill(0).map(() => `
+                        <div class="card">
+                            <div class="skeleton" style="height:1.1rem;width:8rem;margin-bottom:0.6rem;"></div>
+                            <div class="skeleton" style="height:0.7rem;width:100%;margin-bottom:0.4rem;"></div>
+                            <div class="skeleton" style="height:0.7rem;width:70%;margin-bottom:0.6rem;"></div>
+                            <div class="skeleton" style="height:0.4rem;width:100%;"></div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // =============================================
         // AUTHENTICATION
         // =============================================
         function checkAuth() {
@@ -1845,7 +1906,7 @@
         window.refreshHostelData = refreshHostelData;
 
         // =============================================
-        // INIT
+        // INIT (fast first paint, then progressive fill)
         // =============================================
         async function init() {
             const isAuthenticated = await checkAuthStatus();
@@ -1854,29 +1915,11 @@
             if (!checkAuth()) return;
             setDate();
 
-            document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-            document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-            document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-            try {
-                isLoading = true;
-                document.getElementById('noticeText').textContent = 'Loading hostels...';
-                
-                await loadHostels();
-                await loadStudents();
-                
-                isLoading = false;
-                renderScreen();
-                document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels and ${students.length} students.`;
-            } catch (error) {
-                isLoading = false;
-                document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                    showToast('Error loading data: ' + error.message, 'error');
-                }
-                renderScreen();
-            }
+            // Wire events early
+            document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
+            document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
+            document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
+            document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
 
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
@@ -1885,6 +1928,32 @@
                     closeAssignStudentModal();
                 }
             });
+
+            // 1. Instant skeleton
+            showHostelSkeleton();
+            document.getElementById('noticeText').textContent = 'Loading hostels...';
+
+            try {
+                // 2. Load hostels first (most important)
+                await loadHostels();
+
+                // 3. First real render
+                isLoading = false;
+                renderScreen();
+                document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels.`;
+
+                // 4. Load students in background (only needed when assigning beds)
+                loadStudents().catch(() => {});
+
+            } catch (error) {
+                isLoading = false;
+                document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                if (!error.message?.includes('Authentication required') && 
+                    !error.message?.includes('No authentication token')) {
+                    showToast('Error loading data: ' + error.message, 'error');
+                }
+                renderScreen();
+            }
         }
 
         if (document.readyState === 'loading') {

@@ -261,6 +261,21 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* ============================================= */
+        /* ===== SKELETON LOADER (added) ===== */
+        /* ============================================= */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
     </style>
 </head>
 <body>
@@ -387,6 +402,8 @@
             const pageSize = 10;
             let staffList = [];
             let hostels = [];
+            let staffLoaded = false;
+            let hostelsLoaded = false;
 
             // =============================================
             // TOAST NOTIFICATION
@@ -526,21 +543,13 @@
                     const role = log.actor_role || '';
                     const module = log.module || '';
                     
-                    // =============================================
-                    // COMPLETELY HIDE THESE
-                    // =============================================
-                    // Hide System and Developer
                     if (actor === 'System' || actor === 'Developer') return false;
                     if (role === 'System' || role === 'Developer') return false;
                     if (module === 'system' || module === 'developer' || module === 'dev') return false;
                     
-                    // =============================================
-                    // HIDE Sasha_Saint COMPLETELY
-                    // =============================================
                     if (actor === 'Sasha_Saint') return false;
                     if (role === 'Sasha_Saint') return false;
                     
-                    // Hide anything containing "Sasha"
                     if (actor && actor.includes('Sasha')) return false;
                     if (role && role.includes('Sasha')) return false;
                     
@@ -564,23 +573,27 @@
             }
 
             async function loadStaff() {
+                if (staffLoaded) return staffList;
                 try {
                     const data = await apiCall('/staff');
                     staffList = data.data || [];
+                    staffLoaded = true;
                     return staffList;
                 } catch (error) {
-                    staffList = [];
+                    staffList = staffList || [];
                     return staffList;
                 }
             }
 
             async function loadHostels() {
+                if (hostelsLoaded) return hostels;
                 try {
                     const data = await apiCall('/hostels');
                     hostels = data.data || [];
+                    hostelsLoaded = true;
                     return hostels;
                 } catch (error) {
-                    hostels = [];
+                    hostels = hostels || [];
                     return hostels;
                 }
             }
@@ -591,7 +604,6 @@
             function renderScreen() {
                 const container = document.getElementById('screenContent');
                 
-                // Only use user logs for statistics
                 const userLogs = getUserLogs();
                 const total = userLogs.length;
                 const successCount = userLogs.filter(l => l.result === 'success' || l.result === 'completed').length;
@@ -601,7 +613,7 @@
                 const lastActivity = userLogs.length > 0 ? getTimeSince(userLogs[0].created_at) : '—';
                 
                 container.innerHTML = `
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <p class="eyebrow"><i class="fas fa-history"></i> Security Control Center</p>
                             <h1>Audit Trail</h1>
@@ -613,8 +625,7 @@
                         </div>
                     </div>
 
-                    <!-- Summary Cards -->
-                    <div class="metric-grid">
+                    <div class="metric-grid fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-list"></i></div>
                             <div class="metric-value">${total}</div>
@@ -653,8 +664,7 @@
                         </div>
                     </div>
 
-                    <!-- Filter Bar -->
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="grid-3">
                             <div class="field">
                                 <label>Action / Module</label>
@@ -709,8 +719,7 @@
                         </div>
                     </div>
 
-                    <!-- Main Table -->
-                    <div class="mt-4">
+                    <div class="mt-4 fade-in">
                         <div class="flex-between mb-2">
                             <div>
                                 <h3 class="font-serif text-base font-bold">Audit Trail</h3>
@@ -739,9 +748,7 @@
                         </div>
                     </div>
 
-                    <!-- Right Side Insights (under table on mobile) -->
-                    <div class="grid-2 mt-4">
-                        <!-- Most Active Users -->
+                    <div class="grid-2 mt-4 fade-in">
                         <div class="card">
                             <h4 class="font-bold text-sm"><i class="fas fa-user-clock text-gold"></i> Most Active Users</h4>
                             <div class="mt-2" id="activeUsersList">
@@ -753,7 +760,6 @@
                                 `).join('') || '<p class="text-muted text-xs">No users found</p>'}
                             </div>
                         </div>
-                        <!-- Security Alerts -->
                         <div class="card">
                             <h4 class="font-bold text-sm"><i class="fas fa-exclamation-triangle text-gold"></i> Security Alerts</h4>
                             <div class="mt-2" id="securityAlertsList">
@@ -803,7 +809,6 @@
                 const alerts = [];
                 const userLogs = getUserLogs();
                 
-                // Check for failed logins
                 const failedLogins = userLogs.filter(l => l.action === 'Login Failed' || l.result === 'failed');
                 if (failedLogins.length >= 3) {
                     alerts.push({
@@ -814,7 +819,6 @@
                     });
                 }
                 
-                // Check for rejected sessions
                 const rejected = userLogs.filter(l => l.action === 'Rejected BedCheck');
                 if (rejected.length >= 3) {
                     alerts.push({
@@ -825,7 +829,6 @@
                     });
                 }
                 
-                // Check for suspicious activity (critical tone)
                 const suspicious = userLogs.filter(l => l.tone === 'red');
                 if (suspicious.length >= 2) {
                     alerts.push({
@@ -836,7 +839,6 @@
                     });
                 }
                 
-                // Add a system alert if no alerts generated and there are logs
                 if (alerts.length === 0 && userLogs.length > 0) {
                     alerts.push({
                         title: 'All systems normal',
@@ -858,7 +860,6 @@
                 const buttons = document.getElementById('paginationButtons');
                 if (!tbody) return;
                 
-                // Apply filters
                 const filtered = getFilteredLogs();
                 const total = filtered.length;
                 const totalPages = Math.ceil(total / pageSize);
@@ -887,7 +888,6 @@
                     </tr>
                 `).join('') || '<tr><td colspan="9" class="text-center text-muted" style="padding:1rem;">No audit logs found</td></tr>';
 
-                // Pagination
                 if (info) {
                     info.textContent = `Showing ${start + 1}–${end} of ${total} logs`;
                 }
@@ -922,23 +922,15 @@
                     const role = log.actor_role || '';
                     const module = log.module || '';
                     
-                    // =============================================
-                    // COMPLETELY HIDE THESE
-                    // =============================================
-                    // Hide System and Developer
                     if (actor === 'System' || actor === 'Developer') return false;
                     if (role === 'System' || role === 'Developer') return false;
                     if (module === 'system' || module === 'developer' || module === 'dev') return false;
                     
-                    // =============================================
-                    // HIDE Sasha_Saint COMPLETELY
-                    // =============================================
                     if (actor === 'Sasha_Saint') return false;
                     if (role === 'Sasha_Saint') return false;
                     if (actor && actor.includes('Sasha')) return false;
                     if (role && role.includes('Sasha')) return false;
                     
-                    // User filters (only apply to non-system logs)
                     if (actionFilter && log.module !== actionFilter) return false;
                     if (roleFilter && log.actor_role !== roleFilter) return false;
                     if (resultFilter && log.result !== resultFilter) return false;
@@ -984,9 +976,6 @@
                         return;
                     }
                     
-                    // =============================================
-                    // HIDE Sasha_Saint COMPLETELY
-                    // =============================================
                     const actor = log.actor || '';
                     const role = log.actor_role || '';
                     const module = log.module || '';
@@ -1084,6 +1073,8 @@
             // =============================================
             async function refreshAudit() {
                 showToast('Refreshing audit logs...', 'warning');
+                staffLoaded = false;
+                hostelsLoaded = false;
                 await Promise.all([loadAuditLogs(), loadStaff(), loadHostels()]);
                 renderScreen();
                 showToast(`Loaded ${auditLogs.length} audit logs!`, 'success');
@@ -1094,6 +1085,50 @@
                 setTimeout(() => {
                     showToast('Audit logs exported successfully!', 'success');
                 }, 1500);
+            }
+
+            // =============================================
+            // SKELETON (instant first paint)
+            // =============================================
+            function showAuditSkeleton() {
+                const container = document.getElementById('screenContent');
+                if (!container) return;
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-history"></i> Security Control Center</p>
+                            <div class="skeleton" style="height:1.8rem;width:14rem;margin-top:0.4rem;"></div>
+                            <div class="skeleton" style="height:0.75rem;width:20rem;margin-top:0.5rem;"></div>
+                        </div>
+                        <div class="action-group">
+                            <div class="skeleton" style="height:2.1rem;width:6rem;border-radius:0.5rem;"></div>
+                            <div class="skeleton" style="height:2.1rem;width:6rem;border-radius:0.5rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-grid">
+                        ${Array(6).fill(0).map(() => `
+                            <div class="metric-card">
+                                <div class="skeleton" style="height:1.4rem;width:2.5rem;margin:0 auto;"></div>
+                                <div class="skeleton" style="height:0.65rem;width:4rem;margin:0.4rem auto 0;"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="skeleton" style="height:2.2rem;width:100%;margin-bottom:0.75rem;"></div>
+                        <div class="skeleton" style="height:2.2rem;width:100%;margin-bottom:0.75rem;"></div>
+                        <div class="skeleton" style="height:2.2rem;width:100%;"></div>
+                    </div>
+
+                    <div class="table-wrap mt-4">
+                        <div class="skeleton" style="height:2.4rem;width:100%;margin-bottom:0.4rem;"></div>
+                        ${Array(8).fill(0).map(() => `
+                            <div class="skeleton" style="height:2.2rem;width:100%;margin-bottom:0.35rem;"></div>
+                        `).join('')}
+                    </div>
+                `;
             }
 
             // =============================================
@@ -1129,18 +1164,12 @@
                 window.location.replace('../Login.html');
             }
 
-            // =============================================
-            // SET DATE
-            // =============================================
             function setDate() {
                 const now = new Date();
                 const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
             }
 
-            // =============================================
-            // MOBILE DRAWER
-            // =============================================
             function openMobileDrawer() {
                 document.getElementById('mobileDrawer').classList.add('open');
                 document.getElementById('drawerOverlay').classList.add('show');
@@ -1164,34 +1193,49 @@
             window.exportAudit = exportAudit;
 
             // =============================================
-            // INIT
+            // INIT (fast first paint, then progressive fill)
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-                try {
-                    document.getElementById('noticeText').textContent = 'Loading audit logs...';
-                    await Promise.all([loadAuditLogs(), loadStaff(), loadHostels()]);
-                    renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${auditLogs.length} audit logs. Immutable activity history for BedCheck operations.`;
-                } catch (error) {
-                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        showToast('Error loading data: ' + error.message, 'error');
-                    }
-                }
+                // Wire events early
+                document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
 
                 document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        closeViewDrawer();
-                    }
+                    if (e.key === 'Escape') closeViewDrawer();
                 });
+
+                // 1. Instant skeleton
+                showAuditSkeleton();
+                document.getElementById('noticeText').textContent = 'Loading audit logs...';
+
+                try {
+                    // 2. Load audit logs first (most important)
+                    await loadAuditLogs();
+
+                    // 3. First real render
+                    renderScreen();
+                    document.getElementById('noticeText').textContent = 
+                        `Loaded ${auditLogs.length} audit logs. Immutable activity history for BedCheck operations.`;
+
+                    // 4. Load secondary data in background (staff count, hostels)
+                    Promise.allSettled([loadStaff(), loadHostels()]).then(() => {
+                        // Soft re-render so Active Staff metric updates
+                        if (staffLoaded) renderScreen();
+                    });
+
+                } catch (error) {
+                    document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+                    if (!error.message?.includes('Authentication required') && 
+                        !error.message?.includes('No authentication token')) {
+                        showToast('Error loading data: ' + error.message, 'error');
+                    }
+                    renderScreen();
+                }
             }
 
             if (document.readyState === 'loading') {

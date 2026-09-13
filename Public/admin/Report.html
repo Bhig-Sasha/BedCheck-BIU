@@ -8,8 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         /* ----- RESET & BASE ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -319,6 +318,21 @@
 
         .hostel-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
         @media (min-width: 768px) { .hostel-metric-grid { grid-template-columns: 1fr 1fr 1fr; } }
+
+        /* ============================================= */
+        /* ===== SKELETON LOADER (added) ===== */
+        /* ============================================= */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
     </style>
 </head>
 <body>
@@ -426,8 +440,10 @@
             let hostels = [];
             let sessions = [];
             let scans = [];
+            let sessionsLoaded = false;
+            let scansLoaded = false;
             let viewState = {
-                scope: 'all', // 'all' | 'hostel' | 'student'
+                scope: 'all',
                 hostelId: null,
                 hostelName: null,
                 studentId: null,
@@ -553,55 +569,85 @@
                 end.setHours(23, 59, 59, 999);
 
                 switch (period) {
-                    case 'today':
-                        break;
+                    case 'today': break;
                     case 'yesterday':
                         start.setDate(now.getDate() - 1);
                         end.setDate(now.getDate() - 1);
                         break;
-                    case 'week':
-                        start.setDate(now.getDate() - 7);
-                        break;
-                    case 'month':
-                        start.setMonth(now.getMonth() - 1);
-                        break;
-                    case 'semester':
-                        start.setMonth(now.getMonth() - 4);
-                        break;
-                    default:
-                        break;
+                    case 'week': start.setDate(now.getDate() - 7); break;
+                    case 'month': start.setMonth(now.getMonth() - 1); break;
+                    case 'semester': start.setMonth(now.getMonth() - 4); break;
+                    default: break;
                 }
                 return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
             }
 
             // =============================================
-            // DATA LOADING
+            // DATA LOADING (progressive)
             // =============================================
-            async function loadAllData() {
+
+            // Critical: students + hostels (needed for overview metrics + hostel list)
+            async function loadStudents() {
                 try {
-                    const [studentsData, hostelsData, sessionsData, scansData] = await Promise.all([
-                        apiCall('/students').catch(() => ({ data: [] })),
-                        apiCall('/hostels').catch(() => ({ data: [] })),
-                        apiCall('/sessions').catch(() => ({ data: [] })),
-                        apiCall('/bedcheck/scans').catch(() => ({ data: [] }))
-                    ]);
-
-                    students = studentsData.data || [];
-                    hostels = hostelsData.data || [];
-                    sessions = sessionsData.data || [];
-                    scans = scansData.data || [];
-
+                    const data = await apiCall('/students');
+                    students = data.data || [];
                     // Map hostel names to students
                     students = students.map(s => {
                         const hostel = hostels.find(h => h.id === s.hostel_id);
                         return { ...s, hostel_name: hostel?.name || s.hostel || 'Unassigned' };
                     });
-
-                    return { students, hostels, sessions, scans };
+                    return students;
                 } catch (error) {
-                    console.error('Error loading data:', error);
-                    return { students: [], hostels: [], sessions: [], scans: [] };
+                    students = students || [];
+                    return students;
                 }
+            }
+
+            async function loadHostels() {
+                try {
+                    const data = await apiCall('/hostels');
+                    hostels = data.data || [];
+                    return hostels;
+                } catch (error) {
+                    hostels = hostels || [];
+                    return hostels;
+                }
+            }
+
+            // Secondary: sessions + scans
+            async function loadSessions() {
+                if (sessionsLoaded) return sessions;
+                try {
+                    const data = await apiCall('/sessions');
+                    sessions = data.data || [];
+                    sessionsLoaded = true;
+                    return sessions;
+                } catch (error) {
+                    sessions = sessions || [];
+                    return sessions;
+                }
+            }
+
+            async function loadScans() {
+                if (scansLoaded) return scans;
+                try {
+                    const data = await apiCall('/bedcheck/scans');
+                    scans = data.data || [];
+                    scansLoaded = true;
+                    return scans;
+                } catch (error) {
+                    scans = scans || [];
+                    return scans;
+                }
+            }
+
+            // Keep for compatibility with refresh flows
+            async function loadAllData() {
+                sessionsLoaded = false;
+                scansLoaded = false;
+                await Promise.all([loadHostels(), loadStudents()]);
+                await Promise.all([loadSessions(), loadScans()]);
+                return { students, hostels, sessions, scans };
             }
 
             // =============================================
@@ -631,9 +677,7 @@
                         ['ATTENDANCE RATE', rate + '%']
                     ];
 
-                    const studentHeaders = ['S/N', 'Full Name', 'Matric Number', 'Status', 'Hostel', 'Room', 'Gender',
-                        'Level', 'Faculty'
-                    ];
+                    const studentHeaders = ['S/N', 'Full Name', 'Matric Number', 'Status', 'Hostel', 'Room', 'Gender', 'Level', 'Faculty'];
                     const studentRows = students.map((s, i) => [
                         i + 1, s.name || '', s.matric || '', s.status || 'Unknown',
                         s.hostel_name || '', s.room || s.room_code || '',
@@ -728,7 +772,6 @@
                 const absent = students.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
                 const rate = attRate(present, total);
 
-                // Hostel stats
                 const hostelStats = hostels.map(h => {
                     const hStudents = students.filter(s => s.hostel_id === h.id);
                     const hPresent = hStudents.filter(s => s.status === 'Present' || s.status === 'present').length;
@@ -738,7 +781,7 @@
                 }).sort((a, b) => b.rate - a.rate);
 
                 container.innerHTML = `
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <p class="eyebrow"><i class="fas fa-chart-bar"></i> Reports</p>
                             <h1>Reports</h1>
@@ -753,8 +796,7 @@
                         </div>
                     </div>
 
-                    <!-- FILTER BAR -->
-                    <div class="filter-bar">
+                    <div class="filter-bar fade-in">
                         <div class="field">
                             <label>Report Scope</label>
                             <select id="scopeSelect" onchange="handleScopeChange(this.value)">
@@ -778,8 +820,7 @@
                         </div>
                     </div>
 
-                    <!-- SUMMARY CARDS -->
-                    <div class="metric-grid">
+                    <div class="metric-grid fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-users"></i></div>
                             <div class="metric-value">${total}</div>
@@ -818,8 +859,7 @@
                         </div>
                     </div>
 
-                    <!-- HOSTEL PERFORMANCE -->
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Performance</div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -888,7 +928,6 @@
                     0;
                 const occupancyRate = capacity > 0 ? attRate(occupied, capacity) : 0;
 
-                // Floor stats
                 const floors = {};
                 hStudents.forEach(s => {
                     const floor = s.floor || s.floor_name || 'Unassigned';
@@ -906,13 +945,13 @@
                 }));
 
                 container.innerHTML = `
-                    <div class="breadcrumb">
+                    <div class="breadcrumb fade-in">
                         <span class="crumb" onclick="goToAllHostels()"><i class="fas fa-home"></i> All Hostels</span>
                         <span class="sep">/</span>
                         <span class="crumb active">${hostel.name}</span>
                     </div>
 
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <h1>${hostel.name}</h1>
                             <p class="desc">Hostel attendance and occupancy report</p>
@@ -926,7 +965,7 @@
                         </div>
                     </div>
 
-                    <div class="filter-bar">
+                    <div class="filter-bar fade-in">
                         <div class="field">
                             <label>Period</label>
                             <select id="periodSelectHostel" onchange="setPeriod(this.value)">
@@ -943,8 +982,7 @@
                         </div>
                     </div>
 
-                    <!-- SUMMARY CARDS -->
-                    <div class="metric-grid">
+                    <div class="metric-grid fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-users"></i></div>
                             <div class="metric-value">${total}</div>
@@ -983,8 +1021,7 @@
                         </div>
                     </div>
 
-                    <!-- FLOOR PERFORMANCE -->
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="card-title"><span class="icon"><i class="fas fa-layer-group"></i></span> Floor Performance</div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -1012,8 +1049,7 @@
                         </div>
                     </div>
 
-                    <!-- STUDENTS -->
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="card-title"><span class="icon"><i class="fas fa-user-graduate"></i></span> Students</div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -1064,7 +1100,7 @@
                 const rate = attRate(presentCount, totalSessions);
 
                 container.innerHTML = `
-                    <div class="breadcrumb">
+                    <div class="breadcrumb fade-in">
                         <span class="crumb" onclick="goToAllHostels()"><i class="fas fa-home"></i> All Hostels</span>
                         <span class="sep">/</span>
                         <span class="crumb" onclick="goToHostel('${hostel?.id || ''}', '${hostel?.name || ''}')">${hostel?.name || 'Hostel'}</span>
@@ -1072,7 +1108,7 @@
                         <span class="crumb active">${student.name}</span>
                     </div>
 
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <h1>${student.name}</h1>
                             <p class="desc">${student.matric || 'No matric number'} · ${hostel?.name || 'No hostel'}</p>
@@ -1086,8 +1122,7 @@
                         </div>
                     </div>
 
-                    <!-- STUDENT INFO -->
-                    <div class="card">
+                    <div class="card fade-in">
                         <div class="grid-2">
                             <div><span class="text-muted text-sm">Full Name</span><br><span class="font-bold">${student.name || 'Unknown'}</span></div>
                             <div><span class="text-muted text-sm">Matric Number</span><br><span class="font-bold">${student.matric || '—'}</span></div>
@@ -1100,8 +1135,7 @@
                         </div>
                     </div>
 
-                    <!-- ATTENDANCE CARDS -->
-                    <div class="metric-grid mt-4">
+                    <div class="metric-grid mt-4 fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-calendar-check"></i></div>
                             <div class="metric-value">${totalSessions}</div>
@@ -1128,8 +1162,7 @@
                         </div>
                     </div>
 
-                    <!-- ATTENDANCE HISTORY -->
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="card-title"><span class="icon"><i class="fas fa-history"></i></span> Attendance History</div>
                         <div class="table-wrap mt-2">
                             <table>
@@ -1200,6 +1233,49 @@
             }
 
             // =============================================
+            // SKELETON (instant first paint)
+            // =============================================
+            function showReportsSkeleton() {
+                const container = document.getElementById('screenContent');
+                if (!container) return;
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-chart-bar"></i> Reports</p>
+                            <div class="skeleton" style="height:1.9rem;width:14rem;margin-top:0.4rem;"></div>
+                            <div class="skeleton" style="height:0.8rem;width:18rem;margin-top:0.5rem;"></div>
+                        </div>
+                        <div class="action-group">
+                            <div class="skeleton" style="height:2.2rem;width:9rem;border-radius:0.75rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="filter-bar">
+                        <div class="skeleton" style="height:2.4rem;width:140px;border-radius:0.5rem;"></div>
+                        <div class="skeleton" style="height:2.4rem;width:180px;border-radius:0.5rem;"></div>
+                        <div class="skeleton" style="height:2.4rem;flex:1;border-radius:0.5rem;"></div>
+                    </div>
+
+                    <div class="metric-grid">
+                        ${Array(6).fill(0).map(() => `
+                            <div class="metric-card">
+                                <div class="skeleton" style="height:1.4rem;width:2.8rem;"></div>
+                                <div class="skeleton" style="height:0.7rem;width:4.5rem;margin-top:0.4rem;"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="skeleton" style="height:1.2rem;width:12rem;margin-bottom:1rem;"></div>
+                        ${Array(6).fill(0).map(() => `
+                            <div class="skeleton" style="height:2.3rem;width:100%;margin-bottom:0.4rem;"></div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // =============================================
             // AUTHENTICATION
             // =============================================
             function checkAuth() {
@@ -1266,28 +1342,47 @@
             window.renderScreen = renderScreen;
 
             // =============================================
-            // INIT
+            // INIT (fast first paint, then progressive fill)
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                // Wire events early
+                document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+
+                // 1. Instant skeleton
+                showReportsSkeleton();
+                document.getElementById('noticeText').textContent = 'Loading reports...';
 
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading reports...';
-                    await loadAllData();
+                    // 2. Load hostels first, then students (students need hostel names for mapping)
+                    await loadHostels();
+                    await loadStudents();
+
+                    // 3. First real render — overview + hostel list
                     renderScreen();
                     document.getElementById('noticeText').textContent =
-                        `${students.length} students · ${hostels.length} hostels · ${sessions.length} sessions`;
+                        `${students.length} students · ${hostels.length} hostels`;
+
+                    // 4. Load secondary data in background — sessions + scans
+                    Promise.allSettled([loadSessions(), loadScans()]).then(() => {
+                        // Soft re-render so any deep view (student history) picks up scans
+                        if (viewState.scope === 'student' || viewState.scope === 'hostel') {
+                            renderScreen();
+                        }
+                    });
+
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    if (!error.message?.includes('Authentication required') && 
+                        !error.message?.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
+                    renderScreen();
                 }
             }
 

@@ -278,6 +278,21 @@
         .existing-session-banner .title { font-weight: 700; color: #1e3a5f; }
         .existing-session-banner .details { font-size: 0.85rem; color: #24466f; margin-top: 0.25rem; }
         .existing-session-banner .actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+        /* ============================================= */
+        /* ===== SKELETON LOADER (added) ===== */
+        /* ============================================= */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
     </style>
 </head>
 <body>
@@ -494,6 +509,7 @@
             let currentUser = null;
             let currentRole = 'Administrator';
             let hostels = [];
+            let hostelsLoaded = false;
             let sessions = [];
             let currentSession = null;
             let sessionCheckerInterval = null;
@@ -704,12 +720,14 @@
             // =============================================
 
             async function loadHostels() {
+                if (hostelsLoaded) return hostels;
                 try {
                     const data = await apiCall('/hostels');
                     hostels = data.data || [];
+                    hostelsLoaded = true;
                     return hostels;
                 } catch (error) {
-                    hostels = [];
+                    hostels = hostels || [];
                     return hostels;
                 }
             }
@@ -1116,7 +1134,7 @@
                 });
 
                 container.innerHTML = `
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <p class="eyebrow"><i class="fas fa-clipboard-check"></i> Nightly Operations</p>
                             <h1>BedCheck Sessions</h1>
@@ -1128,7 +1146,7 @@
                         </div>
                     </div>
 
-                    <div class="metric-grid">
+                    <div class="metric-grid fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-calendar-day"></i></div>
                             <div class="metric-value">${formatDate(now)}</div>
@@ -1162,7 +1180,7 @@
                     </div>
 
                     ${hasActive ? `
-                    <div class="card mt-4" style="border-color:#d6ad4b;background:#fbf7ef;">
+                    <div class="card mt-4 fade-in" style="border-color:#d6ad4b;background:#fbf7ef;">
                         <div class="flex-between">
                             <div>
                                 <div class="font-bold" style="color:#10233f;font-size:1.1rem;">🟢 ${currentActive.name}</div>
@@ -1189,7 +1207,7 @@
                         </div>
                     </div>
                     ` : `
-                    <div class="card mt-4" style="border-color:#ded6c9;background:#fffcf6;">
+                    <div class="card mt-4 fade-in" style="border-color:#ded6c9;background:#fffcf6;">
                         <div class="flex-between">
                             <div>
                                 <div class="font-bold" style="color:#536274;font-size:1.1rem;">⏳ No Active Session</div>
@@ -1211,7 +1229,7 @@
                     </div>
                     `}
 
-                    <div class="grid-2 mt-4">
+                    <div class="grid-2 mt-4 fade-in">
                         <div class="live-status">
                             <p class="label">Current Time</p>
                             <div class="time" id="liveTime">${getCurrentTime()}</div>
@@ -1238,7 +1256,7 @@
                         </div>
                     </div>
 
-                    <div class="card mt-4">
+                    <div class="card mt-4 fade-in">
                         <div class="flex-between">
                             <div class="card-title"><span class="icon"><i class="fas fa-table"></i></span> All Sessions</div>
                             <div style="display:flex;gap:0.5rem;align-items:center;">
@@ -1356,6 +1374,7 @@
             async function refreshData() {
                 try {
                     showToast('Refreshing...', 'info');
+                    hostelsLoaded = false;
                     await loadHostels();
                     await loadSessions();
                     renderScreen();
@@ -1366,6 +1385,54 @@
                 } catch (error) {
                     showToast('Error refreshing: ' + error.message, 'error');
                 }
+            }
+
+            // =============================================
+            // SKELETON (instant first paint)
+            // =============================================
+            function showSessionsSkeleton() {
+                const container = document.getElementById('screenContent');
+                if (!container) return;
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-clipboard-check"></i> Nightly Operations</p>
+                            <div class="skeleton" style="height:1.9rem;width:16rem;margin-top:0.4rem;"></div>
+                            <div class="skeleton" style="height:0.8rem;width:20rem;margin-top:0.5rem;"></div>
+                        </div>
+                        <div class="action-group">
+                            <div class="skeleton" style="height:2.2rem;width:8rem;border-radius:0.5rem;"></div>
+                            <div class="skeleton" style="height:2.2rem;width:6rem;border-radius:0.5rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-grid">
+                        ${Array(5).fill(0).map(() => `
+                            <div class="metric-card">
+                                <div class="skeleton" style="height:1.5rem;width:3rem;"></div>
+                                <div class="skeleton" style="height:0.7rem;width:5rem;margin-top:0.4rem;"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="skeleton" style="height:1.2rem;width:12rem;margin-bottom:1rem;"></div>
+                        <div class="skeleton" style="height:4rem;width:100%;"></div>
+                    </div>
+
+                    <div class="grid-2 mt-4">
+                        <div class="skeleton" style="height:10rem;border-radius:0.75rem;"></div>
+                        <div class="skeleton" style="height:10rem;border-radius:0.75rem;"></div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="skeleton" style="height:1.2rem;width:10rem;margin-bottom:1rem;"></div>
+                        ${Array(6).fill(0).map(() => `
+                            <div class="skeleton" style="height:2.4rem;width:100%;margin-bottom:0.4rem;"></div>
+                        `).join('')}
+                    </div>
+                `;
             }
 
             // =============================================
@@ -1445,31 +1512,44 @@
             window.dismissExistingSession = dismissExistingSession;
 
             // =============================================
-            // INIT
+            // INIT (fast first paint, then progressive fill)
             // =============================================
 
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                // Wire events early
+                document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+
+                // 1. Instant skeleton
+                showSessionsSkeleton();
+                document.getElementById('noticeText').textContent = 'Loading sessions...';
 
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading sessions...';
-                    await loadHostels();
+                    // 2. Load sessions first (most important)
                     await loadSessions();
+
+                    // 3. First real render
                     renderScreen();
                     const hasActive = sessions.some(s => isActiveStatus(s.status));
                     const scheduled = sessions.filter(s => s.status === 'scheduled').length;
-                    document.getElementById('noticeText').textContent = `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
+                    document.getElementById('noticeText').textContent = 
+                        `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
+
+                    // 4. Load hostels in background (only needed for create form / details)
+                    loadHostels().catch(() => {});
+
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    if (!error.message?.includes('Authentication required') && 
+                        !error.message?.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
+                    renderScreen();
                 }
             }
 
