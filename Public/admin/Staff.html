@@ -282,6 +282,21 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* ============================================= */
+        /* ===== SKELETON LOADER (added) ===== */
+        /* ============================================= */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
     </style>
 </head>
 <body>
@@ -662,7 +677,7 @@
                 const active = staffMembers.filter(s => s.status === 'Active').length;
 
                 container.innerHTML = `
-                    <div class="page-heading">
+                    <div class="page-heading fade-in">
                         <div>
                             <p class="eyebrow"><i class="fas fa-shield-alt"></i> Access Control</p>
                             <h1>Staff & Roles</h1>
@@ -674,7 +689,7 @@
                         </div>
                     </div>
 
-                    <div class="metric-grid">
+                    <div class="metric-grid fade-in">
                         <div class="metric-card">
                             <div class="metric-icon navy"><i class="fas fa-users"></i></div>
                             <div class="metric-value">${total}</div>
@@ -703,7 +718,7 @@
 
                     <div id="staffFormContainer"></div>
 
-                    <div class="table-wrap mt-4">
+                    <div class="table-wrap mt-4 fade-in">
                         <table>
                             <thead><tr>
                                 <th>Staff</th>
@@ -1288,6 +1303,48 @@
             }
 
             // =============================================
+            // SKELETON (instant first paint)
+            // =============================================
+            function showStaffSkeleton() {
+                const container = document.getElementById('screenContent');
+                if (!container) return;
+
+                container.innerHTML = `
+                    <div class="page-heading">
+                        <div>
+                            <p class="eyebrow"><i class="fas fa-shield-alt"></i> Access Control</p>
+                            <div class="skeleton" style="height:1.8rem;width:14rem;margin-top:0.4rem;"></div>
+                            <div class="skeleton" style="height:0.75rem;width:18rem;margin-top:0.5rem;"></div>
+                        </div>
+                        <div class="action-group">
+                            <div class="skeleton" style="height:2.1rem;width:6rem;border-radius:0.5rem;"></div>
+                            <div class="skeleton" style="height:2.1rem;width:7rem;border-radius:0.5rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-grid">
+                        ${Array(4).fill(0).map(() => `
+                            <div class="metric-card">
+                                <div class="skeleton" style="height:1.4rem;width:2.8rem;"></div>
+                                <div class="skeleton" style="height:0.7rem;width:4.5rem;margin-top:0.4rem;"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="skeleton" style="height:2.3rem;width:100%;"></div>
+                    </div>
+
+                    <div class="table-wrap mt-4">
+                        <div class="skeleton" style="height:2.5rem;width:100%;margin-bottom:0.5rem;"></div>
+                        ${Array(7).fill(0).map(() => `
+                            <div class="skeleton" style="height:2.3rem;width:100%;margin-bottom:0.35rem;"></div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // =============================================
             // AUTHENTICATION
             // =============================================
             function checkAuth() {
@@ -1360,27 +1417,41 @@
             });
 
             // =============================================
-            // INIT
+            // INIT (fast first paint, then progressive fill)
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
 
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+                // Wire events early
+                document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
+                document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
+                document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+
+                // 1. Instant skeleton
+                showStaffSkeleton();
+                document.getElementById('noticeText').textContent = 'Loading staff...';
 
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading staff...';
-                    await Promise.all([loadStaff(), loadHostels()]);
+                    // 2. Load staff first (most important)
+                    await loadStaff();
+
+                    // 3. First real render as soon as staff is ready
                     renderScreen();
                     document.getElementById('noticeText').textContent = `Loaded ${staffMembers.length} staff members.`;
+
+                    // 4. Load hostels in background (only needed for forms)
+                    loadHostels().catch(() => {});
+
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
+                    if (!error.message?.includes('Authentication required') && 
+                        !error.message?.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
+                    // Still try to show whatever we have
+                    renderScreen();
                 }
             }
 
