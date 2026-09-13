@@ -182,14 +182,6 @@
         /* Session Control Buttons */
         .session-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-        /* Activity Timeline */
-        .activity-timeline { position: relative; padding-left: 1.25rem; }
-        .activity-timeline::before { content: ''; position: absolute; left: 0.2rem; top: 0; bottom: 0; width: 0.125rem; background: #ded6c9; }
-        .activity-item { position: relative; padding: 0.3rem 0 0.3rem 0.75rem; }
-        .activity-item::before { content: ''; position: absolute; left: -0.35rem; top: 0.7rem; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #d6ad4b; border: 2px solid #fffcf6; }
-        .activity-item .time { font-size: 0.6rem; color: #6b778b; }
-        .activity-item .desc { font-size: 0.8rem; color: #17233c; }
-
         /* Hostel Progress List - Full View */
         .hostel-progress-full { display: flex; flex-direction: column; gap: 0.4rem; }
         .hostel-progress-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 0.5rem; transition: background 0.15s; border-bottom: 1px solid #f0ebe2; }
@@ -219,20 +211,6 @@
         .session-item .session-name { font-weight: 600; font-size: 0.8rem; }
         .session-item .session-date { font-size: 0.65rem; color: #6b778b; }
         .session-item .session-status { font-size: 0.55rem; }
-
-        /* Attendance Ring */
-        .attendance-ring { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-        @media (max-width: 480px) { .attendance-ring { flex-direction: column; align-items: center; } }
-        .attendance-ring .ring { position: relative; width: 80px; height: 80px; border-radius: 50%; background: conic-gradient(#2d6545 0% 88.7%, #e6e2da 88.7% 100%); display: flex; align-items: center; justify-content: center; }
-        .attendance-ring .ring .inner { width: 54px; height: 54px; border-radius: 50%; background: #fffcf6; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .attendance-ring .ring .inner .pct { font-size: 1.2rem; font-weight: 700; color: #2d6545; line-height: 1; }
-        .attendance-ring .ring .inner .label { font-size: 0.5rem; color: #68768a; }
-        .attendance-ring .ring-details { display: flex; flex-direction: column; gap: 0.15rem; }
-        .attendance-ring .ring-details .detail-row { display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; }
-        .attendance-ring .ring-details .detail-row .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; }
-        .attendance-ring .ring-details .detail-row .dot.green { background: #2d6545; }
-        .attendance-ring .ring-details .detail-row .dot.gray { background: #e6e2da; }
-        .attendance-ring .ring-details .detail-row .dot.blue { background: #24466f; }
 
         .notice-banner { display: flex; gap: 0.75rem; padding: 0.5rem 0.75rem; margin-bottom: 1rem; border: 1px solid #d8c79e; border-radius: 0.5rem; background: #fff9e9; color: #675121; font-size: 0.8rem; }
         @media (max-width: 480px) { .notice-banner { font-size: 0.7rem; padding: 0.4rem 0.6rem; } }
@@ -266,6 +244,30 @@
         .session-stats .stat-icon.users { color: #24466f; }
         .session-stats .stat-icon.verified { color: #2d6545; }
         .session-stats .stat-icon.completion { color: #8b6513; }
+
+        /* SKELETON + FADE */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .empty-hint { font-size: 0.7rem; color: #98a3b3; padding: 0.4rem 0; font-style: italic; }
+        .section-loading {
+            display: inline-block;
+            width: 0.7rem;
+            height: 0.7rem;
+            border: 2px solid #ded6c9;
+            border-top-color: #a77915;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -366,7 +368,7 @@
     // CONFIG
     // =============================================
     const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-    const CACHE_TTL_MS = 3000; // 3-second cache window
+    const CACHE_TTL_MS = 3000;
 
     // =============================================
     // STATE
@@ -375,20 +377,15 @@
     let currentRole = 'Administrator';
     let students = [];
     let hostels = [];
-    let staffMembers = [];
-    let auditLogs = [];
     let sessions = [];
     let currentSession = null;
     let sessionStatus = 'draft';
     let submissionState = 'Open';
 
-    // Track what has been loaded so renderDashboard can show hints
     const loaded = {
         students: false,
         hostels: false,
         sessions: false,
-        staff: false,
-        audit: false,
         submission: false
     };
 
@@ -407,7 +404,7 @@
     // =============================================
     // CACHED API HELPER (3s cache + auth)
     // =============================================
-    const _apiCache = new Map(); // endpoint -> { ts, promise }
+    const _apiCache = new Map();
 
     async function apiCall(endpoint, options = {}, useCache = true) {
         const token = sessionStorage.getItem('bedcheck_token');
@@ -420,12 +417,9 @@
         const isGet = !options.method || options.method.toUpperCase() === 'GET';
         const cacheKey = `${endpoint}::${options.method || 'GET'}`;
 
-        // Serve from cache for GETs
         if (useCache && isGet) {
             const hit = _apiCache.get(cacheKey);
-            if (hit && Date.now() - hit.ts < CACHE_TTL_MS) {
-                return hit.promise;
-            }
+            if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit.promise;
         }
 
         const promise = (async () => {
@@ -449,12 +443,8 @@
                 }
 
                 if (!response.ok) {
-                    // Graceful fallbacks for optional endpoints
                     if (response.status === 500 && endpoint === '/submission') {
                         return { success: true, data: { state: 'Open', notice: 'Default notice' } };
-                    }
-                    if (response.status === 404 && endpoint.includes('/audit/recent')) {
-                        return { success: true, data: [] };
                     }
                     const errorText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -465,7 +455,6 @@
                 return data;
             } catch (err) {
                 if (!err.message.includes('Authentication required')) {
-                    // Downgrade to warn — don't spam the user for background failures
                     console.warn(`[apiCall] ${endpoint}:`, err.message);
                 }
                 throw err;
@@ -493,15 +482,6 @@
         return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
     }
 
-    function getTimeAgo(dateStr) {
-        if (!dateStr) return 'Just now';
-        const diff = Math.floor((new Date() - new Date(dateStr)) / 1000);
-        if (diff < 60) return 'Just now';
-        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-
     function getStatusBadge(status) {
         const map = {
             active:    '<span class="status-badge active">Active</span>',
@@ -525,7 +505,7 @@
     }
 
     // =============================================
-    // DATA LOADERS (each marks `loaded.*` on success)
+    // DATA LOADERS
     // =============================================
     async function loadStudents() {
         try {
@@ -547,28 +527,6 @@
             hostels = hostels || [];
         }
         return hostels;
-    }
-
-    async function loadStaff() {
-        try {
-            const data = await apiCall('/staff');
-            staffMembers = data.data || [];
-            loaded.staff = true;
-        } catch (e) {
-            staffMembers = staffMembers || [];
-        }
-        return staffMembers;
-    }
-
-    async function loadAuditLogs() {
-        try {
-            const data = await apiCall('/audit/recent?limit=8');
-            auditLogs = data.data || [];
-            loaded.audit = true;
-        } catch (e) {
-            auditLogs = auditLogs || [];
-        }
-        return auditLogs;
     }
 
     async function loadSessions() {
@@ -593,7 +551,7 @@
             loaded.sessions = true;
         } catch (e) {
             sessions = sessions || [];
-            loaded.sessions = true; // mark loaded even on failure so UI doesn't hang
+            loaded.sessions = true;
         }
         return sessions;
     }
@@ -720,7 +678,7 @@
     }
 
     // =============================================
-    // SKELETON (first paint)
+    // SKELETON
     // =============================================
     function showSkeleton() {
         const container = document.getElementById('screenContent');
@@ -760,21 +718,18 @@
     }
 
     // =============================================
-    // RENDER DASHBOARD (safe against missing data)
+    // RENDER DASHBOARD
     // =============================================
     function renderDashboard() {
         const container = document.getElementById('screenContent');
         if (!container) return;
 
-        // ---- Stats (all safe with fallbacks) ----
         const totalStudents  = students?.length || 0;
         const present        = students?.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
         const absent         = students?.filter(s => s.status === 'Absent').length || 0;
         const late           = students?.filter(s => s.status === 'Late').length || 0;
         const assignedHostel = students?.filter(s => s.hostel_id || s.hostel).length || 0;
-        const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
 
-        // ---- Session info ----
         const sessionName     = currentSession?.name || (loaded.sessions ? 'No Active Session' : 'Loading…');
         const sessionDate     = currentSession?.date || new Date().toISOString().split('T')[0];
         const sessionStatusDisplay = sessionStatus || 'draft';
@@ -783,7 +738,6 @@
         const isCompleted     = sessionStatusDisplay === 'completed';
         const statusDisplay   = getStatusDisplay(sessionStatusDisplay);
 
-        // ---- Hostel progress ----
         const hostelProgress = (hostels || []).map(h => {
             const hostelStudents = (students || []).filter(s => s.hostel === h.name || s.hostel_id === h.id);
             const total    = hostelStudents.length;
@@ -801,19 +755,6 @@
         const activeHostels  = hostelProgress.filter(h => h.status === 'active').length;
         const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
         const recentSessions = (sessions || []).slice(0, 5);
-
-        // ---- Secondary-data placeholders ----
-        const activityHtml = loaded.audit
-            ? (auditLogs.length === 0
-                ? '<p class="empty-hint">No recent activity</p>'
-                : auditLogs.slice(0, 5).map(log => `
-                    <div class="activity-item">
-                        <div class="time">${getTimeAgo(log.created_at)}</div>
-                        <div class="desc">${log.action || 'Activity'}</div>
-                        ${log.context ? `<div class="text-xs text-muted">${log.context}</div>` : ''}
-                    </div>
-                `).join(''))
-            : `<div class="activity-item"><span class="section-loading"></span> <span class="text-xs text-muted">Loading activity…</span></div>`;
 
         container.innerHTML = `
             <!-- Session Banner -->
@@ -980,34 +921,6 @@
                 </div>
             </div>
 
-            <!-- Bottom Row -->
-            <div class="grid-2 mt-4 fade-in">
-                <div class="card">
-                    <div class="card-title"><i class="fas fa-clock" style="color:#a77915;font-size:0.9rem;"></i> Recent Activity</div>
-                    <div class="activity-timeline mt-1">${activityHtml}</div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title"><i class="fas fa-chart-pie" style="color:#a77915;font-size:0.9rem;"></i> Attendance Overview</div>
-                    <div class="attendance-ring mt-2">
-                        <div class="ring">
-                            <div class="inner">
-                                <span class="pct">${attendanceRate}%</span>
-                                <span class="label">Attendance</span>
-                            </div>
-                        </div>
-                        <div class="ring-details">
-                            <div class="detail-row"><span class="dot green"></span><span>Present: <strong>${present.toLocaleString()}</strong></span></div>
-                            <div class="detail-row"><span class="dot gray"></span><span>Absent/Late: <strong>${(absent + late).toLocaleString()}</strong></span></div>
-                            <div class="detail-row"><span class="dot blue"></span><span>Total: <strong>${totalStudents.toLocaleString()}</strong></span></div>
-                        </div>
-                    </div>
-                    <div class="mt-2 pt-2 border-t">
-                        <p class="text-xs text-muted">${attendanceRate >= 80 ? '✅ Good attendance' : '⚠️ Below 80%'}</p>
-                    </div>
-                </div>
-            </div>
-
             <div class="mt-4 pt-3 border-t">
                 <p class="text-xs text-muted">BedCheck · © Benson Idahosa University</p>
             </div>
@@ -1030,26 +943,23 @@
         if (!checkAuth()) return;
         setDate();
 
-        // 1. Instant skeleton (< 100 ms first paint)
         showSkeleton();
         const noticeEl = document.getElementById('noticeText');
         if (noticeEl) noticeEl.textContent = 'Loading dashboard…';
 
-        // Wire events early so the user can interact even while loading
         document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
         document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
         document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
         document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
 
         try {
-            // 2. Critical path — session + hostels + students
-            const critical = await Promise.allSettled([
+            // Critical path — session + hostels + students
+            await Promise.allSettled([
                 loadSessions(),
                 loadHostels(),
                 loadStudents()
             ]);
 
-            // 3. First real paint with whatever we have
             renderDashboard();
             hasRenderedOnce = true;
 
@@ -1060,21 +970,15 @@
                 noticeEl.textContent = `Ready · ${students.length} students, ${hostels.length} hostels${sessionText}`;
             }
 
-            // 4. Secondary data in background — soft re-render when it lands
-            Promise.allSettled([
-                loadStaff(),
-                loadAuditLogs(),
-                loadSubmissionState()
-            ]).then(() => {
-                if (hasRenderedOnce) renderDashboard();
-            });
+            // Background — only submission state (optional)
+            loadSubmissionState().catch(() => {});
 
         } catch (error) {
             if (noticeEl) noticeEl.textContent = 'Error loading data. Please refresh.';
             if (!error.message?.includes('Authentication required')) {
                 showToast('Error loading data: ' + error.message, 'error');
             }
-            renderDashboard(); // still show whatever we have
+            renderDashboard();
         }
     }
 
