@@ -9,18 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
   <style>
-    * { 
-        margin: 0; 
-        padding: 0; 
-        box-sizing: border-box; 
-    }
-
-    html, body { 
-        width: 100%; 
-        min-height: 100vh; 
-        overflow-x: hidden; 
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100vh; overflow-x: hidden; }
     body {
       font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
       background-color: #f5f1e8;
@@ -29,7 +19,6 @@
       min-height: 100vh;
       width: 100%;
     }
-    
     #portalApp { display: flex; width: 100%; min-height: 100vh; }
     .app-wrapper { display: flex; width: 100%; min-height: 100vh; }
 
@@ -165,7 +154,10 @@
     .btn-success:hover { background:#1f4a30; }
     .btn-danger { background:#8a3328; color:white; border-color:#8a3328; }
     .btn-danger:hover { background:#6a251d; }
+    .btn-warning { background:#a77915; color:white; border-color:#a77915; }
+    .btn-warning:hover { background:#8a6413; }
     .btn-sm { font-size:0.6rem; padding:0.25rem 0.6rem; }
+    .btn:disabled { opacity:0.55; cursor:not-allowed; }
 
     .footer-bar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; padding:0.5rem 0.75rem; background:white; border:1px solid #ded6c9; border-radius:0.75rem; margin-top:0.75rem; width:100%; }
     @media (max-width:480px){ .footer-bar { flex-direction:column; align-items:center; gap:0.3rem; padding:0.4rem 0.5rem; } }
@@ -173,12 +165,13 @@
     .footer-bar .left i { color:#d6ad4b; }
     .footer-bar .right { font-size:0.6rem; font-weight:600; color:#6b778b; }
 
-    .toast { position:fixed; bottom:1.5rem; right:1.5rem; padding:0.6rem 1.2rem; border-radius:0.75rem; background:#10233f; color:white; box-shadow:0 10px 40px rgba(0,0,0,0.25); z-index:100; transform:translateY(80px); opacity:0; transition:all 0.35s ease; max-width:380px; font-size:0.8rem; }
+    .toast { position:fixed; bottom:1.5rem; right:1.5rem; padding:0.6rem 1.2rem; border-radius:0.75rem; background:#10233f; color:white; box-shadow:0 10px 40px rgba(0,0,0,0.25); z-index:200; transform:translateY(80px); opacity:0; transition:all 0.35s ease; max-width:380px; font-size:0.8rem; }
     @media (max-width:480px){ .toast { bottom:1rem; right:0.5rem; left:0.5rem; max-width:100%; font-size:0.7rem; padding:0.5rem 0.8rem; } }
     .toast.show { transform:translateY(0); opacity:1; }
     .toast.success { background:#3f755d; }
     .toast.error { background:#a84134; }
     .toast.info { background:#1e3a5f; }
+    .toast.warning { background:#a77915; }
 
     .drawer-overlay { position:fixed; inset:0; background:rgba(16,35,63,0.4); z-index:40; display:none; opacity:0; transition:opacity 0.3s ease; }
     .drawer-overlay.show { display:block; opacity:1; }
@@ -241,10 +234,6 @@
     .student-check-row .sstatus.absent { color:#8a3328; }
     .student-check-row .sstatus.pending { color:#a77915; }
 
-    .ra-workspace { background:#fbf7ef; border-radius:0.5rem; padding:0.5rem 0.75rem; margin-top:0.5rem; border-left:3px solid #d6ad4b; }
-    .ra-workspace .ra-name { font-weight:700; font-size:0.9rem; }
-    .ra-workspace .ra-meta { font-size:0.6rem; color:#6b778b; }
-
     .empty-state { padding:2rem; text-align:center; color:#6b778b; }
     .empty-state i { font-size:2rem; display:block; margin-bottom:0.5rem; color:#a77915; }
     .empty-state .title { font-size:1rem; font-weight:600; color:#17233c; margin-bottom:0.3rem; }
@@ -255,21 +244,61 @@
     .staff-scroll::-webkit-scrollbar-track { background:#eee9e1; border-radius:3px; }
     .staff-scroll::-webkit-scrollbar-thumb { background:#d6ad4b; border-radius:3px; }
 
-    /* Modal Styles */
+    /* ===== MODAL (single source of truth) ===== */
     .modal-overlay {
-      position: fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center; backdrop-filter:blur(4px);
+      position: fixed; inset: 0; background: rgba(16, 35, 63, 0.65);
+      backdrop-filter: blur(4px); z-index: 1000; display: none;
+      align-items: center; justify-content: center; padding: 1rem;
     }
-    .modal-overlay.active { display:flex; }
-    .modal-overlay .modal {
-      background:white; border-radius:1rem; max-width:520px; width:95%; max-height:90vh; overflow-y:auto; padding:1.5rem; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative;
+    .modal-overlay.active, .modal-overlay.show { display: flex; }
+    .modal {
+      background: #fffcf6; border-radius: 1rem; width: 100%; max-width: 520px;
+      max-height: 92vh; overflow-y: auto; box-shadow: 0 25px 60px rgba(0,0,0,0.35);
+      position: relative;
     }
-    .modal-overlay .modal .close-modal {
-      position:absolute; top:0.75rem; right:1rem; background:none; border:none; font-size:1.5rem; color:#6b778b; cursor:pointer; transition:color 0.2s;
+    .modal .close-modal {
+      position: absolute; top: 0.6rem; right: 0.9rem; background: none; border: none;
+      font-size: 1.4rem; color: #6b778b; cursor: pointer; z-index: 3; transition: color 0.2s;
     }
-    .modal-overlay .modal .close-modal:hover { color:#17233c; }
-    .modal-overlay .modal .modal-title { font-family:'Merriweather',serif; font-weight:700; font-size:1.1rem; margin-bottom:0.75rem; }
-    .modal-overlay .modal .modal-body { padding:0.25rem 0; }
-    .modal-overlay .modal .modal-footer { display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid #eee9e1; }
+    .modal .close-modal:hover { color: #17233c; }
+    .modal .modal-title {
+      font-family: 'Merriweather', serif; font-weight: 700; font-size: 1.05rem;
+      padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #eee8de;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .modal .modal-body { padding: 1rem 1.25rem; }
+    .modal .modal-footer {
+      display: flex; justify-content: flex-end; gap: 0.5rem;
+      padding: 0.75rem 1.25rem; border-top: 1px solid #eee8de; flex-wrap: wrap;
+    }
+
+    /* Face-specific modal bits */
+    .face-cam-wrap {
+      position: relative; width: 100%; aspect-ratio: 4/3; background: #000;
+      border-radius: 0.75rem; overflow: hidden; margin-bottom: 0.75rem;
+    }
+    .face-cam-wrap video { width: 100%; height: 100%; object-fit: cover; }
+    .face-overlay {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; pointer-events: none;
+    }
+    .face-oval {
+      width: 180px; height: 220px; border: 3px solid #d6ad4b;
+      border-radius: 50% / 40%; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    }
+    .face-status-bar {
+      position: absolute; bottom: 0; left: 0; right: 0; padding: 0.5rem;
+      background: linear-gradient(transparent, rgba(0,0,0,0.8));
+      color: white; text-align: center; font-size: 0.75rem;
+    }
+    .face-progress { text-align: center; padding: 0.75rem 0; }
+    .face-progress .bar-wrap { margin-top: 0.6rem; height: 6px; background: #e6e2da; border-radius: 99px; overflow: hidden; }
+    .face-progress .bar-wrap .fill { height: 100%; width: 0%; background: #d6ad4b; transition: width 0.3s; }
+    .face-result { text-align: center; padding: 0.75rem 0; }
+    .face-result .result-icon { font-size: 2.5rem; margin-bottom: 0.4rem; }
+    .face-result .result-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; }
+    .face-result .result-msg { font-size: 0.8rem; color: #68768a; }
+    .face-result .result-sim { font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem; }
 
     .verification-methods { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin:0.5rem 0; }
     .verification-methods .method-btn { padding:0.75rem; border:2px solid #ded6c9; border-radius:0.5rem; background:#fbf7ef; text-align:center; cursor:pointer; transition:all 0.2s; }
@@ -278,18 +307,8 @@
     .verification-methods .method-btn i { font-size:1.5rem; display:block; margin-bottom:0.2rem; }
     .verification-methods .method-btn .label { font-size:0.7rem; font-weight:600; }
 
-    .camera-preview { background:#1a1a2e; border-radius:0.75rem; padding:1rem; text-align:center; min-height:200px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; margin:0.5rem 0; }
-    .camera-preview .face-guide { border:2px dashed rgba(255,255,255,0.3); border-radius:50%; width:120px; height:120px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-    .camera-preview .face-guide i { font-size:3rem; opacity:0.3; }
-    .camera-preview .status-text { margin-top:0.5rem; font-size:0.8rem; color:#8f8f9f; }
-
     .confidence-bar { height:6px; background:#eee9e1; border-radius:999px; overflow:hidden; margin:0.25rem 0 0.5rem 0; }
     .confidence-bar .fill { height:100%; border-radius:999px; transition:width 0.8s ease; }
-
-    .result-icon { font-size:4rem; text-align:center; margin:0.5rem 0; }
-    .result-icon.success { color:#2d6545; }
-    .result-icon.error { color:#8a3328; }
-    .result-icon.info { color:#a77915; }
 
     .activity-panel { background:#fbf7ef; border-radius:0.5rem; padding:0.75rem; margin-top:0.75rem; border:1px solid #ded6c9; max-height:300px; overflow-y:auto; }
     .activity-panel .activity-item { display:flex; gap:0.5rem; padding:0.3rem 0; border-bottom:1px solid #f0ece4; font-size:0.7rem; }
@@ -311,7 +330,7 @@
 
   <div id="toast" class="toast"></div>
 
-  <!-- MODAL -->
+  <!-- SINGLE MODAL — hosts all flows -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal" id="modalContent">
       <button class="close-modal" id="modalClose"><i class="fas fa-times"></i></button>
@@ -422,13 +441,6 @@
 
       const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
-      if (window.console) {
-        console.log = function() {};
-        console.warn = function() {};
-        console.info = function() {};
-        console.debug = function() {};
-      }
-
       function showToast(message, type = 'success') {
         const toast = document.getElementById('toast');
         toast.textContent = message;
@@ -437,6 +449,7 @@
         setTimeout(() => toast.classList.remove('show'), 4000);
       }
 
+      // ============ STATE ============
       let currentUser = null;
       let currentRole = 'Loading...';
       let hostels = [];
@@ -445,21 +458,26 @@
       let scans = [];
       let allStaff = [];
       let activityLog = [];
-      
       let floorsFlats = [];
       let rooms = [];
       let bedSpaces = [];
 
-      // Selected RA context
       let selectedRA = null;
       let selectedHostel = null;
 
       let drillState = { view: 'overview', hostelId: null, floorId: null, flatId: null, roomId: null, raId: null };
 
-      // Modal state
       let modalState = { type: null, student: null, step: 0 };
 
-      // ===== API =====
+      let faceStream = null;
+      let currentFaceStudent = null;
+      let lastVerificationResult = null;
+
+      let enrollStream = null;
+      let currentEnrollStudent = null;
+      let enrollFrames = [];
+
+      // ============ API (no demo fallback) ============
       async function apiCall(endpoint, options = {}) {
         const token = sessionStorage.getItem('bedcheck_token');
         if (!token) {
@@ -467,36 +485,43 @@
           setTimeout(() => window.location.replace('../Login.html'), 1500);
           throw new Error('No token');
         }
-        try {
-          const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            ...options,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-              ...(options.headers || {})
-            }
-          });
-          if (response.status === 401) {
-            showToast('Session expired. Please login.', 'error');
-            sessionStorage.removeItem('bedcheck_token');
-            sessionStorage.removeItem('bedcheck_user');
-            sessionStorage.removeItem('bedcheck_role');
-            setTimeout(() => window.location.replace('../Login.html'), 1500);
-            throw new Error('Auth required');
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            ...(options.headers || {})
           }
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-          }
-          const data = await response.json();
-          if (!data.success) throw new Error(data.message || 'API error');
-          return data;
-        } catch (error) {
-          if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
-            showToast('Error: ' + error.message, 'error');
-          }
-          throw error;
+        });
+        if (response.status === 401) {
+          showToast('Session expired. Please login.', 'error');
+          sessionStorage.removeItem('bedcheck_token');
+          sessionStorage.removeItem('bedcheck_user');
+          sessionStorage.removeItem('bedcheck_role');
+          setTimeout(() => window.location.replace('../Login.html'), 1500);
+          throw new Error('Authentication required');
         }
+        if (response.status === 404) {
+          const err = new Error('Face API not available on this server');
+          err.status = 404;
+          throw err;
+        }
+        if (!response.ok) {
+          const errorText = await response.text();
+          let msg = `HTTP ${response.status}`;
+          try {
+            const parsed = JSON.parse(errorText);
+            msg = parsed.message || parsed.error || msg;
+          } catch (e) {
+            msg = errorText || msg;
+          }
+          const err = new Error(msg);
+          err.status = response.status;
+          throw err;
+        }
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'API error');
+        return data;
       }
 
       function getInitials(name) {
@@ -504,14 +529,13 @@
         return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
       }
 
-      // ===== LOAD CURRENT USER =====
+      // ============ USER ============
       async function loadCurrentUser() {
         try {
           const data = await apiCall('/me');
           if (data.success && data.data) {
             currentUser = data.data;
             currentRole = currentUser.role || 'Developer';
-            
             const initials = getInitials(currentUser.name);
             document.getElementById('profileAvatar').textContent = initials;
             document.getElementById('profileName').textContent = currentUser.name || 'Unknown User';
@@ -519,7 +543,6 @@
             document.getElementById('dropdownUserName').textContent = currentUser.name || 'Unknown User';
             document.getElementById('dropdownUserRole').textContent = currentRole;
             document.getElementById('roleLabel').textContent = currentRole;
-            
             const scopeMap = {
               'Developer': 'Full system access · Developer Tools',
               'Admin': 'Full system access',
@@ -530,10 +553,8 @@
             };
             document.getElementById('roleScope').textContent = scopeMap[currentRole] || 'Full system access';
             document.getElementById('mobileRoleFooter').textContent = `${currentRole} · ${scopeMap[currentRole] || 'Full access'}`;
-            
             sessionStorage.setItem('bedcheck_user', JSON.stringify(currentUser));
             sessionStorage.setItem('bedcheck_role', currentRole);
-            
             return currentUser;
           }
         } catch (error) {
@@ -552,41 +573,21 @@
         return currentUser;
       }
 
-      // ===== DATA LOAD =====
-      async function loadHostels() { 
-        try { 
-          const data = await apiCall('/hostels'); 
-          if (Array.isArray(data.data)) {
-            hostels = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            hostels = Object.values(data.data);
-          } else {
-            hostels = [];
-          }
-          return hostels; 
-        } catch (error) { 
-          hostels = []; 
-          return hostels; 
-        } 
+      // ============ LOADERS ============
+      async function loadHostels() {
+        try {
+          const data = await apiCall('/hostels');
+          hostels = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { hostels = []; }
+        return hostels;
       }
-      
-      async function loadStudents() { 
-        try { 
-          const data = await apiCall('/students?limit=5000'); 
-          if (Array.isArray(data.data)) {
-            students = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            students = Object.values(data.data);
-          } else {
-            students = [];
-          }
-          return students; 
-        } catch { 
-          students = []; 
-          return students; 
-        } 
+      async function loadStudents() {
+        try {
+          const data = await apiCall('/students?limit=5000');
+          students = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { students = []; }
+        return students;
       }
-      
       async function loadSessions() {
         try {
           let data = await apiCall('/sessions?status=active&limit=5').catch(() => null);
@@ -595,108 +596,62 @@
           }
           if (data && data.data) {
             const list = Array.isArray(data.data) ? data.data : Object.values(data.data);
-            sessions = list.filter(s => s.status === 'active' || s.status === 'Active' || s.status === 'scheduled' || s.status === 'pending');
+            sessions = list.filter(s => ['active','Active','scheduled','pending'].includes(s.status));
           } else { sessions = []; }
-          return sessions;
-        } catch { sessions = []; return sessions; }
+        } catch { sessions = []; }
+        return sessions;
       }
-      
-      async function loadScans() { 
-        try { 
-          const data = await apiCall('/bedcheck/scans?limit=50'); 
-          if (Array.isArray(data.data)) {
-            scans = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            scans = Object.values(data.data);
-          } else {
-            scans = [];
-          }
-          return scans; 
-        } catch { 
-          scans = []; 
-          return scans; 
-        } 
+      async function loadScans() {
+        try {
+          const data = await apiCall('/bedcheck/scans?limit=50');
+          scans = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { scans = []; }
+        return scans;
       }
-
       async function loadAllStaff() {
         try {
           const data = await apiCall('/staff?limit=5000');
-          if (Array.isArray(data.data)) {
-            allStaff = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            allStaff = Object.values(data.data);
-          } else {
-            allStaff = [];
-          }
-          return allStaff;
-        } catch {
-          allStaff = [];
-          return allStaff;
-        }
+          allStaff = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { allStaff = []; }
+        return allStaff;
       }
-
       async function loadFloorsFlats(hostelId) {
         try {
           const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
-          if (Array.isArray(data.data)) {
-            floorsFlats = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            floorsFlats = Object.values(data.data);
-          } else {
-            floorsFlats = [];
-          }
-          return floorsFlats;
-        } catch {
-          floorsFlats = [];
-          return floorsFlats;
-        }
+          floorsFlats = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { floorsFlats = []; }
+        return floorsFlats;
       }
-
       async function loadRooms(floorId) {
         try {
           const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
-          if (Array.isArray(data.data)) {
-            rooms = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            rooms = Object.values(data.data);
-          } else {
-            rooms = [];
-          }
-          return rooms;
-        } catch {
-          rooms = [];
-          return rooms;
-        }
+          rooms = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { rooms = []; }
+        return rooms;
       }
-
       async function loadBedSpaces(roomId) {
         try {
           const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
-          if (Array.isArray(data.data)) {
-            bedSpaces = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            bedSpaces = Object.values(data.data);
-          } else {
-            bedSpaces = [];
-          }
-          return bedSpaces;
-        } catch {
-          bedSpaces = [];
-          return bedSpaces;
-        }
+          bedSpaces = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
+        } catch { bedSpaces = []; }
+        return bedSpaces;
       }
 
-      // ===== MODAL SYSTEM =====
+      // ============ MODAL ============
       function openModal(html) {
-        const overlay = document.getElementById('modalOverlay');
-        const body = document.getElementById('modalBody');
-        body.innerHTML = html;
-        overlay.classList.add('active');
+        document.getElementById('modalBody').innerHTML = html;
+        document.getElementById('modalOverlay').classList.add('active');
       }
 
       function closeModal() {
+        if (faceStream) { faceStream.getTracks().forEach(t => t.stop()); faceStream = null; }
+        if (enrollStream) { enrollStream.getTracks().forEach(t => t.stop()); enrollStream = null; }
         document.getElementById('modalOverlay').classList.remove('active');
         modalState = { type: null, student: null, step: 0 };
+        currentFaceStudent = null;
+        currentEnrollStudent = null;
+        lastVerificationResult = null;
+        enrollFrames = [];
       }
 
       document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -704,20 +659,354 @@
         if (e.target === this) closeModal();
       });
 
-      // ===== VERIFICATION FLOW =====
-      window.verifyStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId || s.id === parseInt(studentId));
-        if (!student) {
-          showToast('Student not found', 'error');
+      // ==================== FACE VERIFY (real API only) ====================
+      async function openFaceVerificationModal(student) {
+        currentFaceStudent = student;
+        lastVerificationResult = null;
+        modalState.type = 'face-verify';
+        modalState.student = student;
+
+        openModal(`
+          <div class="modal-title"><i class="fas fa-user-check" style="color:#d6ad4b;"></i> Face Verification</div>
+          <div class="modal-body">
+            <p style="font-size:0.7rem;color:#6b778b;margin-bottom:0.6rem;">${student.name} · ${student.matric || ''}</p>
+            <div class="face-cam-wrap" id="faceCameraContainer">
+              <video id="faceVideo" autoplay playsinline muted></video>
+              <canvas id="faceCanvas" style="display:none;"></canvas>
+              <div class="face-overlay"><div class="face-oval"></div></div>
+              <div class="face-status-bar" id="faceStatusOverlay">Position face inside the oval</div>
+            </div>
+            <div id="faceProgress" class="face-progress" style="display:none;">
+              <div class="loading-spinner" style="padding:0.5rem;"><i class="fas fa-spinner"></i></div>
+              <p style="font-size:0.85rem;" id="faceProgressText">Checking liveness...</p>
+            </div>
+            <div id="faceResult" class="face-result" style="display:none;">
+              <div class="result-icon" id="faceResultIcon"></div>
+              <h3 class="result-title" id="faceResultTitle"></h3>
+              <p class="result-msg" id="faceResultMessage"></p>
+              <p class="result-sim" id="faceSimilarity"></p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" id="faceCaptureBtn" onclick="captureAndVerify()"><i class="fas fa-camera"></i> Capture & Verify</button>
+            <button class="btn btn-success" id="faceConfirmBtn" style="display:none;" onclick="confirmFaceVerification()"><i class="fas fa-check"></i> Confirm Attendance</button>
+            <button class="btn btn-outline" id="faceManualBtn" style="display:none;" onclick="showManualVerification()"><i class="fas fa-keyboard"></i> Manual</button>
+          </div>
+        `);
+
+        try {
+          faceStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+          });
+          document.getElementById('faceVideo').srcObject = faceStream;
+        } catch (err) {
+          showToast('Camera unavailable', 'error');
+          closeModal();
+        }
+      }
+
+      async function captureAndVerify() {
+        if (!currentFaceStudent) return;
+        const video = document.getElementById('faceVideo');
+        const canvas = document.getElementById('faceCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        ctx.drawImage(video, 0, 0);
+        const imageBase64 = canvas.toDataURL('image/jpeg', 0.9);
+
+        document.getElementById('faceCameraContainer').style.display = 'none';
+        document.getElementById('faceProgress').style.display = 'block';
+        document.getElementById('faceCaptureBtn').style.display = 'none';
+        document.getElementById('faceProgressText').textContent = 'Checking liveness...';
+
+        // Liveness check — REQUIRED, no fallback
+        let liveness;
+        try {
+          liveness = await apiCall('/face/check-liveness', {
+            method: 'POST',
+            body: JSON.stringify({ image: imageBase64 })
+          });
+        } catch (err) {
+          if (err.status === 404) {
+            showFaceResult(false, 'Face API Not Available',
+              'The face liveness endpoint is not deployed on this server.');
+            return;
+          }
+          showFaceResult(false, 'Liveness Check Failed', err.message || 'Server error');
           return;
         }
+
+        if (!liveness.success || !liveness.is_live) {
+          showFaceResult(false, 'Liveness Check Failed',
+            liveness.message || 'Please blink or move slightly and try again');
+          return;
+        }
+
+        document.getElementById('faceProgressText').textContent = 'Verifying face...';
+
+        // Match verification — REQUIRED, no fallback
+        let verify;
+        try {
+          verify = await apiCall('/face/verify', {
+            method: 'POST',
+            body: JSON.stringify({ image: imageBase64, student_id: currentFaceStudent.id })
+          });
+        } catch (err) {
+          if (err.status === 404) {
+            showFaceResult(false, 'Face API Not Available',
+              'The face verification endpoint is not deployed on this server.');
+            return;
+          }
+          showFaceResult(false, 'Verification Failed', err.message || 'Server error');
+          return;
+        }
+
+        lastVerificationResult = verify;
+        if (verify.success && verify.verified) {
+          const pct = verify.similarity_percentage || Math.round((verify.similarity || 0) * 100);
+          showFaceResult(true, 'Face Verified!', `Match confidence: ${pct}%`, pct);
+        } else {
+          showFaceResult(false, 'Verification Failed',
+            verify.message || 'Face does not match the enrolled record');
+        }
+      }
+
+      function showFaceResult(success, title, message, similarity = null) {
+        document.getElementById('faceProgress').style.display = 'none';
+        document.getElementById('faceResult').style.display = 'block';
+
+        const icon = document.getElementById('faceResultIcon');
+        const titleEl = document.getElementById('faceResultTitle');
+        const msgEl = document.getElementById('faceResultMessage');
+        const simEl = document.getElementById('faceSimilarity');
+
+        if (success) {
+          icon.innerHTML = '<i class="fas fa-check-circle" style="color:#2d6545;"></i>';
+          titleEl.style.color = '#2d6545';
+          document.getElementById('faceConfirmBtn').style.display = 'inline-flex';
+          document.getElementById('faceManualBtn').style.display = 'none';
+        } else {
+          icon.innerHTML = '<i class="fas fa-times-circle" style="color:#a84134;"></i>';
+          titleEl.style.color = '#a84134';
+          const capBtn = document.getElementById('faceCaptureBtn');
+          capBtn.style.display = 'inline-flex';
+          capBtn.innerHTML = '<i class="fas fa-camera"></i> Try Again';
+          document.getElementById('faceManualBtn').style.display = 'inline-flex';
+        }
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        simEl.textContent = similarity !== null ? `Similarity: ${similarity}%` : '';
+      }
+
+      async function confirmFaceVerification() {
+        if (!currentFaceStudent || !lastVerificationResult) return;
+
+        // Save attendance — REQUIRED, no local-only fallback
+        try {
+          await apiCall('/bedcheck/verify', {
+            method: 'POST',
+            body: JSON.stringify({
+              student_id: currentFaceStudent.id,
+              status: 'Present',
+              method: 'Face ID',
+              similarity: lastVerificationResult.similarity || lastVerificationResult.similarity_percentage,
+              session_id: (sessions[0]?.id) || null
+            })
+          });
+        } catch (err) {
+          showToast('Failed to save verification: ' + err.message, 'error');
+          return;
+        }
+
+        // Update local state after successful backend save
+        const student = students.find(s => s.id === currentFaceStudent.id);
+        if (student) {
+          student.status = 'Present';
+          student.last_verified = new Date().toISOString();
+        }
+
+        const similarityPct = lastVerificationResult.similarity_percentage ||
+          Math.round((lastVerificationResult.similarity || 0) * 100);
+
+        activityLog.unshift({
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          student: currentFaceStudent.name,
+          action: 'verified',
+          method: 'Face ID',
+          confidence: `${similarityPct}%`,
+          actor: (selectedRA ? selectedRA.name : 'RA') + ' · RA',
+          type: 'verification'
+        });
+
+        showToast(`${currentFaceStudent.name} marked as Present`, 'success');
+        closeModal();
+        renderScreen();
+      }
+
+      // ==================== FACE ENROLL (real API only) ====================
+      function openFaceEnrollmentModal(student, isReEnroll = false) {
+        currentEnrollStudent = student;
+        enrollFrames = [];
+        modalState.type = 'face-enroll';
         modalState.student = student;
-        modalState.step = 0;
+
+        openModal(`
+          <div class="modal-title"><i class="fas fa-user-plus" style="color:#d6ad4b;"></i> ${isReEnroll ? 'Re-enroll Face' : 'Enroll Face'}</div>
+          <div class="modal-body">
+            <p style="font-size:0.7rem;color:#6b778b;margin-bottom:0.6rem;">${student.name} · ${student.matric || ''}</p>
+
+            <div id="enrollInstructions" style="background:#fff9e9;border:1px solid #d8c79e;border-radius:0.5rem;padding:0.6rem;margin-bottom:0.75rem;font-size:0.72rem;color:#675121;">
+              <strong>Instructions:</strong>
+              <ul style="margin:0.3rem 0 0 1.1rem;padding:0;">
+                <li>Look straight at the camera</li>
+                <li>Make sure your face is well lit</li>
+                <li>Remove glasses / hat if possible</li>
+                <li>We will capture 3 frames automatically</li>
+              </ul>
+            </div>
+
+            <div class="face-cam-wrap" id="enrollCameraContainer">
+              <video id="enrollVideo" autoplay playsinline muted></video>
+              <canvas id="enrollCanvas" style="display:none;"></canvas>
+              <div class="face-overlay"><div class="face-oval"></div></div>
+              <div class="face-status-bar" id="enrollStatusOverlay">Position face inside the oval</div>
+            </div>
+
+            <div id="enrollProgress" class="face-progress" style="display:none;">
+              <div class="loading-spinner" style="padding:0.5rem;"><i class="fas fa-spinner"></i></div>
+              <p style="font-size:0.85rem;" id="enrollProgressText">Capturing frames...</p>
+              <div class="bar-wrap"><div class="fill" id="enrollProgressBar"></div></div>
+            </div>
+
+            <div id="enrollResult" class="face-result" style="display:none;">
+              <div class="result-icon" id="enrollResultIcon"></div>
+              <h3 class="result-title" id="enrollResultTitle"></h3>
+              <p class="result-msg" id="enrollResultMessage"></p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" id="enrollStartBtn" onclick="startFaceEnrollment()"><i class="fas fa-camera"></i> Start Enrollment</button>
+            <button class="btn btn-success" id="enrollDoneBtn" style="display:none;" onclick="closeModal()"><i class="fas fa-check"></i> Done</button>
+          </div>
+        `);
+
+        navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        }).then(stream => {
+          enrollStream = stream;
+          document.getElementById('enrollVideo').srcObject = stream;
+        }).catch(err => {
+          showToast('Camera access denied', 'error');
+          closeModal();
+        });
+      }
+
+      async function startFaceEnrollment() {
+        if (!currentEnrollStudent) return;
+        const video = document.getElementById('enrollVideo');
+        const canvas = document.getElementById('enrollCanvas');
+        const ctx = canvas.getContext('2d');
+
+        document.getElementById('enrollStartBtn').style.display = 'none';
+        document.getElementById('enrollInstructions').style.display = 'none';
+        document.getElementById('enrollProgress').style.display = 'block';
+
+        enrollFrames = [];
+
+        for (let i = 1; i <= 3; i++) {
+          document.getElementById('enrollProgressText').textContent = `Capturing frame ${i} of 3...`;
+          document.getElementById('enrollProgressBar').style.width = `${(i / 3) * 70}%`;
+          document.getElementById('enrollStatusOverlay').textContent = `Frame ${i}/3 – Hold still`;
+
+          await new Promise(r => setTimeout(r, 800));
+
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          ctx.drawImage(video, 0, 0);
+          enrollFrames.push(canvas.toDataURL('image/jpeg', 0.92));
+        }
+
+        document.getElementById('enrollProgressText').textContent = 'Processing enrollment...';
+        document.getElementById('enrollProgressBar').style.width = '85%';
+
+        // REQUIRED — no local-only fallback
+        try {
+          const res = await apiCall('/face/enroll-bulk', {
+            method: 'POST',
+            body: JSON.stringify({
+              student_id: currentEnrollStudent.id,
+              frames: enrollFrames,
+              name: currentEnrollStudent.name,
+              hostel: currentEnrollStudent.hostel_name || currentEnrollStudent.hostel || '',
+              room: currentEnrollStudent.room_code || ''
+            })
+          });
+
+          document.getElementById('enrollProgressBar').style.width = '100%';
+
+          if (res.success) {
+            const student = students.find(s => s.id === currentEnrollStudent.id);
+            if (student) {
+              student.face_enrolled = true;
+              student.face_enrolled_at = new Date().toISOString();
+            }
+            showEnrollResult(true, 'Enrollment Successful!',
+              'Face has been enrolled successfully.');
+          } else {
+            showEnrollResult(false, 'Enrollment Failed',
+              res.message || res.error || 'Could not enroll face. Please try again.');
+          }
+        } catch (err) {
+          if (err.status === 404) {
+            showEnrollResult(false, 'Face API Not Available',
+              'The enrollment endpoint is not deployed on this server.');
+            return;
+          }
+          showEnrollResult(false, 'Enrollment Error', err.message || 'Request failed');
+        }
+      }
+
+      function showEnrollResult(success, title, message) {
+        document.getElementById('enrollCameraContainer').style.display = 'none';
+        document.getElementById('enrollProgress').style.display = 'none';
+        document.getElementById('enrollResult').style.display = 'block';
+
+        const icon = document.getElementById('enrollResultIcon');
+        const titleEl = document.getElementById('enrollResultTitle');
+        const msgEl = document.getElementById('enrollResultMessage');
+
+        if (success) {
+          icon.innerHTML = '<i class="fas fa-check-circle" style="color:#2d6545;"></i>';
+          titleEl.style.color = '#2d6545';
+          document.getElementById('enrollDoneBtn').style.display = 'inline-flex';
+        } else {
+          icon.innerHTML = '<i class="fas fa-times-circle" style="color:#a84134;"></i>';
+          titleEl.style.color = '#a84134';
+          const startBtn = document.getElementById('enrollStartBtn');
+          startBtn.style.display = 'inline-flex';
+          startBtn.innerHTML = '<i class="fas fa-camera"></i> Try Again';
+        }
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+      }
+
+      // ==================== VERIFY ENTRY / MANUAL / PROFILE ====================
+      window.verifyStudent = function(studentId) {
+        const student = students.find(s => s.id === studentId || s.id === parseInt(studentId));
+        if (!student) { showToast('Student not found', 'error'); return; }
         showVerifyStudent(student);
       };
 
       function showVerifyStudent(student) {
         const raName = selectedRA ? selectedRA.name : 'RA';
+        modalState.student = student;
+        modalState.type = 'verify-entry';
         openModal(`
           <div class="modal-title"><i class="fas fa-clipboard-check"></i> Verify Student</div>
           <div class="modal-body">
@@ -748,189 +1037,28 @@
           </div>
           <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="startFaceVerification()"><i class="fas fa-camera"></i> Start Face Verification</button>
+            <button class="btn btn-primary" onclick="startFaceVerificationFromEntry()"><i class="fas fa-camera"></i> Start Verification</button>
           </div>
         `);
       }
 
       window.selectMethod = function(method) {
         document.querySelectorAll('.method-btn').forEach(el => el.classList.remove('selected'));
-        if (method === 'face') {
-          document.getElementById('methodFace').classList.add('selected');
-        } else {
-          document.getElementById('methodManual').classList.add('selected');
-        }
+        if (method === 'face') document.getElementById('methodFace').classList.add('selected');
+        else document.getElementById('methodManual').classList.add('selected');
       };
 
-      window.startFaceVerification = function() {
+      window.startFaceVerificationFromEntry = function() {
         const student = modalState.student;
         if (!student) return;
-        modalState.step = 1;
-        showFaceVerification(student);
+        const faceSelected = document.getElementById('methodFace')?.classList.contains('selected');
+        if (faceSelected) openFaceVerificationModal(student);
+        else showManualVerification();
       };
-
-      function showFaceVerification(student) {
-        openModal(`
-          <div class="modal-title"><i class="fas fa-camera"></i> Face Verification</div>
-          <div class="modal-body">
-            <div style="text-align:center;margin-bottom:0.5rem;">
-              <div style="font-weight:700;">${student.name}</div>
-              <div style="font-size:0.7rem;color:#6b778b;">${student.matric || 'N/A'}</div>
-            </div>
-            <div class="camera-preview" id="cameraPreview">
-              <div class="face-guide">
-                <i class="fas fa-user-circle"></i>
-              </div>
-              <div class="status-text" id="cameraStatus">Position face in the guide</div>
-            </div>
-            <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:0.5rem;">
-              <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-              <button class="btn btn-primary" id="verifyFaceBtn" onclick="simulateFaceMatch()"><i class="fas fa-check"></i> Verify Face</button>
-            </div>
-            <div style="margin-top:0.5rem;font-size:0.6rem;color:#6b778b;text-align:center;">
-              <i class="fas fa-info-circle"></i> Simulated face verification for demo
-            </div>
-          </div>
-        `);
-
-        // Simulate face detection
-        setTimeout(() => {
-          const status = document.getElementById('cameraStatus');
-          if (status) {
-            status.textContent = '✓ Face detected';
-            status.style.color = '#2d6545';
-          }
-          document.getElementById('verifyFaceBtn').disabled = false;
-        }, 1500);
-      }
-
-      window.simulateFaceMatch = function() {
-        const student = modalState.student;
-        if (!student) return;
-        modalState.step = 2;
-        showVerificationResult(student, true, 0.987);
-      };
-
-      function showVerificationResult(student, matched, confidence) {
-        const raName = selectedRA ? selectedRA.name : 'RA';
-        const hostelName = selectedHostel ? selectedHostel.name : student.hostel_name || 'Hostel';
-        
-        if (matched) {
-          openModal(`
-            <div class="modal-title"><i class="fas fa-check-circle" style="color:#2d6545;"></i> Verification Result</div>
-            <div class="modal-body">
-              <div class="result-icon success"><i class="fas fa-check-circle"></i></div>
-              <h3 style="text-align:center;color:#2d6545;">FACE MATCHED</h3>
-              <div style="text-align:center;font-size:1.2rem;font-weight:700;">${student.name}</div>
-              <div style="text-align:center;font-size:0.8rem;color:#6b778b;">${student.matric || 'N/A'}</div>
-              
-              <div style="margin-top:0.75rem;background:#fbf7ef;padding:0.5rem 0.75rem;border-radius:0.5rem;">
-                <div style="display:flex;justify-content:space-between;font-size:0.7rem;padding:0.15rem 0;">
-                  <span style="color:#6b778b;">Match Confidence</span>
-                  <span style="font-weight:700;color:#2d6545;">${(confidence * 100).toFixed(1)}%</span>
-                </div>
-                <div class="confidence-bar">
-                  <div class="fill" style="width:${confidence * 100}%;background:#2d6545;"></div>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;font-size:0.65rem;margin-top:0.3rem;">
-                  <div><span style="color:#6b778b;">Student</span> ${student.name}</div>
-                  <div><span style="color:#6b778b;">Hostel</span> ${hostelName}</div>
-                  <div><span style="color:#6b778b;">Room</span> ${student.room_code || 'N/A'}</div>
-                  <div><span style="color:#6b778b;">Bed</span> ${student.bed_code || 'N/A'}</div>
-                  <div style="grid-column:span 2;"><span style="color:#6b778b;">RA Workspace</span> ${raName}</div>
-                </div>
-                <div style="margin-top:0.3rem;font-size:0.6rem;color:#6b778b;border-top:1px solid #eee8de;padding-top:0.3rem;">
-                  Verification method: Face ID
-                </div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-              <button class="btn btn-success" onclick="confirmAttendance()"><i class="fas fa-check"></i> Confirm Attendance</button>
-            </div>
-          `);
-        } else {
-          openModal(`
-            <div class="modal-title"><i class="fas fa-times-circle" style="color:#8a3328;"></i> Verification Result</div>
-            <div class="modal-body">
-              <div class="result-icon error"><i class="fas fa-times-circle"></i></div>
-              <h3 style="text-align:center;color:#8a3328;">FACE NOT MATCHED</h3>
-              <div style="text-align:center;font-size:1rem;font-weight:700;">${student.name}</div>
-              <div style="text-align:center;font-size:0.8rem;color:#6b778b;">${student.matric || 'N/A'}</div>
-              <div style="margin-top:0.75rem;background:#fbf7ef;padding:0.5rem 0.75rem;border-radius:0.5rem;text-align:center;font-size:0.8rem;color:#6b778b;">
-                <i class="fas fa-exclamation-triangle" style="color:#a77915;"></i>
-                Face did not match the enrolled student. Please try again or use manual verification.
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-              <button class="btn btn-primary" onclick="startFaceVerification()"><i class="fas fa-redo"></i> Retry</button>
-              <button class="btn btn-outline" onclick="showManualVerification()"><i class="fas fa-edit"></i> Manual</button>
-            </div>
-          `);
-        }
-      }
-
-      window.confirmAttendance = function() {
-        const student = modalState.student;
-        if (!student) return;
-        
-        // Update student status
-        student.status = 'Present';
-        
-        // Add to activity log
-        const raName = selectedRA ? selectedRA.name : 'RA';
-        activityLog.unshift({
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          student: student.name,
-          action: 'verified',
-          method: 'Face ID',
-          confidence: '98.7%',
-          actor: raName + ' · RA',
-          type: 'verification'
-        });
-
-        modalState.step = 3;
-        showAttendanceConfirmed(student);
-      };
-
-      function showAttendanceConfirmed(student) {
-        const raName = selectedRA ? selectedRA.name : 'RA';
-        const hostelName = selectedHostel ? selectedHostel.name : student.hostel_name || 'Hostel';
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-        openModal(`
-          <div class="modal-title"><i class="fas fa-check-circle" style="color:#2d6545;"></i> Attendance Verified</div>
-          <div class="modal-body">
-            <div class="result-icon success"><i class="fas fa-check-circle"></i></div>
-            <h3 style="text-align:center;color:#2d6545;">ATTENDANCE VERIFIED</h3>
-            <div style="text-align:center;font-size:1.2rem;font-weight:700;">${student.name}</div>
-            <div style="text-align:center;font-size:0.8rem;color:#6b778b;">${student.matric || 'N/A'}</div>
-            
-            <div style="margin-top:0.75rem;background:#e1f0e5;padding:0.5rem;border-radius:0.5rem;text-align:center;font-weight:700;color:#2d6545;">
-              🟢 PRESENT
-            </div>
-            
-            <div style="margin-top:0.5rem;background:#fbf7ef;padding:0.5rem 0.75rem;border-radius:0.5rem;font-size:0.7rem;">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.2rem;">
-                <div><span style="color:#6b778b;">Verified at</span> ${timeStr}</div>
-                <div><span style="color:#6b778b;">Face confidence</span> 98.7%</div>
-                <div style="grid-column:span 2;"><span style="color:#6b778b;">Verified in</span> ${raName}'s BedCheck</div>
-                <div style="grid-column:span 2;"><span style="color:#6b778b;">Hostel</span> ${hostelName}</div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-success" onclick="closeModal();refreshData();"><i class="fas fa-check"></i> Done</button>
-          </div>
-        `);
-      }
 
       window.showManualVerification = function() {
-        const student = modalState.student;
+        const student = modalState.student || currentFaceStudent;
         if (!student) return;
-        
         openModal(`
           <div class="modal-title"><i class="fas fa-edit"></i> Manual Verification</div>
           <div class="modal-body">
@@ -952,43 +1080,56 @@
           </div>
           <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-warning" style="background:#a77915;color:white;border-color:#a77915;" onclick="confirmManualAttendance()"><i class="fas fa-check"></i> Confirm Present</button>
+            <button class="btn btn-warning" onclick="confirmManualAttendance()"><i class="fas fa-check"></i> Confirm Present</button>
           </div>
         `);
       };
 
-      window.confirmManualAttendance = function() {
-        const student = modalState.student;
+      window.confirmManualAttendance = async function() {
+        const student = modalState.student || currentFaceStudent;
         if (!student) return;
-        
-        student.status = 'Present';
-        
-        const raName = selectedRA ? selectedRA.name : 'RA';
+
+        // Save to backend — no local-only fallback
+        try {
+          await apiCall('/bedcheck/verify', {
+            method: 'POST',
+            body: JSON.stringify({
+              student_id: student.id,
+              status: 'Present',
+              method: 'Manual',
+              session_id: (sessions[0]?.id) || null
+            })
+          });
+        } catch (err) {
+          showToast('Failed to save: ' + err.message, 'error');
+          return;
+        }
+
+        const s = students.find(x => x.id === student.id);
+        if (s) s.status = 'Present';
+
         activityLog.unshift({
           time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           student: student.name,
           action: 'verified',
           method: 'Manual',
           confidence: 'N/A',
-          actor: raName + ' · RA',
+          actor: (selectedRA ? selectedRA.name : 'RA') + ' · RA',
           type: 'verification'
         });
 
-        showAttendanceConfirmed(student);
+        showToast(`${student.name} marked as Present`, 'success');
+        closeModal();
+        renderScreen();
       };
 
-      // ===== VIEW STUDENT =====
       window.viewStudent = function(studentId) {
         const student = students.find(s => s.id === studentId || s.id === parseInt(studentId));
-        if (!student) {
-          showToast('Student not found', 'error');
-          return;
-        }
-        
+        if (!student) { showToast('Student not found', 'error'); return; }
         const hostel = selectedHostel || hostels.find(h => h.id === student.hostel_id);
         const raName = selectedRA ? selectedRA.name : 'RA';
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const isVerified = student.status === 'Present' || student.status === 'Verified';
 
         openModal(`
           <div class="modal-title"><i class="fas fa-user-graduate"></i> Student Profile</div>
@@ -1003,7 +1144,7 @@
                 <div style="font-size:0.7rem;color:#6b778b;">${student.department || ''} · ${student.level || ''}</div>
               </div>
             </div>
-            
+
             <div style="margin-top:0.75rem;">
               <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Hostel Information</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.2rem 0.5rem;background:#fbf7ef;padding:0.4rem 0.75rem;border-radius:0.5rem;font-size:0.7rem;">
@@ -1013,13 +1154,13 @@
                 <div><span style="color:#6b778b;">Bed</span> ${student.bed_code || 'N/A'}</div>
               </div>
             </div>
-            
+
             <div style="margin-top:0.5rem;">
               <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Tonight's BedCheck</p>
               <div style="background:#fbf7ef;padding:0.4rem 0.75rem;border-radius:0.5rem;font-size:0.7rem;">
                 <div style="display:flex;justify-content:space-between;">
                   <span style="color:#6b778b;">Status</span>
-                  <span style="font-weight:600;color:${student.status === 'Present' || student.status === 'Verified' ? '#2d6545' : student.status === 'Absent' ? '#8a3328' : '#a77915'};">${student.status || 'Not Checked'}</span>
+                  <span style="font-weight:600;color:${isVerified ? '#2d6545' : student.status === 'Absent' ? '#8a3328' : '#a77915'};">${student.status || 'Not Checked'}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;border-top:1px solid #eee8de;padding-top:0.2rem;">
                   <span style="color:#6b778b;">RA Workspace</span>
@@ -1027,33 +1168,62 @@
                 </div>
               </div>
             </div>
-            
+
             <div style="margin-top:0.5rem;">
               <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Face ID</p>
               <div style="background:#fbf7ef;padding:0.4rem 0.75rem;border-radius:0.5rem;font-size:0.7rem;">
                 <div style="display:flex;justify-content:space-between;">
                   <span style="color:#6b778b;">Status</span>
-                  <span style="font-weight:600;color:#2d6545;">● Enrolled</span>
+                  <span style="font-weight:600;color:${student.face_enrolled ? '#2d6545' : '#a77915'};">
+                    ${student.face_enrolled ? '● Enrolled' : '○ Not enrolled'}
+                  </span>
                 </div>
                 <div style="display:flex;justify-content:space-between;border-top:1px solid #eee8de;padding-top:0.2rem;">
                   <span style="color:#6b778b;">Last Verified</span>
                   <span>${timeStr}</span>
                 </div>
               </div>
-              <div style="display:flex;gap:0.3rem;margin-top:0.3rem;flex-wrap:wrap;">
-                <button class="btn btn-sm btn-outline"><i class="fas fa-sync"></i> Re-enroll Face</button>
-                <button class="btn btn-sm btn-outline"><i class="fas fa-history"></i> Verification History</button>
+              <div style="display:flex;gap:0.3rem;margin-top:0.5rem;flex-wrap:wrap;">
+                ${!isVerified ? `
+                  <button class="btn btn-sm btn-primary" onclick="closeModal();verifyStudent(${student.id})"><i class="fas fa-user-check"></i> Verify with Face ID</button>
+                ` : `
+                  <button class="btn btn-sm btn-success" disabled><i class="fas fa-check-circle"></i> Already Verified</button>
+                `}
+                <button class="btn btn-sm btn-outline" onclick="closeModal();${student.face_enrolled ? 'reEnrollStudent' : 'enrollStudent'}(${student.id})">
+                  <i class="fas fa-sync-alt"></i> ${student.face_enrolled ? 'Re-enroll Face' : 'Enroll Face'}
+                </button>
+                <button class="btn btn-sm btn-outline" onclick="closeModal();showManualForStudent(${student.id})">
+                  <i class="fas fa-keyboard"></i> Manual Verify
+                </button>
               </div>
             </div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-outline" onclick="closeModal()">Close</button>
-            ${student.status !== 'Present' && student.status !== 'Verified' ? `<button class="btn btn-primary" onclick="closeModal();verifyStudent(${student.id})"><i class="fas fa-check"></i> Verify</button>` : ''}
           </div>
         `);
       };
 
-      // ===== RENDER =====
+      window.showManualForStudent = function(studentId) {
+        const student = students.find(s => s.id === studentId);
+        if (!student) return;
+        modalState.student = student;
+        showManualVerification();
+      };
+
+      window.enrollStudent = function(studentId) {
+        const student = students.find(s => s.id === studentId);
+        if (!student) { showToast('Student not found', 'error'); return; }
+        openFaceEnrollmentModal(student, false);
+      };
+
+      window.reEnrollStudent = function(studentId) {
+        const student = students.find(s => s.id === studentId);
+        if (!student) { showToast('Student not found', 'error'); return; }
+        openFaceEnrollmentModal(student, true);
+      };
+
+      // ============ RENDER ============
       function renderScreen() {
         const container = document.getElementById('screenContent');
         if (drillState.view === 'overview') renderOverview(container);
@@ -1069,25 +1239,10 @@
         if (!hostel) return [];
         return students.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId) || s.hostel_name === hostel.name);
       }
-
-      function getHostel(id) { 
-        const numId = parseInt(id);
-        return hostels.find(h => h.id === id || h.id === numId); 
-      }
-
-      function getFloor(id) {
-        const numId = parseInt(id);
-        return floorsFlats.find(f => f.id === id || f.id === numId);
-      }
-
-      function getRoom(id) {
-        const numId = parseInt(id);
-        return rooms.find(r => r.id === id || r.id === numId);
-      }
-
-      function getStaffForHostel(hostelId) {
-        return allStaff.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId));
-      }
+      function getHostel(id) { const n = parseInt(id); return hostels.find(h => h.id === id || h.id === n); }
+      function getFloor(id) { const n = parseInt(id); return floorsFlats.find(f => f.id === id || f.id === n); }
+      function getRoom(id) { const n = parseInt(id); return rooms.find(r => r.id === id || r.id === n); }
+      function getStaffForHostel(hostelId) { return allStaff.filter(s => s.hostel_id === hostelId || s.hostel_id === parseInt(hostelId)); }
 
       function renderEmptyState(container, message, icon = 'fa-building') {
         container.innerHTML = `
@@ -1099,13 +1254,8 @@
         `;
       }
 
-      // ---- OVERVIEW ----
       function renderOverview(container) {
-        if (hostels.length === 0) {
-          renderEmptyState(container, 'No hostels found in the system.');
-          return;
-        }
-
+        if (hostels.length === 0) { renderEmptyState(container, 'No hostels found in the system.'); return; }
         const totalStudents = students.length;
         const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
         const absent = students.filter(s => s.status === 'Absent').length;
@@ -1163,10 +1313,8 @@
         const searchTerm = document.getElementById('hostelSearch')?.value.toLowerCase().trim() || '';
         const tbody = document.getElementById('hostelTableBody');
         if (!tbody) return;
-        
-        const hostelsArray = Array.isArray(hostels) ? hostels : [];
-        
-        const filtered = hostelsArray.filter(h => !searchTerm || (h.name && h.name.toLowerCase().includes(searchTerm)));
+
+        const filtered = hostels.filter(h => !searchTerm || (h.name && h.name.toLowerCase().includes(searchTerm)));
         if (filtered.length === 0) {
           tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6b778b;font-weight:600;"><i class="fas fa-search" style="font-size:1.2rem;display:block;margin-bottom:0.3rem;color:#a77915;"></i>No hostels found</td></tr>`;
           return;
@@ -1199,31 +1347,24 @@
         const session = sessions && sessions.length > 0 ? sessions[0] : null;
         const isActive = session && (session.status === 'active' || session.status === 'Active');
         const badge = document.getElementById('sessionStatusBadge');
-        if (badge) { badge.className = `status-badge ${isActive ? 'active' : 'inactive'}`; document.getElementById('sessionStatusText').textContent = isActive ? (session.status || 'Active') : 'No Session'; }
+        if (badge) {
+          badge.className = `status-badge ${isActive ? 'active' : 'inactive'}`;
+          document.getElementById('sessionStatusText').textContent = isActive ? (session.status || 'Active') : 'No Session';
+        }
         const timeDisplay = document.getElementById('sessionTime');
-        if (timeDisplay) { timeDisplay.textContent = session ? `${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}` : '—'; }
+        if (timeDisplay) timeDisplay.textContent = session ? `${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}` : '—';
         const statusDisplay = document.getElementById('sessionStatusDisplay');
-        if (statusDisplay) { statusDisplay.textContent = isActive ? (session.status || 'Active') : 'No Session'; }
+        if (statusDisplay) statusDisplay.textContent = isActive ? (session.status || 'Active') : 'No Session';
         const timeDisplay2 = document.getElementById('sessionTimeDisplay');
-        if (timeDisplay2) { timeDisplay2.textContent = session ? `${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}` : '—'; }
+        if (timeDisplay2) timeDisplay2.textContent = session ? `${session.start_time || '10:00 PM'} — ${session.end_time || '12:00 AM'}` : '—';
       }
 
-      // ---- DRILL: HOSTEL ----
       window.drillToHostel = async function(hostelId) {
         const id = typeof hostelId === 'string' ? parseInt(hostelId) : hostelId;
         const hostel = getHostel(id);
-        if (!hostel) {
-          showToast('Hostel not found (ID: ' + id + ')', 'error');
-          return;
-        }
-        
+        if (!hostel) { showToast('Hostel not found (ID: ' + id + ')', 'error'); return; }
         selectedHostel = hostel;
-        
-        await Promise.all([
-          loadFloorsFlats(id),
-          loadAllStaff()
-        ]);
-        
+        await Promise.all([loadFloorsFlats(id), loadAllStaff()]);
         drillState.view = 'hostel';
         drillState.hostelId = id;
         drillState.floorId = null;
@@ -1235,12 +1376,9 @@
 
       function renderHostel(container) {
         const hostel = getHostel(drillState.hostelId);
-        if (!hostel) {
-          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Hostel not found. <a href="#" onclick="drillToOverview()" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
-          return;
-        }
+        if (!hostel) { container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Hostel not found. <a href="#" onclick="drillToOverview()" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`; return; }
         selectedHostel = hostel;
-        
+
         const hs = getHostelStudents(hostel.id);
         const total = hs.length;
         const present = hs.filter(s => s.status === 'Present' || s.status === 'Verified').length;
@@ -1251,21 +1389,13 @@
         const flats = floorsFlats.filter(f => f.type === 'flat' || f.type === 'Flat');
 
         const hostelStaff = getStaffForHostel(hostel.id);
-        const hra = hostelStaff.find(s => s.role === 'HRA' || s.role === 'Hra' || s.role === 'HRA');
-        const ras = hostelStaff.filter(s => s.role === 'RA' || s.role === 'Ra' || s.role === 'ra');
+        const hra = hostelStaff.find(s => s.role === 'HRA');
+        const ras = hostelStaff.filter(s => s.role === 'RA');
 
         let staffHtml = '';
-        if (hra) {
-          staffHtml += `<span class="staff-tag hra"><i class="fas fa-user-tie"></i> HRA: ${hra.name}</span>`;
-        }
-        if (ras.length > 0) {
-          staffHtml += ras.map(ra => 
-            `<span class="staff-tag ra" onclick="drillToRA(${ra.id})" style="cursor:pointer;"><i class="fas fa-user"></i> ${ra.name} (RA)</span>`
-          ).join('');
-        }
-        if (!hra && ras.length === 0) {
-          staffHtml = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
-        }
+        if (hra) staffHtml += `<span class="staff-tag hra"><i class="fas fa-user-tie"></i> HRA: ${hra.name}</span>`;
+        if (ras.length > 0) staffHtml += ras.map(ra => `<span class="staff-tag ra" onclick="drillToRA(${ra.id})" style="cursor:pointer;"><i class="fas fa-user"></i> ${ra.name} (RA)</span>`).join('');
+        if (!hra && ras.length === 0) staffHtml = `<span class="staff-tag" style="background:#f0ece4;color:#6b778b;">No staff assigned</span>`;
 
         container.innerHTML = `
           <div class="breadcrumb">
@@ -1290,60 +1420,29 @@
             </div>
             <div style="margin-top:0.5rem;">
               <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">HRA &amp; RA Team <span style="font-weight:400;font-size:0.55rem;">(${ras.length} RAs) — click RA to view workspace</span></p>
-              <div class="staff-scroll">
-                <div class="staff-list">
-                  ${staffHtml}
-                </div>
-              </div>
+              <div class="staff-scroll"><div class="staff-list">${staffHtml}</div></div>
             </div>
           </div>
           <div style="margin-top:0.5rem;">
             <p style="font-size:0.65rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Floors / Flats</p>
             ${floors.length > 0 || flats.length > 0 ? `
-              ${floors.length > 0 ? `
-                <div class="flat-grid">
-                  ${floors.map(f => `
-                    <div class="flat-card" onclick="drillToFloor(${f.id})">
-                      <div class="flat-name">${f.name}</div>
-                      <div class="flat-meta">${f.room_count || 0} rooms</div>
-                    </div>
-                  `).join('')}
-                </div>
-              ` : ''}
+              ${floors.length > 0 ? `<div class="flat-grid">${floors.map(f => `<div class="flat-card" onclick="drillToFloor(${f.id})"><div class="flat-name">${f.name}</div><div class="flat-meta">${f.room_count || 0} rooms</div></div>`).join('')}</div>` : ''}
               ${flats.length > 0 ? `
                 <div style="margin-top:0.5rem;">
                   <p style="font-size:0.55rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Flats</p>
-                  <div class="flat-grid">
-                    ${flats.map(f => `
-                      <div class="flat-card" onclick="drillToFloor(${f.id})">
-                        <div class="flat-name">${f.name}</div>
-                        <div class="flat-meta">${f.room_count || 0} rooms</div>
-                      </div>
-                    `).join('')}
-                  </div>
+                  <div class="flat-grid">${flats.map(f => `<div class="flat-card" onclick="drillToFloor(${f.id})"><div class="flat-name">${f.name}</div><div class="flat-meta">${f.room_count || 0} rooms</div></div>`).join('')}</div>
                 </div>
               ` : ''}
-            ` : `
-              <div class="empty-state" style="padding:1rem;">
-                <i class="fas fa-layer-group" style="font-size:1.5rem;"></i>
-                <div class="subtitle">No floors or flats found for this hostel</div>
-              </div>
-            `}
+            ` : `<div class="empty-state" style="padding:1rem;"><i class="fas fa-layer-group" style="font-size:1.5rem;"></i><div class="subtitle">No floors or flats found for this hostel</div></div>`}
           </div>
         `;
       }
 
-      // ---- DRILL: FLOOR ----
       window.drillToFloor = async function(floorId) {
         const id = typeof floorId === 'string' ? parseInt(floorId) : floorId;
         const floor = getFloor(id);
-        if (!floor) {
-          showToast('Floor/Flat not found (ID: ' + id + ')', 'error');
-          return;
-        }
-        
+        if (!floor) { showToast('Floor/Flat not found (ID: ' + id + ')', 'error'); return; }
         await loadRooms(id);
-        
         drillState.view = 'floor';
         drillState.floorId = id;
         drillState.roomId = null;
@@ -1353,11 +1452,7 @@
       function renderFloor(container) {
         const hostel = getHostel(drillState.hostelId);
         const floor = getFloor(drillState.floorId);
-        if (!floor) {
-          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Floor/Flat not found. <a href="#" onclick="drillToHostel(${drillState.hostelId})" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
-          return;
-        }
-
+        if (!floor) { container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Floor/Flat not found.</p></div>`; return; }
         container.innerHTML = `
           <div class="breadcrumb">
             <a onclick="drillToOverview()"><i class="fas fa-home"></i> BedCheck Center</a>
@@ -1371,36 +1466,16 @@
               <h2>${floor.name} <span style="font-size:0.7rem;font-weight:400;color:#6b778b;">${floor.type || 'Floor'} · ${hostel?.name}</span></h2>
               <span class="status-badge active"><span class="dot"></span> ${rooms.length} Rooms</span>
             </div>
-            ${rooms.length > 0 ? `
-              <div class="flat-grid">
-                ${rooms.map(r => `
-                  <div class="flat-card" onclick="drillToRoom(${r.id})">
-                    <div class="flat-name">${r.room_code || r.full_code || 'Room ' + r.id}</div>
-                    <div class="flat-meta">${r.capacity || 0} beds · ${r.occupied || 0} occupied</div>
-                  </div>
-                `).join('')}
-              </div>
-            ` : `
-              <div class="empty-state" style="padding:1rem;">
-                <i class="fas fa-door-open" style="font-size:1.5rem;"></i>
-                <div class="subtitle">No rooms found in this ${floor.type || 'floor'}</div>
-              </div>
-            `}
+            ${rooms.length > 0 ? `<div class="flat-grid">${rooms.map(r => `<div class="flat-card" onclick="drillToRoom(${r.id})"><div class="flat-name">${r.room_code || r.full_code || 'Room ' + r.id}</div><div class="flat-meta">${r.capacity || 0} beds · ${r.occupied || 0} occupied</div></div>`).join('')}</div>` : `<div class="empty-state" style="padding:1rem;"><i class="fas fa-door-open" style="font-size:1.5rem;"></i><div class="subtitle">No rooms found in this ${floor.type || 'floor'}</div></div>`}
           </div>
         `;
       }
 
-      // ---- DRILL: ROOM ----
       window.drillToRoom = async function(roomId) {
         const id = typeof roomId === 'string' ? parseInt(roomId) : roomId;
         const room = getRoom(id);
-        if (!room) {
-          showToast('Room not found (ID: ' + id + ')', 'error');
-          return;
-        }
-        
+        if (!room) { showToast('Room not found (ID: ' + id + ')', 'error'); return; }
         await loadBedSpaces(id);
-        
         drillState.view = 'room';
         drillState.roomId = id;
         renderScreen();
@@ -1410,11 +1485,7 @@
         const hostel = getHostel(drillState.hostelId);
         const floor = getFloor(drillState.floorId);
         const room = getRoom(drillState.roomId);
-        
-        if (!room) {
-          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Room not found. <a href="#" onclick="drillToFloor(${drillState.floorId})" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
-          return;
-        }
+        if (!room) { container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">Room not found.</p></div>`; return; }
 
         const roomStudents = students.filter(s => s.room_id === room.id || s.room_id === parseInt(room.id) || s.room_code === room.room_code);
         const beds = bedSpaces.filter(b => b.room_id === room.id || b.room_id === parseInt(room.id));
@@ -1442,7 +1513,6 @@
                 ${beds.map(b => {
                   const student = students.find(s => s.id === b.student_id || s.bed_space_id === b.id);
                   const status = student ? (student.status || 'Present') : 'Available';
-                  const statusClass = status === 'Present' || status === 'Verified' ? 'present' : status === 'Absent' ? 'absent' : 'pending';
                   return `
                     <div style="background:#fbf7ef;border:1px solid #ded6c9;border-radius:0.5rem;padding:0.3rem 0.5rem;">
                       <div style="font-weight:700;font-size:0.7rem;">${b.bed_code || 'Bed ' + b.id}</div>
@@ -1452,12 +1522,7 @@
                   `;
                 }).join('')}
               </div>
-            ` : `
-              <div class="empty-state" style="padding:0.5rem;">
-                <i class="fas fa-bed" style="font-size:1.2rem;"></i>
-                <div class="subtitle">No bed spaces found in this room</div>
-              </div>
-            `}
+            ` : `<div class="empty-state" style="padding:0.5rem;"><i class="fas fa-bed" style="font-size:1.2rem;"></i><div class="subtitle">No bed spaces found</div></div>`}
             ${roomStudents.length > 0 ? `
               <div style="margin-top:0.5rem;border-top:1px solid #eee8de;padding-top:0.5rem;">
                 <p style="font-size:0.6rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Students in this room</p>
@@ -1478,35 +1543,24 @@
         `;
       }
 
-      // ---- RA WORKSPACE ----
       window.drillToRA = function(raId) {
         const id = typeof raId === 'string' ? parseInt(raId) : raId;
         const ra = allStaff.find(s => s.id === id || s.id === parseInt(id));
-        if (!ra) {
-          showToast('RA not found', 'error');
-          return;
-        }
-        
+        if (!ra) { showToast('RA not found', 'error'); return; }
         selectedRA = ra;
         selectedHostel = getHostel(drillState.hostelId);
-        
         drillState.view = 'ra';
         drillState.raId = id;
         renderScreen();
       };
-      
+
       function renderRAWorkspace(container) {
         const hostel = getHostel(drillState.hostelId);
         const ra = allStaff.find(s => s.id === drillState.raId || s.id === parseInt(drillState.raId));
-        
-        if (!ra) {
-          container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">RA not found. <a href="#" onclick="drillToHostel(${drillState.hostelId})" style="font-weight:600;color:#17233c;cursor:pointer;">Go back</a></p></div>`;
-          return;
-        }
-        
+        if (!ra) { container.innerHTML = `<div class="drill-card"><p style="color:#8a3328;">RA not found.</p></div>`; return; }
         selectedRA = ra;
         selectedHostel = hostel;
-        
+
         const raName = ra.name;
         const raStudents = students.filter(s => s.hostel_id === drillState.hostelId || s.hostel_id === parseInt(drillState.hostelId));
         const presentCount = raStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
@@ -1522,8 +1576,6 @@
             <span class="sep">/</span>
             <span style="font-weight:600;color:#17233c;">${raName}</span>
           </div>
-
-          <!-- Workspace Header -->
           <div class="workspace-header">
             <div class="workspace-breadcrumb">
               <span class="crumb">BedCheck Center</span>
@@ -1538,39 +1590,26 @@
                 <span style="font-size:0.65rem;color:#6b778b;">RA · ${hostel?.name || 'Hostel'} · ${hostel?.campus || 'Legacy'}</span>
                 <span class="badge"><i class="fas fa-circle" style="color:#2d6545;font-size:0.4rem;"></i> BedCheck Active</span>
               </div>
-              <div style="font-size:0.6rem;color:#6b778b;margin-top:0.2rem;">
-                Viewing RA BedCheck · Developer access is being used to operate/view this RA workspace.
-              </div>
             </div>
           </div>
-
-          <!-- Stats -->
           <div class="stats-row" style="margin-top:0;">
             <div class="stat-item"><div class="stat-number navy">${total}</div><div class="stat-label">Students</div></div>
             <div class="stat-item"><div class="stat-number green">${presentCount}</div><div class="stat-label">Present</div></div>
             <div class="stat-item"><div class="stat-number red">${absentCount}</div><div class="stat-label">Absent</div></div>
             <div class="stat-item"><div class="stat-number gold">${completion}%</div><div class="stat-label">Complete</div></div>
           </div>
-
-          <!-- Search and Filters -->
           <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
-            <input type="text" id="raStudentSearch" placeholder="Search student or matric number..." style="flex:2;min-width:180px;padding:0.35rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.7rem;background:white;outline:none;" oninput="filterRAStudents()" />
-            <button class="btn btn-sm btn-primary" onclick="filterRAStudents()"><i class="fas fa-search"></i> Search</button>
+            <input type="text" id="raStudentSearch" placeholder="Search student or matric..." style="flex:2;min-width:180px;padding:0.35rem 0.6rem;border:1px solid #cbd2db;border-radius:0.5rem;font-size:0.7rem;background:white;outline:none;" oninput="filterRAStudents()" />
             <div style="display:flex;gap:0.2rem;flex-wrap:wrap;">
-              <button class="btn btn-sm btn-outline" style="background:#e1f0e5;border-color:#2d6545;" onclick="filterRAStudents('all')">All (${total})</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#2d6545;" onclick="filterRAStudents('present')">Present (${presentCount})</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#8a3328;" onclick="filterRAStudents('absent')">Absent (${absentCount})</button>
-              <button class="btn btn-sm btn-outline" style="border-color:#a77915;" onclick="filterRAStudents('pending')">Not Checked (${total - presentCount - absentCount})</button>
+              <button class="btn btn-sm btn-outline" onclick="filterRAStudents('all')">All (${total})</button>
+              <button class="btn btn-sm btn-outline" onclick="filterRAStudents('present')">Present (${presentCount})</button>
+              <button class="btn btn-sm btn-outline" onclick="filterRAStudents('absent')">Absent (${absentCount})</button>
+              <button class="btn btn-sm btn-outline" onclick="filterRAStudents('pending')">Not Checked (${total - presentCount - absentCount})</button>
             </div>
           </div>
-
-          <!-- Student List -->
           <div class="drill-card" style="margin-bottom:0.5rem;padding:0.5rem 0.75rem;">
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.5rem;font-size:0.6rem;font-weight:700;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;padding:0.2rem 0;border-bottom:2px solid #eee8de;">
-              <span>Student</span>
-              <span>Room · Bed</span>
-              <span>Status</span>
-              <span>Action</span>
+              <span>Student</span><span>Room · Bed</span><span>Status</span><span>Action</span>
             </div>
             <div id="raStudentList">
               ${raStudents.map(s => `
@@ -1586,28 +1625,19 @@
               `).join('')}
             </div>
           </div>
-
-          <!-- Activity Panel -->
-          <div style="display:grid;grid-template-columns:1fr;gap:0.5rem;">
-            <div>
-              <p style="font-size:0.6rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem;"><i class="fas fa-clock"></i> RA Activity</p>
-              <div class="activity-panel" id="activityPanel">
-                ${activityLog.length > 0 ? activityLog.slice(0, 10).map(a => `
-                  <div class="activity-item">
-                    <span class="time">${a.time}</span>
-                    <span class="detail">${a.student} ${a.action}</span>
-                    <span class="badge" style="background:${a.method === 'Face ID' ? '#e1f0e5' : '#f5f1e8'};color:${a.method === 'Face ID' ? '#2d6545' : '#6b778b'};">${a.method}</span>
-                    <span class="actor">${a.actor}</span>
-                  </div>
-                `).join('') : `
-                  <div style="text-align:center;color:#6b778b;font-size:0.7rem;padding:0.5rem;">
-                    <i class="fas fa-inbox"></i> No activity yet
-                  </div>
-                `}
-              </div>
+          <div>
+            <p style="font-size:0.6rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.2rem;"><i class="fas fa-clock"></i> RA Activity</p>
+            <div class="activity-panel" id="activityPanel">
+              ${activityLog.length > 0 ? activityLog.slice(0, 10).map(a => `
+                <div class="activity-item">
+                  <span class="time">${a.time}</span>
+                  <span class="detail">${a.student} ${a.action}</span>
+                  <span class="badge" style="background:${a.method === 'Face ID' ? '#e1f0e5' : '#f5f1e8'};color:${a.method === 'Face ID' ? '#2d6545' : '#6b778b'};">${a.method}</span>
+                  <span class="actor">${a.actor}</span>
+                </div>
+              `).join('') : `<div style="text-align:center;color:#6b778b;font-size:0.7rem;padding:0.5rem;"><i class="fas fa-inbox"></i> No activity yet</div>`}
             </div>
           </div>
-
           <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
             <button class="btn btn-sm btn-outline" onclick="drillToHostel(${drillState.hostelId})"><i class="fas fa-arrow-left"></i> Back to Hostel</button>
             <button class="btn btn-sm btn-outline" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
@@ -1615,24 +1645,19 @@
         `;
       }
 
-      // ---- FILTER RA STUDENTS ----
       window.filterRAStudents = function(filter) {
-        const students = document.querySelectorAll('.ra-student');
-        students.forEach(el => {
-          if (!filter || filter === 'all') {
-            el.style.display = 'grid';
-          } else {
-            const status = el.dataset.status || 'pending';
-            let show = false;
-            if (filter === 'present' && (status === 'Present' || status === 'Verified')) show = true;
-            else if (filter === 'absent' && status === 'Absent') show = true;
-            else if (filter === 'pending' && status !== 'Present' && status !== 'Verified' && status !== 'Absent') show = true;
-            el.style.display = show ? 'grid' : 'none';
-          }
+        const items = document.querySelectorAll('.ra-student');
+        items.forEach(el => {
+          if (!filter || filter === 'all') { el.style.display = 'grid'; return; }
+          const status = el.dataset.status || 'pending';
+          let show = false;
+          if (filter === 'present' && (status === 'Present' || status === 'Verified')) show = true;
+          else if (filter === 'absent' && status === 'Absent') show = true;
+          else if (filter === 'pending' && status !== 'Present' && status !== 'Verified' && status !== 'Absent') show = true;
+          el.style.display = show ? 'grid' : 'none';
         });
       };
 
-      // ---- NAVIGATION HELPERS ----
       window.drillToOverview = function() {
         drillState.view = 'overview';
         drillState.hostelId = null;
@@ -1645,10 +1670,7 @@
         renderScreen();
       };
 
-      // ===== FILTERS =====
-      window.applyFilter = function() {
-        if (drillState.view === 'overview') updateHostelTable();
-      };
+      window.applyFilter = function() { if (drillState.view === 'overview') updateHostelTable(); };
       window.clearFilter = function() {
         const el = document.getElementById('hostelSearch');
         if (el) el.value = '';
@@ -1661,7 +1683,6 @@
         loadAllData();
       };
 
-      // ===== LOAD ALL =====
       async function loadAllData() {
         try {
           document.getElementById('noticeText').textContent = 'Loading BedCheck data...';
@@ -1670,19 +1691,12 @@
           document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels, ${students.length} students, ${allStaff.length} staff.`;
         } catch (error) {
           document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-          if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
-            showToast('Error loading data: ' + error.message, 'error');
-          }
         }
       }
 
-      // ===== AUTH =====
       function checkAuth() {
         const token = sessionStorage.getItem('bedcheck_token');
-        if (!token) { 
-          window.location.replace('../Login.html'); 
-          return false; 
-        }
+        if (!token) { window.location.replace('../Login.html'); return false; }
         return true;
       }
 
@@ -1697,18 +1711,13 @@
       function setDate() {
         const now = new Date();
         document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         });
       }
 
-      // ===== INIT =====
       async function init() {
         if (!checkAuth()) return;
         setDate();
-
         await loadCurrentUser();
 
         document.getElementById('menuToggle').addEventListener('click', function() {
@@ -1755,6 +1764,7 @@
         init();
       }
 
+      // Expose for inline handlers
       window.showToast = showToast;
       window.refreshData = refreshData;
       window.applyFilter = applyFilter;
@@ -1763,11 +1773,15 @@
       window.verifyStudent = verifyStudent;
       window.viewStudent = viewStudent;
       window.selectMethod = selectMethod;
-      window.startFaceVerification = startFaceVerification;
-      window.simulateFaceMatch = simulateFaceMatch;
-      window.confirmAttendance = confirmAttendance;
+      window.startFaceVerificationFromEntry = startFaceVerificationFromEntry;
+      window.captureAndVerify = captureAndVerify;
+      window.confirmFaceVerification = confirmFaceVerification;
       window.showManualVerification = showManualVerification;
       window.confirmManualAttendance = confirmManualAttendance;
+      window.showManualForStudent = showManualForStudent;
+      window.enrollStudent = enrollStudent;
+      window.reEnrollStudent = reEnrollStudent;
+      window.startFaceEnrollment = startFaceEnrollment;
       window.drillToHostel = drillToHostel;
       window.drillToFloor = drillToFloor;
       window.drillToRoom = drillToRoom;
