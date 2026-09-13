@@ -323,6 +323,25 @@
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
+
+        /* ============================================================
+           SKELETON LOADER
+           ============================================================ */
+        .skeleton {
+            background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.4s ease-in-out infinite;
+            border-radius: 0.4rem;
+        }
+        @keyframes skeleton-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -516,7 +535,8 @@
             'use strict';
 
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-            const DEV_LIMIT = 10000;
+            const PAGE_SIZE = 500;   // server-friendly batch size
+            const MAX_PAGES = 200;   // hard safety cap (200 × 500 = 100,000 rows)
 
             function showToast(message, type = 'success') {
                 const toast = document.getElementById('toast');
@@ -536,6 +556,7 @@
             let selectedHostelId = null;
             let selectedFloorName = null;
             let selectedCampus = 'all';
+            let hasRenderedOnce = false;
 
             // =============================================
             // API
@@ -585,7 +606,50 @@
             }
 
             // =============================================
-            // LOAD DATA
+            // GENERIC PAGINATED LOADER
+            // Fetches every page from an endpoint using
+            // `limit` + `offset`, respecting `total` when available.
+            // =============================================
+            async function loadAllPaginated(endpointBase) {
+                const all = [];
+                let offset = 0;
+                let total = null;
+                let safety = 0;
+                let hasMore = true;
+
+                while (hasMore && safety < MAX_PAGES) {
+                    safety++;
+
+                    const res = await apiCall(
+                        `${endpointBase}${endpointBase.includes('?') ? '&' : '?'}limit=${PAGE_SIZE}&offset=${offset}`
+                    );
+
+                    if (total === null) {
+                        total =
+                            res.total ??
+                            res.meta?.total ??
+                            res.pagination?.total ??
+                            null;
+                    }
+
+                    const batch = res.data || [];
+
+                    if (batch.length === 0) {
+                        hasMore = false;
+                    } else {
+                        all.push(...batch);
+                        offset += PAGE_SIZE;
+
+                        if (total !== null && all.length >= total) hasMore = false;
+                        if (batch.length < PAGE_SIZE) hasMore = false;
+                    }
+                }
+
+                return all;
+            }
+
+            // =============================================
+            // LOADERS (now unlimited)
             // =============================================
             async function loadHostels() {
                 try {
@@ -597,34 +661,88 @@
 
             async function loadFloors() {
                 try {
-                    const data = await apiCall(`/floors-flats?limit=${DEV_LIMIT}`);
-                    floors = data.data || [];
+                    floors = await loadAllPaginated('/floors-flats');
                     return floors;
                 } catch { floors = []; return floors; }
             }
 
             async function loadRooms() {
                 try {
-                    const data = await apiCall(`/rooms?limit=${DEV_LIMIT}`);
-                    rooms = data.data || [];
+                    rooms = await loadAllPaginated('/rooms');
                     return rooms;
                 } catch { rooms = []; return rooms; }
             }
 
             async function loadBeds() {
                 try {
-                    const data = await apiCall(`/bed-spaces?limit=${DEV_LIMIT}`);
-                    beds = data.data || [];
+                    beds = await loadAllPaginated('/bed-spaces');
                     return beds;
                 } catch { beds = []; return beds; }
             }
 
             async function loadStudents() {
                 try {
-                    const data = await apiCall(`/students?limit=${DEV_LIMIT}`);
-                    students = data.data || [];
+                    students = await loadAllPaginated('/students');
                     return students;
                 } catch { students = []; return students; }
+            }
+
+            // =============================================
+            // SKELETON — instant first paint
+            // =============================================
+            function showHostelsSkeleton() {
+                const container = document.getElementById('screenContent');
+                if (!container) return;
+
+                container.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                        <div>
+                            <div class="skeleton" style="height:0.7rem;width:9rem;margin-bottom:0.4rem;"></div>
+                            <div class="skeleton" style="height:1.5rem;width:12rem;margin-bottom:0.3rem;"></div>
+                            <div class="skeleton" style="height:0.7rem;width:16rem;"></div>
+                        </div>
+                        <div style="display:flex;gap:0.4rem;">
+                            <div class="skeleton" style="height:2rem;width:2.5rem;border-radius:0.5rem;"></div>
+                            <div class="skeleton" style="height:2rem;width:7rem;border-radius:0.5rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="stats-row">
+                        ${Array(4).fill(0).map(() => `
+                            <div class="stat-item">
+                                <div class="skeleton" style="height:1.4rem;width:3rem;margin:0 auto;"></div>
+                                <div class="skeleton" style="height:0.6rem;width:3.5rem;margin:0.2rem auto 0;"></div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="search-row">
+                        <div class="skeleton" style="height:2.2rem;flex:2;border-radius:0.5rem;"></div>
+                        <div class="skeleton" style="height:2.2rem;width:5rem;border-radius:0.5rem;"></div>
+                    </div>
+
+                    <div class="campus-tabs">
+                        ${Array(3).fill(0).map(() => `
+                            <div class="skeleton" style="height:2rem;width:7rem;border-radius:0.5rem;"></div>
+                        `).join('')}
+                    </div>
+
+                    <div class="hostel-grid">
+                        ${Array(6).fill(0).map(() => `
+                            <div class="hostel-card">
+                                <div class="skeleton" style="height:1.1rem;width:10rem;margin-bottom:0.5rem;"></div>
+                                <div class="skeleton" style="height:0.7rem;width:100%;margin-bottom:0.5rem;"></div>
+                                <div class="skeleton" style="height:3rem;width:100%;margin-bottom:0.5rem;"></div>
+                                <div class="skeleton" style="height:0.4rem;width:100%;margin-bottom:0.5rem;"></div>
+                                <div style="display:flex;gap:0.3rem;">
+                                    <div class="skeleton" style="height:1.8rem;flex:1;border-radius:0.5rem;"></div>
+                                    <div class="skeleton" style="height:1.8rem;flex:1;border-radius:0.5rem;"></div>
+                                    <div class="skeleton" style="height:1.8rem;flex:1;border-radius:0.5rem;"></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
             }
 
             // =============================================
@@ -717,7 +835,7 @@
                 const femaleHostels = filtered.filter(h => h.gender === 'Female' || h.gender === 'female' || h.gender === 'F' || h.gender === 'f');
 
                 container.innerHTML = `
-                    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;" class="fade-in">
                         <div>
                             <p style="font-size:0.65rem;font-weight:600;color:#a77915;text-transform:uppercase;letter-spacing:0.06em;"><i class="fas fa-building"></i> Hostel Management</p>
                             <h1 style="font-family:'Merriweather',serif;font-size:1.5rem;font-weight:700;">Hostels & Rooms</h1>
@@ -729,14 +847,14 @@
                         </div>
                     </div>
 
-                    <div class="stats-row">
+                    <div class="stats-row fade-in">
                         <div class="stat-item"><div class="stat-number navy">${totalHostels}</div><div class="stat-label">Hostels</div></div>
                         <div class="stat-item"><div class="stat-number purple">${totalFloors}</div><div class="stat-label">Floors</div></div>
                         <div class="stat-item"><div class="stat-number gold">${totalRooms.toLocaleString()}</div><div class="stat-label">Rooms</div></div>
                         <div class="stat-item"><div class="stat-number green">${totalBeds.toLocaleString()}</div><div class="stat-label">Beds</div></div>
                     </div>
 
-                    <div class="search-row">
+                    <div class="search-row fade-in">
                         <div class="search-field">
                             <input type="text" id="searchInput" placeholder="Search hostel, room, or student..." onkeypress="if(event.key==='Enter') performSearch()" />
                         </div>
@@ -745,7 +863,7 @@
                         </div>
                     </div>
 
-                    <div class="campus-tabs">
+                    <div class="campus-tabs fade-in">
                         <button class="campus-tab ${selectedCampus === 'all' ? 'active' : ''}" onclick="selectCampus('all')">
                             🏛️ All <span class="count">(${totalHostels})</span>
                         </button>
@@ -767,7 +885,7 @@
                         </div>
                     ` : `
                         ${maleHostels.length > 0 ? `
-                            <div style="margin-bottom:1.5rem;">
+                            <div style="margin-bottom:1.5rem;" class="fade-in">
                                 <h4 style="font-size:0.95rem;font-weight:700;font-family:'Merriweather',serif;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
                                     👨 Male Hostels
                                     <span style="font-size:0.6rem;font-weight:600;color:#6b778b;background:#f5f1e8;padding:0.1rem 0.5rem;border-radius:999px;border:1px solid #d6ad4b;">${maleHostels.length}</span>
@@ -778,7 +896,7 @@
                             </div>
                         ` : ''}
                         ${femaleHostels.length > 0 ? `
-                            <div>
+                            <div class="fade-in">
                                 <h4 style="font-size:0.95rem;font-weight:700;font-family:'Merriweather',serif;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
                                     👩 Female Hostels
                                     <span style="font-size:0.6rem;font-weight:600;color:#6b778b;background:#f5f1e8;padding:0.1rem 0.5rem;border-radius:999px;border:1px solid #d6ad4b;">${femaleHostels.length}</span>
@@ -810,18 +928,15 @@
                     return floor && floor.hostel_id === selectedHostelId;
                 });
 
-                // Students for this hostel
                 const hostelStudents = students.filter(s => s.hostel_id === selectedHostelId || s.hostel_id === String(selectedHostelId));
                 const studentCount = hostelStudents.length;
 
-                // Capacity from beds or rooms
                 let totalCapacity = hostelBeds.length;
                 if (totalCapacity === 0) {
                     totalCapacity = hostelRooms.reduce((sum, r) => sum + (Number(r.capacity) || 4), 0);
                 }
                 const occupancyRate = totalCapacity > 0 ? Math.round((studentCount / totalCapacity) * 100) : 0;
 
-                // Group rooms by floor
                 const roomsByFloor = {};
                 hostelRooms.forEach(r => {
                     const floor = floors.find(f => f.id === r.floor_flat_id);
@@ -1005,13 +1120,6 @@
                 if (hostelMatch) {
                     showToast(`Found hostel: ${hostelMatch.name}`, 'info');
                     selectHostel(hostelMatch.id);
-                    document.querySelectorAll('.hostel-card').forEach(card => {
-                        const name = card.querySelector('.name')?.textContent || '';
-                        if (name.toLowerCase().includes(term)) {
-                            card.style.borderColor = '#10233f';
-                            card.style.boxShadow = '0 8px 30px rgba(16,35,63,0.2)';
-                        }
-                    });
                     return;
                 }
 
@@ -1034,14 +1142,11 @@
 
             window.clearSearch = function() {
                 document.getElementById('searchInput').value = '';
-                document.querySelectorAll('.hostel-card').forEach(card => {
-                    card.style.borderColor = '';
-                    card.style.boxShadow = '';
-                });
                 showToast('Search cleared', 'info');
             };
 
             window.refreshData = function() {
+                hasRenderedOnce = false;
                 loadAllData();
             };
 
@@ -1075,9 +1180,7 @@
                 if (!name) { showToast('Please enter a hostel name', 'warning'); return; }
 
                 const payload = {
-                    name,
-                    campus,
-                    gender,
+                    name, campus, gender,
                     type: 'floor',
                     status,
                     total_floors: totalFloors,
@@ -1093,6 +1196,7 @@
                     });
                     closeModal('addHostelModal');
                     showToast(`Hostel "${name}" created successfully!`, 'success');
+                    hasRenderedOnce = false;
                     await loadAllData();
                 } catch (err) {
                     showToast(err.message || 'Failed to create hostel', 'error');
@@ -1116,6 +1220,7 @@
                         selectedHostelId = null;
                         selectedFloorName = null;
                     }
+                    hasRenderedOnce = false;
                     await loadAllData();
                 } catch (err) {
                     showToast(err.message || 'Failed to delete hostel', 'error');
@@ -1212,11 +1317,12 @@
                                 })
                             });
                         }
-                        await loadBeds();
                     }
 
                     showToast(`Room ${roomCode} created successfully!`, 'success');
                     closeModal('addRoomModal');
+
+                    // Reload just the affected data (not the whole universe)
                     await loadRooms();
                     await loadBeds();
                     renderScreen();
@@ -1226,26 +1332,41 @@
             };
 
             // =============================================
-            // LOAD ALL DATA
+            // LOAD ALL DATA (progressive)
             // =============================================
             async function loadAllData() {
                 try {
-                    document.getElementById('noticeText').textContent = 'Loading hostels, floors, rooms & beds...';
+                    document.getElementById('noticeText').textContent = 'Loading hostels, floors & rooms...';
+
+                    // 1. Critical path — hostels, floors, rooms
                     await Promise.all([
                         loadHostels(),
                         loadFloors(),
-                        loadRooms(),
+                        loadRooms()
+                    ]);
+
+                    // 2. First real render
+                    renderScreen();
+                    hasRenderedOnce = true;
+                    document.getElementById('noticeText').textContent =
+                        `${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms`;
+
+                    // 3. Background — beds + students (for occupancy + student counts)
+                    Promise.allSettled([
                         loadBeds(),
                         loadStudents()
-                    ]);
-                    renderScreen();
-                    document.getElementById('noticeText').textContent =
-                        `Loaded ${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms · ${beds.length} beds`;
+                    ]).then(() => {
+                        if (hasRenderedOnce) renderScreen();
+                        document.getElementById('noticeText').textContent =
+                            `${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms · ${beds.length} beds`;
+                    });
+
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
                     if (!error.message.includes('Auth required') && !error.message.includes('No token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
+                    renderScreen();
                 }
             }
 
@@ -1258,8 +1379,7 @@
                 if (!userData || !token) { window.location.replace('../Login.html'); return false; }
                 currentUser = JSON.parse(userData);
                 currentRole = sessionStorage.getItem('bedcheck_role') || 'System Owner';
-                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) ||
-                    'SO';
+                document.getElementById('profileAvatar').textContent = currentUser.initials || getInitials(currentUser.name) || 'SO';
                 document.getElementById('profileName').textContent = currentUser.name || 'Sasha O.';
                 document.getElementById('profileRoleLabel').textContent = currentRole;
                 document.getElementById('roleLabel').textContent = currentRole;
@@ -1279,10 +1399,7 @@
             function setDate() {
                 const now = new Date();
                 document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
+                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
                 });
             }
 
@@ -1296,12 +1413,11 @@
                 document.getElementById('drawerOverlay').classList.remove('show');
             }
 
-            // Expose
             window.showToast = showToast;
             window.handleLogout = handleLogout;
 
             // =============================================
-            // INIT
+            // INIT — progressive with skeleton
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1332,6 +1448,9 @@
                         document.getElementById('searchInput')?.focus();
                     }
                 });
+
+                // 1. Instant skeleton — first paint < 100 ms
+                showHostelsSkeleton();
 
                 await loadAllData();
             }
