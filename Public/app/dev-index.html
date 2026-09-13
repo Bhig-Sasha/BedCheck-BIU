@@ -1103,16 +1103,17 @@
       }
 
       // ============================================================
-      // HEALTH CHECK - REAL API CALL
+      // HEALTH CHECK
       // ============================================================
       async function checkHealth() {
         try {
-          const response = await fetch(`${API_BASE_URL.replace('/api', '')}/health`);
-          if (response.ok) {
-            const data = await response.json();
-            return data;
-          }
-          return null;
+          const response = await fetch(`${API_BASE_URL.replace('/api', '')}/health`, {
+            headers: {
+              'Authorization': `Bearer ${sessionStorage.getItem('bedcheck_token') || ''}`
+            }
+          });
+          if (!response.ok) return null;
+          return await response.json();
         } catch {
           return null;
         }
@@ -1132,15 +1133,13 @@
         const assignedHostel = students.filter(s => s.hostel_id || s.hostel).length || 0;
         const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
         const totalStaff = staffMembers.length || 0;
-
-        // Calculate total beds from bed_spaces
         const totalBeds = bedSpaces.length || 0;
 
         const isLive = sessionStatus === 'active';
         const isScheduled = sessionStatus === 'scheduled';
         const isCompleted = sessionStatus === 'completed';
 
-        // Hostel progress - SHOW ALL HOSTELS (no limit)
+        // Hostel progress
         const hostelProgress = hostels.map(h => {
           const hostelStudents = students.filter(s => s.hostel === h.name || s.hostel_id === h.id);
           const total = hostelStudents.length;
@@ -1159,21 +1158,46 @@
         const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
         const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
 
-        // Check Face API health
-        let faceHealth = { status: 'unknown' };
+        // ========== REAL SYSTEM HEALTH ==========
+        let healthData = null;
         try {
-          const healthData = await checkHealth();
-          if (healthData && healthData.services) {
-            faceHealth = healthData.services.face_api || { status: 'unknown' };
-          }
-        } catch {}
+          healthData = await checkHealth();
+        } catch (e) {
+          console.warn('Health check failed:', e);
+        }
+
+        const services = healthData?.services || {};
+        const overallStatus = healthData?.status || 'unknown';
 
         const healthItems = [
-          { name: 'Backend API', icon: 'fa-server', status: 'online' },
-          { name: 'Database', icon: 'fa-database', status: 'online' },
-          { name: 'Face API', icon: 'fa-eye', status: faceHealth.status === 'healthy' ? 'online' : 'warning' },
-          { name: 'Storage', icon: 'fa-hdd', status: 'online' },
+          { 
+            name: 'Backend API', 
+            icon: 'fa-server', 
+            status: services.backend?.status || 'online' 
+          },
+          { 
+            name: 'Database', 
+            icon: 'fa-database', 
+            status: services.database?.status || 'warning' 
+          },
+          { 
+            name: 'Face API', 
+            icon: 'fa-eye', 
+            status: services.face_api?.status || 'warning' 
+          },
+          { 
+            name: 'Storage', 
+            icon: 'fa-hdd', 
+            status: services.storage?.status || 'online' 
+          },
         ];
+
+        const statusLabel = overallStatus === 'healthy' ? 'Healthy' : 
+                            overallStatus === 'degraded' ? 'Degraded' : 'Unknown';
+        const statusBadgeClass = overallStatus === 'healthy' ? 'badge-success' : 'badge-warning';
+
+        const uptimeHours = healthData?.uptime ? Math.floor(healthData.uptime / 3600) : null;
+        const uptimeText = uptimeHours !== null ? `${uptimeHours}h` : '—';
 
         container.innerHTML = `
           <!-- WELCOME -->
@@ -1188,18 +1212,31 @@
           <!-- SYSTEM HEALTH -->
           <div class="card">
             <div class="flex-between">
-              <div class="card-title"><i class="fas fa-heartbeat"></i> System Health <span class="badge badge-success" style="font-size:0.5rem;margin-left:0.4rem;">● ${faceHealth.status === 'healthy' ? 'Healthy' : 'Degraded'}</span></div>
+              <div class="card-title">
+                <i class="fas fa-heartbeat"></i> System Health 
+                <span class="badge ${statusBadgeClass}" style="font-size:0.5rem;margin-left:0.4rem;">
+                  ● ${statusLabel}
+                </span>
+              </div>
               <span class="text-xs text-muted">Last checked: ${new Date().toLocaleTimeString()}</span>
             </div>
             <div class="health-grid mt-2">
               ${healthItems.map(item => `
                 <div class="health-item">
-                  <span class="service"><i class="fas ${item.icon}"></i> ${item.name}</span>
-                  <span><span class="status-dot ${item.status}"></span> ${item.status === 'online' ? 'Online' : item.status === 'warning' ? 'Warning' : 'Offline'}</span>
+                  <span class="service">
+                    <i class="fas ${item.icon}"></i> ${item.name}
+                  </span>
+                  <span>
+                    <span class="status-dot ${item.status}"></span> 
+                    ${item.status === 'online' ? 'Online' : item.status === 'warning' ? 'Warning' : 'Offline'}
+                  </span>
                 </div>
               `).join('')}
             </div>
-            <div class="mt-1 text-xs text-muted">Uptime: 99.9% · All systems operational</div>
+            <div class="mt-1 text-xs text-muted">
+              Uptime: ${uptimeText} · 
+              ${overallStatus === 'healthy' ? 'All systems operational' : 'Some services degraded'}
+            </div>
           </div>
 
           <!-- METRIC CARDS -->
@@ -1237,7 +1274,10 @@
               <div class="card-title"><i class="fas fa-clipboard-check"></i> Live BedCheck</div>
               <div class="live-banner mt-1" style="background:linear-gradient(135deg,#10233f 0%,#1a3a5c 100%);border-radius:0.5rem;padding:0.6rem 0.8rem;">
                 <div class="banner-left">
-                  <span class="live-badge"><i class="fas fa-${isLive ? 'circle' : isCompleted ? 'check-circle' : isScheduled ? 'clock' : 'plus'}" style="font-size:0.35rem;margin-right:0.2rem;"></i> ${isLive ? 'LIVE' : isCompleted ? 'COMPLETED' : isScheduled ? 'SCHEDULED' : 'DRAFT'}</span>
+                  <span class="live-badge">
+                    <i class="fas fa-${isLive ? 'circle' : isCompleted ? 'check-circle' : isScheduled ? 'clock' : 'plus'}" style="font-size:0.35rem;margin-right:0.2rem;"></i> 
+                    ${isLive ? 'LIVE' : isCompleted ? 'COMPLETED' : isScheduled ? 'SCHEDULED' : 'DRAFT'}
+                  </span>
                   <div class="session-info" style="font-size:0.7rem;">
                     <strong>${currentSession?.name || 'No active session'}</strong>
                     <span class="highlight">${currentSession?.date || '—'}</span>
@@ -1247,15 +1287,23 @@
                 <div class="banner-right">
                   <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
                     ${(sessionStatus === 'draft' || sessionStatus === 'scheduled') ? `
-                      <button class="btn-success" onclick="activateSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;"><i class="fas fa-play"></i> Start</button>
+                      <button class="btn-success" onclick="activateSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                        <i class="fas fa-play"></i> Start
+                      </button>
                     ` : ''}
                     ${isLive ? `
-                      <button class="btn-danger" onclick="completeSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;"><i class="fas fa-check-double"></i> Complete</button>
+                      <button class="btn-danger" onclick="completeSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                        <i class="fas fa-check-double"></i> Complete
+                      </button>
                     ` : ''}
                     ${(!currentSession || sessionStatus === 'archived') ? `
-                      <button class="btn-gold" onclick="createSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;"><i class="fas fa-plus"></i> Create</button>
+                      <button class="btn-gold" onclick="createSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                        <i class="fas fa-plus"></i> Create
+                      </button>
                     ` : ''}
-                    <span style="font-size:0.55rem;padding:0.1rem 0.4rem;border-radius:999px;background:rgba(255,255,255,0.1);color:#dce5f2;">${sessionStatus.toUpperCase()}</span>
+                    <span style="font-size:0.55rem;padding:0.1rem 0.4rem;border-radius:999px;background:rgba(255,255,255,0.1);color:#dce5f2;">
+                      ${sessionStatus.toUpperCase()}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1271,7 +1319,9 @@
                 </div>
                 <div class="flex-between mt-1">
                   <span class="text-xs font-bold">${attendanceRate}% attendance</span>
-                  <a href="./dev-bedcheck.html" class="btn-gold" style="font-size:0.6rem;padding:0.15rem 0.6rem;"><i class="fas fa-external-link-alt"></i> Open</a>
+                  <a href="./dev-bedcheck.html" class="btn-gold" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                    <i class="fas fa-external-link-alt"></i> Open
+                  </a>
                 </div>
               </div>
             </div>
@@ -1302,7 +1352,7 @@
             </div>
           </div>
 
-          <!-- HOSTEL OPERATIONS - SHOW ALL HOSTELS -->
+          <!-- HOSTEL OPERATIONS -->
           <div class="card mt-4">
             <div class="flex-between">
               <div class="card-title"><i class="fas fa-building"></i> Hostel Operations</div>

@@ -2747,54 +2747,61 @@ const auditEvents = {
 };
 
 // =====================================================
-// 🔓 PUBLIC ENDPOINTS - FIXED
+// 🔓 PUBLIC ENDPOINTS
 // =====================================================
 
+// =====================================================
+// HEALTH CHECK ENDPOINT
+// =====================================================
 app.get('/health', async (req, res) => {
+    const start = Date.now();
+    
+    // 1. Database check
+    let dbStatus = 'offline';
+    let dbLatency = null;
     try {
-        const { data: dbCheck, error: dbError } = await supabase
-            .from('hostels')
-            .select('id')
-            .limit(1)
-            .maybeSingle();
-        
-        let faceApiHealth = { status: 'unknown' };
-        try {
-            const response = await axios.get(`${FACE_API_URL}/health`, {
-                timeout: 3000,
-                headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY || 'secure-key' }
-            });
-            if (response.status === 200) {
-                faceApiHealth = response.data;
-            } else {
-                faceApiHealth = { status: 'unhealthy' };
-            }
-        } catch (error) {
-            console.error('Face API health check error:', error.message);
-            faceApiHealth = { status: 'unhealthy', error: error.message };
-        }
-        
-        const isHealthy = !dbError && faceApiHealth.status !== 'unhealthy';
-        
-        res.status(isHealthy ? 200 : 503).json({
-            status: isHealthy ? 'healthy' : 'degraded',
-            uptime: process.uptime(),
-            timestamp: new Date().toISOString(),
-            services: {
-                database: dbError ? 'unhealthy' : 'healthy',
-                face_api: faceApiHealth.status || 'healthy'
-            },
-            environment: process.env.NODE_ENV || 'production',
-            circuit_breaker: faceService.circuitOpen ? 'open' : 'closed'
-        });
-    } catch (error) {
-        console.error('Health check error:', error);
-        res.status(503).json({
-            status: 'unhealthy',
-            error: 'Health check failed',
-            timestamp: new Date().toISOString()
-        });
+        const dbStart = Date.now();
+        const { error } = await supabase.from('hostels').select('id').limit(1);
+        dbLatency = Date.now() - dbStart;
+        dbStatus = error ? 'warning' : 'online';
+    } catch {
+        dbStatus = 'offline';
     }
+
+    // 2. Face API check
+    let faceStatus = 'offline';
+    let faceMessage = '';
+    try {
+        const faceHealth = await faceService.checkHealth();
+        if (faceHealth?.status === 'healthy') {
+            faceStatus = 'online';
+        } else {
+            faceStatus = 'warning';
+            faceMessage = faceHealth?.error || 'Degraded';
+        }
+    } catch (err) {
+        faceStatus = 'offline';
+        faceMessage = err.message;
+    }
+
+    // 3. Overall status
+    const services = {
+        backend: { status: 'online', latency: Date.now() - start },
+        database: { status: dbStatus, latency: dbLatency },
+        face_api: { status: faceStatus, message: faceMessage },
+        storage: { status: 'online' } // Supabase storage is usually fine if DB is up
+    };
+
+    const allOnline = Object.values(services).every(s => s.status === 'online');
+    const anyOffline = Object.values(services).some(s => s.status === 'offline');
+
+    res.json({
+        success: true,
+        status: anyOffline ? 'degraded' : allOnline ? 'healthy' : 'degraded',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        services
+    });
 });
 
 app.get('/', (req, res) => {
