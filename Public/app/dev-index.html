@@ -302,15 +302,6 @@
     .metric-card .metric-title { font-weight: 600; font-size: 0.7rem; }
     .metric-card .metric-detail { font-size: 0.55rem; color: #6b778b; }
 
-    .grid-2 {
-      display: grid;
-      gap: 0.75rem;
-      grid-template-columns: 1fr;
-    }
-    @media (min-width: 992px) {
-      .grid-2 { grid-template-columns: 1fr 1fr; }
-    }
-
     .flex-between {
       display: flex;
       justify-content: space-between;
@@ -473,56 +464,6 @@
     }
     .btn-outline:hover { background: #f5f1e8; }
 
-    .attendance-ring {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
-    .attendance-ring .ring {
-      position: relative;
-      width: 72px;
-      height: 72px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .attendance-ring .ring .inner {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: #fffcf6;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-    .attendance-ring .ring .inner .pct {
-      font-size: 1rem;
-      font-weight: 700;
-      color: #2d6545;
-      line-height: 1;
-    }
-    .attendance-ring .ring .inner .label {
-      font-size: 0.45rem;
-      color: #68768a;
-    }
-    .attendance-ring .ring-details {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-    }
-    .attendance-ring .ring-details .detail-row {
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-      font-size: 0.7rem;
-    }
-    .attendance-ring .ring-details .detail-row .dot.green { background: #2d6545; }
-    .attendance-ring .ring-details .detail-row .dot.gray { background: #e6e2da; }
-    .attendance-ring .ring-details .detail-row .dot.blue { background: #24466f; }
-
     .hostel-progress-item {
       display: flex;
       align-items: center;
@@ -562,38 +503,6 @@
       font-size: 0.65rem;
       font-weight: 700;
     }
-
-    .activity-timeline {
-      position: relative;
-      padding-left: 1rem;
-    }
-    .activity-timeline::before {
-      content: '';
-      position: absolute;
-      left: 0.1rem;
-      top: 0.2rem;
-      bottom: 0.2rem;
-      width: 0.1rem;
-      background: #ded6c9;
-    }
-    .activity-item {
-      position: relative;
-      padding: 0.2rem 0 0.2rem 0.6rem;
-    }
-    .activity-item::before {
-      content: '';
-      position: absolute;
-      left: -0.3rem;
-      top: 0.6rem;
-      width: 0.45rem;
-      height: 0.45rem;
-      border-radius: 50%;
-      background: #d6ad4b;
-      border: 2px solid #fffcf6;
-    }
-    .activity-item .time { font-size: 0.55rem; color: #6b778b; }
-    .activity-item .desc { font-size: 0.75rem; color: #17233c; }
-    .activity-item .context { font-size: 0.6rem; color: #68768a; }
 
     .loading-spinner {
       display: flex;
@@ -842,7 +751,7 @@
       'use strict';
 
       // ============================================================
-      // CONFIG - MATCHES YOUR SERVER
+      // CONFIG
       // ============================================================
       const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
@@ -865,7 +774,6 @@
       let students = [];
       let hostels = [];
       let staffMembers = [];
-      let auditLogs = [];
       let sessions = [];
       let currentSession = null;
       let sessionStatus = 'draft';
@@ -873,7 +781,7 @@
       let isLoading = false;
 
       // ============================================================
-      // API HELPER - MATCHES YOUR SERVER RESPONSES
+      // API HELPER
       // ============================================================
       async function apiCall(endpoint, options = {}) {
         const token = sessionStorage.getItem('bedcheck_token');
@@ -907,7 +815,6 @@
           }
           
           const data = await response.json();
-          // Server returns { success: true, data: ... }
           if (!data.success) throw new Error(data.message || 'API error');
           return data;
         } catch (error) {
@@ -926,28 +833,8 @@
         return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
       }
 
-      function getTimeAgo(dateStr) {
-        if (!dateStr) return 'Just now';
-        const diff = Math.floor((new Date() - new Date(dateStr)) / 1000);
-        if (diff < 60) return 'Just now';
-        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      }
-
-      function getStatusBadge(status) {
-        const map = {
-          'active': '<span class="badge badge-live">Active</span>',
-          'scheduled': '<span class="badge badge-warning">Scheduled</span>',
-          'completed': '<span class="badge badge-success">Completed</span>',
-          'archived': '<span class="badge badge-info">Archived</span>',
-          'draft': '<span class="badge badge-info">Draft</span>'
-        };
-        return map[status] || `<span class="badge badge-info">${status || 'Unknown'}</span>`;
-      }
-
       // ============================================================
-      // LOAD DATA - MATCHES YOUR SERVER ENDPOINTS
+      // LOAD DATA
       // ============================================================
       async function loadStudents() {
         try {
@@ -971,14 +858,6 @@
           staffMembers = data.data || [];
           return staffMembers;
         } catch { staffMembers = []; return staffMembers; }
-      }
-
-      async function loadAuditLogs() {
-        try {
-          const data = await apiCall('/audit/recent?limit=8');
-          auditLogs = data.data || [];
-          return auditLogs;
-        } catch { auditLogs = []; return auditLogs; }
       }
 
       async function loadSessions() {
@@ -1016,7 +895,7 @@
             academic_session: '2026/2027',
             campus: 'Legacy'
           };
-          const result = await apiCall('/sessions', { method: 'POST', body: JSON.stringify(payload) });
+          await apiCall('/sessions', { method: 'POST', body: JSON.stringify(payload) });
           showToast('Session created!', 'success');
           await loadSessions();
           renderDashboard();
@@ -1125,7 +1004,6 @@
       async function renderDashboard() {
         const container = document.getElementById('screenContent');
 
-        // Calculate real stats from loaded data
         const totalStudents = students.length || 0;
         const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
         const absent = students.filter(s => s.status === 'Absent').length || 0;
@@ -1139,7 +1017,6 @@
         const isScheduled = sessionStatus === 'scheduled';
         const isCompleted = sessionStatus === 'completed';
 
-        // Hostel progress
         const hostelProgress = hostels.map(h => {
           const hostelStudents = students.filter(s => s.hostel === h.name || s.hostel_id === h.id);
           const total = hostelStudents.length;
@@ -1158,7 +1035,7 @@
         const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
         const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
 
-        // ========== REAL SYSTEM HEALTH ==========
+        // System health
         let healthData = null;
         try {
           healthData = await checkHealth();
@@ -1170,26 +1047,10 @@
         const overallStatus = healthData?.status || 'unknown';
 
         const healthItems = [
-          { 
-            name: 'Backend API', 
-            icon: 'fa-server', 
-            status: services.backend?.status || 'online' 
-          },
-          { 
-            name: 'Database', 
-            icon: 'fa-database', 
-            status: services.database?.status || 'warning' 
-          },
-          { 
-            name: 'Face API', 
-            icon: 'fa-eye', 
-            status: services.face_api?.status || 'warning' 
-          },
-          { 
-            name: 'Storage', 
-            icon: 'fa-hdd', 
-            status: services.storage?.status || 'online' 
-          },
+          { name: 'Backend API', icon: 'fa-server', status: services.backend?.status || 'online' },
+          { name: 'Database', icon: 'fa-database', status: services.database?.status || 'warning' },
+          { name: 'Face API', icon: 'fa-eye', status: services.face_api?.status || 'warning' },
+          { name: 'Storage', icon: 'fa-hdd', status: services.storage?.status || 'online' },
         ];
 
         const statusLabel = overallStatus === 'healthy' ? 'Healthy' : 
@@ -1267,86 +1128,58 @@
             </div>
           </div>
 
-          <!-- LIVE BEDCHECK + DEVELOPER TOOLS -->
-          <div class="grid-2 mt-4">
-            <!-- LIVE BEDCHECK -->
-            <div class="card">
-              <div class="card-title"><i class="fas fa-clipboard-check"></i> Live BedCheck</div>
-              <div class="live-banner mt-1" style="background:linear-gradient(135deg,#10233f 0%,#1a3a5c 100%);border-radius:0.5rem;padding:0.6rem 0.8rem;">
-                <div class="banner-left">
-                  <span class="live-badge">
-                    <i class="fas fa-${isLive ? 'circle' : isCompleted ? 'check-circle' : isScheduled ? 'clock' : 'plus'}" style="font-size:0.35rem;margin-right:0.2rem;"></i> 
-                    ${isLive ? 'LIVE' : isCompleted ? 'COMPLETED' : isScheduled ? 'SCHEDULED' : 'DRAFT'}
-                  </span>
-                  <div class="session-info" style="font-size:0.7rem;">
-                    <strong>${currentSession?.name || 'No active session'}</strong>
-                    <span class="highlight">${currentSession?.date || '—'}</span>
-                    · ${activeHostels + partialHostels} hostels
-                  </div>
-                </div>
-                <div class="banner-right">
-                  <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
-                    ${(sessionStatus === 'draft' || sessionStatus === 'scheduled') ? `
-                      <button class="btn-success" onclick="activateSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
-                        <i class="fas fa-play"></i> Start
-                      </button>
-                    ` : ''}
-                    ${isLive ? `
-                      <button class="btn-danger" onclick="completeSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
-                        <i class="fas fa-check-double"></i> Complete
-                      </button>
-                    ` : ''}
-                    ${(!currentSession || sessionStatus === 'archived') ? `
-                      <button class="btn-gold" onclick="createSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
-                        <i class="fas fa-plus"></i> Create
-                      </button>
-                    ` : ''}
-                    <span style="font-size:0.55rem;padding:0.1rem 0.4rem;border-radius:999px;background:rgba(255,255,255,0.1);color:#dce5f2;">
-                      ${sessionStatus.toUpperCase()}
-                    </span>
-                  </div>
+          <!-- LIVE BEDCHECK (full width now) -->
+          <div class="card mt-4">
+            <div class="card-title"><i class="fas fa-clipboard-check"></i> Live BedCheck</div>
+            <div class="live-banner mt-1" style="background:linear-gradient(135deg,#10233f 0%,#1a3a5c 100%);border-radius:0.5rem;padding:0.6rem 0.8rem;">
+              <div class="banner-left">
+                <span class="live-badge">
+                  <i class="fas fa-${isLive ? 'circle' : isCompleted ? 'check-circle' : isScheduled ? 'clock' : 'plus'}" style="font-size:0.35rem;margin-right:0.2rem;"></i> 
+                  ${isLive ? 'LIVE' : isCompleted ? 'COMPLETED' : isScheduled ? 'SCHEDULED' : 'DRAFT'}
+                </span>
+                <div class="session-info" style="font-size:0.7rem;">
+                  <strong>${currentSession?.name || 'No active session'}</strong>
+                  <span class="highlight">${currentSession?.date || '—'}</span>
+                  · ${activeHostels + partialHostels} hostels
                 </div>
               </div>
-              <div class="mt-2">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.3rem;font-size:0.7rem;">
-                  <span><span class="badge badge-success">${present}</span> Present</span>
-                  <span><span class="badge badge-warning">${late}</span> Late</span>
-                  <span><span class="badge badge-danger">${absent}</span> Absent</span>
-                  <span class="text-muted">${totalStudents} total</span>
-                </div>
-                <div class="progress-track mt-1" style="height:0.4rem;background:#e6e2da;border-radius:999px;overflow:hidden;">
-                  <div class="fill green" style="width:${attendanceRate}%;height:100%;border-radius:999px;background:${attendanceRate > 80 ? '#2d6545' : attendanceRate > 50 ? '#d4af37' : '#8a3328'};"></div>
-                </div>
-                <div class="flex-between mt-1">
-                  <span class="text-xs font-bold">${attendanceRate}% attendance</span>
-                  <a href="./dev-bedcheck.html" class="btn-gold" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
-                    <i class="fas fa-external-link-alt"></i> Open
-                  </a>
+              <div class="banner-right">
+                <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
+                  ${(sessionStatus === 'draft' || sessionStatus === 'scheduled') ? `
+                    <button class="btn-success" onclick="activateSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                      <i class="fas fa-play"></i> Start
+                    </button>
+                  ` : ''}
+                  ${isLive ? `
+                    <button class="btn-danger" onclick="completeSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                      <i class="fas fa-check-double"></i> Complete
+                    </button>
+                  ` : ''}
+                  ${(!currentSession || sessionStatus === 'archived') ? `
+                    <button class="btn-gold" onclick="createSession()" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                      <i class="fas fa-plus"></i> Create
+                    </button>
+                  ` : ''}
+                  <span style="font-size:0.55rem;padding:0.1rem 0.4rem;border-radius:999px;background:rgba(255,255,255,0.1);color:#dce5f2;">
+                    ${sessionStatus.toUpperCase()}
+                  </span>
                 </div>
               </div>
             </div>
-
-            <!-- DEVELOPER TOOLS -->
-            <div class="card">
-              <div class="card-title"><i class="fas fa-tools"></i> Developer Tools</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.5rem;">
-                <a href="./dev-api-monitor.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-code" style="color:#a77915;"></i> API Monitor
-                </a>
-                <a href="./dev-face-engine.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-eye" style="color:#a77915;"></i> Face Engine
-                </a>
-                <a href="./dev-database.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-database" style="color:#a77915;"></i> Database
-                </a>
-                <a href="./dev-diagnostics.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-stethoscope" style="color:#a77915;"></i> Diagnostics
-                </a>
-                <a href="./dev-audit.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-history" style="color:#a77915;"></i> Audit Logs
-                </a>
-                <a href="./dev-system.html" style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.5rem;border-radius:0.4rem;background:#f5f1e8;text-decoration:none;color:#17233c;font-size:0.7rem;font-weight:600;">
-                  <i class="fas fa-server" style="color:#a77915;"></i> System
+            <div class="mt-2">
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.3rem;font-size:0.7rem;">
+                <span><span class="badge badge-success">${present}</span> Present</span>
+                <span><span class="badge badge-warning">${late}</span> Late</span>
+                <span><span class="badge badge-danger">${absent}</span> Absent</span>
+                <span class="text-muted">${totalStudents} total</span>
+              </div>
+              <div class="progress-track mt-1" style="height:0.4rem;background:#e6e2da;border-radius:999px;overflow:hidden;">
+                <div class="fill green" style="width:${attendanceRate}%;height:100%;border-radius:999px;background:${attendanceRate > 80 ? '#2d6545' : attendanceRate > 50 ? '#d4af37' : '#8a3328'};"></div>
+              </div>
+              <div class="flex-between mt-1">
+                <span class="text-xs font-bold">${attendanceRate}% attendance</span>
+                <a href="./dev-bedcheck.html" class="btn-gold" style="font-size:0.6rem;padding:0.15rem 0.6rem;">
+                  <i class="fas fa-external-link-alt"></i> Open
                 </a>
               </div>
             </div>
@@ -1372,21 +1205,6 @@
             </div>
           </div>
 
-          <!-- RECENT SYSTEM EVENTS -->
-          <div class="card mt-4">
-            <div class="card-title"><i class="fas fa-bolt"></i> Recent System Events</div>
-            <div class="activity-timeline mt-1">
-              ${auditLogs.slice(0, 6).map(log => `
-                <div class="activity-item">
-                  <div class="time">${getTimeAgo(log.created_at)}</div>
-                  <div class="desc">${log.action || 'System event'}</div>
-                  ${log.context ? `<div class="context">${log.context}</div>` : ''}
-                </div>
-              `).join('')}
-              ${auditLogs.length === 0 ? '<p class="text-xs text-muted">No recent events</p>' : ''}
-            </div>
-          </div>
-
           <!-- FOOTER -->
           <div class="mt-4 pt-2 border-t">
             <p class="text-xs text-muted">BedCheck · Developer Console · ${new Date().getFullYear()}</p>
@@ -1395,7 +1213,7 @@
       }
 
       // ============================================================
-      // INIT - LOAD ALL DATA
+      // INIT
       // ============================================================
       async function init() {
         if (!checkAuth()) return;
@@ -1407,12 +1225,10 @@
         document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
         try {
-          // Load all data in parallel
           await Promise.all([
             loadStudents(),
             loadHostels(),
             loadStaff(),
-            loadAuditLogs(),
             loadSessions(),
             loadBedSpaces()
           ]);
