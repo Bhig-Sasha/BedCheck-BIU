@@ -194,7 +194,6 @@
         .table-wrap tbody tr:hover .avatar { transform: scale(1.1); }
         @media (max-width: 480px) { .table-wrap th, .table-wrap td { padding: 0.3rem 0.4rem; } }
 
-        /* Hide less important columns on mobile */
         .hide-xs { display: table-cell; }
         @media (max-width: 480px) { .hide-xs { display: none !important; } }
 
@@ -244,7 +243,6 @@
         .toast.error { background: #a84134; }
         .toast.warning { background: #d4af37; color: #10233f; }
 
-        /* ===== MANAGE DIALOG - MOBILE FIRST ===== */
         .manage-dialog { position: fixed; inset: 0; z-index: 70; background: rgba(16,35,63,0.5); display: none; align-items: center; justify-content: center; padding: 0.75rem; animation: fadeInOverlay 0.3s ease; }
         @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
         .manage-dialog.show { display: flex; }
@@ -261,7 +259,6 @@
         .manage-dialog-box .close-btn { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #68768a; padding: 0.2rem; transition: all 0.3s ease; }
         .manage-dialog-box .close-btn:hover { color: #17233c; transform: rotate(90deg); }
 
-        /* ===== RESPONSIVE TOOLBAR ROW ===== */
         @media (max-width: 640px) {
             .filter-row,
             .search-row,
@@ -277,15 +274,11 @@
             }
         }
 
-        /* Scrollbar */
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
 
-        /* ============================================= */
-        /* ===== SKELETON LOADER (added) ===== */
-        /* ============================================= */
         .skeleton {
             background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
             background-size: 200% 100%;
@@ -317,7 +310,6 @@
 
     <!-- ===== PORTAL ===== -->
     <div id="portalApp" class="app-wrapper">
-        <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <div class="brand-badge">S</div>
@@ -343,7 +335,6 @@
             </div>
         </aside>
 
-        <!-- Mobile Drawer -->
         <div class="drawer-overlay" id="drawerOverlay"></div>
         <aside class="mobile-drawer" id="mobileDrawer">
             <button class="close-btn" id="closeDrawer"><i class="fas fa-times"></i></button>
@@ -367,7 +358,6 @@
             <div class="drawer-footer" id="mobileRoleFooter">Administrator · System-wide access</div>
         </aside>
 
-        <!-- Main Content -->
         <main class="main-content">
             <header class="main-header">
                 <div class="header-inner">
@@ -404,105 +394,53 @@
         (function() {
             'use strict';
 
-            // =============================================
-            // CONFIGURATION
-            // =============================================
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
-            // =============================================
-            // TOAST NOTIFICATION
-            // =============================================
             function showToast(message, type = 'success') {
                 const toast = document.getElementById('toast');
                 toast.textContent = message;
                 toast.className = `toast ${type}`;
                 setTimeout(() => toast.classList.add('show'), 10);
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 5000);
+                setTimeout(() => toast.classList.remove('show'), 5000);
             }
 
-            // =============================================
-            // STATE
-            // =============================================
             let currentUser = null;
             let currentRole = 'Administrator';
             let staffMembers = [];
             let hostels = [];
 
-            // =============================================
-            // HOSTEL ORDER - Defined in preferred sequence
-            // =============================================
             const HOSTEL_ORDER = [
-                'Above Only',
-                'Balm Of Gilead',
-                'Splendor',
-                'Grace',
-                'Champions',
-                'Hope',
-                'Love',
-                'Peace',
-                'Purpose',
-                'Favour',
-                'Destiny'
+                'Above Only', 'Balm Of Gilead', 'Splendor', 'Grace', 'Champions',
+                'Hope', 'Love', 'Peace', 'Purpose', 'Favour', 'Destiny'
             ];
 
-            // =============================================
-            // ROLE ORDER - HRA comes before RA
-            // =============================================
-            const ROLE_ORDER = {
-                'Administrator': 0,
-                'RASD': 1,
-                'HRA': 2,
-                'RA': 3
-            };
+            const ROLE_ORDER = { 'Administrator': 0, 'RASD': 1, 'HRA': 2, 'RA': 3 };
 
-            // =============================================
-            // VALIDATION HELPERS
-            // =============================================
             function validateUsername(username) {
-                if (!username || username.trim().length < 3) {
-                    return { valid: false, message: 'Username must be at least 3 characters long' };
-                }
-                if (username.length > 50) {
-                    return { valid: false, message: 'Username must be less than 50 characters' };
-                }
-                if (!/^[a-zA-Z0-9._\-/]+$/.test(username)) {
-                    return { valid: false, message: 'Username can only contain letters, numbers, dots, underscores, hyphens, and forward slashes' };
-                }
+                if (!username || username.trim().length < 3) return { valid: false, message: 'Username must be at least 3 characters long' };
+                if (username.length > 50) return { valid: false, message: 'Username must be less than 50 characters' };
+                if (!/^[a-zA-Z0-9._\-/]+$/.test(username)) return { valid: false, message: 'Username can only contain letters, numbers, dots, underscores, hyphens, and forward slashes' };
                 return { valid: true };
             }
 
             function validateName(name) {
-                if (!name || name.trim().length < 2) {
-                    return { valid: false, message: 'Name must be at least 2 characters long' };
-                }
-                if (name.length > 100) {
-                    return { valid: false, message: 'Name must be less than 100 characters' };
-                }
+                if (!name || name.trim().length < 2) return { valid: false, message: 'Name must be at least 2 characters long' };
+                if (name.length > 100) return { valid: false, message: 'Name must be less than 100 characters' };
                 return { valid: true };
             }
 
             function validateEmail(email) {
                 if (!email) return { valid: true };
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(email)) {
-                    return { valid: false, message: 'Please enter a valid email address' };
-                }
+                if (!emailRegex.test(email)) return { valid: false, message: 'Please enter a valid email address' };
                 return { valid: true };
             }
 
-            // =============================================
-            // AUTHENTICATED API HELPER
-            // =============================================
             async function apiCall(endpoint, options = {}) {
                 const token = sessionStorage.getItem('bedcheck_token');
-                
                 if (!token) {
                     showToast('No authentication token found. Please login again.', 'error');
-                    setTimeout(() => {
-                        window.location.replace('../Login.html');
-                    }, 1500);
+                    setTimeout(() => window.location.replace('../Login.html'), 1500);
                     throw new Error('No authentication token');
                 }
 
@@ -521,9 +459,7 @@
                         sessionStorage.removeItem('bedcheck_token');
                         sessionStorage.removeItem('bedcheck_user');
                         sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => {
-                            window.location.replace('../Login.html');
-                        }, 1500);
+                        setTimeout(() => window.location.replace('../Login.html'), 1500);
                         throw new Error('Authentication required');
                     }
                     
@@ -559,9 +495,7 @@
                     }
                     
                     const data = await response.json();
-                    if (!data.success) {
-                        throw new Error(data.message || 'API error');
-                    }
+                    if (!data.success) throw new Error(data.message || 'API error');
                     return data;
                 } catch (error) {
                     if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
@@ -571,31 +505,18 @@
                 }
             }
 
-            // =============================================
-            // HELPERS
-            // =============================================
             function getInitials(name) {
                 if (!name) return 'U';
                 return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
             }
 
             function getRoleBadgeClass(role) {
-                const map = {
-                    'Administrator': 'role-badge-admin',
-                    'RASD': 'role-badge-rasd',
-                    'HRA': 'role-badge-hra',
-                    'RA': 'role-badge-ra'
-                };
+                const map = { 'Administrator': 'role-badge-admin', 'RASD': 'role-badge-rasd', 'HRA': 'role-badge-hra', 'RA': 'role-badge-ra' };
                 return map[role] || 'role-badge-ra';
             }
 
             function getStatusBadgeClass(status) {
-                const map = {
-                    'Active': 'status-badge-active',
-                    'Suspended': 'status-badge-suspended',
-                    'Inactive': 'status-badge-inactive',
-                    'Offline': 'status-badge-offline'
-                };
+                const map = { 'Active': 'status-badge-active', 'Suspended': 'status-badge-suspended', 'Inactive': 'status-badge-inactive', 'Offline': 'status-badge-offline' };
                 return map[status] || 'status-badge-offline';
             }
 
@@ -633,15 +554,12 @@
                     while (hasMore) {
                         const data = await apiCall(`/staff?limit=${limit}&offset=${offset}`);
                         const staffBatch = data.data || [];
-
                         if (staffBatch.length === 0) {
                             hasMore = false;
                         } else {
                             allStaff = allStaff.concat(staffBatch);
                             offset += limit;
-                            if (staffBatch.length < limit) {
-                                hasMore = false;
-                            }
+                            if (staffBatch.length < limit) hasMore = false;
                         }
                     }
 
@@ -663,6 +581,84 @@
                     hostels = [];
                     return hostels;
                 }
+            }
+
+            // =============================================
+            // LOAD ROOMS FOR A HOSTEL
+            // =============================================
+            async function loadRoomsForHostel(hostelId) {
+                if (!hostelId) return [];
+                try {
+                    const res = await apiCall(`/rooms?hostel_id=${hostelId}`);
+                    return res.data || [];
+                } catch (err) {
+                    console.warn('Failed to load rooms:', err);
+                    return [];
+                }
+            }
+
+            // =============================================
+            // WHEN HOSTEL CHANGES → LOAD ROOMS (Manage dialog)
+            // =============================================
+            async function onHostelChange(hostelId) {
+                const roomSelect = document.getElementById('editStaffRoom');
+                if (!roomSelect) return;
+
+                roomSelect.innerHTML = `<option value="">Loading rooms...</option>`;
+                roomSelect.disabled = true;
+
+                if (!hostelId) {
+                    roomSelect.innerHTML = `<option value="">— No Hostel Selected —</option>`;
+                    roomSelect.disabled = false;
+                    return;
+                }
+
+                const rooms = await loadRoomsForHostel(hostelId);
+
+                if (rooms.length === 0) {
+                    roomSelect.innerHTML = `<option value="">No rooms found</option>`;
+                } else {
+                    roomSelect.innerHTML = `
+                        <option value="">— Select Room —</option>
+                        ${rooms.map(r => {
+                            const code = r.room_code || r.name || r.code || r.id;
+                            return `<option value="${code}">${code}</option>`;
+                        }).join('')}
+                    `;
+                }
+                roomSelect.disabled = false;
+            }
+
+            // =============================================
+            // WHEN HOSTEL CHANGES → LOAD ROOMS (Add form)
+            // =============================================
+            async function onAddHostelChange(hostelId) {
+                const roomSelect = document.getElementById('staffRoom');
+                if (!roomSelect) return;
+
+                roomSelect.innerHTML = `<option value="">Loading rooms...</option>`;
+                roomSelect.disabled = true;
+
+                if (!hostelId) {
+                    roomSelect.innerHTML = `<option value="">— No Hostel Selected —</option>`;
+                    roomSelect.disabled = false;
+                    return;
+                }
+
+                const rooms = await loadRoomsForHostel(hostelId);
+
+                if (rooms.length === 0) {
+                    roomSelect.innerHTML = `<option value="">No rooms found</option>`;
+                } else {
+                    roomSelect.innerHTML = `
+                        <option value="">— Select Room —</option>
+                        ${rooms.map(r => {
+                            const code = r.room_code || r.name || r.code || r.id;
+                            return `<option value="${code}">${code}</option>`;
+                        }).join('')}
+                    `;
+                }
+                roomSelect.disabled = false;
             }
 
             // =============================================
@@ -742,9 +738,6 @@
                 setupStaffForm();
             }
 
-            // =============================================
-            // LOAD STAFF TABLE
-            // =============================================
             function loadStaffTable() {
                 const tbody = document.getElementById('staffTableBody');
                 if (!tbody) return;
@@ -752,32 +745,22 @@
                 const sortedStaff = [...staffMembers].sort((a, b) => {
                     const aIsAdmin = a.role === 'Administrator' || a.role === 'RASD';
                     const bIsAdmin = b.role === 'Administrator' || b.role === 'RASD';
-                    
                     if (aIsAdmin && !bIsAdmin) return -1;
                     if (!aIsAdmin && bIsAdmin) return 1;
-                    
-                    if (aIsAdmin && bIsAdmin) {
-                        return (ROLE_ORDER[a.role] || 99) - (ROLE_ORDER[b.role] || 99);
-                    }
+                    if (aIsAdmin && bIsAdmin) return (ROLE_ORDER[a.role] || 99) - (ROLE_ORDER[b.role] || 99);
                     
                     const hostelA = getHostelName(a.hostel_id);
                     const hostelB = getHostelName(b.hostel_id);
-                    
                     const indexA = HOSTEL_ORDER.indexOf(hostelA);
                     const indexB = HOSTEL_ORDER.indexOf(hostelB);
-                    
                     if (indexA !== indexB) {
                         if (indexA === -1) return 1;
                         if (indexB === -1) return -1;
                         return indexA - indexB;
                     }
-                    
                     const roleOrderA = ROLE_ORDER[a.role] || 99;
                     const roleOrderB = ROLE_ORDER[b.role] || 99;
-                    if (roleOrderA !== roleOrderB) {
-                        return roleOrderA - roleOrderB;
-                    }
-                    
+                    if (roleOrderA !== roleOrderB) return roleOrderA - roleOrderB;
                     return (a.name || '').localeCompare(b.name || '');
                 });
                 
@@ -816,14 +799,12 @@
                 const countEl = document.getElementById('staffCount');
                 if (countEl) {
                     const total = staffMembers.length;
-                    countEl.innerHTML = `
-                        <span>Showing <strong>${total}</strong> staff members</span>
-                    `;
+                    countEl.innerHTML = `<span>Showing <strong>${total}</strong> staff members</span>`;
                 }
             }
 
             // =============================================
-            // SETUP STAFF FORM
+            // SETUP STAFF FORM (Create)
             // =============================================
             function setupStaffForm() {
                 setTimeout(() => {
@@ -876,14 +857,16 @@
                                         </div>
                                         <div class="field" id="hostelField">
                                             <label>Assign Hostel</label>
-                                            <select id="staffHostel">
+                                            <select id="staffHostel" onchange="onAddHostelChange(this.value)">
                                                 <option value="">— None —</option>
                                                 ${hostelOptions}
                                             </select>
                                         </div>
                                         <div class="field">
                                             <label>Assigned Room</label>
-                                            <input id="staffRoom" placeholder="e.g. B12 or F3R2" maxlength="20" />
+                                            <select id="staffRoom">
+                                                <option value="">— Select Hostel first —</option>
+                                            </select>
                                         </div>
                                         <div class="field">
                                             <label>Campus *</label>
@@ -940,7 +923,7 @@
                                 const password = document.getElementById('staffPassword').value;
                                 const role = document.getElementById('staffRoleSelect').value;
                                 const hostelId = document.getElementById('staffHostel').value;
-                                const assignedRoom = document.getElementById('staffRoom').value.trim();
+                                const assignedRoom = document.getElementById('staffRoom')?.value?.trim() || '';
                                 const campus = document.getElementById('staffCampus').value;
                                 const email = document.getElementById('staffEmail').value.trim();
                                 const phone = document.getElementById('staffPhone').value.trim();
@@ -1050,9 +1033,9 @@
             }
 
             // =============================================
-            // MANAGE STAFF FUNCTIONS
+            // MANAGE STAFF (OPEN DIALOG)
             // =============================================
-            function openManageStaff(staffId) {
+            async function openManageStaff(staffId) {
                 if (!staffId || staffId === 'undefined' || staffId === 'null' || staffId === '') {
                     showToast('Invalid staff ID. Please refresh and try again.', 'error');
                     return;
@@ -1070,10 +1053,19 @@
                     return;
                 }
 
+                // Ensure hostels are loaded
+                if (!hostels || hostels.length === 0) {
+                    try {
+                        await loadHostels();
+                    } catch (e) {
+                        showToast('Could not load hostels', 'error');
+                    }
+                }
+
                 const dialog = document.getElementById('manageStaffDialog');
                 const content = document.getElementById('manageStaffContent');
                 
-                const hostelOptions = hostels.map(h => 
+                const hostelOptions = (hostels || []).map(h => 
                     `<option value="${h.id}" ${staff.hostel_id == h.id ? 'selected' : ''}>${h.name} (${h.campus || 'Legacy'})</option>`
                 ).join('');
 
@@ -1098,14 +1090,16 @@
                     </div>
                     <div class="field mt-3">
                         <label>Assigned Hostel</label>
-                        <select id="editStaffHostel">
+                        <select id="editStaffHostel" onchange="onHostelChange(this.value)">
                             <option value="">— No Hostel —</option>
                             ${hostelOptions}
                         </select>
                     </div>
                     <div class="field mt-3">
                         <label>Assigned Room</label>
-                        <input id="editStaffRoom" value="${staff.assigned_room || ''}" placeholder="e.g. B12 or F3R2" maxlength="20" />
+                        <select id="editStaffRoom">
+                            <option value="">— Select Hostel first —</option>
+                        </select>
                     </div>
                     <div class="field mt-3">
                         <label>Campus *</label>
@@ -1137,6 +1131,16 @@
                 `;
 
                 dialog.classList.add('show');
+
+                // Pre-load rooms if staff already has a hostel
+                if (staff.hostel_id) {
+                    await onHostelChange(staff.hostel_id);
+
+                    const roomSelect = document.getElementById('editStaffRoom');
+                    if (roomSelect && staff.assigned_room) {
+                        roomSelect.value = staff.assigned_room;
+                    }
+                }
             }
 
             function closeManageStaff() {
@@ -1159,7 +1163,7 @@
                 const username = document.getElementById('editStaffUsername').value.trim();
                 const role = document.getElementById('editStaffRole').value;
                 const hostelId = document.getElementById('editStaffHostel').value;
-                const assignedRoom = document.getElementById('editStaffRoom').value.trim();
+                const assignedRoom = document.getElementById('editStaffRoom')?.value?.trim() || '';
                 const campus = document.getElementById('editStaffCampus').value;
                 const status = document.getElementById('editStaffStatus').value;
                 const email = document.getElementById('editStaffEmail').value.trim();
@@ -1238,7 +1242,7 @@
                 }
 
                 try {
-                    const response = await apiCall(`/staff/${id}`, {
+                    await apiCall(`/staff/${id}`, {
                         method: 'PUT',
                         body: JSON.stringify(payload)
                     });
@@ -1290,9 +1294,7 @@
                 if (!confirm('Are you sure you want to delete this staff member?')) return;
 
                 try {
-                    await apiCall(`/staff/${id}`, {
-                        method: 'DELETE'
-                    });
+                    await apiCall(`/staff/${id}`, { method: 'DELETE' });
                     showToast('Staff deleted successfully!');
                     closeManageStaff();
                     await loadStaff();
@@ -1303,7 +1305,7 @@
             }
 
             // =============================================
-            // SKELETON (instant first paint)
+            // SKELETON
             // =============================================
             function showStaffSkeleton() {
                 const container = document.getElementById('screenContent');
@@ -1345,7 +1347,7 @@
             }
 
             // =============================================
-            // AUTHENTICATION
+            // AUTH
             // =============================================
             function checkAuth() {
                 const userData = sessionStorage.getItem('bedcheck_user');
@@ -1386,9 +1388,7 @@
                 const now = new Date();
                 const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 const dateEl = document.getElementById('currentDate');
-                if (dateEl) {
-                    dateEl.textContent = now.toLocaleDateString('en-US', options);
-                }
+                if (dateEl) dateEl.textContent = now.toLocaleDateString('en-US', options);
             }
 
             function openMobileDrawer() {
@@ -1409,40 +1409,37 @@
             window.closeManageStaff = closeManageStaff;
             window.saveStaffChanges = saveStaffChanges;
             window.deleteStaff = deleteStaff;
+            window.onHostelChange = onHostelChange;
+            window.onAddHostelChange = onAddHostelChange;
 
             document.getElementById('manageStaffDialog').addEventListener('click', function(e) {
-                if (e.target === this) {
-                    closeManageStaff();
-                }
+                if (e.target === this) closeManageStaff();
             });
 
             // =============================================
-            // INIT (fast first paint, then progressive fill)
+            // INIT — load staff + hostels in parallel before first render
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
                 setDate();
 
-                // Wire events early
                 document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
                 document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
                 document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
 
-                // 1. Instant skeleton
                 showStaffSkeleton();
                 document.getElementById('noticeText').textContent = 'Loading staff...';
 
                 try {
-                    // 2. Load staff first (most important)
-                    await loadStaff();
+                    await Promise.all([
+                        loadStaff(),
+                        loadHostels()
+                    ]);
 
-                    // 3. First real render as soon as staff is ready
                     renderScreen();
-                    document.getElementById('noticeText').textContent = `Loaded ${staffMembers.length} staff members.`;
-
-                    // 4. Load hostels in background (only needed for forms)
-                    loadHostels().catch(() => {});
+                    document.getElementById('noticeText').textContent = 
+                        `Loaded ${staffMembers.length} staff members · ${hostels.length} hostels.`;
 
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
@@ -1450,7 +1447,6 @@
                         !error.message?.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
-                    // Still try to show whatever we have
                     renderScreen();
                 }
             }
