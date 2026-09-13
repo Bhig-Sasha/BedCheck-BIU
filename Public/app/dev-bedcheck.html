@@ -244,7 +244,7 @@
     .staff-scroll::-webkit-scrollbar-track { background:#eee9e1; border-radius:3px; }
     .staff-scroll::-webkit-scrollbar-thumb { background:#d6ad4b; border-radius:3px; }
 
-    /* ===== MODAL (single source of truth) ===== */
+    /* ===== MODAL ===== */
     .modal-overlay {
       position: fixed; inset: 0; background: rgba(16, 35, 63, 0.65);
       backdrop-filter: blur(4px); z-index: 1000; display: none;
@@ -272,7 +272,6 @@
       padding: 0.75rem 1.25rem; border-top: 1px solid #eee8de; flex-wrap: wrap;
     }
 
-    /* Face-specific modal bits */
     .face-cam-wrap {
       position: relative; width: 100%; aspect-ratio: 4/3; background: #000;
       border-radius: 0.75rem; overflow: hidden; margin-bottom: 0.75rem;
@@ -299,16 +298,6 @@
     .face-result .result-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; }
     .face-result .result-msg { font-size: 0.8rem; color: #68768a; }
     .face-result .result-sim { font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem; }
-
-    .verification-methods { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin:0.5rem 0; }
-    .verification-methods .method-btn { padding:0.75rem; border:2px solid #ded6c9; border-radius:0.5rem; background:#fbf7ef; text-align:center; cursor:pointer; transition:all 0.2s; }
-    .verification-methods .method-btn:hover { border-color:#d6ad4b; background:#f5efe6; }
-    .verification-methods .method-btn.selected { border-color:#d6ad4b; background:#fff0cb; }
-    .verification-methods .method-btn i { font-size:1.5rem; display:block; margin-bottom:0.2rem; }
-    .verification-methods .method-btn .label { font-size:0.7rem; font-weight:600; }
-
-    .confidence-bar { height:6px; background:#eee9e1; border-radius:999px; overflow:hidden; margin:0.25rem 0 0.5rem 0; }
-    .confidence-bar .fill { height:100%; border-radius:999px; transition:width 0.8s ease; }
 
     .activity-panel { background:#fbf7ef; border-radius:0.5rem; padding:0.75rem; margin-top:0.75rem; border:1px solid #ded6c9; max-height:300px; overflow-y:auto; }
     .activity-panel .activity-item { display:flex; gap:0.5rem; padding:0.3rem 0; border-bottom:1px solid #f0ece4; font-size:0.7rem; }
@@ -477,7 +466,7 @@
       let currentEnrollStudent = null;
       let enrollFrames = [];
 
-      // ============ API (no demo fallback) ============
+      // ============ API ============
       async function apiCall(endpoint, options = {}) {
         const token = sessionStorage.getItem('bedcheck_token');
         if (!token) {
@@ -502,7 +491,7 @@
           throw new Error('Authentication required');
         }
         if (response.status === 404) {
-          const err = new Error('Face API not available on this server');
+          const err = new Error('Endpoint not available on this server');
           err.status = 404;
           throw err;
         }
@@ -527,6 +516,37 @@
       function getInitials(name) {
         if (!name) return '?';
         return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+      }
+
+      // ============ DAILY STATUS ============
+      // A student is only "Present" TODAY if there's a scan record
+      // that matches today's active session.
+      function getTodayStatus(student) {
+        if (!student) return 'Not Checked';
+
+        const session = sessions && sessions[0];
+        if (!session) return 'Not Checked';
+
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // Look for a scan tied to today's session
+        const scan = (scans || []).find(s =>
+          String(s.student_id) === String(student.id) &&
+          (
+            String(s.session_id) === String(session.id) ||
+            s.date === session.date ||
+            (s.created_at && s.created_at.startsWith(todayStr) &&
+              (s.status === 'Present' || s.status === 'Verified' || s.status === 'Absent'))
+          )
+        );
+
+        if (!scan) return 'Not Checked';
+
+        const st = (scan.status || '').toLowerCase();
+        if (st === 'verified' || st === 'present') return 'Present';
+        if (st === 'absent') return 'Absent';
+        if (st === 'late') return 'Late';
+        return 'Not Checked';
       }
 
       // ============ USER ============
@@ -583,34 +603,39 @@
       }
       async function loadStudents() {
         try {
-          const data = await apiCall('/students?limit=5000');
+          const data = await apiCall('/students?limit=1000');
           students = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
         } catch { students = []; }
         return students;
       }
       async function loadSessions() {
         try {
-          let data = await apiCall('/sessions?status=active&limit=5').catch(() => null);
-          if (!data || !data.data || data.data.length === 0) {
-            data = await apiCall('/bedcheck/sessions?limit=10').catch(() => null);
-          }
+          // Use /sessions/active first, fall back to /sessions
+          let data = await apiCall('/sessions/active').catch(() => null);
           if (data && data.data) {
-            const list = Array.isArray(data.data) ? data.data : Object.values(data.data);
-            sessions = list.filter(s => ['active','Active','scheduled','pending'].includes(s.status));
-          } else { sessions = []; }
+            sessions = [data.data];
+          } else {
+            data = await apiCall('/sessions?limit=20').catch(() => null);
+            if (data && data.data) {
+              const list = Array.isArray(data.data) ? data.data : Object.values(data.data);
+              sessions = list.filter(s => ['active','Active','scheduled','pending'].includes(s.status));
+            } else {
+              sessions = [];
+            }
+          }
         } catch { sessions = []; }
         return sessions;
       }
       async function loadScans() {
         try {
-          const data = await apiCall('/bedcheck/scans?limit=50');
+          const data = await apiCall('/bedcheck/scans?limit=500');
           scans = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
         } catch { scans = []; }
         return scans;
       }
       async function loadAllStaff() {
         try {
-          const data = await apiCall('/staff?limit=5000');
+          const data = await apiCall('/staff?limit=1000');
           allStaff = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
         } catch { allStaff = []; }
         return allStaff;
@@ -624,7 +649,7 @@
       }
       async function loadRooms(floorId) {
         try {
-          const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
+          const data = await apiCall(`/rooms?floor_flat_id=${floorId}&limit=1000`);
           rooms = Array.isArray(data.data) ? data.data : (data.data && typeof data.data === 'object' ? Object.values(data.data) : []);
         } catch { rooms = []; }
         return rooms;
@@ -659,7 +684,7 @@
         if (e.target === this) closeModal();
       });
 
-      // ==================== FACE VERIFY (real API only) ====================
+      // ==================== FACE VERIFY ====================
       async function openFaceVerificationModal(student) {
         currentFaceStudent = student;
         lastVerificationResult = null;
@@ -691,7 +716,6 @@
             <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
             <button class="btn btn-primary" id="faceCaptureBtn" onclick="captureAndVerify()"><i class="fas fa-camera"></i> Capture & Verify</button>
             <button class="btn btn-success" id="faceConfirmBtn" style="display:none;" onclick="confirmFaceVerification()"><i class="fas fa-check"></i> Confirm Attendance</button>
-            <button class="btn btn-outline" id="faceManualBtn" style="display:none;" onclick="showManualVerification()"><i class="fas fa-keyboard"></i> Manual</button>
           </div>
         `);
 
@@ -722,24 +746,20 @@
         document.getElementById('faceCaptureBtn').style.display = 'none';
         document.getElementById('faceProgressText').textContent = 'Checking liveness...';
 
-        // Liveness check — REQUIRED, no fallback
+        // ---- 1. Liveness: POST /api/face/liveness ----
+        // Server returns: { success, is_live, message, ... }
         let liveness;
         try {
-          liveness = await apiCall('/face/check-liveness', {
+          liveness = await apiCall('/face/liveness', {
             method: 'POST',
             body: JSON.stringify({ image: imageBase64 })
           });
         } catch (err) {
-          if (err.status === 404) {
-            showFaceResult(false, 'Face API Not Available',
-              'The face liveness endpoint is not deployed on this server.');
-            return;
-          }
           showFaceResult(false, 'Liveness Check Failed', err.message || 'Server error');
           return;
         }
 
-        if (!liveness.success || !liveness.is_live) {
+        if (!liveness.is_live) {
           showFaceResult(false, 'Liveness Check Failed',
             liveness.message || 'Please blink or move slightly and try again');
           return;
@@ -747,26 +767,29 @@
 
         document.getElementById('faceProgressText').textContent = 'Verifying face...';
 
-        // Match verification — REQUIRED, no fallback
-        let verify;
+        // ---- 2. Verify: POST /api/face/verify ----
+        // Server returns: { success, data: { verified, similarity, threshold, message } }
+        let verifyResponse;
         try {
-          verify = await apiCall('/face/verify', {
+          verifyResponse = await apiCall('/face/verify', {
             method: 'POST',
-            body: JSON.stringify({ image: imageBase64, student_id: currentFaceStudent.id })
+            body: JSON.stringify({
+              image: imageBase64,
+              student_id: currentFaceStudent.id,
+              threshold: 0.55
+            })
           });
         } catch (err) {
-          if (err.status === 404) {
-            showFaceResult(false, 'Face API Not Available',
-              'The face verification endpoint is not deployed on this server.');
-            return;
-          }
           showFaceResult(false, 'Verification Failed', err.message || 'Server error');
           return;
         }
 
+        const verify = verifyResponse.data || verifyResponse;
         lastVerificationResult = verify;
-        if (verify.success && verify.verified) {
-          const pct = verify.similarity_percentage || Math.round((verify.similarity || 0) * 100);
+
+        if (verify.verified) {
+          const pct = verify.similarity_percentage ||
+                      Math.round((verify.similarity || 0) * 100);
           showFaceResult(true, 'Face Verified!', `Match confidence: ${pct}%`, pct);
         } else {
           showFaceResult(false, 'Verification Failed',
@@ -787,14 +810,12 @@
           icon.innerHTML = '<i class="fas fa-check-circle" style="color:#2d6545;"></i>';
           titleEl.style.color = '#2d6545';
           document.getElementById('faceConfirmBtn').style.display = 'inline-flex';
-          document.getElementById('faceManualBtn').style.display = 'none';
         } else {
           icon.innerHTML = '<i class="fas fa-times-circle" style="color:#a84134;"></i>';
           titleEl.style.color = '#a84134';
           const capBtn = document.getElementById('faceCaptureBtn');
           capBtn.style.display = 'inline-flex';
           capBtn.innerHTML = '<i class="fas fa-camera"></i> Try Again';
-          document.getElementById('faceManualBtn').style.display = 'inline-flex';
         }
 
         titleEl.textContent = title;
@@ -805,29 +826,46 @@
       async function confirmFaceVerification() {
         if (!currentFaceStudent || !lastVerificationResult) return;
 
-        // Save attendance — REQUIRED, no local-only fallback
-        try {
-          await apiCall('/bedcheck/verify', {
-            method: 'POST',
-            body: JSON.stringify({
-              student_id: currentFaceStudent.id,
-              status: 'Present',
-              method: 'Face ID',
-              similarity: lastVerificationResult.similarity || lastVerificationResult.similarity_percentage,
-              session_id: (sessions[0]?.id) || null
-            })
-          });
-        } catch (err) {
-          showToast('Failed to save verification: ' + err.message, 'error');
+        const session = sessions && sessions[0];
+        if (!session) {
+          showToast('No active session — cannot record attendance', 'error');
           return;
         }
 
-        // Update local state after successful backend save
+        // ---- Record scan: POST /api/bedcheck/scans ----
+        // Server will auto-update student status to Present.
+        try {
+          await apiCall('/bedcheck/scans', {
+            method: 'POST',
+            body: JSON.stringify({
+              session_id: session.id,
+              student_id: currentFaceStudent.id,
+              room: currentFaceStudent.room_code || null,
+              bed_number: currentFaceStudent.bed_code || null,
+              status: 'Verified',
+              scanner_id: 'Face-001'
+            })
+          });
+        } catch (err) {
+          showToast('Failed to record attendance: ' + err.message, 'error');
+          return;
+        }
+
+        // Update local state immediately
         const student = students.find(s => s.id === currentFaceStudent.id);
         if (student) {
           student.status = 'Present';
           student.last_verified = new Date().toISOString();
         }
+
+        // Push into local scans array so getTodayStatus() picks it up
+        scans.push({
+          student_id: currentFaceStudent.id,
+          session_id: session.id,
+          date: session.date,
+          status: 'Verified',
+          created_at: new Date().toISOString()
+        });
 
         const similarityPct = lastVerificationResult.similarity_percentage ||
           Math.round((lastVerificationResult.similarity || 0) * 100);
@@ -847,7 +885,7 @@
         renderScreen();
       }
 
-      // ==================== FACE ENROLL (real API only) ====================
+      // ==================== FACE ENROLL ====================
       function openFaceEnrollmentModal(student, isReEnroll = false) {
         currentEnrollStudent = student;
         enrollFrames = [];
@@ -935,7 +973,8 @@
         document.getElementById('enrollProgressText').textContent = 'Processing enrollment...';
         document.getElementById('enrollProgressBar').style.width = '85%';
 
-        // REQUIRED — no local-only fallback
+        // ---- Enroll: POST /api/face/enroll-bulk ----
+        // Server returns: { success, data: { student, face: { quality, frames_used } } }
         try {
           const res = await apiCall('/face/enroll-bulk', {
             method: 'POST',
@@ -943,7 +982,7 @@
               student_id: currentEnrollStudent.id,
               frames: enrollFrames,
               name: currentEnrollStudent.name,
-              hostel: currentEnrollStudent.hostel_name || currentEnrollStudent.hostel || '',
+              hostel: currentEnrollStudent.hostel_name || '',
               room: currentEnrollStudent.room_code || ''
             })
           });
@@ -952,22 +991,22 @@
 
           if (res.success) {
             const student = students.find(s => s.id === currentEnrollStudent.id);
-            if (student) {
-              student.face_enrolled = true;
-              student.face_enrolled_at = new Date().toISOString();
-            }
-            showEnrollResult(true, 'Enrollment Successful!',
-              'Face has been enrolled successfully.');
+            if (student) student.face_enrolled = true;
+
+            const faceInfo = res.data?.face || {};
+            const quality = faceInfo.quality ? Math.round(faceInfo.quality * 100) : null;
+            const frames = faceInfo.frames_used || 3;
+
+            showEnrollResult(
+              true,
+              'Enrollment Successful!',
+              `Face enrolled · ${frames} frames${quality ? ` · Quality ${quality}%` : ''}`
+            );
           } else {
             showEnrollResult(false, 'Enrollment Failed',
-              res.message || res.error || 'Could not enroll face. Please try again.');
+              res.message || 'Could not enroll face. Please try again.');
           }
         } catch (err) {
-          if (err.status === 404) {
-            showEnrollResult(false, 'Face API Not Available',
-              'The enrollment endpoint is not deployed on this server.');
-            return;
-          }
           showEnrollResult(false, 'Enrollment Error', err.message || 'Request failed');
         }
       }
@@ -996,140 +1035,29 @@
         msgEl.textContent = message;
       }
 
-      // ==================== VERIFY ENTRY / MANUAL / PROFILE ====================
+      // ==================== STUDENT PROFILE / VERIFY ====================
       window.verifyStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId || s.id === parseInt(studentId));
+        const student = students.find(s => String(s.id) === String(studentId));
         if (!student) { showToast('Student not found', 'error'); return; }
-        showVerifyStudent(student);
-      };
-
-      function showVerifyStudent(student) {
-        const raName = selectedRA ? selectedRA.name : 'RA';
-        modalState.student = student;
-        modalState.type = 'verify-entry';
-        openModal(`
-          <div class="modal-title"><i class="fas fa-clipboard-check"></i> Verify Student</div>
-          <div class="modal-body">
-            <div style="display:flex;gap:1rem;margin-bottom:1rem;align-items:center;background:#fbf7ef;padding:0.75rem;border-radius:0.5rem;">
-              <div style="width:60px;height:60px;border-radius:50%;background:#d6ad4b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.2rem;color:#10233f;flex-shrink:0;">
-                ${getInitials(student.name)}
-              </div>
-              <div>
-                <div style="font-weight:700;font-size:1rem;">${student.name}</div>
-                <div style="font-size:0.7rem;color:#6b778b;">${student.matric || 'N/A'} · ${student.room_code || 'N/A'}</div>
-                <div style="font-size:0.7rem;color:#6b778b;">${student.hostel_name || 'Hostel'} · ${student.department || ''}</div>
-              </div>
-            </div>
-            <p style="font-size:0.8rem;font-weight:600;margin-bottom:0.3rem;">Verification Method</p>
-            <div class="verification-methods">
-              <div class="method-btn selected" id="methodFace" onclick="selectMethod('face')">
-                <i class="fas fa-user"></i>
-                <div class="label">Face ID</div>
-              </div>
-              <div class="method-btn" id="methodManual" onclick="selectMethod('manual')">
-                <i class="fas fa-edit"></i>
-                <div class="label">Manual Verification</div>
-              </div>
-            </div>
-            <div style="margin-top:0.5rem;font-size:0.65rem;color:#6b778b;text-align:center;">
-              <i class="fas fa-info-circle"></i> Verification will be attributed to <strong>${raName} (RA)</strong>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="startFaceVerificationFromEntry()"><i class="fas fa-camera"></i> Start Verification</button>
-          </div>
-        `);
-      }
-
-      window.selectMethod = function(method) {
-        document.querySelectorAll('.method-btn').forEach(el => el.classList.remove('selected'));
-        if (method === 'face') document.getElementById('methodFace').classList.add('selected');
-        else document.getElementById('methodManual').classList.add('selected');
-      };
-
-      window.startFaceVerificationFromEntry = function() {
-        const student = modalState.student;
-        if (!student) return;
-        const faceSelected = document.getElementById('methodFace')?.classList.contains('selected');
-        if (faceSelected) openFaceVerificationModal(student);
-        else showManualVerification();
-      };
-
-      window.showManualVerification = function() {
-        const student = modalState.student || currentFaceStudent;
-        if (!student) return;
-        openModal(`
-          <div class="modal-title"><i class="fas fa-edit"></i> Manual Verification</div>
-          <div class="modal-body">
-            <div style="display:flex;gap:1rem;margin-bottom:1rem;align-items:center;background:#fbf7ef;padding:0.75rem;border-radius:0.5rem;">
-              <div style="width:60px;height:60px;border-radius:50%;background:#d6ad4b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.2rem;color:#10233f;flex-shrink:0;">
-                ${getInitials(student.name)}
-              </div>
-              <div>
-                <div style="font-weight:700;font-size:1rem;">${student.name}</div>
-                <div style="font-size:0.7rem;color:#6b778b;">${student.matric || 'N/A'} · ${student.room_code || 'N/A'}</div>
-              </div>
-            </div>
-            <p style="font-size:0.8rem;color:#6b778b;margin-bottom:0.5rem;">
-              <i class="fas fa-info-circle"></i> Manual verification should only be used when face verification is unavailable.
-            </p>
-            <div style="background:#fff9e9;border:1px solid #d8c79e;border-radius:0.5rem;padding:0.5rem;font-size:0.7rem;color:#675121;">
-              <i class="fas fa-exclamation-triangle"></i> This will mark the student as present without face verification.
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-warning" onclick="confirmManualAttendance()"><i class="fas fa-check"></i> Confirm Present</button>
-          </div>
-        `);
-      };
-
-      window.confirmManualAttendance = async function() {
-        const student = modalState.student || currentFaceStudent;
-        if (!student) return;
-
-        // Save to backend — no local-only fallback
-        try {
-          await apiCall('/bedcheck/verify', {
-            method: 'POST',
-            body: JSON.stringify({
-              student_id: student.id,
-              status: 'Present',
-              method: 'Manual',
-              session_id: (sessions[0]?.id) || null
-            })
-          });
-        } catch (err) {
-          showToast('Failed to save: ' + err.message, 'error');
-          return;
-        }
-
-        const s = students.find(x => x.id === student.id);
-        if (s) s.status = 'Present';
-
-        activityLog.unshift({
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          student: student.name,
-          action: 'verified',
-          method: 'Manual',
-          confidence: 'N/A',
-          actor: (selectedRA ? selectedRA.name : 'RA') + ' · RA',
-          type: 'verification'
-        });
-
-        showToast(`${student.name} marked as Present`, 'success');
-        closeModal();
-        renderScreen();
+        openFaceVerificationModal(student);
       };
 
       window.viewStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId || s.id === parseInt(studentId));
+        const student = students.find(s => String(s.id) === String(studentId));
         if (!student) { showToast('Student not found', 'error'); return; }
-        const hostel = selectedHostel || hostels.find(h => h.id === student.hostel_id);
+
+        const hostel = selectedHostel || hostels.find(h => String(h.id) === String(student.hostel_id)) || {};
+        const todayStatus = getTodayStatus(student);
+        const isVerifiedToday = todayStatus === 'Present';
         const raName = selectedRA ? selectedRA.name : 'RA';
-        const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        const isVerified = student.status === 'Present' || student.status === 'Verified';
+
+        const statusColor = {
+          'Present': '#2d6545',
+          'Absent': '#8a3328',
+          'Late': '#a77915',
+          'Not Checked': '#6b778b'
+        }[todayStatus] || '#6b778b';
+        const statusLabel = todayStatus === 'Not Checked' ? '—' : todayStatus;
 
         openModal(`
           <div class="modal-title"><i class="fas fa-user-graduate"></i> Student Profile</div>
@@ -1160,7 +1088,7 @@
               <div style="background:#fbf7ef;padding:0.4rem 0.75rem;border-radius:0.5rem;font-size:0.7rem;">
                 <div style="display:flex;justify-content:space-between;">
                   <span style="color:#6b778b;">Status</span>
-                  <span style="font-weight:600;color:${isVerified ? '#2d6545' : student.status === 'Absent' ? '#8a3328' : '#a77915'};">${student.status || 'Not Checked'}</span>
+                  <span style="font-weight:700;color:${statusColor};">${statusLabel}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;border-top:1px solid #eee8de;padding-top:0.2rem;">
                   <span style="color:#6b778b;">RA Workspace</span>
@@ -1178,22 +1106,19 @@
                     ${student.face_enrolled ? '● Enrolled' : '○ Not enrolled'}
                   </span>
                 </div>
-                <div style="display:flex;justify-content:space-between;border-top:1px solid #eee8de;padding-top:0.2rem;">
-                  <span style="color:#6b778b;">Last Verified</span>
-                  <span>${timeStr}</span>
-                </div>
               </div>
               <div style="display:flex;gap:0.3rem;margin-top:0.5rem;flex-wrap:wrap;">
-                ${!isVerified ? `
-                  <button class="btn btn-sm btn-primary" onclick="closeModal();verifyStudent(${student.id})"><i class="fas fa-user-check"></i> Verify with Face ID</button>
+                ${!isVerifiedToday ? `
+                  <button class="btn btn-sm btn-primary" onclick="closeModal();verifyStudent(${student.id})">
+                    <i class="fas fa-user-check"></i> Verify with Face ID
+                  </button>
                 ` : `
-                  <button class="btn btn-sm btn-success" disabled><i class="fas fa-check-circle"></i> Already Verified</button>
+                  <button class="btn btn-sm btn-success" disabled>
+                    <i class="fas fa-check-circle"></i> Already Verified Today
+                  </button>
                 `}
                 <button class="btn btn-sm btn-outline" onclick="closeModal();${student.face_enrolled ? 'reEnrollStudent' : 'enrollStudent'}(${student.id})">
                   <i class="fas fa-sync-alt"></i> ${student.face_enrolled ? 'Re-enroll Face' : 'Enroll Face'}
-                </button>
-                <button class="btn btn-sm btn-outline" onclick="closeModal();showManualForStudent(${student.id})">
-                  <i class="fas fa-keyboard"></i> Manual Verify
                 </button>
               </div>
             </div>
@@ -1204,21 +1129,14 @@
         `);
       };
 
-      window.showManualForStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId);
-        if (!student) return;
-        modalState.student = student;
-        showManualVerification();
-      };
-
       window.enrollStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId);
+        const student = students.find(s => String(s.id) === String(studentId));
         if (!student) { showToast('Student not found', 'error'); return; }
         openFaceEnrollmentModal(student, false);
       };
 
       window.reEnrollStudent = function(studentId) {
-        const student = students.find(s => s.id === studentId);
+        const student = students.find(s => String(s.id) === String(studentId));
         if (!student) { showToast('Student not found', 'error'); return; }
         openFaceEnrollmentModal(student, true);
       };
@@ -1257,12 +1175,12 @@
       function renderOverview(container) {
         if (hostels.length === 0) { renderEmptyState(container, 'No hostels found in the system.'); return; }
         const totalStudents = students.length;
-        const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-        const absent = students.filter(s => s.status === 'Absent').length;
+        const present = students.filter(s => getTodayStatus(s) === 'Present').length;
+        const absent = students.filter(s => getTodayStatus(s) === 'Absent').length;
         const hostelsWithStudents = hostels.filter(h => getHostelStudents(h.id).length > 0);
         const completedHostels = hostelsWithStudents.filter(h => {
           const s = getHostelStudents(h.id);
-          const p = s.filter(st => st.status === 'Present' || st.status === 'Verified').length;
+          const p = s.filter(st => getTodayStatus(st) === 'Present').length;
           return s.length > 0 && p === s.length;
         });
         const completion = hostelsWithStudents.length > 0 ? Math.round((completedHostels.length / hostelsWithStudents.length) * 100) : 0;
@@ -1322,8 +1240,8 @@
         tbody.innerHTML = filtered.map(h => {
           const hs = getHostelStudents(h.id);
           const total = hs.length;
-          const present = hs.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-          const absent = hs.filter(s => s.status === 'Absent').length;
+          const present = hs.filter(s => getTodayStatus(s) === 'Present').length;
+          const absent = hs.filter(s => getTodayStatus(s) === 'Absent').length;
           const progress = total > 0 ? Math.round((present / total) * 100) : 0;
           let statusClass = 'pending', statusText = 'Pending';
           if (total > 0 && progress === 100) { statusClass = 'completed'; statusText = 'Completed'; }
@@ -1381,8 +1299,8 @@
 
         const hs = getHostelStudents(hostel.id);
         const total = hs.length;
-        const present = hs.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-        const absent = hs.filter(s => s.status === 'Absent').length;
+        const present = hs.filter(s => getTodayStatus(s) === 'Present').length;
+        const absent = hs.filter(s => getTodayStatus(s) === 'Absent').length;
         const progress = total > 0 ? Math.round((present / total) * 100) : 0;
 
         const floors = floorsFlats.filter(f => f.type === 'floor' || f.type === 'Floor');
@@ -1511,13 +1429,14 @@
             ${beds.length > 0 ? `
               <div style="margin-top:0.5rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.3rem;">
                 ${beds.map(b => {
-                  const student = students.find(s => s.id === b.student_id || s.bed_space_id === b.id);
-                  const status = student ? (student.status || 'Present') : 'Available';
+                  const student = students.find(s => String(s.id) === String(b.student_id));
+                  const todayStatus = student ? getTodayStatus(student) : 'Available';
+                  const statusColor = todayStatus === 'Present' ? '#2d6545' : todayStatus === 'Absent' ? '#8a3328' : '#6b778b';
                   return `
                     <div style="background:#fbf7ef;border:1px solid #ded6c9;border-radius:0.5rem;padding:0.3rem 0.5rem;">
                       <div style="font-weight:700;font-size:0.7rem;">${b.bed_code || 'Bed ' + b.id}</div>
                       <div style="font-size:0.6rem;color:#6b778b;">${student ? student.name : 'Available'}</div>
-                      <div style="font-size:0.55rem;font-weight:600;color:${status === 'Present' || status === 'Verified' ? '#2d6545' : status === 'Absent' ? '#8a3328' : '#6b778b'};">${status}</div>
+                      <div style="font-size:0.55rem;font-weight:600;color:${statusColor};">${todayStatus}</div>
                     </div>
                   `;
                 }).join('')}
@@ -1526,17 +1445,20 @@
             ${roomStudents.length > 0 ? `
               <div style="margin-top:0.5rem;border-top:1px solid #eee8de;padding-top:0.5rem;">
                 <p style="font-size:0.6rem;font-weight:600;color:#6b778b;text-transform:uppercase;letter-spacing:0.06em;">Students in this room</p>
-                ${roomStudents.map(s => `
+                ${roomStudents.map(s => {
+                  const todayStatus = getTodayStatus(s);
+                  const isVerified = todayStatus === 'Present';
+                  return `
                   <div class="student-check-row">
                     <span class="sname">${s.name}</span>
                     <span class="sroom">${s.matric || 'N/A'}</span>
-                    <span class="sstatus ${s.status === 'Present' || s.status === 'Verified' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status || 'Unknown'}</span>
+                    <span class="sstatus ${isVerified ? 'present' : todayStatus === 'Absent' ? 'absent' : 'pending'}">${todayStatus}</span>
                     <div style="display:flex;gap:0.3rem;">
                       <button class="btn btn-sm btn-outline" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="viewStudent(${s.id})"><i class="fas fa-eye"></i> View</button>
-                      ${s.status !== 'Present' && s.status !== 'Verified' ? `<button class="btn btn-sm btn-primary" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="verifyStudent(${s.id})"><i class="fas fa-check"></i> Verify</button>` : ''}
+                      ${!isVerified ? `<button class="btn btn-sm btn-primary" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="verifyStudent(${s.id})"><i class="fas fa-check"></i> Verify</button>` : ''}
                     </div>
                   </div>
-                `).join('')}
+                `}).join('')}
               </div>
             ` : ''}
           </div>
@@ -1563,8 +1485,8 @@
 
         const raName = ra.name;
         const raStudents = students.filter(s => s.hostel_id === drillState.hostelId || s.hostel_id === parseInt(drillState.hostelId));
-        const presentCount = raStudents.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-        const absentCount = raStudents.filter(s => s.status === 'Absent').length;
+        const presentCount = raStudents.filter(s => getTodayStatus(s) === 'Present').length;
+        const absentCount = raStudents.filter(s => getTodayStatus(s) === 'Absent').length;
         const total = raStudents.length;
         const completion = total > 0 ? Math.round((presentCount / total) * 100) : 0;
 
@@ -1612,17 +1534,22 @@
               <span>Student</span><span>Room · Bed</span><span>Status</span><span>Action</span>
             </div>
             <div id="raStudentList">
-              ${raStudents.map(s => `
-                <div class="student-check-row ra-student" data-status="${s.status || 'pending'}">
+              ${raStudents.map(s => {
+                const todayStatus = getTodayStatus(s);
+                const isVerified = todayStatus === 'Present';
+                const statusClass = isVerified ? 'present' : todayStatus === 'Absent' ? 'absent' : 'pending';
+                const dataStatus = isVerified ? 'Present' : todayStatus === 'Absent' ? 'Absent' : 'pending';
+                return `
+                <div class="student-check-row ra-student" data-status="${dataStatus}">
                   <span class="sname">${s.name}</span>
                   <span class="sroom">${s.room_code || 'N/A'} · ${s.bed_code || 'N/A'}</span>
-                  <span class="sstatus ${s.status === 'Present' || s.status === 'Verified' ? 'present' : s.status === 'Absent' ? 'absent' : 'pending'}">${s.status || 'Not Checked'}</span>
+                  <span class="sstatus ${statusClass}">${todayStatus}</span>
                   <div style="display:flex;gap:0.3rem;">
                     <button class="btn btn-sm btn-outline" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="viewStudent(${s.id})"><i class="fas fa-eye"></i></button>
-                    ${s.status !== 'Present' && s.status !== 'Verified' ? `<button class="btn btn-sm btn-primary" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="verifyStudent(${s.id})"><i class="fas fa-check"></i></button>` : `<span style="font-size:0.5rem;color:#2d6545;font-weight:600;"><i class="fas fa-check-circle"></i> Verified</span>`}
+                    ${!isVerified ? `<button class="btn btn-sm btn-primary" style="font-size:0.55rem;padding:0.15rem 0.4rem;" onclick="verifyStudent(${s.id})"><i class="fas fa-check"></i></button>` : `<span style="font-size:0.5rem;color:#2d6545;font-weight:600;"><i class="fas fa-check-circle"></i> Verified</span>`}
                   </div>
                 </div>
-              `).join('')}
+              `}).join('')}
             </div>
           </div>
           <div>
@@ -1649,11 +1576,11 @@
         const items = document.querySelectorAll('.ra-student');
         items.forEach(el => {
           if (!filter || filter === 'all') { el.style.display = 'grid'; return; }
-          const status = el.dataset.status || 'pending';
+          const status = (el.dataset.status || 'pending').toLowerCase();
           let show = false;
-          if (filter === 'present' && (status === 'Present' || status === 'Verified')) show = true;
-          else if (filter === 'absent' && status === 'Absent') show = true;
-          else if (filter === 'pending' && status !== 'Present' && status !== 'Verified' && status !== 'Absent') show = true;
+          if (filter === 'present' && status === 'present') show = true;
+          else if (filter === 'absent' && status === 'absent') show = true;
+          else if (filter === 'pending' && status === 'pending') show = true;
           el.style.display = show ? 'grid' : 'none';
         });
       };
@@ -1748,14 +1675,15 @@
 
         await loadAllData();
 
+        // Refresh every 60s — scans update every ~30s on server
         let lastRefresh = 0;
         setInterval(() => {
           if (document.hidden) return;
           const now = Date.now();
-          if (now - lastRefresh < 25000) return;
+          if (now - lastRefresh < 55000) return;
           lastRefresh = now;
           loadAllData().catch(() => {});
-        }, 30000);
+        }, 60000);
       }
 
       if (document.readyState === 'loading') {
@@ -1772,13 +1700,8 @@
       window.closeModal = closeModal;
       window.verifyStudent = verifyStudent;
       window.viewStudent = viewStudent;
-      window.selectMethod = selectMethod;
-      window.startFaceVerificationFromEntry = startFaceVerificationFromEntry;
       window.captureAndVerify = captureAndVerify;
       window.confirmFaceVerification = confirmFaceVerification;
-      window.showManualVerification = showManualVerification;
-      window.confirmManualAttendance = confirmManualAttendance;
-      window.showManualForStudent = showManualForStudent;
       window.enrollStudent = enrollStudent;
       window.reEnrollStudent = reEnrollStudent;
       window.startFaceEnrollment = startFaceEnrollment;
