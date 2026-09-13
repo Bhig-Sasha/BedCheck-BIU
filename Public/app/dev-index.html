@@ -651,6 +651,25 @@
       color: #c7d3e4;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
+
+    /* ============================================================
+       SKELETON LOADER
+       ============================================================ */
+    .skeleton {
+      background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.4s ease-in-out infinite;
+      border-radius: 0.4rem;
+    }
+    @keyframes skeleton-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -778,7 +797,7 @@
       let currentSession = null;
       let sessionStatus = 'draft';
       let bedSpaces = [];
-      let bedSpacesTotal = 0; // real total from API (not just loaded rows)
+      let bedSpacesTotal = 0;
       let isLoading = false;
 
       // ============================================================
@@ -872,24 +891,23 @@
       }
 
       // ============================================================
-      // LOAD ALL BED SPACES (paginate — no 1000-row cap)
+      // LOAD ALL BED SPACES (paginate — no cap, no console noise)
       // ============================================================
       async function loadBedSpaces() {
         try {
-          const PAGE_SIZE = 500;      // server-friendly batch size
+          const PAGE_SIZE = 500;
           let all = [];
           let offset = 0;
           let hasMore = true;
           let total = null;
           let safetyCounter = 0;
-          const MAX_PAGES = 100;      // hard safety cap (100 * 500 = 50,000 rows)
+          const MAX_PAGES = 100; // hard safety cap (50,000 rows max)
 
           while (hasMore && safetyCounter < MAX_PAGES) {
             safetyCounter++;
 
             const res = await apiCall(`/bed-spaces?limit=${PAGE_SIZE}&offset=${offset}`);
 
-            // Try to read the real total from common response shapes
             if (total === null) {
               total =
                 res.total ??
@@ -906,24 +924,17 @@
               all = all.concat(batch);
               offset += PAGE_SIZE;
 
-              // Stop early if we already have everything
-              if (total !== null && all.length >= total) {
-                hasMore = false;
-              }
-              // If the server returned fewer rows than we asked for, we're done
-              if (batch.length < PAGE_SIZE) {
-                hasMore = false;
-              }
+              if (total !== null && all.length >= total) hasMore = false;
+              if (batch.length < PAGE_SIZE) hasMore = false;
             }
           }
 
           bedSpaces = all;
           bedSpacesTotal = total ?? all.length;
 
-          console.log(`[bed-spaces] Loaded ${all.length} rows (API total: ${total ?? 'unknown'})`);
+          // ❌ No console log — removed for clean devtools
           return bedSpaces;
         } catch (e) {
-          console.warn('Failed to load bed spaces:', e);
           bedSpaces = [];
           bedSpacesTotal = 0;
           return bedSpaces;
@@ -1051,6 +1062,72 @@
       }
 
       // ============================================================
+      // SKELETON — Instant first paint
+      // ============================================================
+      function showDashboardSkeleton() {
+        const container = document.getElementById('screenContent');
+        if (!container) return;
+
+        container.innerHTML = `
+          <!-- Welcome skeleton -->
+          <div class="flex-between mb-1">
+            <div>
+              <div class="skeleton" style="height:0.7rem;width:6rem;margin-bottom:0.4rem;"></div>
+              <div class="skeleton" style="height:1.5rem;width:14rem;"></div>
+            </div>
+            <div class="skeleton" style="height:1.2rem;width:6rem;border-radius:9999px;"></div>
+          </div>
+
+          <!-- System Health skeleton -->
+          <div class="card">
+            <div class="flex-between">
+              <div class="skeleton" style="height:1rem;width:10rem;"></div>
+              <div class="skeleton" style="height:0.8rem;width:8rem;"></div>
+            </div>
+            <div class="health-grid mt-2">
+              ${Array(4).fill(0).map(() => `
+                <div class="skeleton" style="height:1.2rem;width:100%;"></div>
+              `).join('')}
+            </div>
+            <div class="skeleton mt-2" style="height:0.8rem;width:12rem;"></div>
+          </div>
+
+          <!-- Metric cards skeleton -->
+          <div class="metric-grid mt-4">
+            ${Array(4).fill(0).map(() => `
+              <div class="metric-card">
+                <div class="skeleton" style="height:1.4rem;width:1.8rem;border-radius:0.5rem;"></div>
+                <div class="skeleton" style="height:1.3rem;width:4rem;margin-top:0.4rem;"></div>
+                <div class="skeleton" style="height:0.6rem;width:5rem;margin-top:0.3rem;"></div>
+              </div>
+            `).join('')}
+          </div>
+
+          <!-- Live BedCheck skeleton -->
+          <div class="card mt-4">
+            <div class="skeleton" style="height:1rem;width:8rem;margin-bottom:0.6rem;"></div>
+            <div class="skeleton" style="height:3.5rem;width:100%;border-radius:0.5rem;"></div>
+            <div class="skeleton mt-2" style="height:0.7rem;width:100%;"></div>
+            <div class="skeleton mt-1" style="height:0.4rem;width:100%;"></div>
+            <div class="skeleton mt-2" style="height:0.8rem;width:10rem;"></div>
+          </div>
+
+          <!-- Hostel Ops skeleton -->
+          <div class="card mt-4">
+            <div class="flex-between">
+              <div class="skeleton" style="height:1rem;width:10rem;"></div>
+              <div class="skeleton" style="height:0.8rem;width:4rem;"></div>
+            </div>
+            <div class="mt-2">
+              ${Array(6).fill(0).map(() => `
+                <div class="skeleton" style="height:1.4rem;width:100%;margin-bottom:0.3rem;"></div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      // ============================================================
       // RENDER DASHBOARD
       // ============================================================
       async function renderDashboard() {
@@ -1064,7 +1141,6 @@
         const attendanceRate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
         const totalStaff = staffMembers.length || 0;
 
-        // ✅ Real bedspace totals (from API, not capped at 1000)
         const totalBeds = bedSpacesTotal || bedSpaces.length || 0;
         const occupiedBeds = bedSpaces.filter(b =>
           b.status === 'occupied' || b.student_id
@@ -1093,12 +1169,11 @@
         const activeHostels = hostelProgress.filter(h => h.status === 'active').length;
         const partialHostels = hostelProgress.filter(h => h.status === 'partial').length;
 
-        // System health
         let healthData = null;
         try {
           healthData = await checkHealth();
         } catch (e) {
-          console.warn('Health check failed:', e);
+          // silent
         }
 
         const services = healthData?.services || {};
@@ -1120,7 +1195,7 @@
 
         container.innerHTML = `
           <!-- WELCOME -->
-          <div class="flex-between mb-1">
+          <div class="flex-between mb-1 fade-in">
             <div>
               <p class="text-sm text-muted">Good morning, ${currentUser?.name || 'Sasha'}</p>
               <h1 style="font-family:'Merriweather',serif;font-size:1.5rem;font-weight:700;">Developer Dashboard</h1>
@@ -1129,7 +1204,7 @@
           </div>
 
           <!-- SYSTEM HEALTH -->
-          <div class="card">
+          <div class="card fade-in">
             <div class="flex-between">
               <div class="card-title">
                 <i class="fas fa-heartbeat"></i> System Health 
@@ -1159,7 +1234,7 @@
           </div>
 
           <!-- METRIC CARDS -->
-          <div class="metric-grid mt-4">
+          <div class="metric-grid mt-4 fade-in">
             <div class="metric-card">
               <div class="metric-icon navy"><i class="fas fa-user-graduate"></i></div>
               <div class="metric-value">${totalStudents.toLocaleString()}</div>
@@ -1187,7 +1262,7 @@
           </div>
 
           <!-- LIVE BEDCHECK -->
-          <div class="card mt-4">
+          <div class="card mt-4 fade-in">
             <div class="card-title"><i class="fas fa-clipboard-check"></i> Live BedCheck</div>
             <div class="live-banner mt-1" style="background:linear-gradient(135deg,#10233f 0%,#1a3a5c 100%);border-radius:0.5rem;padding:0.6rem 0.8rem;">
               <div class="banner-left">
@@ -1244,7 +1319,7 @@
           </div>
 
           <!-- HOSTEL OPERATIONS -->
-          <div class="card mt-4">
+          <div class="card mt-4 fade-in">
             <div class="flex-between">
               <div class="card-title"><i class="fas fa-building"></i> Hostel Operations</div>
               <a href="./dev-hostels.html" class="text-xs text-muted" style="text-decoration:none;">View all →</a>
@@ -1271,8 +1346,10 @@
       }
 
       // ============================================================
-      // INIT
+      // INIT — progressive loading
       // ============================================================
+      let hasRenderedOnce = false;
+
       async function init() {
         if (!checkAuth()) return;
         setDate();
@@ -1282,15 +1359,30 @@
         document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
         document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
+        // 1. Instant skeleton — first paint < 100 ms
+        showDashboardSkeleton();
+
         try {
-          await Promise.all([
+          // 2. Critical path — students + hostels + sessions (needed for KPI cards & banner)
+          await Promise.allSettled([
             loadStudents(),
             loadHostels(),
-            loadStaff(),
-            loadSessions(),
-            loadBedSpaces()
+            loadSessions()
           ]);
+
+          // 3. First real paint
           await renderDashboard();
+          hasRenderedOnce = true;
+
+          // 4. Secondary data in background (staff + bedspaces)
+          //    Soft re-render when they land so counts update silently
+          Promise.allSettled([
+            loadStaff(),
+            loadBedSpaces()
+          ]).then(() => {
+            if (hasRenderedOnce) renderDashboard();
+          });
+
         } catch (e) {
           showToast('Error loading data: ' + e.message, 'error');
           renderDashboard();
