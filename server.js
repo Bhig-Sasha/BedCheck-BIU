@@ -2133,12 +2133,23 @@ const validators = {
         body('start_time').optional().isString().withMessage('Start time must be a string'),
         body('end_time').optional().isString().withMessage('End time must be a string'),
         body('status').optional().isIn(['scheduled', 'active', 'completed', 'archived']).withMessage('Invalid status'),
-        body('total_hostels').optional().isInt({ min: 1 }).withMessage('Total hostels must be at least 1'),
+        body('total_hostels').optional().isInt({ min: 0 }).withMessage('Total hostels must be 0 or greater'),
         body('hostels_completed').optional().isInt({ min: 0 }).withMessage('Hostels completed must be 0 or greater'),
         body('completion').optional().isInt({ min: 0, max: 100 }).withMessage('Completion must be between 0 and 100'),
         body('academic_session').optional().isString().withMessage('Academic session must be a string'),
         body('grace_period').optional().isInt({ min: 0, max: 60 }).withMessage('Grace period must be between 0 and 60'),
-        body('campus').optional().isIn(SUPPORTED_CAMPUSES).withMessage('Invalid campus')
+        
+        // ⭐ Allow null / empty / "General" for university-wide sessions
+        body('campus').optional({ nullable: true, checkFalsy: true })
+            .custom((value) => {
+                if (value === null || value === undefined || value === '' || value === 'General') {
+                    return true; // university-wide
+                }
+                if (['Legacy', 'Heritage'].includes(value)) {
+                    return true;
+                }
+                throw new Error('Invalid campus');
+            })
     ],
     submissionState: [
         body('state').isIn(['Open', 'Closed']).withMessage('Invalid state'),
