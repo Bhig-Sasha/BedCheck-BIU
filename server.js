@@ -686,10 +686,21 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
 
 async function createUniversityWideBedcheckSessions(sessionId) {
     try {
-        const { data: hostels, error: hostelsError } = await supabase
-            .from('hostels')
-            .select('id, campus')
-            .ilike('status', 'active');
+        // 1. Fetch hostels and RAs in parallel
+        const [hostelsRes, rasRes] = await Promise.all([
+            supabase
+                .from('hostels')
+                .select('id, campus')
+                .ilike('status', 'active'),
+            supabase
+                .from('staff')
+                .select('id, hostel_id')
+                .eq('role', 'RA')
+                .ilike('status', 'active')
+        ]);
+
+        const { data: hostels, error: hostelsError } = hostelsRes;
+        const { data: ras, error: rasError } = rasRes;
 
         if (hostelsError) {
             console.error('Error fetching hostels:', hostelsError);
@@ -701,12 +712,6 @@ async function createUniversityWideBedcheckSessions(sessionId) {
             return;
         }
 
-        const { data: ras, error: rasError } = await supabase
-            .from('staff')
-            .select('id, hostel_id, campus')
-            .eq('role', 'RA')
-            .ilike('status', 'active');
-
         if (rasError) {
             console.error('Error fetching RAs:', rasError);
         }
@@ -717,63 +722,52 @@ async function createUniversityWideBedcheckSessions(sessionId) {
                 .map(ra => [ra.hostel_id, ra.id])
         );
 
-        const now = new Date().toISOString();
-        
-        const hostelPromises = hostels.map(async (hostel) => {
-            const { data: existing } = await supabase
-                .from('bedcheck_sessions')
-                .select('id')
-                .eq('global_session_id', sessionId)
-                .eq('hostel_id', hostel.id)
-                .eq('campus', hostel.campus)
-                .maybeSingle();
+        // 2. Fetch all active students in one query, aggregate counts in memory
+        const { data: students, error: studentsError } = await supabase
+            .from('students')
+            .select('hostel_id, campus')
+            .ilike('status', 'active');
 
-            if (existing) {
-                console.log(`📋 Bedcheck session already exists for hostel ${hostel.id}`);
-                return null;
-            }
+        if (studentsError) {
+            console.error('Error fetching students for counts:', studentsError);
+        }
 
-            const { count: studentCount, error: countError } = await supabase
-                .from('students')
-                .select('*', { count: 'exact', head: true })
-                .eq('hostel_id', hostel.id)
-                .eq('campus', hostel.campus)
-                .ilike('status', 'active');
-
-            if (countError) {
-                console.error(`Error counting students for hostel ${hostel.id}:`, countError);
-                return null;
-            }
-
-            return {
-                global_session_id: sessionId,
-                hostel_id: hostel.id,
-                ra_id: raMap[hostel.id] || null,
-                campus: hostel.campus,
-                campus_code: hostel.campus === 'Legacy' ? 'LEG' : 'HER',
-                status: 'pending',
-                total_students: studentCount || 0,
-                present_students: 0,
-                completion: 0,
-                created_by: 'system',
-                created_at: now,
-                updated_at: now
-            };
+        const studentCounts = {};
+        (students || []).forEach(s => {
+            if (!s.hostel_id) return;
+            const key = `${s.hostel_id}::${s.campus}`;
+            studentCounts[key] = (studentCounts[key] || 0) + 1;
         });
 
-        const bedcheckInserts = (await Promise.all(hostelPromises))
-            .filter(insert => insert !== null);
+        // 3. Build all rows in memory — no per-hostel SELECT needed
+        const now = new Date().toISOString();
+        const bedcheckInserts = hostels.map(hostel => ({
+            global_session_id: sessionId,
+            hostel_id: hostel.id,
+            ra_id: raMap[hostel.id] || null,
+            campus: hostel.campus,
+            campus_code: hostel.campus === 'Legacy' ? 'LEG' : 'HER',
+            status: 'pending',
+            total_students: studentCounts[`${hostel.id}::${hostel.campus}`] || 0,
+            present_students: 0,
+            completion: 0,
+            created_by: 'system',
+            created_at: now,
+            updated_at: now
+        }));
 
         if (bedcheckInserts.length === 0) {
             console.log('No new bedcheck sessions to create');
             return;
         }
 
+        // 4. Bulk upsert — relies on UNIQUE (global_session_id, hostel_id)
+        //    ignoreDuplicates: true → existing rows are left untouched
         const { error: insertError } = await supabase
             .from('bedcheck_sessions')
-            .upsert(bedcheckInserts, { 
+            .upsert(bedcheckInserts, {
                 onConflict: 'global_session_id,hostel_id',
-                ignoreDuplicates: false
+                ignoreDuplicates: true
             });
 
         if (insertError) {
@@ -781,12 +775,17 @@ async function createUniversityWideBedcheckSessions(sessionId) {
             throw insertError;
         }
 
-        console.log(`✅ Created ${bedcheckInserts.length} bedcheck sessions for session ${sessionId}`);
+        console.log(`✅ Upserted ${bedcheckInserts.length} bedcheck sessions for session ${sessionId}`);
 
-        await supabase
+        // 5. Update parent session's hostel count
+        const { error: updateError } = await supabase
             .from('sessions')
             .update({ total_hostels: hostels.length })
             .eq('id', sessionId);
+
+        if (updateError) {
+            console.error('Error updating session total_hostels:', updateError);
+        }
 
     } catch (error) {
         console.error('Error in createUniversityWideBedcheckSessions:', error);
