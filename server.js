@@ -12937,10 +12937,13 @@ app.post('/api/bedcheck/sessions',
             
             const { data, error } = await supabase
                 .from('bedcheck_sessions')
-                .insert(newSession)
+                .upsert(newSession, {
+                    onConflict: 'global_session_id,hostel_id',
+                    ignoreDuplicates: false
+                })
                 .select()
                 .single();
-            
+
             if (error) throw error;
             
             const { data: hostelData } = await supabase
