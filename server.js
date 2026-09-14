@@ -15300,6 +15300,10 @@ app.get('/api/reports/stats',
 // SCHEDULED TASKS
 // =====================================================
 
+// =====================================================
+// SCHEDULED TASKS
+// =====================================================
+
 setInterval(async () => {
     try {
         // ---------- Nigeria time (WAT) ----------
@@ -15307,7 +15311,6 @@ setInterval(async () => {
         const watFormatter = new Intl.DateTimeFormat('en-GB', {
             timeZone: 'Africa/Lagos',
             year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
             hour12: false
         });
 
@@ -15316,72 +15319,10 @@ setInterval(async () => {
         );
 
         const today = `${parts.year}-${parts.month}-${parts.day}`;
-        const currentTime = `${parts.hour}:${parts.minute}:${parts.second}`;
 
-        // Convert "HH:MM:SS" or "HH:MM" → total seconds
-        const timeToSeconds = (timeStr) => {
-            if (!timeStr) return 0;
-            const [h = 0, m = 0, s = 0] = timeStr.split(':').map(Number);
-            return h * 3600 + m * 60 + s;
-        };
-
-        const currentSeconds = timeToSeconds(currentTime);
-
-        // ---------- 1. AUTO-COMPLETE expired active sessions ----------
-        const { data: activeSessions } = await supabase
-            .from('sessions')
-            .select('*')
-            .eq('status', 'active');
-
-        if (activeSessions?.length) {
-            for (const session of activeSessions) {
-                const graceMinutes = session.grace_period ?? 15;
-                const endSeconds = timeToSeconds(session.end_time) + (graceMinutes * 60);
-
-                // A session ends when the current WAT time has crossed
-                // end_time + grace, or when the calendar day has rolled over.
-                const shouldEnd =
-                    session.date < today ||
-                    (session.date === today && currentSeconds >= endSeconds);
-
-                if (!shouldEnd) continue;
-
-                // Mark unverified students absent before flipping the session
-                await markUnverifiedAsAbsentUniversityWide(session.id);
-
-                const { error } = await supabase
-                    .from('sessions')
-                    .update({
-                        status: 'completed',
-                        completed_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', session.id)
-                    .eq('status', 'active');
-
-                if (error) continue;
-
-                console.log(`✅ Session ${session.id} (${session.name}) AUTO-COMPLETED (grace: ${graceMinutes}min)`);
-
-                // Notify HRAs that the night is officially over
-                await supabase.from('notifications').insert({
-                    title: '✅ BedCheck Session Completed',
-                    detail: `${session.name} has ended`,
-                    body: `The BedCheck session for ${session.date} is now completed. Unverified students marked absent.`,
-                    type: 'system',
-                    priority: 'medium',
-                    campus: null,
-                    recipient_role: 'HRA',
-                    actor: 'System',
-                    action: 'Session Auto-Completed',
-                    tone: 'blue',
-                    read: false,
-                    created_at: new Date().toISOString()
-                }).catch(() => {});
-            }
-        }
-
-        // ---------- 2. TOP UP the scheduled queue ----------
+        // ---------- TOP UP the scheduled queue ----------
+        // Maintain a rolling window of 5 future scheduled sessions so the
+        // admin dashboard always has something to start.
         const { data: futureSessions, error: futureError } = await supabase
             .from('sessions')
             .select('id, date')
