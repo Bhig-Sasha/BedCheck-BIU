@@ -15279,16 +15279,28 @@ setInterval(async () => {
     try {
         // ---------- Nigeria time (WAT) ----------
         const now = new Date();
-        const watParts = new Intl.DateTimeFormat('en-GB', {
+        const watFormatter = new Intl.DateTimeFormat('en-GB', {
             timeZone: 'Africa/Lagos',
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit',
             hour12: false
-        }).formatToParts(now);
+        });
 
-        const get = (type) => watParts.find(p => p.type === type)?.value;
-        const today = `${get('year')}-${get('month')}-${get('day')}`;
-        const currentTime = `${get('hour')}:${get('minute')}:${get('second')}`;
+        const parts = Object.fromEntries(
+            watFormatter.formatToParts(now).map(p => [p.type, p.value])
+        );
+
+        const today = `${parts.year}-${parts.month}-${parts.day}`;
+        const currentTime = `${parts.hour}:${parts.minute}:${parts.second}`;
+
+        // Helper: convert "HH:MM:SS" or "HH:MM" → total seconds
+        const timeToSeconds = (timeStr) => {
+            if (!timeStr) return 0;
+            const [h = 0, m = 0, s = 0] = timeStr.split(':').map(Number);
+            return h * 3600 + m * 60 + s;
+        };
+
+        const currentSeconds = timeToSeconds(currentTime);
 
         // ---------- 1. ACTIVATE scheduled sessions ----------
         const { data: scheduledSessions } = await supabase
@@ -15301,7 +15313,7 @@ setInterval(async () => {
             for (const session of scheduledSessions) {
                 const shouldStart =
                     session.date < today ||
-                    (session.date === today && session.start_time <= currentTime);
+                    (session.date === today && timeToSeconds(session.start_time) <= currentSeconds);
 
                 if (shouldStart) {
                     const { error } = await supabase
@@ -15312,7 +15324,7 @@ setInterval(async () => {
                             updated_at: new Date().toISOString()
                         })
                         .eq('id', session.id)
-                        .eq('status', 'scheduled'); // only if still scheduled
+                        .eq('status', 'scheduled');
 
                     if (!error) {
                         console.log(`✅ Session ${session.id} (${session.name}) AUTO-STARTED`);
@@ -15337,18 +15349,23 @@ setInterval(async () => {
             }
         }
 
-        // ---------- 2. COMPLETE active sessions ----------
+        // ---------- 2. COMPLETE active sessions (with grace period) ----------
         const { data: activeSessions } = await supabase
             .from('sessions')
             .select('*')
-            .eq('status', 'active')
-            .lte('date', today);
+            .eq('status', 'active');
 
         if (activeSessions?.length) {
             for (const session of activeSessions) {
+                const graceMinutes = session.grace_period ?? 15;
+                const endSeconds = timeToSeconds(session.end_time) + (graceMinutes * 60);
+
+                // Session should end if:
+                // - It's from a previous day, OR
+                // - Today and current time has passed end_time + grace
                 const shouldEnd =
                     session.date < today ||
-                    (session.date === today && session.end_time <= currentTime);
+                    (session.date === today && currentSeconds >= endSeconds);
 
                 if (shouldEnd) {
                     await markUnverifiedAsAbsentUniversityWide(session.id);
@@ -15364,7 +15381,7 @@ setInterval(async () => {
                         .eq('status', 'active');
 
                     if (!error) {
-                        console.log(`✅ Session ${session.id} (${session.name}) AUTO-COMPLETED`);
+                        console.log(`✅ Session ${session.id} (${session.name}) AUTO-COMPLETED (grace: ${graceMinutes}min)`);
 
                         await supabase.from('notifications').insert({
                             title: '✅ BedCheck Session Completed',
@@ -15385,7 +15402,7 @@ setInterval(async () => {
             }
         }
 
-        // ---------- 3. 5 SESSIONS READY ----------
+        // ---------- 3. Keep 5 future sessions ready ----------
         const { data: futureSessions, error: futureError } = await supabase
             .from('sessions')
             .select('id, date')
@@ -15398,24 +15415,23 @@ setInterval(async () => {
             const needed = 5 - (futureSessions?.length || 0);
 
             if (needed > 0) {
-                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 let created = 0;
                 let dayOffset = 0;
 
-                while (created < needed && dayOffset < 14) { // look up to 2 weeks ahead
+                while (created < needed && dayOffset < 14) {
                     const next = new Date(now);
                     next.setUTCDate(next.getUTCDate() + dayOffset);
-                    const nextParts = new Intl.DateTimeFormat('en-GB', {
-                        timeZone: 'Africa/Lagos',
-                        year: 'numeric', month: '2-digit', day: '2-digit',
-                        weekday: 'long'
-                    }).formatToParts(next);
 
-                    const y = nextParts.find(p => p.type === 'year')?.value;
-                    const m = nextParts.find(p => p.type === 'month')?.value;
-                    const d = nextParts.find(p => p.type === 'day')?.value;
-                    const dateStr = `${y}-${m}-${d}`;
-                    const dayName = nextParts.find(p => p.type === 'weekday')?.value || 'Night';
+                    const nextParts = Object.fromEntries(
+                        new Intl.DateTimeFormat('en-GB', {
+                            timeZone: 'Africa/Lagos',
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            weekday: 'long'
+                        }).formatToParts(next).map(p => [p.type, p.value])
+                    );
+
+                    const dateStr = `${nextParts.year}-${nextParts.month}-${nextParts.day}`;
+                    const dayName = nextParts.weekday || 'Night';
 
                     if (!existingDates.has(dateStr) && dateStr >= today) {
                         const { error: insertError } = await supabase
