@@ -689,7 +689,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
         const { data: hostels, error: hostelsError } = await supabase
             .from('hostels')
             .select('id, campus')
-            .eq('status', 'Active');
+            .ilike('status', 'active');
 
         if (hostelsError) {
             console.error('Error fetching hostels:', hostelsError);
@@ -705,7 +705,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
             .from('staff')
             .select('id, hostel_id, campus')
             .eq('role', 'RA')
-            .eq('status', 'Active');
+            .ilike('status', 'active');
 
         if (rasError) {
             console.error('Error fetching RAs:', rasError);
@@ -738,7 +738,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
                 .select('*', { count: 'exact', head: true })
                 .eq('hostel_id', hostel.id)
                 .eq('campus', hostel.campus)
-                .eq('status', 'Active');
+                .ilike('status', 'active');
 
             if (countError) {
                 console.error(`Error counting students for hostel ${hostel.id}:`, countError);
@@ -803,7 +803,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
         const { data: allStudents, error: studentsError } = await supabase
             .from('students')
             .select('id, name, matric, hostel_id, room_code, campus')
-            .eq('status', 'Active');
+            .ilike('status', 'active');
 
         if (studentsError || !allStudents) {
             console.error('Error fetching students:', studentsError);
@@ -814,7 +814,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             .from('bedcheck_attendance')
             .select('student_id, campus')
             .eq('global_session_id', sessionId)
-            .eq('status', 'present');
+            .ilike('status', 'present');
 
         if (verifiedError) {
             console.error('Error fetching verified students:', verifiedError);
