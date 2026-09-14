@@ -496,1509 +496,1409 @@
     </div>
 
 <script>
-        (function() {
-            'use strict';
+    (function() {
+        'use strict';
 
-            // =============================================
-            // CONFIGURATION
-            // =============================================
-            const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-            const ITEMS_PER_PAGE = 10;
+        // =============================================
+        // CONFIGURATION
+        // =============================================
+        const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
+        const ITEMS_PER_PAGE = 10;
 
-            // =============================================
-            // TOAST
-            // =============================================
-            function showToast(message, type = 'success') {
-                const toast = document.getElementById('toast');
-                toast.textContent = message;
-                toast.className = `toast ${type}`;
-                setTimeout(() => toast.classList.add('show'), 10);
-                setTimeout(() => toast.classList.remove('show'), 4000);
+        // =============================================
+        // TOAST
+        // =============================================
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+
+        // =============================================
+        // STATE
+        // =============================================
+        let currentUser = null;
+        let allStudents = [];
+        let filteredStudents = [];
+        let assignedRooms = [];
+        let hostels = [];
+        let staffMembers = [];
+        let floorsFlats = [];
+        let currentPage = 1;
+        let assignedHostelId = null;
+        let assignedHostelName = '';
+        let assignedFloor = '';
+        let assignedFloorName = '';
+        let assignedArea = '';
+        let assignedFloorId = null;
+        let currentSession = null;
+        let sessionStatus = 'closed';
+        let isSessionActive = false;
+        let isRASessionActive = false;
+        let globalSessionActive = false;
+        let hasCompletedToday = false;
+        let effectiveStatus = 'closed';
+        let hasLoadedRooms = false;
+        let bedScanStatus = {};
+        let timeline = [];
+        let globalSessionData = null;
+        let lastLoggedSessionId = null;
+        let isLoadingComplete = false;
+        // ⭐ REMOVED: let sessionCheckerInterval = null;
+
+        // =============================================
+        // API HELPER
+        // =============================================
+        async function apiCall(endpoint, options = {}) {
+            const token = sessionStorage.getItem('bedcheck_token');
+
+            if (!token) {
+                showToast('No authentication token found. Please login again.', 'error');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 1500);
+                throw new Error('No authentication token');
             }
 
-            // =============================================
-            // STATE
-            // =============================================
-            let currentUser = null;
-            let allStudents = [];
-            let filteredStudents = [];
-            let assignedRooms = [];
-            let hostels = [];
-            let staffMembers = [];
-            let floorsFlats = [];
-            let currentPage = 1;
-            let assignedHostelId = null;
-            let assignedHostelName = '';
-            let assignedFloor = '';
-            let assignedFloorName = '';
-            let assignedArea = '';
-            let assignedFloorId = null;
-            let currentSession = null;
-            let sessionStatus = 'closed';
-            let isSessionActive = false;
-            let isRASessionActive = false;
-            let globalSessionActive = false;
-            let hasCompletedToday = false;
-            let effectiveStatus = 'closed';
-            let hasLoadedRooms = false;
-            let bedScanStatus = {};
-            let timeline = [];
-            let globalSessionData = null;
-            let sessionCheckerInterval = null;
-            let lastLoggedSessionId = null;
-            let isLoadingComplete = false;
-
-            // =============================================
-            // API HELPER
-            // =============================================
-            async function apiCall(endpoint, options = {}) {
-                const token = sessionStorage.getItem('bedcheck_token');
-                
-                if (!token) {
-                    showToast('No authentication token found. Please login again.', 'error');
-                    setTimeout(() => {
-                        window.location.replace('../Login.html');
-                    }, 1500);
-                    throw new Error('No authentication token');
-                }
-
-                try {
-                    const headers = {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                        ...(options.headers || {})
-                    };
-
-                    const response = await fetch(`${API_BASE_URL}${endpoint}`, { 
-                        ...options, 
-                        headers,
-                        credentials: 'include'
-                    });
-                    
-                    if (response.status === 401) {
-                        showToast('Session expired. Please login again.', 'error');
-                        sessionStorage.removeItem('bedcheck_token');
-                        sessionStorage.removeItem('bedcheck_user');
-                        sessionStorage.removeItem('bedcheck_role');
-                        setTimeout(() => {
-                            window.location.replace('../Login.html');
-                        }, 1500);
-                        throw new Error('Authentication required');
-                    }
-                    
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${errorText}`);
-                    }
-                    const data = await response.json();
-                    if (!data.success) throw new Error(data.message || 'API error');
-                    return data;
-                } catch (error) {
-                    if (!error.message.includes('Authentication required') && !error.message.includes('No authentication token')) {
-                        showToast('Error: ' + error.message, 'error');
-                    }
-                    throw error;
-                }
-            }
-
-            // =============================================
-            // HELPERS
-            // =============================================
-            function getInitials(name) {
-                if (!name) return 'U';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
-
-            function formatTime(date) {
-                if (!date) return 'Just now';
-                const d = new Date(date);
-                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-            }
-
-            function formatDate(dateStr) {
-                if (!dateStr) return '—';
-                
-                try {
-                    if (typeof dateStr === 'string' && dateStr.includes(' ')) {
-                        const parts = dateStr.split(' ');
-                        if (parts.length === 2) {
-                            const datePart = parts[0];
-                            const dateObj = new Date(datePart);
-                            if (!isNaN(dateObj.getTime())) {
-                                return dateObj.toLocaleDateString('en-US', { 
-                                    month: 'short', 
-                                    day: 'numeric', 
-                                    year: 'numeric' 
-                                });
-                            }
-                        }
-                    }
-                    
-                    if (typeof dateStr === 'string' && dateStr.includes('-') && !dateStr.includes(':')) {
-                        const dateObj = new Date(dateStr);
-                        if (!isNaN(dateObj.getTime())) {
-                            return dateObj.toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric', 
-                                year: 'numeric' 
-                            });
-                        }
-                    }
-                    
-                    const dateObj = new Date(dateStr);
-                    if (!isNaN(dateObj.getTime())) {
-                        return dateObj.toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                        });
-                    }
-                    
-                    return dateStr;
-                } catch (e) {
-                    return dateStr || '—';
-                }
-            }
-
-            function formatTimeStr(timeStr) {
-                if (!timeStr) return '—';
-                
-                try {
-                    if (typeof timeStr === 'string' && timeStr.includes(':')) {
-                        let timePart = timeStr;
-                        if (timeStr.includes(' ')) {
-                            timePart = timeStr.split(' ')[1];
-                        }
-                        if (timeStr.includes('T')) {
-                            timePart = timeStr.split('T')[1];
-                        }
-                        
-                        timePart = timePart.replace(/\.\d+/, '');
-                        timePart = timePart.replace(/[+-]\d{2}:\d{2}$/, '');
-                        timePart = timePart.replace(/Z$/, '');
-                        
-                        const parts = timePart.split(':');
-                        if (parts.length >= 2) {
-                            const hour = parseInt(parts[0]);
-                            const minute = parseInt(parts[1]);
-                            if (!isNaN(hour) && !isNaN(minute)) {
-                                const ampm = hour >= 12 ? 'PM' : 'AM';
-                                const hour12 = hour % 12 || 12;
-                                return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
-                            }
-                        }
-                    }
-                    
-                    const dateObj = new Date(timeStr);
-                    if (!isNaN(dateObj.getTime())) {
-                        return dateObj.toLocaleTimeString('en-US', { 
-                            hour: '2-digit', 
-                            minute: '2-digit', 
-                            hour12: true 
-                        });
-                    }
-                    
-                    return timeStr;
-                } catch (e) {
-                    return timeStr || '—';
-                }
-            }
-
-            function formatSessionDate(dateStr) {
-                if (!dateStr) return '—';
-                
-                try {
-                    const dateObj = new Date(dateStr);
-                    if (!isNaN(dateObj.getTime())) {
-                        return dateObj.toLocaleDateString('en-US', {
-                            weekday: 'short',
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                        });
-                    }
-                    return dateStr;
-                } catch (e) {
-                    return dateStr || '—';
-                }
-            }
-
-            function formatSessionTime(timeStr) {
-                if (!timeStr) return '—';
-                
-                try {
-                    const dateObj = new Date(timeStr);
-                    if (!isNaN(dateObj.getTime())) {
-                        return dateObj.toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true
-                        });
-                    }
-                    return timeStr;
-                } catch (e) {
-                    return timeStr || '—';
-                }
-            }
-
-            function attBadge(status) {
-                if (!status || status === 'Pending' || status === '' || status === 'Present') {
-                    return `<span class="badge badge-pending">Pending</span>`;
-                }
-                const map = {
-                    'Verified': 'badge-verified',
-                    'Present': 'badge-present',
-                    'Absent': 'badge-absent'
-                };
-                return `<span class="badge ${map[status] || 'badge-pending'}">${status || 'Pending'}</span>`;
-            }
-
-            function addTimeline(event, details = '') {
-                timeline.unshift({ time: new Date().toISOString(), event: event, details: details });
-                if (timeline.length > 50) timeline.pop();
-            }
-
-            // =============================================
-            // NORMALIZE STRING FOR COMPARISON
-            // =============================================
-            function normalize(str) {
-                if (!str) return '';
-                return String(str).toLowerCase().trim().replace(/\s+/g, ' ');
-            }
-
-            // =============================================
-            // SAFE ID COMPARISON (string vs number)
-            // =============================================
-            function sameId(a, b) {
-                if (a == null || b == null) return false;
-                return String(a) === String(b);
-            }
-
-            // =============================================
-            // EXTRACT ROOMS FROM VARIOUS RESPONSE SHAPES
-            // =============================================
-            function extractRooms(data) {
-                if (!data) return [];
-                // Shape 1: { data: { rooms: [...] } }
-                if (data.data && Array.isArray(data.data.rooms)) return data.data.rooms;
-                // Shape 2: { data: [...] }
-                if (data.data && Array.isArray(data.data)) return data.data;
-                // Shape 3: { rooms: [...] }
-                if (Array.isArray(data.rooms)) return data.rooms;
-                // Shape 4: { data: { data: [...] } }
-                if (data.data && data.data.data && Array.isArray(data.data.data)) return data.data.data;
-                // Shape 5: raw array
-                if (Array.isArray(data)) return data;
-                return [];
-            }
-
-            // =============================================
-            // NARROW ROOMS TO A SPECIFIC FLOOR (when API returns extras)
-            // =============================================
-            function narrowRoomsToFloor(rooms, floorId, floorName) {
-                if (!Array.isArray(rooms) || rooms.length === 0) return [];
-                
-                // If rooms have floor_flat_id or floor_id, filter strictly
-                const hasFloorField = rooms.some(r => 
-                    r.floor_flat_id != null || r.floor_id != null || r.floor != null
-                );
-                
-                if (hasFloorField && floorId != null) {
-                    const narrowed = rooms.filter(r => {
-                        const rFloor = r.floor_flat_id ?? r.floor_id;
-                        return sameId(rFloor, floorId);
-                    });
-                    if (narrowed.length > 0) return narrowed;
-                }
-                
-                // If rooms have floor_name, try matching
-                const hasFloorName = rooms.some(r => r.floor_name || r.floor);
-                if (hasFloorName && floorName) {
-                    const myFloor = normalize(floorName);
-                    const narrowed = rooms.filter(r => {
-                        const rFloorName = normalize(r.floor_name || r.floor || '');
-                        return rFloorName === myFloor || 
-                               rFloorName.includes(myFloor) || 
-                               myFloor.includes(rFloorName);
-                    });
-                    if (narrowed.length > 0) return narrowed;
-                }
-                
-                // No way to narrow → return as-is
-                return rooms;
-            }
-
-            // =============================================
-            // DATA LOADING
-            // =============================================
-            async function loadStudents() {
-                const limit = Math.min(ITEMS_PER_PAGE * 10, 100);
-                let endpoint = `/students?limit=${limit}`;
-                
-                if (assignedHostelId) {
-                    endpoint += `&hostel_id=${assignedHostelId}`;
-                }
-                
-                const data = await apiCall(endpoint);
-                allStudents = data.data || [];
-                
-                // =============================================
-                // FILTERING STRATEGY (STRICT - never show other flats):
-                // 
-                // 1. If we have assigned rooms → filter by room_id
-                // 2. Else if we have assignedFloorId → filter by floor_flat_id
-                // 3. Else if we have assignedArea → filter by floor_name
-                // 4. Otherwise → EMPTY (never show everything)
-                // =============================================
-                
-                if (assignedRooms.length > 0) {
-                    // STRATEGY 1: Filter by assigned room IDs (with safe comparison)
-                    const assignedRoomIds = assignedRooms.map(r => r.id);
-                    
-                    filteredStudents = allStudents.filter(s => 
-                        s.room_id != null && 
-                        assignedRoomIds.some(id => sameId(id, s.room_id))
-                    );
-                    
-                } else if (assignedFloorId != null) {
-                    // STRATEGY 2: Filter by floor_flat_id
-                    const roomsInArea = await getRoomsForFloor(assignedFloorId);
-                    const roomIdsInArea = roomsInArea.map(r => r.id);
-                    
-                    filteredStudents = allStudents.filter(s => 
-                        s.room_id != null && 
-                        roomIdsInArea.some(id => sameId(id, s.room_id))
-                    );
-                    
-                } else if (assignedArea) {
-                    // STRATEGY 3: Filter by floor_name (fallback)
-                    const myArea = normalize(assignedArea);
-                    
-                    filteredStudents = allStudents.filter(s => {
-                        const studentArea = normalize(s.floor_name || s.floor || '');
-                        return studentArea === myArea || 
-                               studentArea.includes(myArea) || 
-                               myArea.includes(studentArea);
-                    });
-                    
-                } else {
-                    // STRATEGY 4: Nothing assigned → show nothing (safety)
-                    filteredStudents = [];
-                    showToast('No rooms assigned to you. Contact your HRA.', 'info');
-                }
-                
-                return filteredStudents;
-            }
-
-            // =============================================
-            // GET ROOMS FOR A SPECIFIC FLOOR/FLAT
-            // (with hostel fallback)
-            // =============================================
-            async function getRoomsForFloor(floorId) {
-                if (floorId == null) return [];
-
-                // Attempt 1: /rooms?floor_flat_id=X
-                try {
-                    const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
-                    const rooms = extractRooms(data);
-                    if (rooms.length > 0) {
-                        return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
-                    }
-                } catch (error) {
-                    // Continue to fallback
-                }
-
-                // Attempt 2: /rooms?hostel_id=Y and filter by floor
-                if (assignedHostelId) {
-                    try {
-                        const data = await apiCall(`/rooms?hostel_id=${assignedHostelId}`);
-                        const rooms = extractRooms(data);
-                        if (rooms.length > 0) {
-                            return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
-                        }
-                    } catch (error) {
-                        // Continue
-                    }
-                }
-
-                // Attempt 3: /rooms (all) and filter
-                try {
-                    const data = await apiCall(`/rooms`);
-                    const rooms = extractRooms(data);
-                    if (rooms.length > 0) {
-                        return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
-                    }
-                } catch (error) {
-                    // Give up
-                }
-
-                return [];
-            }
-
-            async function loadHostels() {
-                const data = await apiCall('/hostels');
-                hostels = data.data || [];
-                return hostels;
-            }
-
-            async function loadStaff() {
-                const data = await apiCall('/staff?limit=100');
-                staffMembers = data.data || [];
-                return staffMembers;
-            }
-
-            async function loadFloorsFlats() {
-                try {
-                    const data = await apiCall(`/floors-flats?hostel_id=${assignedHostelId || ''}`);
-                    floorsFlats = data.data || [];
-                    return floorsFlats;
-                } catch (error) {
-                    floorsFlats = [];
-                    return floorsFlats;
-                }
-            }
-
-            // =============================================
-            // LOAD ASSIGNED ROOMS (with floor fallback)
-            // =============================================
-            async function loadAssignedRooms() {
-                try {
-                    const data = await apiCall('/ra/rooms');
-                    const rooms = extractRooms(data);
-                    
-                    // Narrow to the RA's assigned floor if API returned extras
-                    if (rooms.length > 0 && assignedFloorId != null) {
-                        assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedFloorName);
-                    } else if (rooms.length > 0 && assignedArea) {
-                        assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedArea);
-                    } else {
-                        assignedRooms = rooms;
-                    }
-                    
-                    hasLoadedRooms = true;
-
-                    // =============================================
-                    // FALLBACK: If still empty but we have a floor assignment,
-                    // load rooms for that floor directly.
-                    // =============================================
-                    if (assignedRooms.length === 0 && assignedFloorId != null) {
-                        const floorRooms = await getRoomsForFloor(assignedFloorId);
-                        if (floorRooms.length > 0) {
-                            assignedRooms = floorRooms;
-                        }
-                    }
-
-                    return assignedRooms;
-                } catch (error) {
-                    assignedRooms = [];
-                    hasLoadedRooms = true;
-
-                    // =============================================
-                    // FALLBACK on error: try loading rooms for the floor
-                    // =============================================
-                    if (assignedFloorId != null) {
-                        const floorRooms = await getRoomsForFloor(assignedFloorId);
-                        if (floorRooms.length > 0) {
-                            assignedRooms = floorRooms;
-                        }
-                    }
-
-                    return assignedRooms;
-                }
-            }
-
-            // =============================================
-            // LOAD GLOBAL SESSION
-            // =============================================
-            async function loadGlobalSession() {
-                try {
-                    const data = await apiCall('/sessions/active');
-                    if (data && data.data && data.is_active) {
-                        globalSessionData = data.data;
-                        globalSessionActive = true;
-                        currentSession = data.data;
-                        lastLoggedSessionId = data.data.id;
-                        return data.data;
-                    } else {
-                        globalSessionData = null;
-                        globalSessionActive = false;
-                        currentSession = null;
-                        lastLoggedSessionId = null;
-                        return null;
-                    }
-                } catch (error) {
-                    globalSessionData = null;
-                    globalSessionActive = false;
-                    currentSession = null;
-                    return null;
-                }
-            }
-
-            // =============================================
-            // LOAD SESSION STATUS
-            // =============================================
-            async function loadSessionStatus() {
-                try {
-                    const global = await loadGlobalSession();
-                    
-                    if (!global) {
-                        sessionStatus = 'closed';
-                        isSessionActive = false;
-                        isRASessionActive = false;
-                        globalSessionActive = false;
-                        hasCompletedToday = false;
-                        effectiveStatus = 'closed';
-                        return null;
-                    }
-
-                    const statusData = await apiCall('/ra/bedcheck/status');
-                    
-                    if (statusData && statusData.data) {
-                        const data = statusData.data;
-                        
-                        isRASessionActive = data.ra_session_active || false;
-                        isSessionActive = data.has_active_session || false;
-                        hasCompletedToday = data.has_completed_today || false;
-                        effectiveStatus = data.effective_status || 'ready';
-                        globalSessionActive = data.global_session_active || false;
-                        
-                        if (effectiveStatus === 'started') {
-                            sessionStatus = 'active';
-                            isSessionActive = true;
-                            isRASessionActive = true;
-                        } else if (effectiveStatus === 'ready') {
-                            sessionStatus = 'ready';
-                            isSessionActive = true;
-                            isRASessionActive = false;
-                            globalSessionActive = true;
-                        } else if (effectiveStatus === 'completed') {
-                            sessionStatus = 'completed';
-                            isSessionActive = false;
-                            hasCompletedToday = true;
-                        } else {
-                            sessionStatus = 'closed';
-                            isSessionActive = false;
-                        }
-                        
-                        if (data.active_session) {
-                            currentSession = data.active_session;
-                        } else if (global) {
-                            currentSession = global;
-                        }
-                        
-                        if (data.sessions) {
-                            const latestSession = data.sessions.find(s => s.status === 'started' || s.status === 'ready');
-                            if (latestSession && latestSession.id) {
-                                try {
-                                    const scansData = await apiCall(`/bedcheck/scans?session_id=${latestSession.id}`);
-                                    if (scansData && scansData.data) {
-                                        scansData.data.forEach(scan => {
-                                            if (scan.status === 'Verified' || scan.status === 'Present') {
-                                                bedScanStatus[scan.student_id] = {
-                                                    verified: true,
-                                                    status: 'Verified',
-                                                    time: scan.created_at,
-                                                    confidence: scan.metadata?.confidence || null
-                                                };
-                                            } else if (scan.status === 'Absent') {
-                                                bedScanStatus[scan.student_id] = {
-                                                    verified: false,
-                                                    status: 'Absent',
-                                                    time: scan.created_at
-                                                };
-                                            }
-                                        });
-                                    }
-                                } catch (scanError) {
-                                    // Silently handle
-                                }
-                            }
-                        }
-                        
-                        return data;
-                    }
-                    
-                    if (global) {
-                        sessionStatus = 'ready';
-                        isSessionActive = true;
-                        globalSessionActive = true;
-                        isRASessionActive = false;
-                        hasCompletedToday = false;
-                        effectiveStatus = 'ready';
-                        currentSession = global;
-                        return { effective_status: 'ready' };
-                    }
-                    
-                    sessionStatus = 'closed';
-                    isSessionActive = false;
-                    return null;
-                    
-                } catch (error) {
-                    sessionStatus = 'closed';
-                    isSessionActive = false;
-                    return null;
-                }
-            }
-
-            // =============================================
-            // RESOLVE FLOOR (by ID or name)
-            // =============================================
-            function resolveFloorFromFloors() {
-                if (!floorsFlats || floorsFlats.length === 0) return;
-
-                // If assigned_floor is numeric, look up by ID
-                if (assignedFloor && !isNaN(assignedFloor)) {
-                    const match = floorsFlats.find(f => sameId(f.id, assignedFloor));
-                    if (match) {
-                        assignedFloorId = match.id;
-                        assignedFloorName = match.name;
-                        assignedArea = match.name;
-                        return;
-                    }
-                }
-
-                // Otherwise, look up by name (assignedFloorName or assignedArea or assignedFloor)
-                const lookupName = assignedFloorName || assignedArea || assignedFloor;
-                if (lookupName) {
-                    const target = normalize(lookupName);
-                    const match = floorsFlats.find(f => {
-                        const name = normalize(f.name);
-                        return name === target || name.includes(target) || target.includes(name);
-                    });
-                    if (match) {
-                        assignedFloorId = match.id;
-                        assignedFloorName = match.name;
-                        assignedArea = match.name;
-                    }
-                }
-            }
-
-            // =============================================
-            // LOAD USER PROFILE
-            // =============================================
-            async function loadUserProfile() {
-                if (!currentUser || !currentUser.id) {
-                    throw new Error('User not authenticated');
-                }
-                
-                try {
-                    const data = await apiCall(`/staff/${currentUser.id}`);
-                    
-                    if (data.data) {
-                        const userData = data.data;
-                        
-                        currentUser = { ...currentUser, ...userData };
-                        
-                        assignedHostelId = userData.hostel_id || currentUser.hostel_id || null;
-                        assignedHostelName = userData.hostel_name || userData.hostel || currentUser.hostel || '';
-                        assignedFloor = userData.assigned_floor || userData.assigned_flat || currentUser.assigned_floor || '';
-                        assignedFloorName = userData.assigned_floor_name || userData.assigned_flat_name || '';
-                        assignedArea = assignedFloorName || assignedFloor || '';
-                        
-                        // Resolve floor ID if numeric
-                        assignedFloorId = null;
-                        if (assignedFloor && !isNaN(assignedFloor)) {
-                            assignedFloorId = parseInt(assignedFloor);
-                        }
-                        
-                        // Try resolving from floorsFlats if already loaded
-                        if (floorsFlats.length > 0) {
-                            resolveFloorFromFloors();
-                        }
-                        
-                        if (assignedHostelId && !assignedHostelName) {
-                            const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
-                            if (hostel) assignedHostelName = hostel.name;
-                        }
-                        
-                        if (!assignedHostelId && currentUser.hostel_id) {
-                            assignedHostelId = currentUser.hostel_id;
-                        }
-                        if (!assignedHostelName && currentUser.hostel) {
-                            assignedHostelName = currentUser.hostel;
-                        }
-                        
-                        if (!assignedHostelId && hostels.length > 0) {
-                            assignedHostelId = hostels[0].id;
-                            assignedHostelName = hostels[0].name;
-                        }
-                        
-                        return userData;
-                    }
-                    throw new Error('User data not found');
-                } catch (error) {
-                    if (currentUser) {
-                        assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
-                        assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
-                        assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
-                        assignedFloorName = currentUser.assigned_floor_name || currentUser.assigned_flat_name || '';
-                        assignedArea = assignedFloorName || assignedFloor || '';
-                        
-                        if (assignedFloor && !isNaN(assignedFloor)) {
-                            assignedFloorId = parseInt(assignedFloor);
-                        }
-                        
-                        if (assignedHostelId && !assignedHostelName && hostels.length > 0) {
-                            const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
-                            if (hostel) assignedHostelName = hostel.name;
-                        }
-                        
-                        if (!assignedHostelId && hostels.length > 0) {
-                            assignedHostelId = hostels[0].id;
-                            assignedHostelName = hostels[0].name;
-                        }
-                        
-                        return currentUser;
-                    }
-                    
-                    throw new Error('Unable to load user profile: ' + error.message);
-                }
-            }
-
-            // =============================================
-            // UPDATE HEADER
-            // =============================================
-            function updateHeader() {
-                if (!currentUser) return;
-                const avatar = document.getElementById('profileAvatar');
-                const name = document.getElementById('profileName');
-                const role = document.getElementById('profileRoleLabel');
-                const roleLabel = document.getElementById('roleLabel');
-                const roleScope = document.getElementById('roleScope');
-                const mobileRole = document.getElementById('mobileRoleFooter');
-
-                const initials = currentUser.initials || getInitials(currentUser.name);
-                const displayName = currentUser.name || 'User';
-
-                avatar.textContent = initials;
-                name.textContent = displayName;
-                role.textContent = 'RA';
-                roleLabel.textContent = 'RA';
-
-                const hostelDisplay = assignedHostelName || 'No Hostel';
-                const areaDisplay = assignedArea || 'No Floor';
-                const roomCount = assignedRooms.length;
-                let statusEmoji = '⏳';
-                if (isRASessionActive) statusEmoji = '🟢';
-                else if (hasCompletedToday) statusEmoji = '✅';
-                else if (globalSessionActive) statusEmoji = '🟡';
-                roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
-                mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
-            }
-
-            // =============================================
-            // START BEDCHECK
-            // =============================================
-            async function startBedCheck() {
-                if (isRASessionActive) {
-                    showToast('You already have an active session.', 'info');
-                    return;
-                }
-
-                if (hasCompletedToday) {
-                    showToast('You have already completed today\'s BedCheck.', 'info');
-                    return;
-                }
-
-                if (!globalSessionActive) {
-                    showToast('No active session available.', 'error');
-                    return;
-                }
-
-                if (assignedRooms.length === 0) {
-                    showToast('No rooms assigned. Contact your HRA.', 'error');
-                    return;
-                }
-
-                try {
-                    const sessionId = currentSession?.id || currentSession?.session_id;
-                    
-                    if (!sessionId) {
-                        showToast('Could not find session ID.', 'error');
-                        return;
-                    }
-
-                    const result = await apiCall('/ra/bedcheck/start', {
-                        method: 'POST',
-                        body: JSON.stringify({ session_id: sessionId })
-                    });
-
-                    if (result && result.success) {
-                        isSessionActive = true;
-                        isRASessionActive = true;
-                        sessionStatus = 'active';
-                        effectiveStatus = 'started';
-                        currentSession = result.data?.session || { id: sessionId };
-                        
-                        addTimeline('BedCheck started', `Session ID: ${sessionId}`);
-                        
-                        await loadSessionStatus();
-                        
-                        showToast('✅ BedCheck started!', 'success');
-                        renderDashboard();
-                    } else {
-                        showToast('Failed to start BedCheck.', 'error');
-                    }
-                    
-                } catch (error) {
-                    showToast('Failed to start: ' + error.message, 'error');
-                }
-            }
-
-            // =============================================
-            // COMPLETE BEDCHECK
-            // =============================================
-            async function completeBedCheck() {
-                if (!isRASessionActive) {
-                    showToast('No active session to complete.', 'error');
-                    return;
-                }
-
-                if (!confirm('Complete tonight\'s BedCheck? This cannot be undone.')) {
-                    return;
-                }
-
-                try {
-                    const sessionId = currentSession?.id || currentSession?.session_id;
-                    
-                    if (!sessionId || sessionId === 'completed') {
-                        showToast('No session found.', 'error');
-                        return;
-                    }
-
-                    await apiCall('/ra/bedcheck/complete', {
-                        method: 'POST',
-                        body: JSON.stringify({ session_id: sessionId })
-                    });
-
-                    isSessionActive = false;
-                    isRASessionActive = false;
-                    sessionStatus = 'completed';
-                    effectiveStatus = 'completed';
-                    hasCompletedToday = true;
-                    
-                    addTimeline('BedCheck completed', `Session ID: ${sessionId}`);
-                    
-                    await loadSessionStatus();
-                    
-                    showToast('✅ BedCheck completed!', 'success');
-                    renderDashboard();
-                    
-                } catch (error) {
-                    showToast('Failed to complete: ' + error.message, 'error');
-                }
-            }
-
-            // =============================================
-            // START SESSION CHECKER
-            // =============================================
-            function startSessionChecker() {
-                if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
-                sessionCheckerInterval = setInterval(async () => {
-                    try {
-                        const oldEffectiveStatus = effectiveStatus;
-                        await loadSessionStatus();
-                        if (oldEffectiveStatus !== effectiveStatus) {
-                            renderDashboard();
-                        }
-                    } catch (error) {
-                        // Silent fail
-                    }
-                }, 30000);
-            }
-
-            // =============================================
-            // SHOW ERROR STATE
-            // =============================================
-            function showError(message) {
-                const container = document.getElementById('screenContent');
-                container.innerHTML = `
-                    <div class="error-container">
-                        <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
-                        <h2>Unable to Load</h2>
-                        <p>${message}</p>
-                        <button class="btn-success" onclick="location.reload()">
-                            <i class="fas fa-refresh"></i> Retry
-                        </button>
-                    </div>
-                `;
-            }
-
-            // =============================================
-            // RENDER SKELETON
-            // =============================================
-            function renderSkeleton() {
-                const container = document.getElementById('screenContent');
-                container.innerHTML = `
-                    <div class="page-heading">
-                        <div>
-                            <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
-                            <h1 class="skeleton" style="height:2.25rem;width:12rem;"></h1>
-                            <div class="skeleton skeleton-text" style="width:16rem;margin-top:0.5rem;"></div>
-                        </div>
-                    </div>
-                    <div class="session-banner">
-                        <div class="session-icon">🌙</div>
-                        <div class="session-info">
-                            <div class="session-title skeleton" style="height:1.5rem;width:10rem;"></div>
-                            <div class="skeleton skeleton-text" style="width:8rem;margin-top:0.4rem;"></div>
-                        </div>
-                        <span class="skeleton skeleton-badge"></span>
-                    </div>
-                    <div class="metric-grid">
-                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
-                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
-                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
-                        <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
-                    </div>
-                    <div class="card mt-4">
-                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> <span class="skeleton skeleton-card-title"></span></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                    </div>
-                    <div class="card mt-4">
-                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> <span class="skeleton skeleton-card-title"></span></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                        <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
-                    </div>
-                `;
-            }
-
-            // =============================================
-            // RENDER DASHBOARD
-            // =============================================
-            function renderDashboard() {
-                const container = document.getElementById('screenContent');
-
-                const displayHostel = assignedHostelName || 'No Hostel';
-                const displayArea = assignedArea || 'No Floor';
-                const totalStudents = filteredStudents.length;
-                
-                const verified = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present').length || 0;
-                const absent = filteredStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent' || s.status === 'Absent').length || 0;
-                const pending = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status).length || 0;
-                const completionRate = totalStudents > 0 ? Math.round(((verified + absent) / totalStudents) * 100) : 0;
-
-                const hostelInfo = hostels.find(h => sameId(h.id, assignedHostelId));
-
-                let hraName = 'Not Assigned';
-                let currentRAName = currentUser?.name || 'Not Assigned';
-
-                if (assignedHostelId) {
-                    const hraStaff = staffMembers.find(s => sameId(s.hostel_id, assignedHostelId) && s.role === 'HRA' && s.status === 'Active');
-                    if (hraStaff) hraName = hraStaff.name;
-                }
-
-                let sessionDisplay = {
-                    title: 'Night BedCheck',
-                    statusText: 'No session available',
-                    badgeClass: 'closed',
-                    badgeText: 'Closed',
-                    showStartButton: false,
-                    showCompleteButton: false,
-                    showCompletedBadge: false
+            let response;
+            try {
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    ...(options.headers || {})
                 };
 
-                if (effectiveStatus === 'started') {
-                    sessionDisplay.statusText = 'BedCheck In Progress';
-                    sessionDisplay.badgeClass = 'active';
-                    sessionDisplay.badgeText = 'Active';
-                    sessionDisplay.showCompleteButton = true;
-                    sessionDisplay.showCompletedBadge = false;
-                } else if (effectiveStatus === 'ready') {
-                    sessionDisplay.statusText = 'Night Session Ready';
-                    sessionDisplay.badgeClass = 'ready';
-                    sessionDisplay.badgeText = 'Ready';
-                    sessionDisplay.showStartButton = true;
-                    sessionDisplay.showCompletedBadge = false;
-                } else if (effectiveStatus === 'completed') {
-                    sessionDisplay.statusText = 'BedCheck Completed';
-                    sessionDisplay.badgeClass = 'completed';
-                    sessionDisplay.badgeText = 'Done';
-                    sessionDisplay.showCompletedBadge = true;
-                    sessionDisplay.showStartButton = false;
-                    sessionDisplay.showCompleteButton = false;
-                } else {
-                    sessionDisplay.statusText = 'No session available';
-                    sessionDisplay.badgeClass = 'closed';
-                    sessionDisplay.badgeText = 'Closed';
-                    sessionDisplay.showStartButton = false;
-                    sessionDisplay.showCompleteButton = false;
-                }
-
-                const sessionName = currentSession?.name || 'Night BedCheck';
-                
-                let sessionDate = '—';
-                let sessionStart = '—';
-                let sessionEnd = '—';
-                let sessionGrace = '15';
-                
-                if (currentSession) {
-                    if (currentSession.date) {
-                        sessionDate = formatSessionDate(currentSession.date);
-                    } else if (currentSession.created_at) {
-                        sessionDate = formatSessionDate(currentSession.created_at);
-                    }
-                    
-                    if (currentSession.start_time) {
-                        sessionStart = formatSessionTime(currentSession.start_time);
-                    } else if (currentSession.created_at) {
-                        sessionStart = formatSessionTime(currentSession.created_at);
-                    }
-                    
-                    if (currentSession.end_time) {
-                        sessionEnd = formatSessionTime(currentSession.end_time);
-                    }
-                    
-                    if (currentSession.grace_period) {
-                        sessionGrace = currentSession.grace_period;
-                    }
-                }
-                
-                const hasSession = globalSessionActive || effectiveStatus !== 'closed';
-
-                container.innerHTML = `
-                    <div class="page-heading">
-                        <div>
-                            <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
-                            <h1>${displayHostel}</h1>
-                            <p class="desc">
-                                <span class="assigned-hostel-badge">
-                                    <i class="fas fa-building"></i> ${displayHostel}
-                                </span>
-                                <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
-                                    <i class="fas fa-layer-group"></i> ${displayArea}
-                                </span>
-                                <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
-                                <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
-                                    <i class="fas fa-door-open"></i> ${assignedRooms.length} rooms
-                                </span>
-                            </p>
-                        </div>
-                        <div class="action-group">
-                            ${sessionDisplay.showStartButton && assignedRooms.length > 0 ? `
-                                <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
-                            ` : ''}
-                            ${sessionDisplay.showCompleteButton ? `
-                                <button class="btn-danger" id="completeBedCheckBtn"><i class="fas fa-check-double"></i> Complete</button>
-                            ` : ''}
-                            ${sessionDisplay.showCompletedBadge ? `
-                                <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed ✓</button>
-                            ` : ''}
-                            ${assignedRooms.length === 0 && effectiveStatus !== 'completed' ? `
-                                <button class="btn-outline" disabled><i class="fas fa-exclamation-triangle"></i> No rooms assigned</button>
-                            ` : ''}
-                        </div>
-                    </div>
-
-                    <!-- Night Session Banner -->
-                    <div class="session-banner">
-                        <div class="session-icon">🌙</div>
-                        <div class="session-info">
-                            <div class="session-title">${sessionName}</div>
-                            <div class="session-sub">${sessionDisplay.statusText}</div>
-                            ${hasSession ? `
-                                <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
-                                    ${sessionDate} · ${sessionStart} ${sessionEnd !== '—' ? `— ${sessionEnd}` : ''}
-                                    <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${sessionGrace}min</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div>
-                            <span class="session-status-badge ${sessionDisplay.badgeClass}">${sessionDisplay.badgeText}</span>
-                        </div>
-                    </div>
-
-                    <!-- Metric Cards -->
-                    <div class="metric-grid">
-                        <div class="metric-card">
-                            <div class="metric-icon navy"><i class="fas fa-users"></i></div>
-                            <div class="metric-value">${totalStudents}</div>
-                            <div class="metric-title">Total Students</div>
-                            <div class="metric-detail">In ${displayArea}</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #2d6545;">
-                            <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
-                            <div class="metric-value" style="color:#2d6545;">${verified}</div>
-                            <div class="metric-title">Verified</div>
-                            <div class="metric-detail">Students present</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #8a3328;">
-                            <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
-                            <div class="metric-value" style="color:#8a3328;">${absent}</div>
-                            <div class="metric-title">Absent</div>
-                            <div class="metric-detail">Students absent</div>
-                        </div>
-                        <div class="metric-card" style="border-left:3px solid #b9c7db;">
-                            <div class="metric-icon gray"><i class="fas fa-hourglass-half"></i></div>
-                            <div class="metric-value" style="color:#536274;">${pending}</div>
-                            <div class="metric-title">Pending</div>
-                            <div class="metric-detail">Awaiting verification</div>
-                        </div>
-                    </div>
-
-                    <!-- Hostel Details -->
-                    <div class="card">
-                        <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Details</div>
-                        <div>
-                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                <span class="text-muted">Hostel</span>
-                                <span class="font-bold">${hostelInfo?.name || displayHostel}</span>
-                            </div>
-                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                <span class="text-muted">Type</span>
-                                <span class="font-bold">${hostelInfo?.type || '—'}</span>
-                            </div>
-                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                <span class="text-muted">Assigned Area</span>
-                                <span class="font-bold">${displayArea}</span>
-                            </div>
-                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                <span class="text-muted">Assigned Rooms</span>
-                                <span class="font-bold">${assignedRooms.length}</span>
-                            </div>
-                            <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
-                                <span class="text-muted">RA</span>
-                                <span class="font-bold">${currentRAName}</span>
-                            </div>
-                            <div class="flex-between" style="padding:0.4rem 0;">
-                                <span class="text-muted">HRA</span>
-                                <span class="font-bold">${hraName}</span>
-                            </div>
-                            <div class="mt-3 pt-3 border-t">
-                                <div class="progress-bar"><div class="fill" style="width:${completionRate}%;"></div></div>
-                                <div class="flex-between mt-1">
-                                    <span class="text-xs text-muted">${completionRate}% completion</span>
-                                    <span class="text-xs text-gold">${verified + absent} / ${totalStudents} processed</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Students Table -->
-                    <div class="card mt-4">
-                        <div class="flex-between">
-                            <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Assigned Students</div>
-                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                                <div class="field" style="min-width:120px;">
-                                    <select id="statusFilter" onchange="filterStudents()">
-                                        <option value="all">All Status</option>
-                                        <option value="Verified">Verified</option>
-                                        <option value="Absent">Absent</option>
-                                        <option value="Pending">Pending</option>
-                                    </select>
-                                </div>
-                                <button class="btn-ghost" onclick="resetFilters()" style="font-size:0.8rem;">
-                                    <i class="fas fa-undo"></i> Reset
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="table-wrap mt-2">
-                            <table>
-                                <thead><tr>
-                                    <th>Student</th>
-                                    <th>Matric</th>
-                                    <th>Room</th>
-                                    <th>Status</th>
-                                    <th>Last Updated</th>
-                                </tr></thead>
-                                <tbody id="studentTableBody"></tbody>
-                            </table>
-                        </div>
-
-                        <div class="pagination">
-                            <div class="info" id="paginationInfo">Showing 1-10 of 0 students</div>
-                            <div class="pages" id="paginationControls"></div>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="night-session-footer">
-                        BedCheck System · Benson Idahosa University
-                    </div>
-                `;
-
-                renderStudentTable();
-
-                document.getElementById('startBedCheckBtn')?.addEventListener('click', startBedCheck);
-                document.getElementById('completeBedCheckBtn')?.addEventListener('click', completeBedCheck);
+                response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    ...options,
+                    headers,
+                    credentials: 'include'
+                });
+            } catch (networkError) {
+                // ⭐ NEW: Distinguish network errors (cold start, offline)
+                const err = new Error('NETWORK_ERROR');
+                err.isNetworkError = true;
+                err.cause = networkError;
+                throw err;
             }
 
-            // =============================================
-            // RENDER STUDENT TABLE
-            // =============================================
-            function renderStudentTable() {
-                const tbody = document.getElementById('studentTableBody');
-                if (!tbody) return;
-
-                const statusFilter = document.getElementById('statusFilter')?.value || 'all';
-
-                let displayStudents = filteredStudents;
-                if (statusFilter !== 'all') {
-                    if (statusFilter === 'Pending') {
-                        displayStudents = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status);
-                    } else if (statusFilter === 'Verified') {
-                        displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present');
-                    } else {
-                        displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.status === statusFilter || s.status === statusFilter);
-                    }
-                }
-
-                const start = (currentPage - 1) * ITEMS_PER_PAGE;
-                const end = start + ITEMS_PER_PAGE;
-                const pageStudents = displayStudents.slice(start, end);
-
-                if (pageStudents.length === 0) {
-                    tbody.innerHTML =
-                        `<tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">
-                            ${filteredStudents.length === 0 ? 'No students assigned to your area.' : 'No students match the filter.'}
-                        </td></tr>`;
-                    updatePagination(displayStudents.length);
-                    return;
-                }
-
-                tbody.innerHTML = pageStudents.map(s => {
-                    const scan = bedScanStatus[s.id];
-                    let status = 'Pending';
-                    if (scan?.verified || s.status === 'Verified' || s.status === 'Present') {
-                        status = 'Verified';
-                    } else if (scan?.status === 'Absent' || s.status === 'Absent') {
-                        status = 'Absent';
-                    }
-                    const verifiedTime = scan?.time ? formatTime(scan.time) : '';
-                    const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
-
-                    return `
-                        <tr>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <span class="avatar">${getInitials(s.name)}</span>
-                                    <span class="font-bold">${s.name || 'Unknown'}</span>
-                                </div>
-                            </td>
-                            <td>${s.matric || '—'}</td>
-                            <td>${s.room_code || s.room || '—'}</td>
-                            <td>${attBadge(status)}</td>
-                            <td style="font-size:0.8rem;color:#6b778b;">${verifiedTime || (s.updated_at ? formatTime(s.updated_at) : '—')}</td>
-                        </tr>
-                    `;
-                }).join('');
-
-                updatePagination(displayStudents.length);
-            }
-
-            // =============================================
-            // UPDATE PAGINATION
-            // =============================================
-            function updatePagination(total) {
-                const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
-                const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
-                const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
-
-                const info = document.getElementById('paginationInfo');
-                if (info) {
-                    info.textContent = `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
-                }
-
-                const controls = document.getElementById('paginationControls');
-                if (!controls) return;
-
-                let html = '';
-                html +=
-                    `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
-
-                for (let i = 1; i <= Math.min(totalPages, 7); i++) {
-                    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                        html +=
-                            `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
-                    } else if (i === currentPage - 3 || i === currentPage + 3) {
-                        html += `<button disabled>...</button>`;
-                    }
-                }
-
-                html +=
-                    `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
-                controls.innerHTML = html;
-            }
-
-            // =============================================
-            // FILTERS
-            // =============================================
-            function filterStudents() {
-                currentPage = 1;
-                renderStudentTable();
-            }
-
-            function resetFilters() {
-                const filter = document.getElementById('statusFilter');
-                if (filter) filter.value = 'all';
-                currentPage = 1;
-                renderStudentTable();
-            }
-
-            function changePage(page) {
-                const total = filteredStudents.length;
-                const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
-                if (page < 1 || page > totalPages) return;
-                currentPage = page;
-                renderStudentTable();
-            }
-
-            // =============================================
-            // AUTHENTICATION
-            // =============================================
-            function checkAuth() {
-                const userData = sessionStorage.getItem('bedcheck_user');
-                const token = sessionStorage.getItem('bedcheck_token');
-                
-                if (!userData || !token) {
-                    window.location.replace('../Login.html');
-                    return false;
-                }
-                
-                try {
-                    currentUser = JSON.parse(userData);
-                } catch (e) {
-                    window.location.replace('../Login.html');
-                    return false;
-                }
-
-                assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
-                assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
-                assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
-                assignedFloorName = currentUser.assigned_floor_name || '';
-                assignedArea = assignedFloorName || assignedFloor || '';
-
-                if (assignedFloor && !isNaN(assignedFloor)) {
-                    assignedFloorId = parseInt(assignedFloor);
-                }
-
-                return true;
-            }
-
-            function handleLogout(e) {
-                e.preventDefault();
+            if (response.status === 401) {
+                showToast('Session expired. Please login again.', 'error');
                 sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
-                window.location.replace('../Login.html');
+                setTimeout(() => {
+                    window.location.replace('../Login.html');
+                }, 1500);
+                throw new Error('Authentication required');
             }
 
-            // =============================================
-            // SET DATE
-            // =============================================
-            function setDate() {
-                const now = new Date();
-                document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'API error');
+            return data;
+        }
+
+        // =============================================
+        // HELPERS
+        // =============================================
+        function getInitials(name) {
+            if (!name) return 'U';
+            return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        }
+
+        function formatTime(date) {
+            if (!date) return 'Just now';
+            const d = new Date(date);
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '—';
+            try {
+                if (typeof dateStr === 'string' && dateStr.includes(' ')) {
+                    const parts = dateStr.split(' ');
+                    if (parts.length === 2) {
+                        const datePart = parts[0];
+                        const dateObj = new Date(datePart);
+                        if (!isNaN(dateObj.getTime())) {
+                            return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        }
+                    }
+                }
+                if (typeof dateStr === 'string' && dateStr.includes('-') && !dateStr.includes(':')) {
+                    const dateObj = new Date(dateStr);
+                    if (!isNaN(dateObj.getTime())) {
+                        return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                }
+                const dateObj = new Date(dateStr);
+                if (!isNaN(dateObj.getTime())) {
+                    return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+                return dateStr;
+            } catch (e) {
+                return dateStr || '—';
+            }
+        }
+
+        function formatTimeStr(timeStr) {
+            if (!timeStr) return '—';
+            try {
+                if (typeof timeStr === 'string' && timeStr.includes(':')) {
+                    let timePart = timeStr;
+                    if (timeStr.includes(' ')) timePart = timeStr.split(' ')[1];
+                    if (timeStr.includes('T')) timePart = timeStr.split('T')[1];
+                    timePart = timePart.replace(/\.\d+/, '');
+                    timePart = timePart.replace(/[+-]\d{2}:\d{2}$/, '');
+                    timePart = timePart.replace(/Z$/, '');
+                    const parts = timePart.split(':');
+                    if (parts.length >= 2) {
+                        const hour = parseInt(parts[0]);
+                        const minute = parseInt(parts[1]);
+                        if (!isNaN(hour) && !isNaN(minute)) {
+                            const ampm = hour >= 12 ? 'PM' : 'AM';
+                            const hour12 = hour % 12 || 12;
+                            return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+                        }
+                    }
+                }
+                const dateObj = new Date(timeStr);
+                if (!isNaN(dateObj.getTime())) {
+                    return dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                }
+                return timeStr;
+            } catch (e) {
+                return timeStr || '—';
+            }
+        }
+
+        function formatSessionDate(dateStr) {
+            if (!dateStr) return '—';
+            try {
+                const dateObj = new Date(dateStr);
+                if (!isNaN(dateObj.getTime())) {
+                    return dateObj.toLocaleDateString('en-US', {
+                        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                    });
+                }
+                return dateStr;
+            } catch (e) {
+                return dateStr || '—';
+            }
+        }
+
+        function formatSessionTime(timeStr) {
+            if (!timeStr) return '—';
+            try {
+                const dateObj = new Date(timeStr);
+                if (!isNaN(dateObj.getTime())) {
+                    return dateObj.toLocaleTimeString('en-US', {
+                        hour: '2-digit', minute: '2-digit', hour12: true
+                    });
+                }
+                return timeStr;
+            } catch (e) {
+                return timeStr || '—';
+            }
+        }
+
+        function attBadge(status) {
+            if (!status || status === 'Pending' || status === '' || status === 'Present') {
+                return `<span class="badge badge-pending">Pending</span>`;
+            }
+            const map = {
+                'Verified': 'badge-verified',
+                'Present': 'badge-present',
+                'Absent': 'badge-absent'
+            };
+            return `<span class="badge ${map[status] || 'badge-pending'}">${status || 'Pending'}</span>`;
+        }
+
+        function addTimeline(event, details = '') {
+            timeline.unshift({ time: new Date().toISOString(), event: event, details: details });
+            if (timeline.length > 50) timeline.pop();
+        }
+
+        function normalize(str) {
+            if (!str) return '';
+            return String(str).toLowerCase().trim().replace(/\s+/g, ' ');
+        }
+
+        function sameId(a, b) {
+            if (a == null || b == null) return false;
+            return String(a) === String(b);
+        }
+
+        function extractRooms(data) {
+            if (!data) return [];
+            if (data.data && Array.isArray(data.data.rooms)) return data.data.rooms;
+            if (data.data && Array.isArray(data.data)) return data.data;
+            if (Array.isArray(data.rooms)) return data.rooms;
+            if (data.data && data.data.data && Array.isArray(data.data.data)) return data.data.data;
+            if (Array.isArray(data)) return data;
+            return [];
+        }
+
+        function narrowRoomsToFloor(rooms, floorId, floorName) {
+            if (!Array.isArray(rooms) || rooms.length === 0) return [];
+            const hasFloorField = rooms.some(r =>
+                r.floor_flat_id != null || r.floor_id != null || r.floor != null
+            );
+            if (hasFloorField && floorId != null) {
+                const narrowed = rooms.filter(r => {
+                    const rFloor = r.floor_flat_id ?? r.floor_id;
+                    return sameId(rFloor, floorId);
                 });
+                if (narrowed.length > 0) return narrowed;
+            }
+            const hasFloorName = rooms.some(r => r.floor_name || r.floor);
+            if (hasFloorName && floorName) {
+                const myFloor = normalize(floorName);
+                const narrowed = rooms.filter(r => {
+                    const rFloorName = normalize(r.floor_name || r.floor || '');
+                    return rFloorName === myFloor ||
+                           rFloorName.includes(myFloor) ||
+                           myFloor.includes(rFloorName);
+                });
+                if (narrowed.length > 0) return narrowed;
+            }
+            return rooms;
+        }
+
+        // =============================================
+        // DATA LOADING
+        // =============================================
+        async function loadStudents() {
+            const limit = Math.min(ITEMS_PER_PAGE * 10, 100);
+            let endpoint = `/students?limit=${limit}`;
+
+            if (assignedHostelId) {
+                endpoint += `&hostel_id=${assignedHostelId}`;
             }
 
-            // =============================================
-            // MOBILE DRAWER
-            // =============================================
-            function openMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.add('open');
-                document.getElementById('drawerOverlay').classList.add('show');
+            const data = await apiCall(endpoint);
+            allStudents = data.data || [];
+
+            if (assignedRooms.length > 0) {
+                const assignedRoomIds = assignedRooms.map(r => r.id);
+                filteredStudents = allStudents.filter(s =>
+                    s.room_id != null &&
+                    assignedRoomIds.some(id => sameId(id, s.room_id))
+                );
+            } else if (assignedFloorId != null) {
+                const roomsInArea = await getRoomsForFloor(assignedFloorId);
+                const roomIdsInArea = roomsInArea.map(r => r.id);
+                filteredStudents = allStudents.filter(s =>
+                    s.room_id != null &&
+                    roomIdsInArea.some(id => sameId(id, s.room_id))
+                );
+            } else if (assignedArea) {
+                const myArea = normalize(assignedArea);
+                filteredStudents = allStudents.filter(s => {
+                    const studentArea = normalize(s.floor_name || s.floor || '');
+                    return studentArea === myArea ||
+                           studentArea.includes(myArea) ||
+                           myArea.includes(studentArea);
+                });
+            } else {
+                filteredStudents = [];
+                showToast('No rooms assigned to you. Contact your HRA.', 'info');
             }
 
-            function closeMobileDrawer() {
-                document.getElementById('mobileDrawer').classList.remove('open');
-                document.getElementById('drawerOverlay').classList.remove('show');
-            }
+            return filteredStudents;
+        }
 
-            // =============================================
-            // EXPOSE GLOBALLY
-            // =============================================
-            window.showToast = showToast;
-            window.filterStudents = filterStudents;
-            window.resetFilters = resetFilters;
-            window.changePage = changePage;
+        async function getRoomsForFloor(floorId) {
+            if (floorId == null) return [];
 
-            // =============================================
-            // INIT — PROGRESSIVE LOADING
-            // =============================================
-            async function init() {
-                if (!checkAuth()) return;
+            try {
+                const data = await apiCall(`/rooms?floor_flat_id=${floorId}`);
+                const rooms = extractRooms(data);
+                if (rooms.length > 0) {
+                    return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
+                }
+            } catch (error) { /* continue */ }
 
-                setDate();
-
-                document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
-                document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
-                document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
-                document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-                // 1. Show skeleton immediately
-                renderSkeleton();
-
-                // 2. Update header with session data we already have
-                updateHeader();
-
+            if (assignedHostelId) {
                 try {
-                    // 3. Parallel – these three have no mutual dependency
-                    const [hostelsResult, staffResult] = await Promise.allSettled([
-                        loadHostels(),
-                        loadStaff()
-                    ]);
-
-                    if (hostelsResult.status === 'rejected') hostels = [];
-                    if (staffResult.status === 'rejected') staffMembers = [];
-
-                    // 4. Load profile (needs hostels to resolve hostel name)
-                    await loadUserProfile();
-
-                    // 5. Load floors for this hostel (needed to resolve floor name)
-                    if (assignedHostelId) {
-                        await loadFloorsFlats();
-                        // Re-resolve floor now that floors are available
-                        resolveFloorFromFloors();
+                    const data = await apiCall(`/rooms?hostel_id=${assignedHostelId}`);
+                    const rooms = extractRooms(data);
+                    if (rooms.length > 0) {
+                        return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
                     }
+                } catch (error) { /* continue */ }
+            }
 
-                    // 6. Load assigned rooms (with floor fallback — needs assignedFloorId)
-                    await loadAssignedRooms();
+            try {
+                const data = await apiCall(`/rooms`);
+                const rooms = extractRooms(data);
+                if (rooms.length > 0) {
+                    return narrowRoomsToFloor(rooms, floorId, assignedFloorName);
+                }
+            } catch (error) { /* give up */ }
 
-                    // 7. Update header again now that rooms + floor are resolved
-                    updateHeader();
+            return [];
+        }
 
-                    // 8. Students + session status can run together
-                    await Promise.allSettled([
-                        loadStudents(),
-                        loadSessionStatus()
-                    ]);
+        async function loadHostels() {
+            const data = await apiCall('/hostels');
+            hostels = data.data || [];
+            return hostels;
+        }
 
-                    // 9. Final render with all data
-                    renderDashboard();
-                    startSessionChecker();
-                    addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
+        async function loadStaff() {
+            const data = await apiCall('/staff?limit=100');
+            staffMembers = data.data || [];
+            return staffMembers;
+        }
 
-                } catch (error) {
-                    // If we have partial data, show the dashboard with a toast
-                    if (filteredStudents.length > 0 || hostels.length > 0) {
-                        renderDashboard();
-                        showToast('Some data failed to load. Displaying partial results.', 'info');
+        async function loadFloorsFlats() {
+            try {
+                const data = await apiCall(`/floors-flats?hostel_id=${assignedHostelId || ''}`);
+                floorsFlats = data.data || [];
+                return floorsFlats;
+            } catch (error) {
+                floorsFlats = [];
+                return floorsFlats;
+            }
+        }
+
+        async function loadAssignedRooms() {
+            try {
+                const data = await apiCall('/ra/rooms');
+                const rooms = extractRooms(data);
+
+                if (rooms.length > 0 && assignedFloorId != null) {
+                    assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedFloorName);
+                } else if (rooms.length > 0 && assignedArea) {
+                    assignedRooms = narrowRoomsToFloor(rooms, assignedFloorId, assignedArea);
+                } else {
+                    assignedRooms = rooms;
+                }
+
+                hasLoadedRooms = true;
+
+                if (assignedRooms.length === 0 && assignedFloorId != null) {
+                    const floorRooms = await getRoomsForFloor(assignedFloorId);
+                    if (floorRooms.length > 0) {
+                        assignedRooms = floorRooms;
+                    }
+                }
+
+                return assignedRooms;
+            } catch (error) {
+                assignedRooms = [];
+                hasLoadedRooms = true;
+
+                if (assignedFloorId != null) {
+                    const floorRooms = await getRoomsForFloor(assignedFloorId);
+                    if (floorRooms.length > 0) {
+                        assignedRooms = floorRooms;
+                    }
+                }
+
+                return assignedRooms;
+            }
+        }
+
+        // =============================================
+        // LOAD GLOBAL SESSION
+        // =============================================
+        async function loadGlobalSession() {
+            try {
+                const data = await apiCall('/sessions/active');
+                if (data && data.data && data.is_active) {
+                    globalSessionData = data.data;
+                    globalSessionActive = true;
+                    currentSession = data.data;
+                    lastLoggedSessionId = data.data.id;
+                    return data.data;
+                } else {
+                    globalSessionData = null;
+                    globalSessionActive = false;
+                    currentSession = null;
+                    lastLoggedSessionId = null;
+                    return null;
+                }
+            } catch (error) {
+                // ⭐ NEW: Preserve last-known state on network errors
+                if (error.isNetworkError) {
+                    return globalSessionData;
+                }
+                globalSessionData = null;
+                globalSessionActive = false;
+                currentSession = null;
+                return null;
+            }
+        }
+
+        // =============================================
+        // LOAD SESSION STATUS
+        // =============================================
+        async function loadSessionStatus() {
+            try {
+                const global = await loadGlobalSession();
+
+                if (!global) {
+                    sessionStatus = 'closed';
+                    isSessionActive = false;
+                    isRASessionActive = false;
+                    globalSessionActive = false;
+                    hasCompletedToday = false;
+                    effectiveStatus = 'closed';
+                    return null;
+                }
+
+                const statusData = await apiCall('/ra/bedcheck/status');
+
+                if (statusData && statusData.data) {
+                    const data = statusData.data;
+
+                    isRASessionActive = data.ra_session_active || false;
+                    isSessionActive = data.has_active_session || false;
+                    hasCompletedToday = data.has_completed_today || false;
+                    effectiveStatus = data.effective_status || 'ready';
+                    globalSessionActive = data.global_session_active || false;
+
+                    if (effectiveStatus === 'started') {
+                        sessionStatus = 'active';
+                        isSessionActive = true;
+                        isRASessionActive = true;
+                    } else if (effectiveStatus === 'ready') {
+                        sessionStatus = 'ready';
+                        isSessionActive = true;
+                        isRASessionActive = false;
+                        globalSessionActive = true;
+                    } else if (effectiveStatus === 'completed') {
+                        sessionStatus = 'completed';
+                        isSessionActive = false;
+                        hasCompletedToday = true;
                     } else {
-                        const errorMessage = error.message || 'Failed to load dashboard data.';
-                        showError(errorMessage);
-                        showToast('Error: ' + errorMessage, 'error');
+                        sessionStatus = 'closed';
+                        isSessionActive = false;
                     }
+
+                    if (data.active_session) {
+                        currentSession = data.active_session;
+                    } else if (global) {
+                        currentSession = global;
+                    }
+
+                    if (data.sessions) {
+                        const latestSession = data.sessions.find(s => s.status === 'started' || s.status === 'ready');
+                        if (latestSession && latestSession.id) {
+                            try {
+                                const scansData = await apiCall(`/bedcheck/scans?session_id=${latestSession.id}`);
+                                if (scansData && scansData.data) {
+                                    scansData.data.forEach(scan => {
+                                        if (scan.status === 'Verified' || scan.status === 'Present') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: true,
+                                                status: 'Verified',
+                                                time: scan.created_at,
+                                                confidence: scan.metadata?.confidence || null
+                                            };
+                                        } else if (scan.status === 'Absent') {
+                                            bedScanStatus[scan.student_id] = {
+                                                verified: false,
+                                                status: 'Absent',
+                                                time: scan.created_at
+                                            };
+                                        }
+                                    });
+                                }
+                            } catch (scanError) {
+                                // Silently handle
+                            }
+                        }
+                    }
+
+                    return data;
+                }
+
+                if (global) {
+                    sessionStatus = 'ready';
+                    isSessionActive = true;
+                    globalSessionActive = true;
+                    isRASessionActive = false;
+                    hasCompletedToday = false;
+                    effectiveStatus = 'ready';
+                    currentSession = global;
+                    return { effective_status: 'ready' };
+                }
+
+                sessionStatus = 'closed';
+                isSessionActive = false;
+                return null;
+
+            } catch (error) {
+                // ⭐ NEW: Don't reset state on network errors
+                if (!error.isNetworkError) {
+                    sessionStatus = 'closed';
+                    isSessionActive = false;
+                }
+                return null;
+            }
+        }
+
+        // =============================================
+        // RESOLVE FLOOR
+        // =============================================
+        function resolveFloorFromFloors() {
+            if (!floorsFlats || floorsFlats.length === 0) return;
+
+            if (assignedFloor && !isNaN(assignedFloor)) {
+                const match = floorsFlats.find(f => sameId(f.id, assignedFloor));
+                if (match) {
+                    assignedFloorId = match.id;
+                    assignedFloorName = match.name;
+                    assignedArea = match.name;
+                    return;
                 }
             }
 
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', init);
-            } else {
-                init();
+            const lookupName = assignedFloorName || assignedArea || assignedFloor;
+            if (lookupName) {
+                const target = normalize(lookupName);
+                const match = floorsFlats.find(f => {
+                    const name = normalize(f.name);
+                    return name === target || name.includes(target) || target.includes(name);
+                });
+                if (match) {
+                    assignedFloorId = match.id;
+                    assignedFloorName = match.name;
+                    assignedArea = match.name;
+                }
+            }
+        }
+
+        // =============================================
+        // LOAD USER PROFILE
+        // =============================================
+        async function loadUserProfile() {
+            if (!currentUser || !currentUser.id) {
+                throw new Error('User not authenticated');
             }
 
-        })();
-    </script>
+            try {
+                const data = await apiCall(`/staff/${currentUser.id}`);
+
+                if (data.data) {
+                    const userData = data.data;
+
+                    currentUser = { ...currentUser, ...userData };
+
+                    assignedHostelId = userData.hostel_id || currentUser.hostel_id || null;
+                    assignedHostelName = userData.hostel_name || userData.hostel || currentUser.hostel || '';
+                    assignedFloor = userData.assigned_floor || userData.assigned_flat || currentUser.assigned_floor || '';
+                    assignedFloorName = userData.assigned_floor_name || userData.assigned_flat_name || '';
+                    assignedArea = assignedFloorName || assignedFloor || '';
+
+                    assignedFloorId = null;
+                    if (assignedFloor && !isNaN(assignedFloor)) {
+                        assignedFloorId = parseInt(assignedFloor);
+                    }
+
+                    if (floorsFlats.length > 0) {
+                        resolveFloorFromFloors();
+                    }
+
+                    if (assignedHostelId && !assignedHostelName) {
+                        const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
+                        if (hostel) assignedHostelName = hostel.name;
+                    }
+
+                    if (!assignedHostelId && currentUser.hostel_id) {
+                        assignedHostelId = currentUser.hostel_id;
+                    }
+                    if (!assignedHostelName && currentUser.hostel) {
+                        assignedHostelName = currentUser.hostel;
+                    }
+
+                    if (!assignedHostelId && hostels.length > 0) {
+                        assignedHostelId = hostels[0].id;
+                        assignedHostelName = hostels[0].name;
+                    }
+
+                    return userData;
+                }
+                throw new Error('User data not found');
+            } catch (error) {
+                if (currentUser) {
+                    assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
+                    assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
+                    assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
+                    assignedFloorName = currentUser.assigned_floor_name || currentUser.assigned_flat_name || '';
+                    assignedArea = assignedFloorName || assignedFloor || '';
+
+                    if (assignedFloor && !isNaN(assignedFloor)) {
+                        assignedFloorId = parseInt(assignedFloor);
+                    }
+
+                    if (assignedHostelId && !assignedHostelName && hostels.length > 0) {
+                        const hostel = hostels.find(h => sameId(h.id, assignedHostelId));
+                        if (hostel) assignedHostelName = hostel.name;
+                    }
+
+                    if (!assignedHostelId && hostels.length > 0) {
+                        assignedHostelId = hostels[0].id;
+                        assignedHostelName = hostels[0].name;
+                    }
+
+                    return currentUser;
+                }
+
+                throw new Error('Unable to load user profile: ' + error.message);
+            }
+        }
+
+        // =============================================
+        // UPDATE HEADER
+        // =============================================
+        function updateHeader() {
+            if (!currentUser) return;
+            const avatar = document.getElementById('profileAvatar');
+            const name = document.getElementById('profileName');
+            const role = document.getElementById('profileRoleLabel');
+            const roleLabel = document.getElementById('roleLabel');
+            const roleScope = document.getElementById('roleScope');
+            const mobileRole = document.getElementById('mobileRoleFooter');
+
+            const initials = currentUser.initials || getInitials(currentUser.name);
+            const displayName = currentUser.name || 'User';
+
+            avatar.textContent = initials;
+            name.textContent = displayName;
+            role.textContent = 'RA';
+            roleLabel.textContent = 'RA';
+
+            const hostelDisplay = assignedHostelName || 'No Hostel';
+            const areaDisplay = assignedArea || 'No Floor';
+            const roomCount = assignedRooms.length;
+            let statusEmoji = '⏳';
+            if (isRASessionActive) statusEmoji = '🟢';
+            else if (hasCompletedToday) statusEmoji = '✅';
+            else if (globalSessionActive) statusEmoji = '🟡';
+            roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
+            mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms ${statusEmoji}`;
+        }
+
+        // =============================================
+        // START BEDCHECK
+        // =============================================
+        async function startBedCheck() {
+            if (isRASessionActive) {
+                showToast('You already have an active session.', 'info');
+                return;
+            }
+
+            if (hasCompletedToday) {
+                showToast('You have already completed today\'s BedCheck.', 'info');
+                return;
+            }
+
+            if (!globalSessionActive) {
+                showToast('No active session available.', 'error');
+                return;
+            }
+
+            if (assignedRooms.length === 0) {
+                showToast('No rooms assigned. Contact your HRA.', 'error');
+                return;
+            }
+
+            try {
+                const sessionId = currentSession?.id || currentSession?.session_id;
+
+                if (!sessionId) {
+                    showToast('Could not find session ID.', 'error');
+                    return;
+                }
+
+                const result = await apiCall('/ra/bedcheck/start', {
+                    method: 'POST',
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+
+                if (result && result.success) {
+                    isSessionActive = true;
+                    isRASessionActive = true;
+                    sessionStatus = 'active';
+                    effectiveStatus = 'started';
+                    currentSession = result.data?.session || { id: sessionId };
+
+                    addTimeline('BedCheck started', `Session ID: ${sessionId}`);
+
+                    await loadSessionStatus();
+
+                    showToast('✅ BedCheck started!', 'success');
+                    renderDashboard();
+                } else {
+                    showToast('Failed to start BedCheck.', 'error');
+                }
+
+            } catch (error) {
+                showToast('Failed to start: ' + error.message, 'error');
+            }
+        }
+
+        // =============================================
+        // COMPLETE BEDCHECK
+        // =============================================
+        async function completeBedCheck() {
+            if (!isRASessionActive) {
+                showToast('No active session to complete.', 'error');
+                return;
+            }
+
+            if (!confirm('Complete tonight\'s BedCheck? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const sessionId = currentSession?.id || currentSession?.session_id;
+
+                if (!sessionId || sessionId === 'completed') {
+                    showToast('No session found.', 'error');
+                    return;
+                }
+
+                await apiCall('/ra/bedcheck/complete', {
+                    method: 'POST',
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+
+                isSessionActive = false;
+                isRASessionActive = false;
+                sessionStatus = 'completed';
+                effectiveStatus = 'completed';
+                hasCompletedToday = true;
+
+                addTimeline('BedCheck completed', `Session ID: ${sessionId}`);
+
+                await loadSessionStatus();
+
+                showToast('✅ BedCheck completed!', 'success');
+                renderDashboard();
+
+            } catch (error) {
+                showToast('Failed to complete: ' + error.message, 'error');
+            }
+        }
+
+        // =============================================
+        // ⭐ NEW: MANUAL REFRESH
+        // =============================================
+        async function manualRefresh() {
+            showToast('Refreshing…', 'info');
+            try {
+                await loadSessionStatus();
+                await loadStudents();
+                updateHeader();
+                renderDashboard();
+                showToast('Updated', 'success');
+            } catch (error) {
+                if (error.isNetworkError) {
+                    showToast('Server is waking up. Please try again in a moment.', 'info');
+                } else {
+                    showToast('Refresh failed: ' + error.message, 'error');
+                }
+            }
+        }
+
+        // =============================================
+        // SHOW ERROR STATE
+        // =============================================
+        function showError(message) {
+            const container = document.getElementById('screenContent');
+            container.innerHTML = `
+                <div class="error-container">
+                    <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <h2>Unable to Load</h2>
+                    <p>${message}</p>
+                    <button class="btn-success" onclick="location.reload()">
+                        <i class="fas fa-refresh"></i> Retry
+                    </button>
+                </div>
+            `;
+        }
+
+        // =============================================
+        // RENDER SKELETON
+        // =============================================
+        function renderSkeleton() {
+            const container = document.getElementById('screenContent');
+            container.innerHTML = `
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
+                        <h1 class="skeleton" style="height:2.25rem;width:12rem;"></h1>
+                        <div class="skeleton skeleton-text" style="width:16rem;margin-top:0.5rem;"></div>
+                    </div>
+                </div>
+                <div class="session-banner">
+                    <div class="session-icon">🌙</div>
+                    <div class="session-info">
+                        <div class="session-title skeleton" style="height:1.5rem;width:10rem;"></div>
+                        <div class="skeleton skeleton-text" style="width:8rem;margin-top:0.4rem;"></div>
+                    </div>
+                    <span class="skeleton skeleton-badge"></span>
+                </div>
+                <div class="metric-grid">
+                    <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                    <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                    <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                    <div class="metric-card"><div class="skeleton skeleton-metric"></div><div class="skeleton skeleton-text-sm" style="margin-top:0.4rem;"></div></div>
+                </div>
+                <div class="card mt-4">
+                    <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                </div>
+                <div class="card mt-4">
+                    <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> <span class="skeleton skeleton-card-title"></span></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                    <div class="skeleton skeleton-row" style="margin-top:0.5rem;"></div>
+                </div>
+            `;
+        }
+
+        // =============================================
+        // RENDER DASHBOARD
+        // =============================================
+        function renderDashboard() {
+            const container = document.getElementById('screenContent');
+
+            const displayHostel = assignedHostelName || 'No Hostel';
+            const displayArea = assignedArea || 'No Floor';
+            const totalStudents = filteredStudents.length;
+
+            const verified = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present').length || 0;
+            const absent = filteredStudents.filter(s => bedScanStatus[s.id]?.status === 'Absent' || s.status === 'Absent').length || 0;
+            const pending = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status).length || 0;
+            const completionRate = totalStudents > 0 ? Math.round(((verified + absent) / totalStudents) * 100) : 0;
+
+            const hostelInfo = hostels.find(h => sameId(h.id, assignedHostelId));
+
+            let hraName = 'Not Assigned';
+            let currentRAName = currentUser?.name || 'Not Assigned';
+
+            if (assignedHostelId) {
+                const hraStaff = staffMembers.find(s => sameId(s.hostel_id, assignedHostelId) && s.role === 'HRA' && s.status === 'Active');
+                if (hraStaff) hraName = hraStaff.name;
+            }
+
+            let sessionDisplay = {
+                title: 'Night BedCheck',
+                statusText: 'No session available',
+                badgeClass: 'closed',
+                badgeText: 'Closed',
+                showStartButton: false,
+                showCompleteButton: false,
+                showCompletedBadge: false
+            };
+
+            if (effectiveStatus === 'started') {
+                sessionDisplay.statusText = 'BedCheck In Progress';
+                sessionDisplay.badgeClass = 'active';
+                sessionDisplay.badgeText = 'Active';
+                sessionDisplay.showCompleteButton = true;
+                sessionDisplay.showCompletedBadge = false;
+            } else if (effectiveStatus === 'ready') {
+                sessionDisplay.statusText = 'Night Session Ready';
+                sessionDisplay.badgeClass = 'ready';
+                sessionDisplay.badgeText = 'Ready';
+                sessionDisplay.showStartButton = true;
+                sessionDisplay.showCompletedBadge = false;
+            } else if (effectiveStatus === 'completed') {
+                sessionDisplay.statusText = 'BedCheck Completed';
+                sessionDisplay.badgeClass = 'completed';
+                sessionDisplay.badgeText = 'Done';
+                sessionDisplay.showCompletedBadge = true;
+                sessionDisplay.showStartButton = false;
+                sessionDisplay.showCompleteButton = false;
+            } else {
+                sessionDisplay.statusText = 'No session available';
+                sessionDisplay.badgeClass = 'closed';
+                sessionDisplay.badgeText = 'Closed';
+                sessionDisplay.showStartButton = false;
+                sessionDisplay.showCompleteButton = false;
+            }
+
+            const sessionName = currentSession?.name || 'Night BedCheck';
+
+            let sessionDate = '—';
+            let sessionStart = '—';
+            let sessionEnd = '—';
+            let sessionGrace = '15';
+
+            if (currentSession) {
+                if (currentSession.date) {
+                    sessionDate = formatSessionDate(currentSession.date);
+                } else if (currentSession.created_at) {
+                    sessionDate = formatSessionDate(currentSession.created_at);
+                }
+
+                if (currentSession.start_time) {
+                    sessionStart = formatSessionTime(currentSession.start_time);
+                } else if (currentSession.created_at) {
+                    sessionStart = formatSessionTime(currentSession.created_at);
+                }
+
+                if (currentSession.end_time) {
+                    sessionEnd = formatSessionTime(currentSession.end_time);
+                }
+
+                if (currentSession.grace_period) {
+                    sessionGrace = currentSession.grace_period;
+                }
+            }
+
+            const hasSession = globalSessionActive || effectiveStatus !== 'closed';
+
+            container.innerHTML = `
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow"><i class="fas fa-clipboard-list"></i> RA Dashboard</p>
+                        <h1>${displayHostel}</h1>
+                        <p class="desc">
+                            <span class="assigned-hostel-badge">
+                                <i class="fas fa-building"></i> ${displayHostel}
+                            </span>
+                            <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                <i class="fas fa-layer-group"></i> ${displayArea}
+                            </span>
+                            <span class="text-muted" style="margin-left:0.5rem;">${totalStudents} students</span>
+                            <span class="assigned-hostel-badge" style="margin-left:0.5rem;background:#d6ad4b20;">
+                                <i class="fas fa-door-open"></i> ${assignedRooms.length} rooms
+                            </span>
+                        </p>
+                    </div>
+                    <div class="action-group">
+                        <!-- ⭐ NEW: Manual Refresh button (always visible) -->
+                        <button class="btn-outline" id="refreshDashboardBtn">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                        ${sessionDisplay.showStartButton && assignedRooms.length > 0 ? `
+                            <button class="btn-success" id="startBedCheckBtn"><i class="fas fa-play"></i> Start BedCheck</button>
+                        ` : ''}
+                        ${sessionDisplay.showCompleteButton ? `
+                            <button class="btn-danger" id="completeBedCheckBtn"><i class="fas fa-check-double"></i> Complete</button>
+                        ` : ''}
+                        ${sessionDisplay.showCompletedBadge ? `
+                            <button class="btn-outline" disabled><i class="fas fa-check-circle"></i> Completed ✓</button>
+                        ` : ''}
+                        ${assignedRooms.length === 0 && effectiveStatus !== 'completed' ? `
+                            <button class="btn-outline" disabled><i class="fas fa-exclamation-triangle"></i> No rooms assigned</button>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Night Session Banner -->
+                <div class="session-banner">
+                    <div class="session-icon">🌙</div>
+                    <div class="session-info">
+                        <div class="session-title">${sessionName}</div>
+                        <div class="session-sub">${sessionDisplay.statusText}</div>
+                        ${hasSession ? `
+                            <div class="session-sub" style="font-size:0.75rem;margin-top:0.3rem;color:#8899aa;">
+                                ${sessionDate} · ${sessionStart} ${sessionEnd !== '—' ? `— ${sessionEnd}` : ''}
+                                <span style="margin-left:0.75rem;"><i class="fas fa-clock"></i> Grace: ${sessionGrace}min</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <span class="session-status-badge ${sessionDisplay.badgeClass}">${sessionDisplay.badgeText}</span>
+                    </div>
+                </div>
+
+                <!-- Metric Cards -->
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <div class="metric-icon navy"><i class="fas fa-users"></i></div>
+                        <div class="metric-value">${totalStudents}</div>
+                        <div class="metric-title">Total Students</div>
+                        <div class="metric-detail">In ${displayArea}</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #2d6545;">
+                        <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
+                        <div class="metric-value" style="color:#2d6545;">${verified}</div>
+                        <div class="metric-title">Verified</div>
+                        <div class="metric-detail">Students present</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #8a3328;">
+                        <div class="metric-icon red"><i class="fas fa-user-slash"></i></div>
+                        <div class="metric-value" style="color:#8a3328;">${absent}</div>
+                        <div class="metric-title">Absent</div>
+                        <div class="metric-detail">Students absent</div>
+                    </div>
+                    <div class="metric-card" style="border-left:3px solid #b9c7db;">
+                        <div class="metric-icon gray"><i class="fas fa-hourglass-half"></i></div>
+                        <div class="metric-value" style="color:#536274;">${pending}</div>
+                        <div class="metric-title">Pending</div>
+                        <div class="metric-detail">Awaiting verification</div>
+                    </div>
+                </div>
+
+                <!-- Hostel Details -->
+                <div class="card">
+                    <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Details</div>
+                    <div>
+                        <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                            <span class="text-muted">Hostel</span>
+                            <span class="font-bold">${hostelInfo?.name || displayHostel}</span>
+                        </div>
+                        <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                            <span class="text-muted">Type</span>
+                            <span class="font-bold">${hostelInfo?.type || '—'}</span>
+                        </div>
+                        <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                            <span class="text-muted">Assigned Area</span>
+                            <span class="font-bold">${displayArea}</span>
+                        </div>
+                        <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                            <span class="text-muted">Assigned Rooms</span>
+                            <span class="font-bold">${assignedRooms.length}</span>
+                        </div>
+                        <div class="flex-between" style="padding:0.4rem 0;border-bottom:1px solid #f0ebe2;">
+                            <span class="text-muted">RA</span>
+                            <span class="font-bold">${currentRAName}</span>
+                        </div>
+                        <div class="flex-between" style="padding:0.4rem 0;">
+                            <span class="text-muted">HRA</span>
+                            <span class="font-bold">${hraName}</span>
+                        </div>
+                        <div class="mt-3 pt-3 border-t">
+                            <div class="progress-bar"><div class="fill" style="width:${completionRate}%;"></div></div>
+                            <div class="flex-between mt-1">
+                                <span class="text-xs text-muted">${completionRate}% completion</span>
+                                <span class="text-xs text-gold">${verified + absent} / ${totalStudents} processed</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Students Table -->
+                <div class="card mt-4">
+                    <div class="flex-between">
+                        <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Assigned Students</div>
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                            <div class="field" style="min-width:120px;">
+                                <select id="statusFilter" onchange="filterStudents()">
+                                    <option value="all">All Status</option>
+                                    <option value="Verified">Verified</option>
+                                    <option value="Absent">Absent</option>
+                                    <option value="Pending">Pending</option>
+                                </select>
+                            </div>
+                            <button class="btn-ghost" onclick="resetFilters()" style="font-size:0.8rem;">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap mt-2">
+                        <table>
+                            <thead><tr>
+                                <th>Student</th>
+                                <th>Matric</th>
+                                <th>Room</th>
+                                <th>Status</th>
+                                <th>Last Updated</th>
+                            </tr></thead>
+                            <tbody id="studentTableBody"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination">
+                        <div class="info" id="paginationInfo">Showing 1-10 of 0 students</div>
+                        <div class="pages" id="paginationControls"></div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="night-session-footer">
+                    BedCheck System · Benson Idahosa University
+                </div>
+            `;
+
+            renderStudentTable();
+
+            document.getElementById('startBedCheckBtn')?.addEventListener('click', startBedCheck);
+            document.getElementById('completeBedCheckBtn')?.addEventListener('click', completeBedCheck);
+            document.getElementById('refreshDashboardBtn')?.addEventListener('click', manualRefresh);   // ⭐ NEW
+        }
+
+        // =============================================
+        // RENDER STUDENT TABLE
+        // =============================================
+        function renderStudentTable() {
+            const tbody = document.getElementById('studentTableBody');
+            if (!tbody) return;
+
+            const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+
+            let displayStudents = filteredStudents;
+            if (statusFilter !== 'all') {
+                if (statusFilter === 'Pending') {
+                    displayStudents = filteredStudents.filter(s => !bedScanStatus[s.id]?.verified && s.status !== 'Absent' && !s.status);
+                } else if (statusFilter === 'Verified') {
+                    displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.verified || s.status === 'Verified' || s.status === 'Present');
+                } else {
+                    displayStudents = filteredStudents.filter(s => bedScanStatus[s.id]?.status === statusFilter || s.status === statusFilter);
+                }
+            }
+
+            const start = (currentPage - 1) * ITEMS_PER_PAGE;
+            const end = start + ITEMS_PER_PAGE;
+            const pageStudents = displayStudents.slice(start, end);
+
+            if (pageStudents.length === 0) {
+                tbody.innerHTML =
+                    `<tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">
+                        ${filteredStudents.length === 0 ? 'No students assigned to your area.' : 'No students match the filter.'}
+                    </td></tr>`;
+                updatePagination(displayStudents.length);
+                return;
+            }
+
+            tbody.innerHTML = pageStudents.map(s => {
+                const scan = bedScanStatus[s.id];
+                let status = 'Pending';
+                if (scan?.verified || s.status === 'Verified' || s.status === 'Present') {
+                    status = 'Verified';
+                } else if (scan?.status === 'Absent' || s.status === 'Absent') {
+                    status = 'Absent';
+                }
+                const verifiedTime = scan?.time ? formatTime(scan.time) : '';
+                const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
+
+                return `
+                    <tr>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <span class="avatar">${getInitials(s.name)}</span>
+                                <span class="font-bold">${s.name || 'Unknown'}</span>
+                            </div>
+                        </td>
+                        <td>${s.matric || '—'}</td>
+                        <td>${s.room_code || s.room || '—'}</td>
+                        <td>${attBadge(status)}</td>
+                        <td style="font-size:0.8rem;color:#6b778b;">${verifiedTime || (s.updated_at ? formatTime(s.updated_at) : '—')}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            updatePagination(displayStudents.length);
+        }
+
+        // =============================================
+        // UPDATE PAGINATION
+        // =============================================
+        function updatePagination(total) {
+            const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+            const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+            const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
+
+            const info = document.getElementById('paginationInfo');
+            if (info) {
+                info.textContent = `Showing ${total > 0 ? start : 0}-${end} of ${total} students`;
+            }
+
+            const controls = document.getElementById('paginationControls');
+            if (!controls) return;
+
+            let html = '';
+            html +=
+                `<button onclick="changePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+
+            for (let i = 1; i <= Math.min(totalPages, 7); i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                    html +=
+                        `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+                } else if (i === currentPage - 3 || i === currentPage + 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+
+            html +=
+                `<button onclick="changePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+            controls.innerHTML = html;
+        }
+
+        // =============================================
+        // FILTERS
+        // =============================================
+        function filterStudents() {
+            currentPage = 1;
+            renderStudentTable();
+        }
+
+        function resetFilters() {
+            const filter = document.getElementById('statusFilter');
+            if (filter) filter.value = 'all';
+            currentPage = 1;
+            renderStudentTable();
+        }
+
+        function changePage(page) {
+            const total = filteredStudents.length;
+            const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            renderStudentTable();
+        }
+
+        // =============================================
+        // AUTHENTICATION
+        // =============================================
+        function checkAuth() {
+            const userData = sessionStorage.getItem('bedcheck_user');
+            const token = sessionStorage.getItem('bedcheck_token');
+
+            if (!userData || !token) {
+                window.location.replace('../Login.html');
+                return false;
+            }
+
+            try {
+                currentUser = JSON.parse(userData);
+            } catch (e) {
+                window.location.replace('../Login.html');
+                return false;
+            }
+
+            assignedHostelId = currentUser.hostel_id || currentUser.hostelId || null;
+            assignedHostelName = currentUser.hostel || currentUser.hostel_name || '';
+            assignedFloor = currentUser.assigned_floor || currentUser.assigned_flat || '';
+            assignedFloorName = currentUser.assigned_floor_name || '';
+            assignedArea = assignedFloorName || assignedFloor || '';
+
+            if (assignedFloor && !isNaN(assignedFloor)) {
+                assignedFloorId = parseInt(assignedFloor);
+            }
+
+            return true;
+        }
+
+        function handleLogout(e) {
+            e.preventDefault();
+            sessionStorage.removeItem('bedcheck_token');
+            sessionStorage.removeItem('bedcheck_user');
+            sessionStorage.removeItem('bedcheck_role');
+            window.location.replace('../Login.html');
+        }
+
+        // =============================================
+        // SET DATE
+        // =============================================
+        function setDate() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        // =============================================
+        // MOBILE DRAWER
+        // =============================================
+        function openMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.add('open');
+            document.getElementById('drawerOverlay').classList.add('show');
+        }
+
+        function closeMobileDrawer() {
+            document.getElementById('mobileDrawer').classList.remove('open');
+            document.getElementById('drawerOverlay').classList.remove('show');
+        }
+
+        // =============================================
+        // EXPOSE GLOBALLY
+        // =============================================
+        window.showToast = showToast;
+        window.filterStudents = filterStudents;
+        window.resetFilters = resetFilters;
+        window.changePage = changePage;
+        window.manualRefresh = manualRefresh;   // ⭐ NEW
+
+        // =============================================
+        // INIT — PROGRESSIVE LOADING
+        // =============================================
+        async function init() {
+            if (!checkAuth()) return;
+
+            setDate();
+
+            document.getElementById('menuToggle').addEventListener('click', openMobileDrawer);
+            document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
+            document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+            renderSkeleton();
+            updateHeader();
+
+            try {
+                const [hostelsResult, staffResult] = await Promise.allSettled([
+                    loadHostels(),
+                    loadStaff()
+                ]);
+
+                if (hostelsResult.status === 'rejected') hostels = [];
+                if (staffResult.status === 'rejected') staffMembers = [];
+
+                await loadUserProfile();
+
+                if (assignedHostelId) {
+                    await loadFloorsFlats();
+                    resolveFloorFromFloors();
+                }
+
+                await loadAssignedRooms();
+                updateHeader();
+
+                await Promise.allSettled([
+                    loadStudents(),
+                    loadSessionStatus()
+                ]);
+
+                renderDashboard();
+                // ⭐ REMOVED: startSessionChecker();
+                addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
+
+            } catch (error) {
+                if (filteredStudents.length > 0 || hostels.length > 0) {
+                    renderDashboard();
+                    showToast('Some data failed to load. Displaying partial results.', 'info');
+                } else {
+                    const errorMessage = error.isNetworkError
+                        ? 'The server is starting up. Please wait a moment and click Retry.'
+                        : (error.message || 'Failed to load dashboard data.');
+                    showError(errorMessage);
+                    showToast('Error: ' + errorMessage, 'error');
+                }
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+    })();
+</script>
 
 </body>
 </html>
