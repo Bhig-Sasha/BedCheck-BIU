@@ -761,8 +761,7 @@ async function createUniversityWideBedcheckSessions(sessionId) {
             return;
         }
 
-        // 4. Bulk upsert — relies on UNIQUE (global_session_id, hostel_id)
-        //    ignoreDuplicates: true → existing rows are left untouched
+        // 4. Bulk upsert
         const { error: insertError } = await supabase
             .from('bedcheck_sessions')
             .upsert(bedcheckInserts, {
@@ -9735,24 +9734,25 @@ app.post('/api/ra/bedcheck/start',
 
             const totalStudents = students?.length || 0;
 
-            // ✅ Create bedcheck session (using bedcheck_sessions table)
+            // ✅ Create bedcheck session
+            const now = new Date().toISOString();
+
             const { data: bedcheckSession, error: sessionError } = await supabase
                 .from('bedcheck_sessions')
-                .insert({
-                    ra_id: raId,
-                    global_session_id: globalSessionId,
-                    hostel_id: hostelId,
-                    status: 'started',
-                    total_students: totalStudents,
-                    present_students: 0,
-                    completion: 0,
-                    started_at: new Date().toISOString(),
-                    campus: campusContext,
-                    campus_code: campusContext === 'Legacy' ? 'LEG' : 'HER',
-                    created_by: req.user.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                })
+                .upsert(
+                    {
+                        global_session_id: globalSessionId,
+                        hostel_id: hostelId,
+                        ra_id: raId,
+                        status: 'started',
+                        started_at: now,
+                        updated_at: now
+                    },
+                    {
+                        onConflict: 'global_session_id,hostel_id',
+                        ignoreDuplicates: false
+                    }
+                )
                 .select()
                 .single();
 
