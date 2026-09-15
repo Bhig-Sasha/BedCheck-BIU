@@ -605,9 +605,8 @@
             return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         }
 
-        // ⭐ NEW: normalize an incoming session object so the UI
-        //    always gets consistent numeric fields, even if the
-        //    server returns nulls/undefined/strings.
+        // ⭐ Normalize an incoming session object so the UI
+        //    always gets consistent numeric fields.
         function normalizeSession(s) {
             if (!s) return s;
             const toInt = (v) => {
@@ -629,6 +628,10 @@
 
         // =============================================
         // AUTHENTICATED API HELPER
+        // ★ FIX: only send Content-Type when a body is present.
+        //   This lets us call POST/PUT/DELETE endpoints with no body
+        //   (e.g. /sessions/:id/sync-progress) without Express's
+        //   express.json() rejecting the empty body as "Invalid JSON payload".
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -644,10 +647,15 @@
             let response;
             try {
                 const headers = {
-                    'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
                     ...(options.headers || {})
                 };
+
+                // ★ Only declare JSON content-type when we actually send a body.
+                if (options.body !== undefined && options.body !== null) {
+                    headers['Content-Type'] = 'application/json';
+                }
+
                 response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
             } catch (networkError) {
                 const err = new Error('NETWORK_ERROR');
@@ -677,6 +685,11 @@
                     errorMessage = errorText || errorMessage;
                 }
                 throw new Error(errorMessage);
+            }
+
+            // Handle 204 No Content gracefully (DELETE, empty POST responses)
+            if (response.status === 204) {
+                return { success: true, data: null };
             }
 
             const data = await response.json();
@@ -739,8 +752,6 @@
 
         // =============================================
         // DATA LOADING
-        // ⭐ CHANGED: normalize sessions on load so the UI
-        //    never renders `undefined` or `NaN`.
         // =============================================
         async function loadHostels() {
             if (hostelsLoaded) return hostels;
@@ -764,12 +775,11 @@
             } catch (error) {
                 sessions = [];
                 currentSession = null;
-                throw error; // ⭐ let init() catch and handle network errors
+                throw error;
             }
         }
 
-        // ⭐ NEW: single-session fetch (used by the details modal) so it
-        //    always pulls the freshest counts, not the cached list.
+        // Fresh single-session fetch for the details modal.
         async function fetchSessionDetails(sessionId) {
             const data = await apiCall(`/sessions/${sessionId}`);
             return normalizeSession(data.data);
@@ -777,8 +787,6 @@
 
         // =============================================
         // SESSION DETAILS
-        // ⭐ CHANGED: always fetch fresh from server, normalize,
-        //    and fall back to the list item if the endpoint fails.
         // =============================================
         async function viewSessionDetails(sessionId) {
             selectedSessionId = sessionId;
@@ -794,7 +802,6 @@
                 try {
                     session = await fetchSessionDetails(sessionId);
                 } catch (fetchErr) {
-                    // Fallback to whatever we already have in memory
                     console.warn('[Sessions] Detail fetch failed, using cached list item:', fetchErr);
                     session = sessions.find(s => s.id === sessionId);
                 }
@@ -810,7 +817,6 @@
                 const campusDisplay = isUniversityWide ? '🌍 All Campuses' : (session.campus || 'Legacy');
                 const campuses = session.campuses || [];
 
-                // ⭐ CHANGED: fall back to 0 for all numeric fields
                 const totalStudents   = session.total_students   || 0;
                 const presentStudents = session.present_students || 0;
                 const completion      = session.completion       || 0;
@@ -818,7 +824,6 @@
                 const hostelsCompleted = session.hostels_completed || 0;
                 const scansCount      = session.scans_count      || 0;
 
-                // ⭐ NEW: show a small notice if numbers look unpopulated
                 const progressMissing =
                     (totalStudents === 0 && totalHostels === 0) &&
                     (session.status === 'active' || session.status === 'completed');
@@ -957,8 +962,10 @@
             }
         }
 
-        // ⭐ NEW: manual sync button — calls the server-side progress
+        // ⭐ Manual sync button — calls the server-side progress
         //    recalculation endpoint, then refreshes the modal & list.
+        //    apiCall now omits Content-Type for bodyless POSTs, so this
+        //    no longer trips express.json() with "Invalid JSON payload".
         window.syncSessionProgress = async function(sessionId) {
             const btn = document.getElementById('syncProgressBtn');
             if (btn) {
@@ -972,7 +979,6 @@
                 });
                 showToast('✅ Progress synced', 'success');
 
-                // Refresh the list and the open modal
                 await loadSessions();
                 renderScreen();
 
@@ -980,9 +986,11 @@
                     await viewSessionDetails(sessionId);
                 }
             } catch (error) {
-                // Fallback: some backends do this via PUT /sessions/:id/recalculate
+                // Fallback endpoint
                 try {
-                    await apiCall(`/sessions/${sessionId}/recalculate`, { method: 'POST' });
+                    await apiCall(`/sessions/${sessionId}/recalculate`, {
+                        method: 'POST'
+                    });
                     showToast('✅ Progress synced', 'success');
                     await loadSessions();
                     renderScreen();
@@ -995,10 +1003,11 @@
                         `The server may not expose a sync endpoint yet.`,
                         'error'
                     );
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fas fa-sync"></i> Sync Progress';
-                    }
+                }
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-sync"></i> Sync Progress';
                 }
             }
         };
@@ -1101,14 +1110,12 @@
                 await loadSessions();
                 renderScreen();
 
-                // ⭐ NEW: best-effort sync after starting so hostel rows
-                //    and initial counts populate right away.
+                // ⭐ best-effort auto-sync after starting
                 try {
                     await apiCall(`/sessions/${sessionId}/sync-progress`, { method: 'POST' });
                     await loadSessions();
                     renderScreen();
                 } catch (e) {
-                    // Sync endpoint may not exist yet — that's fine.
                     console.warn('[Sessions] Auto-sync after start not available:', e.message);
                 }
             } catch (error) {
@@ -1410,7 +1417,6 @@
                                     const totalHostels = s.total_hostels || 0;
                                     const scansCount = s.scans_count || 0;
 
-                                    // ⭐ CHANGED: flag sessions that have never been synced
                                     const neverSynced = (isActive || isCompleted) &&
                                                         totalStudents === 0 &&
                                                         totalHostels === 0 &&
@@ -1635,7 +1641,6 @@
 
         // =============================================
         // INIT
-        // ⭐ CHANGED: distinguish network errors from API errors
         // =============================================
         async function init() {
             if (!checkAuth()) return;
@@ -1658,7 +1663,6 @@
                 document.getElementById('noticeText').textContent =
                     `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
 
-                // Non-blocking
                 loadHostels().catch(() => {});
 
             } catch (error) {
@@ -1677,7 +1681,7 @@
                     );
                 }
 
-                renderScreen(); // will render the empty state
+                renderScreen();
             }
         }
 
