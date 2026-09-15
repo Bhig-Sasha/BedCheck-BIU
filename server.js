@@ -936,68 +936,90 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 
 async function updateSessionProgressUniversityWide(sessionId) {
     try {
-        const { data: bedcheckSessions, error: bedcheckError } = await supabase
-            .from('bedcheck_sessions')
-            .select('status, campus')
-            .eq('global_session_id', sessionId);
+        const sid = parseInt(sessionId);
+        if (!sid) return;
 
-        if (bedcheckError) {
-            console.error('Error fetching bedcheck sessions:', bedcheckError);
+        // Real scans for this global session
+        const { data: scans, error: scansError } = await supabase
+            .from('bedcheck_scans')
+            .select('student_id, status, campus')
+            .eq('session_id', sid);
+
+        if (scansError) {
+            console.error('Progress scans error:', scansError);
             return;
         }
 
-        const total = bedcheckSessions?.length || 0;
-        const completed = bedcheckSessions?.filter(b => b.status === 'completed').length || 0;
-        const completion = total > 0 ? Math.round((completed / total) * 100) : 0;
-        const now = new Date().toISOString();
+        const presentIds = new Set(
+            (scans || [])
+                .filter(s => s.status === 'Verified' || s.status === 'Present')
+                .map(s => s.student_id)
+        );
+        const presentStudents = presentIds.size;
 
-        // Update parent session summary
+        // Total active students (university-wide)
+        const { count: totalStudents } = await supabase
+            .from('students')
+            .select('id', { count: 'exact', head: true })
+            .ilike('status', 'active');
+
+        const total = totalStudents || 0;
+        const completion = total > 0 ? Math.round((presentStudents / total) * 100) : 0;
+
+        // Hostel-level rows
+        const { data: bedcheckSessions } = await supabase
+            .from('bedcheck_sessions')
+            .select('id, hostel_id, campus, status')
+            .eq('global_session_id', sid);
+
+        const totalHostels = bedcheckSessions?.length || 0;
+
+        // Per-hostel present counts
+        for (const hs of (bedcheckSessions || [])) {
+            const { data: hostelStudents } = await supabase
+                .from('students')
+                .select('id')
+                .eq('hostel_id', hs.hostel_id);
+
+            const hostelStudentIds = new Set((hostelStudents || []).map(s => s.id));
+            const hostelPresent = [...presentIds].filter(id => hostelStudentIds.has(id)).length;
+            const hostelTotal = hostelStudentIds.size;
+            const hostelCompletion = hostelTotal > 0
+                ? Math.round((hostelPresent / hostelTotal) * 100)
+                : 0;
+
+            await supabase
+                .from('bedcheck_sessions')
+                .update({
+                    total_students: hostelTotal,
+                    present_students: hostelPresent,
+                    completion: hostelCompletion,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', hs.id);
+        }
+
+        const hostelsCompleted = (bedcheckSessions || []).filter(b => {
+            // will be stale until re-read; optional: count those with completion 100
+            return false;
+        }).length;
+
+        // Parent sessions row
         await supabase
             .from('sessions')
             .update({
-                hostels_completed: completed,
+                total_students: total,
+                present_students: presentStudents,
                 completion: completion,
-                updated_at: now
+                total_hostels: totalHostels,
+                updated_at: new Date().toISOString()
             })
-            .eq('id', sessionId);
+            .eq('id', sid);
 
-        const campuses = ['Legacy', 'Heritage'];
-        const progressRows = campuses.map(campus => {
-            const campusBedchecks = bedcheckSessions?.filter(b => b.campus === campus) || [];
-            const campusTotal = campusBedchecks.length;
-            const campusCompleted = campusBedchecks.filter(b => b.status === 'completed').length;
-            const campusCompletion = campusTotal > 0
-                ? Math.round((campusCompleted / campusTotal) * 100)
-                : 0;
-
-            return {
-                session_id: sessionId,
-                hostel_id: null,
-                total_students: 0,
-                verified_students: 0,
-                absent_students: 0,
-                completion: campusCompletion,
-                campus: campus,
-                created_at: now,
-                updated_at: now
-            };
-        });
-
-        const { error: progressError } = await supabase
-            .from('hostel_progress')
-            .upsert(progressRows, {
-                onConflict: 'session_id,campus',
-                ignoreDuplicates: false
-            });
-
-        if (progressError) {
-            console.error('Error upserting hostel_progress:', progressError);
-        }
-
-        console.log(`✅ Updated session progress: ${completed}/${total} hostels completed (${completion}%)`);
+        console.log(`📊 Session ${sid}: ${presentStudents}/${total} present (${completion}%)`);
 
     } catch (error) {
-        console.error('Error updating session progress:', error);
+        console.error('Error in updateSessionProgressUniversityWide:', error);
     }
 }
 
@@ -9965,29 +9987,25 @@ app.get('/api/ra/bedcheck/status',
             // =============================================
             let globalSession = null;
             let globalSessionActive = false;
-            
+
             try {
                 const { data: globalSessions, error: globalError } = await supabase
                     .from('sessions')
                     .select('*')
                     .eq('status', 'active')
-                    // REMOVED: .eq('campus', campusContext)
                     .order('created_at', { ascending: false })
                     .limit(1);
-                
+
                 if (!globalError && globalSessions && globalSessions.length > 0) {
                     globalSession = globalSessions[0];
                     globalSessionActive = true;
-                    console.log(`📋 Global session ACTIVE for RA ${raId}:`, globalSession.id);
-                } else {
-                    console.log(`📋 No global active session found`);
                 }
             } catch (e) {
                 console.warn('Error checking global session:', e.message);
             }
 
             // =============================================
-            // 2. GET RA'S BEDCHECK SESSIONS
+            // 2. GET RA'S BEDCHECK SESSIONS (hostel-level)
             // =============================================
             let query = supabase
                 .from('bedcheck_sessions')
@@ -10026,76 +10044,55 @@ app.get('/api/ra/bedcheck/status',
 
             if (raSessions && raSessions.length > 0) {
                 raSessionExists = true;
-                
-                // Check for active RA session
-                const active = raSessions.find(s => s.status === 'started' || s.status === 'in_progress');
-                if (active) {
-                    activeRASession = active;
-                    console.log(`📋 RA has active session:`, active.id);
-                }
 
-                // Check if RA completed today
+                const active = raSessions.find(s =>
+                    s.status === 'started' || s.status === 'in_progress'
+                );
+                if (active) activeRASession = active;
+
                 const today = new Date().toISOString().split('T')[0];
-                const completed = raSessions.find(s => 
-                    s.status === 'completed' && 
-                    s.completed_at && 
+                const completed = raSessions.find(s =>
+                    s.status === 'completed' &&
+                    s.completed_at &&
                     s.completed_at.startsWith(today)
                 );
-                if (completed) {
-                    hasCompletedToday = true;
-                    console.log(`📋 RA completed today's session`);
-                }
+                if (completed) hasCompletedToday = true;
             }
 
             // =============================================
             // 4. DETERMINE EFFECTIVE STATUS
             // =============================================
             let effectiveStatus = 'draft';
-            let effectiveSession = null;
             let isSessionActive = false;
 
             if (activeRASession) {
-                // RA already has an active session - PRIORITY 1
-                effectiveStatus = activeRASession.status;
-                effectiveSession = activeRASession;
+                effectiveStatus = activeRASession.status === 'in_progress'
+                    ? 'started'
+                    : activeRASession.status;
                 isSessionActive = true;
-                console.log('📋 Effective status: started (RA session active)');
             } else if (hasCompletedToday) {
-                // RA completed today - PRIORITY 2
                 effectiveStatus = 'completed';
-                effectiveSession = raSessions.find(s => s.status === 'completed');
                 isSessionActive = false;
-                console.log('📋 Effective status: completed (RA completed today)');
             } else if (globalSessionActive) {
-                // Global session is active, RA can start - PRIORITY 3
                 effectiveStatus = 'ready';
-                effectiveSession = globalSession;
                 isSessionActive = true;
-                console.log('📋 Effective status: ready (Global session active, RA can start)');
             } else {
-                // No session at all - PRIORITY 4
                 effectiveStatus = 'draft';
-                effectiveSession = null;
                 isSessionActive = false;
-                console.log('📋 Effective status: draft (No session)');
             }
 
             // =============================================
-            // 5. GET ASSIGNED ROOMS COUNT
+            // 5. ASSIGNED ROOMS COUNT
             // =============================================
-            const { data: roomsData, error: roomsError } = await supabase
+            const { data: roomsData } = await supabase
                 .from('ra_room_assignments')
                 .select('room_id', { count: 'exact' })
                 .eq('ra_id', raId)
                 .eq('status', 'active')
                 .eq('campus', campusContext);
 
-            if (roomsError) {
-                console.error('Error fetching rooms:', roomsError);
-            }
-
             // =============================================
-            // 6. GET STUDENT STATS FOR THIS HOSTEL
+            // 6. HOSTEL STUDENT STATS
             // =============================================
             const { data: hostelStudents } = await supabase
                 .from('students')
@@ -10104,26 +10101,51 @@ app.get('/api/ra/bedcheck/status',
                 .eq('campus', campusContext);
 
             const totalStudents = hostelStudents?.length || 0;
-            const presentStudents = hostelStudents?.filter(s => s.status === 'Present' || s.status === 'Verified').length || 0;
-            const absentStudents = hostelStudents?.filter(s => s.status === 'Absent').length || 0;
-            const faceEnrolled = hostelStudents?.filter(s => s.face_enrolled === true).length || 0;
+            const presentStudents = hostelStudents?.filter(s =>
+                s.status === 'Present' || s.status === 'Verified'
+            ).length || 0;
+            const absentStudents = hostelStudents?.filter(s =>
+                s.status === 'Absent'
+            ).length || 0;
+            const faceEnrolled = hostelStudents?.filter(s =>
+                s.face_enrolled === true
+            ).length || 0;
 
             // =============================================
-            // 7. BUILD ACTIVE SESSION DATA
+            // 7. ACTIVE SESSION DATA
+            //    ALWAYS expose the GLOBAL sessions.id for scans
             // =============================================
             let activeSessionData = null;
-            if (effectiveSession) {
+
+            // Prefer global session id for anything that saves scans
+            const globalId = globalSession?.id
+                || activeRASession?.global_session_id
+                || null;
+
+            if (globalId || activeRASession) {
                 activeSessionData = {
-                    id: effectiveSession.id,
+                    // ⭐ These two are what the RA page must use for POST /bedcheck/scans
+                    id: globalId,                          // global sessions.id
+                    session_id: globalId,                  // same
+                    global_session_id: globalId,
+
+                    // Hostel-level info (optional, for UI only)
+                    hostel_session_id: activeRASession?.id || null,
+                    hostel_id: activeRASession?.hostel_id || hostelId,
                     status: effectiveStatus,
-                    session_id: effectiveSession.global_session_id || effectiveSession.id,
-                    hostel_id: effectiveSession.hostel_id || hostelId,
-                    started_at: effectiveSession.started_at || effectiveSession.created_at,
-                    completed_at: effectiveSession.completed_at || null,
-                    total_students: effectiveSession.total_students || totalStudents,
-                    present_students: effectiveSession.present_students || presentStudents,
-                    completion: effectiveSession.completion || 0,
-                    is_global: !effectiveSession.ra_id
+                    started_at: activeRASession?.started_at
+                        || globalSession?.started_at
+                        || globalSession?.created_at
+                        || null,
+                    completed_at: activeRASession?.completed_at || null,
+                    total_students: activeRASession?.total_students || totalStudents,
+                    present_students: activeRASession?.present_students || presentStudents,
+                    completion: activeRASession?.completion || 0,
+                    name: globalSession?.name || 'Night BedCheck',
+                    date: globalSession?.date || null,
+                    start_time: globalSession?.start_time || null,
+                    end_time: globalSession?.end_time || null,
+                    is_global: !activeRASession
                 };
             }
 
@@ -10137,7 +10159,6 @@ app.get('/api/ra/bedcheck/status',
                 is_global: false
             }));
 
-            // Add global session to the list if active and RA hasn't started
             if (globalSessionActive && !activeRASession && !hasCompletedToday) {
                 formattedSessions.unshift({
                     id: globalSession.id,
@@ -10154,7 +10175,7 @@ app.get('/api/ra/bedcheck/status',
             }
 
             // =============================================
-            // 9. DETERMINE STATUS MESSAGE
+            // 9. STATUS MESSAGE
             // =============================================
             let statusMessage = '';
             if (effectiveStatus === 'started' || effectiveStatus === 'in_progress') {
@@ -10168,7 +10189,7 @@ app.get('/api/ra/bedcheck/status',
             }
 
             // =============================================
-            // 10. RESPONSE
+            // 10. RESPONSE (no debug)
             // =============================================
             res.json({
                 success: true,
@@ -10189,14 +10210,9 @@ app.get('/api/ra/bedcheck/status',
                         present_students: presentStudents,
                         absent_students: absentStudents,
                         face_enrolled: faceEnrolled,
-                        completion: totalStudents > 0 ? Math.round((presentStudents / totalStudents) * 100) : 0
-                    },
-                    // Debug info
-                    debug: {
-                        global_session_found: !!globalSession,
-                        ra_session_found: raSessionExists,
-                        ra_session_active: !!activeRASession,
-                        has_completed_today: hasCompletedToday
+                        completion: totalStudents > 0
+                            ? Math.round((presentStudents / totalStudents) * 100)
+                            : 0
                     }
                 },
                 campus: campusContext
@@ -13128,7 +13144,6 @@ app.post('/api/bedcheck/scans',
     async (req, res) => {
         try {
             const { session_id, student_id, room, status, metadata } = req.body;
-            // NO scanner_id, NO bed_number
 
             if (!session_id) {
                 return res.status(400).json({
@@ -13138,7 +13153,6 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            // Session must exist
             const { data: session, error: sessionError } = await supabase
                 .from('sessions')
                 .select('id, status, campus')
@@ -13153,7 +13167,6 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            // Student (allow university-wide)
             let student = null;
             if (student_id) {
                 const isUniversityWide = !session.campus || session.campus === 'General';
@@ -13178,7 +13191,6 @@ app.post('/api/bedcheck/scans',
                     });
                 }
 
-                // RA can only verify own hostel
                 if (
                     !['Admin', 'Administrator', 'Developer'].includes(req.user.role) &&
                     req.user.hostel_id &&
@@ -13192,20 +13204,38 @@ app.post('/api/bedcheck/scans',
                 }
             }
 
-            // Insert — only columns that exist
+            const campus = student?.campus || req.campus;
+            const now = new Date().toISOString();
+
+            // Optional: link to hostel-level bedcheck_sessions row
+            let hostelSessionId = null;
+            if (student?.hostel_id) {
+                const { data: hs } = await supabase
+                    .from('bedcheck_sessions')
+                    .select('id')
+                    .eq('global_session_id', parseInt(session_id))
+                    .eq('hostel_id', student.hostel_id)
+                    .maybeSingle();
+                hostelSessionId = hs?.id || null;
+            }
+
+            // Columns that exist in YOUR table
             const newScan = {
-                session_id: parseInt(session_id),
+                session_id: parseInt(session_id),          // global sessions.id
                 student_id: student_id ? parseInt(student_id) : null,
                 room: room || null,
                 status: status || 'Verified',
-                campus: student?.campus || req.campus,
-                created_at: new Date().toISOString()
+                campus: campus,
+                campus_code: campus === 'Heritage' ? 'HER' : 'LEG',
+                hostel_session_id: hostelSessionId,
+                verified_by: req.user?.id || null,
+                verified_at: now,
+                created_at: now,
+                metadata: metadata || {
+                    method: 'face-recognition',
+                    ra_id: req.user?.id || null
+                }
             };
-
-            // Only add metadata if the column exists in your table
-            if (metadata) {
-                newScan.metadata = metadata;
-            }
 
             const { data, error } = await supabase
                 .from('bedcheck_scans')
@@ -13218,25 +13248,22 @@ app.post('/api/bedcheck/scans',
                 throw error;
             }
 
-            // Update permanent student status
             if (student_id) {
                 await supabase
                     .from('students')
                     .update({
                         status: (status === 'Verified' || status === 'Present') ? 'Present' : status,
-                        updated_at: new Date().toISOString()
+                        updated_at: now
                     })
                     .eq('id', parseInt(student_id));
             }
 
-            // Update session progress numbers (admin page)
             try {
                 await updateSessionProgressUniversityWide(parseInt(session_id));
             } catch (e) {
                 console.warn('Progress update failed (non-fatal):', e.message);
             }
 
-            // Audit (optional)
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
@@ -13250,7 +13277,7 @@ app.post('/api/bedcheck/scans',
                 hostel_id: student?.hostel_id,
                 student_id: student?.id,
                 session_id: parseInt(session_id),
-                campus: student?.campus || req.campus,
+                campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
             }).catch(() => {});
