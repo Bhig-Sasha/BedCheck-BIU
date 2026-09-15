@@ -13127,9 +13127,9 @@ app.post('/api/bedcheck/scans',
     validate(validators.bedcheckScan),
     async (req, res) => {
         try {
-            const { session_id, student_id, room, bed_number, status, scanner_id, metadata } = req.body;
+            const { session_id, student_id, room, status, metadata } = req.body;
+            // NO scanner_id, NO bed_number
 
-            // 1. Require a real session
             if (!session_id) {
                 return res.status(400).json({
                     success: false,
@@ -13138,7 +13138,7 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            // 2. Verify the session exists (university-wide or campus-specific)
+            // Session must exist
             const { data: session, error: sessionError } = await supabase
                 .from('sessions')
                 .select('id, status, campus')
@@ -13153,7 +13153,7 @@ app.post('/api/bedcheck/scans',
                 });
             }
 
-            // 3. Student must exist (allow cross-campus for university-wide sessions)
+            // Student (allow university-wide)
             let student = null;
             if (student_id) {
                 const isUniversityWide = !session.campus || session.campus === 'General';
@@ -13163,7 +13163,6 @@ app.post('/api/bedcheck/scans',
                     .select('id, name, matric, hostel_id, room_id, campus')
                     .eq('id', parseInt(student_id));
 
-                // Only force campus match when the session is campus-specific
                 if (!isUniversityWide) {
                     studentQuery = studentQuery.eq('campus', req.campus);
                 }
@@ -13179,11 +13178,9 @@ app.post('/api/bedcheck/scans',
                     });
                 }
 
-                // RA can only verify students in their own hostel
+                // RA can only verify own hostel
                 if (
-                    req.user.role !== 'Admin' &&
-                    req.user.role !== 'Developer' &&
-                    req.user.role !== 'Administrator' &&
+                    !['Admin', 'Administrator', 'Developer'].includes(req.user.role) &&
                     req.user.hostel_id &&
                     req.user.hostel_id !== student.hostel_id
                 ) {
@@ -13195,18 +13192,20 @@ app.post('/api/bedcheck/scans',
                 }
             }
 
-            // 4. Insert the scan (now with metadata)
+            // Insert — only columns that exist
             const newScan = {
                 session_id: parseInt(session_id),
                 student_id: student_id ? parseInt(student_id) : null,
                 room: room || null,
-                bed_number: bed_number || null,
                 status: status || 'Verified',
-                scanner_id: scanner_id || 'Face-001',
-                campus: student?.campus || req.campus,   // keep the student's real campus
-                metadata: metadata || null,
+                campus: student?.campus || req.campus,
                 created_at: new Date().toISOString()
             };
+
+            // Only add metadata if the column exists in your table
+            if (metadata) {
+                newScan.metadata = metadata;
+            }
 
             const { data, error } = await supabase
                 .from('bedcheck_scans')
@@ -13219,37 +13218,36 @@ app.post('/api/bedcheck/scans',
                 throw error;
             }
 
-            // 5. Update permanent student status
+            // Update permanent student status
             if (student_id) {
                 await supabase
                     .from('students')
                     .update({
-                        status: status === 'Verified' ? 'Present' : status,
+                        status: (status === 'Verified' || status === 'Present') ? 'Present' : status,
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', parseInt(student_id));
             }
 
-            // 6. Update session progress (this was missing!)
+            // Update session progress numbers (admin page)
             try {
                 await updateSessionProgressUniversityWide(parseInt(session_id));
-            } catch (progErr) {
-                console.warn('Progress update failed (non-fatal):', progErr.message);
+            } catch (e) {
+                console.warn('Progress update failed (non-fatal):', e.message);
             }
 
-            // 7. Audit
+            // Audit (optional)
             await auditService.log({
                 actor: req.user.name || req.user.username,
                 actor_id: req.user.id,
                 actor_role: req.user.role,
-                action: status === 'Verified' ? 'Face Verification' : 'Verification Failed',
+                action: 'Face Verification',
                 module: 'verification',
-                details: `${student?.name || 'Unknown'} (${student?.matric || ''}) ${status === 'Verified' ? 'verified' : 'failed'} in ${room || 'Unknown Room'}`,
-                result: status === 'Verified' ? 'success' : 'failed',
+                details: `${student?.name || 'Unknown'} verified in ${room || 'Unknown Room'}`,
+                result: 'success',
                 category: 'verification',
-                tone: status === 'Verified' ? 'green' : 'red',
+                tone: 'green',
                 hostel_id: student?.hostel_id,
-                room_id: student?.room_id,
                 student_id: student?.id,
                 session_id: parseInt(session_id),
                 campus: student?.campus || req.campus,
