@@ -2117,10 +2117,10 @@ const validators = {
         body('type').optional().isIn(['floor', 'flat']).withMessage('Invalid type')
     ],
     bedcheckScan: [
-        body('session_id').optional().isInt().withMessage('Invalid session ID'),
+        body('session_id').isInt().withMessage('session_id is required'),
         body('student_id').optional().isInt().withMessage('Invalid student ID'),
         body('room').optional().isString().withMessage('Invalid room'),
-        body('status').optional().isIn(['Verified', 'Failed']).withMessage('Invalid status')
+        body('status').optional().isIn(['Verified', 'Failed', 'Absent', 'Present']).withMessage('Invalid status')
     ],
     bedcheckSession: [
         body('hostel_id').isInt().withMessage('Invalid hostel ID'),
@@ -13126,93 +13126,144 @@ app.post('/api/bedcheck/scans',
     campusIsolation,
     validate(validators.bedcheckScan),
     async (req, res) => {
-        const { session_id, student_id, room, bed_number, status, scanner_id } = req.body;
-        
-        if (student_id) {
-            const { data: student } = await supabase
-                .from('students')
-                .select('hostel_id, campus')
-                .eq('id', student_id)
-                .eq('campus', req.campus)
-                .single();
+        try {
+            const { session_id, student_id, room, bed_number, status, scanner_id, metadata } = req.body;
 
-            if (!student) {
+            // 1. Require a real session
+            if (!session_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'session_id is required',
+                    code: 'SESSION_REQUIRED'
+                });
+            }
+
+            // 2. Verify the session exists (university-wide or campus-specific)
+            const { data: session, error: sessionError } = await supabase
+                .from('sessions')
+                .select('id, status, campus')
+                .eq('id', parseInt(session_id))
+                .maybeSingle();
+
+            if (sessionError || !session) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Student not found in this campus',
-                    code: 'STUDENT_NOT_FOUND'
+                    message: 'Session not found',
+                    code: 'SESSION_NOT_FOUND'
                 });
             }
 
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id !== student.hostel_id) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Access denied',
-                    code: 'PERMISSION_DENIED'
-                });
+            // 3. Student must exist (allow cross-campus for university-wide sessions)
+            let student = null;
+            if (student_id) {
+                const isUniversityWide = !session.campus || session.campus === 'General';
+
+                let studentQuery = supabase
+                    .from('students')
+                    .select('id, name, matric, hostel_id, room_id, campus')
+                    .eq('id', parseInt(student_id));
+
+                // Only force campus match when the session is campus-specific
+                if (!isUniversityWide) {
+                    studentQuery = studentQuery.eq('campus', req.campus);
+                }
+
+                const { data: s } = await studentQuery.maybeSingle();
+                student = s;
+
+                if (!student) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Student not found',
+                        code: 'STUDENT_NOT_FOUND'
+                    });
+                }
+
+                // RA can only verify students in their own hostel
+                if (
+                    req.user.role !== 'Admin' &&
+                    req.user.role !== 'Developer' &&
+                    req.user.role !== 'Administrator' &&
+                    req.user.hostel_id &&
+                    req.user.hostel_id !== student.hostel_id
+                ) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Access denied – student not in your hostel',
+                        code: 'PERMISSION_DENIED'
+                    });
+                }
             }
-        }
-        
-        try {
+
+            // 4. Insert the scan (now with metadata)
             const newScan = {
-                session_id: session_id || null,
-                student_id: student_id || null,
+                session_id: parseInt(session_id),
+                student_id: student_id ? parseInt(student_id) : null,
                 room: room || null,
                 bed_number: bed_number || null,
                 status: status || 'Verified',
-                scanner_id: scanner_id || 'FP-027',
-                campus: req.campus,
+                scanner_id: scanner_id || 'Face-001',
+                campus: student?.campus || req.campus,   // keep the student's real campus
+                metadata: metadata || null,
                 created_at: new Date().toISOString()
             };
-            
+
             const { data, error } = await supabase
                 .from('bedcheck_scans')
                 .insert(newScan)
                 .select()
                 .single();
-            
-            if (error) throw error;
-            
+
+            if (error) {
+                console.error('Insert bedcheck_scans error:', error);
+                throw error;
+            }
+
+            // 5. Update permanent student status
             if (student_id) {
-                const { data: student } = await supabase
-                    .from('students')
-                    .select('name, matric, hostel_id, room_id, campus')
-                    .eq('id', student_id)
-                    .single();
-                
                 await supabase
                     .from('students')
-                    .update({ 
-                        status: status === 'Verified' ? 'Present' : status, 
-                        updated_at: new Date().toISOString() 
+                    .update({
+                        status: status === 'Verified' ? 'Present' : status,
+                        updated_at: new Date().toISOString()
                     })
-                    .eq('id', student_id);
-                
-                await auditService.log({
-                    actor: req.user.name || req.user.username,
-                    actor_id: req.user.id,
-                    actor_role: req.user.role,
-                    action: status === 'Verified' ? 'QR Verification' : 'Verification Failed',
-                    module: 'verification',
-                    details: `${student?.name} (${student?.matric}) ${status === 'Verified' ? 'verified' : 'failed verification'} in ${room || 'Unknown Room'}`,
-                    result: status === 'Verified' ? 'success' : 'failed',
-                    category: 'verification',
-                    tone: status === 'Verified' ? 'green' : 'red',
-                    hostel_id: student?.hostel_id,
-                    room_id: student?.room_id,
-                    student_id: student?.id,
-                    campus: req.campus,
-                    ip_address: req.clientIp,
-                    user_agent: req.userAgent
-                });
+                    .eq('id', parseInt(student_id));
             }
-            
-            res.json({ success: true, data: data, campus: req.campus });
+
+            // 6. Update session progress (this was missing!)
+            try {
+                await updateSessionProgressUniversityWide(parseInt(session_id));
+            } catch (progErr) {
+                console.warn('Progress update failed (non-fatal):', progErr.message);
+            }
+
+            // 7. Audit
+            await auditService.log({
+                actor: req.user.name || req.user.username,
+                actor_id: req.user.id,
+                actor_role: req.user.role,
+                action: status === 'Verified' ? 'Face Verification' : 'Verification Failed',
+                module: 'verification',
+                details: `${student?.name || 'Unknown'} (${student?.matric || ''}) ${status === 'Verified' ? 'verified' : 'failed'} in ${room || 'Unknown Room'}`,
+                result: status === 'Verified' ? 'success' : 'failed',
+                category: 'verification',
+                tone: status === 'Verified' ? 'green' : 'red',
+                hostel_id: student?.hostel_id,
+                room_id: student?.room_id,
+                student_id: student?.id,
+                session_id: parseInt(session_id),
+                campus: student?.campus || req.campus,
+                ip_address: req.clientIp,
+                user_agent: req.userAgent
+            }).catch(() => {});
+
+            res.json({ success: true, data, campus: req.campus });
+
         } catch (error) {
             console.error('Error creating bedcheck scan:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'An error occurred. Please try again.',
+            res.status(500).json({
+                success: false,
+                message: error.message || 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });
         }

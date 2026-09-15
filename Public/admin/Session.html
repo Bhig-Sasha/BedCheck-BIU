@@ -512,21 +512,20 @@
         let hostelsLoaded = false;
         let sessions = [];
         let currentSession = null;
-        // ⭐ REMOVED: let sessionCheckerInterval = null;
         let deleteTargetId = null;
         let selectedSessionId = null;
         let existingSessionData = null;
         let existingSessionId = null;
-        let liveTimeInterval = null;   // ⭐ NEW: track the clock interval so it doesn't leak
+        let liveTimeInterval = null;
 
         // =============================================
         // STATUS VALUES
         // =============================================
         const STATUS_DISPLAY = {
-            'active': { label: 'Active', icon: '🟢', badge: 'badge-active' },
+            'active':    { label: 'Active',    icon: '🟢', badge: 'badge-active' },
             'scheduled': { label: 'Scheduled', icon: '🟡', badge: 'badge-scheduled' },
             'completed': { label: 'Completed', icon: '✅', badge: 'badge-completed' },
-            'archived': { label: 'Archived', icon: '📦', badge: 'badge-archived' }
+            'archived':  { label: 'Archived',  icon: '📦', badge: 'badge-archived' }
         };
 
         const ACTIVE_STATUSES = ['active'];
@@ -543,7 +542,7 @@
             if (isActiveStatus(status)) return 'session-row-active';
             if (status === 'scheduled') return 'session-row-scheduled';
             if (status === 'completed') return 'session-row-completed';
-            if (status === 'archived') return 'session-row-archived';
+            if (status === 'archived')  return 'session-row-archived';
             return '';
         }
 
@@ -562,7 +561,7 @@
         function formatTime(timeStr) {
             if (!timeStr) return '—';
             try {
-                if (timeStr.includes(':')) {
+                if (typeof timeStr === 'string' && timeStr.includes(':')) {
                     const parts = timeStr.split(':');
                     if (parts.length >= 2) {
                         const hour = parseInt(parts[0]);
@@ -606,9 +605,30 @@
             return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         }
 
+        // ⭐ NEW: normalize an incoming session object so the UI
+        //    always gets consistent numeric fields, even if the
+        //    server returns nulls/undefined/strings.
+        function normalizeSession(s) {
+            if (!s) return s;
+            const toInt = (v) => {
+                if (v === null || v === undefined || v === '') return 0;
+                const n = parseInt(v, 10);
+                return isNaN(n) ? 0 : n;
+            };
+            return {
+                ...s,
+                total_students:    toInt(s.total_students),
+                present_students:  toInt(s.present_students),
+                total_hostels:     toInt(s.total_hostels),
+                hostels_completed: toInt(s.hostels_completed),
+                completion:        toInt(s.completion),
+                scans_count:       toInt(s.scans_count),
+                grace_period:      toInt(s.grace_period) || 15
+            };
+        }
+
         // =============================================
         // AUTHENTICATED API HELPER
-        // ⭐ CHANGED: distinguish network errors from API errors
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -649,11 +669,18 @@
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorMessage = errorJson.message || errorJson.error || errorMessage;
+                } catch (e) {
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(errorMessage);
             }
 
             const data = await response.json();
-            if (!data.success) throw new Error(data.message || 'API error');
+            if (data.success === false) throw new Error(data.message || 'API error');
             return data;
         }
 
@@ -712,6 +739,8 @@
 
         // =============================================
         // DATA LOADING
+        // ⭐ CHANGED: normalize sessions on load so the UI
+        //    never renders `undefined` or `NaN`.
         // =============================================
         async function loadHostels() {
             if (hostelsLoaded) return hostels;
@@ -729,18 +758,27 @@
         async function loadSessions() {
             try {
                 const data = await apiCall('/sessions');
-                sessions = data.data || [];
+                sessions = (data.data || []).map(normalizeSession);
                 currentSession = sessions.find(s => isActiveStatus(s.status)) || null;
                 return sessions;
             } catch (error) {
                 sessions = [];
                 currentSession = null;
-                return sessions;
+                throw error; // ⭐ let init() catch and handle network errors
             }
         }
 
+        // ⭐ NEW: single-session fetch (used by the details modal) so it
+        //    always pulls the freshest counts, not the cached list.
+        async function fetchSessionDetails(sessionId) {
+            const data = await apiCall(`/sessions/${sessionId}`);
+            return normalizeSession(data.data);
+        }
+
         // =============================================
-        // SESSION DETAILS (unchanged)
+        // SESSION DETAILS
+        // ⭐ CHANGED: always fetch fresh from server, normalize,
+        //    and fall back to the list item if the endpoint fails.
         // =============================================
         async function viewSessionDetails(sessionId) {
             selectedSessionId = sessionId;
@@ -752,8 +790,14 @@
             body.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner"></i></div>';
 
             try {
-                const data = await apiCall(`/sessions/${sessionId}`);
-                const session = data.data;
+                let session;
+                try {
+                    session = await fetchSessionDetails(sessionId);
+                } catch (fetchErr) {
+                    // Fallback to whatever we already have in memory
+                    console.warn('[Sessions] Detail fetch failed, using cached list item:', fetchErr);
+                    session = sessions.find(s => s.id === sessionId);
+                }
 
                 if (!session) {
                     body.innerHTML = '<div class="text-center p-4 text-muted">Session not found</div>';
@@ -765,6 +809,19 @@
                 const isUniversityWide = !session.campus || session.campus === 'General' || session.campus === null;
                 const campusDisplay = isUniversityWide ? '🌍 All Campuses' : (session.campus || 'Legacy');
                 const campuses = session.campuses || [];
+
+                // ⭐ CHANGED: fall back to 0 for all numeric fields
+                const totalStudents   = session.total_students   || 0;
+                const presentStudents = session.present_students || 0;
+                const completion      = session.completion       || 0;
+                const totalHostels    = session.total_hostels    || 0;
+                const hostelsCompleted = session.hostels_completed || 0;
+                const scansCount      = session.scans_count      || 0;
+
+                // ⭐ NEW: show a small notice if numbers look unpopulated
+                const progressMissing =
+                    (totalStudents === 0 && totalHostels === 0) &&
+                    (session.status === 'active' || session.status === 'completed');
 
                 body.innerHTML = `
                     <div class="flex-between mb-3">
@@ -785,34 +842,50 @@
                         </span>
                     </div>
 
+                    ${progressMissing ? `
+                    <div style="background:#fff9e9;border:1px solid #d8c79e;border-radius:0.5rem;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:0.75rem;color:#675121;">
+                        <i class="fas fa-info-circle"></i>
+                        Progress counts haven't been written for this session yet.
+                        They update automatically when RAs save scans or when you
+                        click <strong>Sync Progress</strong> below.
+                    </div>
+                    ` : ''}
+
                     <div class="grid-3 mb-3">
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Total Students</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${session.total_students || 0}</p>
+                            <p class="font-bold" style="font-size:1.2rem;">${totalStudents}</p>
                         </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Verified</p>
-                            <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${session.present_students || 0}</p>
+                            <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${presentStudents}</p>
                         </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Completion</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${session.completion || 0}%</p>
+                            <p class="font-bold" style="font-size:1.2rem;">${completion}%</p>
                         </div>
                     </div>
 
                     <div class="grid-3 mb-3">
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Total Hostels</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${session.total_hostels || 0}</p>
+                            <p class="font-bold" style="font-size:1.2rem;">${totalHostels}</p>
                         </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Completed Hostels</p>
-                            <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${session.hostels_completed || 0}</p>
+                            <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${hostelsCompleted}</p>
                         </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Scans</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${session.scans_count || 0}</p>
+                            <p class="font-bold" style="font-size:1.2rem;">${scansCount}</p>
                         </div>
+                    </div>
+
+                    <div class="flex-between mb-2" style="gap:0.5rem;flex-wrap:wrap;">
+                        <button class="btn-outline" onclick="syncSessionProgress(${session.id})" id="syncProgressBtn">
+                            <i class="fas fa-sync"></i> Sync Progress
+                        </button>
+                        <span class="text-xs text-muted">Pulls the latest scan totals for this session</span>
                     </div>
 
                     ${campuses.length > 0 ? `
@@ -822,7 +895,7 @@
                             <div class="campus-header flex-between">
                                 <span>${campus.campus}</span>
                                 <span style="font-size:0.8rem;">
-                                    ${campus.completed_hostels}/${campus.total_hostels} hostels · ${campus.completion}%
+                                    ${campus.completed_hostels || 0}/${campus.total_hostels || 0} hostels · ${campus.completion || 0}%
                                 </span>
                             </div>
                             ${campus.hostels && campus.hostels.length > 0 ? `
@@ -884,14 +957,59 @@
             }
         }
 
+        // ⭐ NEW: manual sync button — calls the server-side progress
+        //    recalculation endpoint, then refreshes the modal & list.
+        window.syncSessionProgress = async function(sessionId) {
+            const btn = document.getElementById('syncProgressBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+            }
+
+            try {
+                await apiCall(`/sessions/${sessionId}/sync-progress`, {
+                    method: 'POST'
+                });
+                showToast('✅ Progress synced', 'success');
+
+                // Refresh the list and the open modal
+                await loadSessions();
+                renderScreen();
+
+                if (selectedSessionId === sessionId) {
+                    await viewSessionDetails(sessionId);
+                }
+            } catch (error) {
+                // Fallback: some backends do this via PUT /sessions/:id/recalculate
+                try {
+                    await apiCall(`/sessions/${sessionId}/recalculate`, { method: 'POST' });
+                    showToast('✅ Progress synced', 'success');
+                    await loadSessions();
+                    renderScreen();
+                    if (selectedSessionId === sessionId) {
+                        await viewSessionDetails(sessionId);
+                    }
+                } catch (fallbackError) {
+                    showToast(
+                        `❌ Sync failed: ${fallbackError.message || error.message}. ` +
+                        `The server may not expose a sync endpoint yet.`,
+                        'error'
+                    );
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-sync"></i> Sync Progress';
+                    }
+                }
+            }
+        };
+
         function closeSessionDetails() {
             document.getElementById('sessionDetailsModal').classList.remove('show');
             selectedSessionId = null;
         }
 
         // =============================================
-        // SESSION CRUD OPERATIONS
-        // ⭐ CHANGED: when creating an "active" session, immediately start it too
+        // SESSION CRUD
         // =============================================
         async function createSession() {
             const name = document.getElementById('sessionName').value.trim();
@@ -929,8 +1047,8 @@
 
             try {
                 const payload = {
-                    name: name,
-                    date: date,
+                    name,
+                    date,
                     start_time: startTime,
                     end_time: endTime,
                     status: status || 'scheduled',
@@ -970,8 +1088,6 @@
             }
         }
 
-        // ⭐ startSession — this is now the ONLY way a session becomes active.
-        // No background code auto-starts scheduled sessions anymore.
         async function startSession(sessionId) {
             try {
                 await apiCall(`/sessions/${sessionId}`, {
@@ -984,6 +1100,17 @@
                 showToast('✅ Session started!', 'success');
                 await loadSessions();
                 renderScreen();
+
+                // ⭐ NEW: best-effort sync after starting so hostel rows
+                //    and initial counts populate right away.
+                try {
+                    await apiCall(`/sessions/${sessionId}/sync-progress`, { method: 'POST' });
+                    await loadSessions();
+                    renderScreen();
+                } catch (e) {
+                    // Sync endpoint may not exist yet — that's fine.
+                    console.warn('[Sessions] Auto-sync after start not available:', e.message);
+                }
             } catch (error) {
                 showToast('Error starting session: ' + error.message, 'error');
             }
@@ -1028,9 +1155,7 @@
                     return;
                 }
 
-                await apiCall(`/sessions/${sessionId}`, {
-                    method: 'DELETE'
-                });
+                await apiCall(`/sessions/${sessionId}`, { method: 'DELETE' });
 
                 showToast(`Session "${session.name || 'BedCheck'}" deleted successfully`, 'success');
                 closeDeleteModal();
@@ -1042,7 +1167,7 @@
         }
 
         // =============================================
-        // MODAL CONTROLS (unchanged)
+        // MODAL CONTROLS
         // =============================================
         function openCreateSession() {
             const modal = document.getElementById('createSessionModal');
@@ -1095,8 +1220,6 @@
 
         // =============================================
         // RENDER
-        // ⭐ CHANGED: added a "Start Session" button on scheduled sessions
-        //            (already existed), removed startSessionChecker() call.
         // =============================================
         function renderScreen() {
             const container = document.getElementById('screenContent');
@@ -1281,14 +1404,25 @@
                                     const startTime = formatTime(s.start_time);
                                     const endTime = formatTime(s.end_time);
                                     const displayDate = formatFullDate(s.date);
-                                    const isUniversityWide = !s.campus || s.campus === 'General' || s.campus === null;
                                     const completion = s.completion || 0;
                                     const totalStudents = s.total_students || 0;
                                     const presentStudents = s.present_students || 0;
+                                    const totalHostels = s.total_hostels || 0;
+                                    const scansCount = s.scans_count || 0;
+
+                                    // ⭐ CHANGED: flag sessions that have never been synced
+                                    const neverSynced = (isActive || isCompleted) &&
+                                                        totalStudents === 0 &&
+                                                        totalHostels === 0 &&
+                                                        scansCount === 0;
+
                                     return `
                                         <tr class="${getRowClass(s.status)}">
                                             <td style="font-weight:600;font-size:0.8rem;">${displayDate}</td>
-                                            <td style="font-weight:600;font-size:0.85rem;">${s.name || 'Night BedCheck'}</td>
+                                            <td style="font-weight:600;font-size:0.85rem;">
+                                                ${s.name || 'Night BedCheck'}
+                                                ${neverSynced ? '<br><span class="text-xs" style="color:#8a6413;"><i class="fas fa-info-circle"></i> Progress not synced</span>' : ''}
+                                            </td>
                                             <td><span class="general-session-badge" style="font-size:0.6rem;padding:0.1rem 0.5rem;"><i class="fas fa-globe"></i> ALL</span></td>
                                             <td style="font-size:0.8rem;">${startTime}</td>
                                             <td style="font-size:0.8rem;">${endTime}</td>
@@ -1298,7 +1432,7 @@
                                                     <span><i class="fas fa-users" style="color:#24466f;width:1rem;"></i> ${totalStudents}</span>
                                                     <span><i class="fas fa-check-circle" style="color:#2d6545;width:1rem;"></i> ${presentStudents}</span>
                                                     <span><i class="fas fa-percentage" style="color:#8b6513;width:1rem;"></i> ${completion}%</span>
-                                                    <span><i class="fas fa-building" style="color:#536274;width:1rem;"></i> ${s.total_hostels || 0} hostels</span>
+                                                    <span><i class="fas fa-building" style="color:#536274;width:1rem;"></i> ${totalHostels} hostels</span>
                                                 </div>
                                             </td>
                                             <td>
@@ -1335,12 +1469,10 @@
 
             updateLiveTime();
             startLiveClock();
-            // ⭐ REMOVED: startSessionChecker();
         }
 
         // =============================================
-        // LIVE CLOCK (purely cosmetic — no API calls)
-        // ⭐ CHANGED: tracked so it can be restarted cleanly
+        // LIVE CLOCK
         // =============================================
         function updateLiveTime() {
             const timeEl = document.getElementById('liveTime');
@@ -1354,12 +1486,8 @@
             liveTimeInterval = setInterval(updateLiveTime, 1000);
         }
 
-        // ⭐ REMOVED: the old startSessionChecker() function that polled
-        // every 60s and auto-started scheduled sessions.
-
         // =============================================
         // MANUAL REFRESH
-        // ⭐ CHANGED: handles network errors gracefully
         // =============================================
         async function refreshData() {
             try {
@@ -1370,7 +1498,8 @@
                 renderScreen();
                 const hasActive = sessions.some(s => isActiveStatus(s.status));
                 const scheduled = sessions.filter(s => s.status === 'scheduled').length;
-                document.getElementById('noticeText').textContent = `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
+                document.getElementById('noticeText').textContent =
+                    `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
                 showToast('Data refreshed', 'success');
             } catch (error) {
                 if (error.isNetworkError) {
@@ -1382,7 +1511,7 @@
         }
 
         // =============================================
-        // SKELETON (unchanged)
+        // SKELETON
         // =============================================
         function showSessionsSkeleton() {
             const container = document.getElementById('screenContent');
@@ -1484,7 +1613,7 @@
         }
 
         // =============================================
-        // GLOBAL EXPOSURE (unchanged)
+        // GLOBAL EXPOSURE
         // =============================================
         window.showToast = showToast;
         window.openCreateSession = openCreateSession;
@@ -1502,9 +1631,11 @@
         window.checkExistingForDate = checkExistingForDate;
         window.viewExistingSession = viewExistingSession;
         window.dismissExistingSession = dismissExistingSession;
+        window.syncSessionProgress = syncSessionProgress;
 
         // =============================================
-        // INIT (unchanged — no startSessionChecker call)
+        // INIT
+        // ⭐ CHANGED: distinguish network errors from API errors
         // =============================================
         async function init() {
             if (!checkAuth()) return;
@@ -1527,18 +1658,26 @@
                 document.getElementById('noticeText').textContent =
                     `${sessions.length} sessions · ${hasActive ? '🟢 Active' : scheduled > 0 ? '🟡 Scheduled' : '⏳ Inactive'}`;
 
+                // Non-blocking
                 loadHostels().catch(() => {});
 
             } catch (error) {
                 document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
+
                 const isNetwork = error.isNetworkError;
-                const isAuth = error.message?.includes('Authentication required') || error.message?.includes('No authentication token');
+                const isAuth = error.message?.includes('Authentication required') ||
+                               error.message?.includes('No authentication token');
+
                 if (!isAuth) {
-                    showToast(isNetwork
-                        ? 'Server is starting up. Please refresh in a moment.'
-                        : 'Error loading data: ' + error.message, 'error');
+                    showToast(
+                        isNetwork
+                            ? 'Server is starting up. Please refresh in a moment.'
+                            : 'Error loading data: ' + error.message,
+                        'error'
+                    );
                 }
-                renderScreen();
+
+                renderScreen(); // will render the empty state
             }
         }
 

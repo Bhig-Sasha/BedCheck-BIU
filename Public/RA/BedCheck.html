@@ -806,7 +806,14 @@
 
                         if (!response.ok) {
                             const errorText = await response.text();
-                            throw new Error(`HTTP ${response.status}: ${errorText}`);
+                            let errorMessage = `HTTP ${response.status}`;
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                errorMessage = errorJson.message || errorJson.error || errorMessage;
+                            } catch (e) {
+                                errorMessage = errorText || errorMessage;
+                            }
+                            throw new Error(errorMessage);
                         }
                         const data = await response.json();
 
@@ -1387,6 +1394,63 @@
         };
 
         // =============================================
+        // RESOLVE ACTIVE SESSION ID (robust)
+        // =============================================
+        async function resolveSessionId() {
+            // 1. Try currentSession
+            let sessionId = currentSession?.id
+                         || currentSession?.session_id
+                         || currentSession?.active_session?.id
+                         || currentSession?.active_session?.session_id
+                         || null;
+
+            if (sessionId) return sessionId;
+
+            // 2. Query the RA status endpoint
+            try {
+                const statusData = await apiCall('/ra/bedcheck/status');
+                const d = statusData?.data || statusData;
+
+                const active = d?.active_session
+                            || d?.session
+                            || d?.current_session
+                            || d;
+
+                sessionId = active?.session_id
+                         || active?.id
+                         || d?.session_id
+                         || null;
+
+                if (sessionId) {
+                    // Hydrate currentSession so subsequent calls work
+                    if (!currentSession) {
+                        currentSession = { id: sessionId };
+                    } else if (!currentSession.id) {
+                        currentSession.id = sessionId;
+                    }
+                }
+            } catch (e) {
+                console.warn('[BedCheck] Could not resolve session_id from /ra/bedcheck/status:', e);
+            }
+
+            // 3. Last resort: global active session endpoint
+            if (!sessionId) {
+                try {
+                    const gs = await apiCall('/sessions/active');
+                    const d = gs?.data || gs;
+                    sessionId = d?.session_id || d?.id || null;
+                    if (sessionId && !currentSession) {
+                        currentSession = { id: sessionId };
+                    }
+                } catch (e) {
+                    console.warn('[BedCheck] Could not resolve session_id from /sessions/active:', e);
+                }
+            }
+
+            return sessionId;
+        }
+
+        // =============================================
         // PERFORM VERIFICATION WITH API
         // =============================================
         async function performVerificationWithAPI(imageDataUrl) {
@@ -1405,7 +1469,8 @@
 
                 if (currentVerificationAttempts > 1) {
                     threshold = 0.40;
-                    document.getElementById('modalCameraStatus').textContent = `Retry ${currentVerificationAttempts} with lower threshold...`;
+                    document.getElementById('modalCameraStatus').textContent =
+                        `Retry ${currentVerificationAttempts} with lower threshold...`;
                 }
 
                 const result = await verifyFaceWithAPI(imageDataUrl, selectedStudent.id, threshold);
@@ -1417,8 +1482,78 @@
                 const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
 
+                // ==================================================
+                // SUCCESS BRANCH
+                // ==================================================
                 if (result.verified || result.success) {
                     const student = selectedStudent;
+
+                    let sessionId = currentSession?.id || currentSession?.session_id || null;
+
+                    if (!sessionId) {
+                        try {
+                            const statusData = await apiCall('/ra/bedcheck/status');
+                            const active = statusData?.data?.active_session
+                                        || statusData?.data?.session
+                                        || statusData?.data;
+                            sessionId = active?.session_id || active?.id || null;
+                            if (sessionId) {
+                                currentSession = { ...(currentSession || {}), id: sessionId };
+                            }
+                        } catch (e) {
+                            console.warn('[BedCheck] Could not resolve session from /ra/bedcheck/status:', e);
+                        }
+                    }
+
+                    if (!sessionId) {
+                        console.error('[BedCheck] No session_id — aborting save.');
+                        showToast('❌ No active session. Cannot save verification.', 'error');
+                        isVerifying = false;
+                        document.getElementById('modalVerifyBtn').innerHTML =
+                            '<i class="fas fa-redo"></i> Try Again';
+                        document.getElementById('modalVerifyBtn').disabled = false;
+                        document.getElementById('modalCameraStatus').textContent = 'No active session';
+                        document.getElementById('statusDot').className = 'status-dot-live error';
+                        return;
+                    }
+
+                    document.getElementById('modalCameraStatus').textContent = 'Saving verification...';
+
+                    const payload = {
+                        session_id: sessionId,
+                        student_id: student.id,
+                        room: currentRoom || student.room_code || student.room || null,
+                        status: 'Verified',
+                        scanner_id: 'Face-001',
+                        metadata: {
+                            method: 'face-recognition',
+                            confidence: confidencePercent,
+                            ra_id: currentUser?.id || null,
+                            threshold: threshold,
+                            attempts: currentVerificationAttempts
+                        }
+                    };
+                    console.log('[BedCheck] POST /bedcheck/scans', payload);
+
+                    try {
+                        await apiCall('/bedcheck/scans', {
+                            method: 'POST',
+                            body: JSON.stringify(payload)
+                        });
+                    } catch (scanError) {
+                        console.error('[BedCheck] Scan save failed:', scanError);
+                        showToast(
+                            `❌ Could not save: ${scanError.message || 'Server error'}`,
+                            'error'
+                        );
+                        isVerifying = false;
+                        document.getElementById('modalVerifyBtn').innerHTML =
+                            '<i class="fas fa-redo"></i> Try Again';
+                        document.getElementById('modalVerifyBtn').disabled = false;
+                        document.getElementById('modalCameraStatus').textContent = 'Save failed';
+                        document.getElementById('statusDot').className = 'status-dot-live error';
+                        return;
+                    }
 
                     bedScanStatus[student.id] = {
                         verified: true,
@@ -1428,44 +1563,13 @@
                         confidence: confidencePercent
                     };
 
-                    let sessionId = currentSession?.id || null;
-                    if (!sessionId) {
-                        try {
-                            const statusData = await apiCall('/ra/bedcheck/status');
-                            if (statusData && statusData.data && statusData.data.active_session) {
-                                sessionId = statusData.data.active_session.session_id || statusData.data.active_session.id;
-                            }
-                        } catch (e) {}
-                    }
-
                     try {
-                        await apiCall('/bedcheck/scans', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                session_id: sessionId,
-                                student_id: student.id,
-                                room: currentRoom || student.room_code,
-                                status: 'Verified',
-                                scanner_id: 'Face-001',
-                                metadata: {
-                                    method: 'face-recognition',
-                                    confidence: confidencePercent,
-                                    ra_id: currentUser?.id,
-                                    threshold: threshold,
-                                    attempts: currentVerificationAttempts
-                                }
-                            })
+                        await apiCall(`/students/${student.id}/status`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ status: 'Verified' })
                         });
-
-                        try {
-                            await apiCall(`/students/${student.id}/status`, {
-                                method: 'PUT',
-                                body: JSON.stringify({ status: 'Verified' })
-                            });
-                        } catch (statusError) {}
-
-                    } catch (scanError) {
-                        // Silent fail
+                    } catch (e) {
+                        console.warn('[BedCheck] Permanent student status update failed:', e);
                     }
 
                     showToast(`✅ ${student.name} verified (${confidencePercent}%)`, 'success');
@@ -1482,11 +1586,18 @@
                     document.getElementById('modalResult').className = 'modal-result show success';
                     document.getElementById('modalResultIcon').textContent = '✅';
                     document.getElementById('modalResultTitle').textContent = 'Identity Verified!';
-                    document.getElementById('modalResultSub').textContent = `${student.name} verified successfully`;
-                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
+                    document.getElementById('modalResultSub').textContent =
+                        `${student.name} verified successfully`;
+                    document.getElementById('modalResultConfidence').textContent =
+                        `${confidencePercent}%`;
 
                     document.getElementById('modalCameraStatus').textContent = '✅ Verified!';
                     document.getElementById('statusDot').className = 'status-dot-live';
+
+                    isVerifying = false;
+                    document.getElementById('modalVerifyBtn').innerHTML =
+                        '<i class="fas fa-check"></i> Verified';
+                    document.getElementById('modalVerifyBtn').disabled = true;
 
                     renderBedCheck();
 
@@ -1502,42 +1613,71 @@
                         closeVerifyModal();
                     }, 2000);
 
-                } else {
-                    if (confidence >= 0.30 && confidence < 0.45 && currentVerificationAttempts < 3) {
-                        showToast(`🔄 ${confidencePercent}% confidence. Please ensure you are looking directly at the camera with good lighting.`, 'info');
-                        setTimeout(() => {
-                            if (isVerifying) {
-                                const video = document.getElementById('modalCamera');
-                                if (video && video.readyState >= 2) {
-                                    const newImageData = captureBestFrame(video);
-                                    if (newImageData) {
-                                        performVerificationWithAPI(newImageData);
-                                    } else {
-                                        isVerifying = false;
-                                        document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
-                                        document.getElementById('modalVerifyBtn').disabled = false;
-                                        document.getElementById('modalCameraStatus').textContent = 'Capture failed';
-                                        document.getElementById('statusDot').className = 'status-dot-live error';
-                                    }
-                                } else {
-                                    isVerifying = false;
-                                    document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
-                                    document.getElementById('modalVerifyBtn').disabled = false;
-                                    document.getElementById('modalCameraStatus').textContent = 'Camera not ready';
-                                    document.getElementById('statusDot').className = 'status-dot-live error';
-                                }
-                            }
-                        }, 2000);
-                        return;
+                    return;
+                }
+
+                // ==================================================
+                // FAILURE BRANCH
+                // ==================================================
+
+                // --- Low-confidence retry path ---
+                if (confidence >= 0.30 && confidence < 0.45 && currentVerificationAttempts < 3) {
+                    showToast(
+                        `🔄 ${confidencePercent}% confidence. Look directly at the camera with good lighting.`,
+                        'info'
+                    );
+
+                    // Reflect the low-confidence state in UI
+                    if (faceBox) {
+                        faceBox.className = 'face-box scanning';
+                        const label = faceBox.querySelector('.label');
+                        if (label) label.textContent = `🔄 Retrying… (${confidencePercent}%)`;
                     }
 
+                    setTimeout(() => {
+                        if (!isVerifying) return;
+
+                        const video = document.getElementById('modalCamera');
+                        if (video && video.readyState >= 2) {
+                            const newImageData = captureBestFrame(video);
+                            if (newImageData) {
+                                currentVerificationAttempts++;
+                                performVerificationWithAPI(newImageData);
+                            } else {
+                                isVerifying = false;
+                                document.getElementById('modalVerifyBtn').innerHTML =
+                                    '<i class="fas fa-redo"></i> Try Again';
+                                document.getElementById('modalVerifyBtn').disabled = false;
+                                document.getElementById('modalCameraStatus').textContent =
+                                    'Capture failed';
+                                document.getElementById('statusDot').className =
+                                    'status-dot-live error';
+                            }
+                        } else {
+                            isVerifying = false;
+                            document.getElementById('modalVerifyBtn').innerHTML =
+                                '<i class="fas fa-redo"></i> Try Again';
+                            document.getElementById('modalVerifyBtn').disabled = false;
+                            document.getElementById('modalCameraStatus').textContent =
+                                'Camera not ready';
+                            document.getElementById('statusDot').className =
+                                'status-dot-live error';
+                        }
+                    }, 1200);
+
+                    return;
+                }
+                {
                     const faceStatus = studentFaceStatus[selectedStudent.id];
                     let reason = result.reason || 'Face does not match. Please try again with better lighting.';
 
                     if (faceStatus && faceStatus.has_embedding && confidence < 0.25) {
-                        reason = '❌ Face detected but does not match the enrolled face. Please ensure you are looking directly at the camera with good lighting.';
-                    } else if (faceStatus && faceStatus.has_embedding && confidence >= 0.25 && confidence < 0.45) {
-                        reason = `⚠️ Low confidence match (${confidencePercent}%). Please ensure you are looking directly at the camera with good lighting.`;
+                        reason = '❌ Face detected but does not match the enrolled face. ' +
+                                'Ensure you are looking directly at the camera with good lighting.';
+                    } else if (faceStatus && faceStatus.has_embedding &&
+                            confidence >= 0.25 && confidence < 0.45) {
+                        reason = `⚠️ Low confidence match (${confidencePercent}%). ` +
+                                'Ensure you are looking directly at the camera with good lighting.';
                     }
 
                     if (faceBox) {
@@ -1553,10 +1693,19 @@
                     document.getElementById('modalResultIcon').textContent = '❌';
                     document.getElementById('modalResultTitle').textContent = 'Identity Not Verified';
                     document.getElementById('modalResultSub').textContent = reason;
-                    document.getElementById('modalResultConfidence').textContent = `${confidencePercent}%`;
+                    document.getElementById('modalResultConfidence').textContent =
+                        `${confidencePercent}%`;
 
-                    document.getElementById('modalCameraStatus').textContent = `Verification failed (${confidencePercent}%)`;
+                    document.getElementById('modalCameraStatus').textContent =
+                        `Verification failed (${confidencePercent}%)`;
                     document.getElementById('statusDot').className = 'status-dot-live error';
+
+                    showToast(`❌ Verification failed (${confidencePercent}%). Try again.`, 'error');
+
+                    isVerifying = false;
+                    document.getElementById('modalVerifyBtn').innerHTML =
+                        '<i class="fas fa-redo"></i> Try Again';
+                    document.getElementById('modalVerifyBtn').disabled = false;
 
                     setTimeout(() => {
                         if (faceBox) {
@@ -1570,20 +1719,28 @@
                 }
 
             } catch (error) {
+                // ==================================================
+                // UNEXPECTED ERROR
+                // ==================================================
+                console.error('[BedCheck] performVerificationWithAPI error:', error);
+
                 showToast('Error during verification: ' + error.message, 'error');
+
                 document.getElementById('modalCameraStatus').textContent = 'Error';
                 document.getElementById('statusDot').className = 'status-dot-live error';
 
                 document.getElementById('modalResult').className = 'modal-result show failed';
                 document.getElementById('modalResultIcon').textContent = '⚠️';
                 document.getElementById('modalResultTitle').textContent = 'Verification Error';
-                document.getElementById('modalResultSub').textContent = error.message || 'Please try again';
+                document.getElementById('modalResultSub').textContent =
+                    error.message || 'Please try again';
                 document.getElementById('modalResultConfidence').textContent = '';
-            }
 
-            isVerifying = false;
-            document.getElementById('modalVerifyBtn').innerHTML = '<i class="fas fa-redo"></i> Try Again';
-            document.getElementById('modalVerifyBtn').disabled = false;
+                isVerifying = false;
+                document.getElementById('modalVerifyBtn').innerHTML =
+                    '<i class="fas fa-redo"></i> Try Again';
+                document.getElementById('modalVerifyBtn').disabled = false;
+            }
         }
 
         // =============================================
@@ -1730,8 +1887,6 @@
 
         // =============================================
         // LOAD SESSION DATA
-        // — bedScanStatus is built ONLY from scans of the current session.
-        // — No fallback to student.status (which is a permanent field).
         // =============================================
         async function loadSessionData() {
             try {
@@ -1748,15 +1903,12 @@
                     if (gs && gs.data && gs.is_active) {
                         globalSession = gs.data;
                         globalSessionActive = true;
-                        currentSession = gs.data;
                     } else {
                         globalSessionActive = false;
-                        currentSession = null;
                     }
                 } else {
                     if (!initComplete) {
                         globalSessionActive = false;
-                        currentSession = null;
                     }
                 }
 
@@ -1793,7 +1945,6 @@
                         } else if (globalSessionActive) {
                             sessionStatus = 'ready';
                             isSessionActive = true;
-                            globalSessionActive = true;
                             sessionIsActive = true;
                         } else {
                             sessionStatus = 'closed';
@@ -1803,7 +1954,6 @@
 
                         if (data.active_session) {
                             currentSession = data.active_session;
-                            activeSessionId = data.active_session.session_id || data.active_session.id;
                         }
                     }
                 } else {
@@ -1822,54 +1972,61 @@
                     }
                 }
 
+                // Resolve the active session ID using a single robust path
+                activeSessionId = currentSession?.id
+                               || currentSession?.session_id
+                               || statusData?.data?.active_session?.session_id
+                               || statusData?.data?.active_session?.id
+                               || null;
+
+                if (!activeSessionId && globalSession) {
+                    activeSessionId = globalSession.session_id || globalSession.id || null;
+                }
+
+                if (activeSessionId && !currentSession) {
+                    currentSession = { id: activeSessionId };
+                }
+
                 // If no active session, clear scan statuses entirely.
                 if (!sessionIsActive && !hasCompletedToday && effectiveStatus !== 'completed') {
                     bedScanStatus = {};
                     completedRooms = [];
-                } else {
-                    if (!activeSessionId && currentSession) {
-                        activeSessionId = currentSession.id;
-                    }
+                } else if (activeSessionId) {
+                    try {
+                        const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
 
-                    if (activeSessionId) {
-                        try {
-                            const scansData = await apiCall(`/bedcheck/scans?session_id=${activeSessionId}`);
+                        if (scansData && scansData.data) {
+                            bedScanStatus = {};
 
-                            if (scansData && scansData.data) {
-                                bedScanStatus = {};
-
-                                scansData.data.forEach(scan => {
-                                    if (scan.status === 'Verified' || scan.status === 'Present') {
-                                        bedScanStatus[scan.student_id] = {
-                                            verified: true,
-                                            status: 'Verified',
-                                            time: scan.created_at,
-                                            confidence: scan.metadata?.confidence || null,
-                                            method: scan.metadata?.method || 'face-recognition'
-                                        };
-                                    } else if (scan.status === 'Absent') {
-                                        bedScanStatus[scan.student_id] = {
-                                            verified: false,
-                                            status: 'Absent',
-                                            time: scan.created_at,
-                                            method: scan.metadata?.method || 'auto-absent'
-                                        };
-                                    } else if (scan.status === 'Failed') {
-                                        bedScanStatus[scan.student_id] = {
-                                            verified: false,
-                                            status: 'Failed',
-                                            time: scan.created_at,
-                                            method: scan.metadata?.method || 'face-recognition'
-                                        };
-                                    }
-                                });
-                            }
-                        } catch (scanError) {
-                            // Silent fail — keep whatever we had
+                            scansData.data.forEach(scan => {
+                                if (scan.status === 'Verified' || scan.status === 'Present') {
+                                    bedScanStatus[scan.student_id] = {
+                                        verified: true,
+                                        status: 'Verified',
+                                        time: scan.created_at,
+                                        confidence: scan.metadata?.confidence || null,
+                                        method: scan.metadata?.method || 'face-recognition'
+                                    };
+                                } else if (scan.status === 'Absent') {
+                                    bedScanStatus[scan.student_id] = {
+                                        verified: false,
+                                        status: 'Absent',
+                                        time: scan.created_at,
+                                        method: scan.metadata?.method || 'auto-absent'
+                                    };
+                                } else if (scan.status === 'Failed') {
+                                    bedScanStatus[scan.student_id] = {
+                                        verified: false,
+                                        status: 'Failed',
+                                        time: scan.created_at,
+                                        method: scan.metadata?.method || 'face-recognition'
+                                    };
+                                }
+                            });
                         }
+                    } catch (scanError) {
+                        console.warn('[BedCheck] Could not load scans:', scanError);
                     }
-                    // NOTE: No "fallback to student.status" here.
-                    // bedScanStatus is authoritative for the current session UI.
                 }
 
                 if (availableRooms.length > 0) {
@@ -1883,6 +2040,7 @@
                 }
 
             } catch (error) {
+                console.warn('[BedCheck] loadSessionData error:', error);
                 if (!initComplete) {
                     sessionStatus = 'closed';
                     isSessionActive = false;
