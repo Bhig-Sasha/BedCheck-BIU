@@ -13207,7 +13207,6 @@ app.post('/api/bedcheck/scans',
             const campus = student?.campus || req.campus;
             const now = new Date().toISOString();
 
-            // Optional: link to hostel-level bedcheck_sessions row
             let hostelSessionId = null;
             if (student?.hostel_id) {
                 const { data: hs } = await supabase
@@ -13219,9 +13218,8 @@ app.post('/api/bedcheck/scans',
                 hostelSessionId = hs?.id || null;
             }
 
-            // Columns that exist in YOUR table
             const newScan = {
-                session_id: parseInt(session_id),          // global sessions.id
+                session_id: parseInt(session_id),
                 student_id: student_id ? parseInt(student_id) : null,
                 room: room || null,
                 status: status || 'Verified',
@@ -13309,7 +13307,13 @@ app.post('/api/bedcheck/scan-with-face',
         try {
             await generalRateQueue.add(key, () =>
                 faceQueue.add(async () => {
-                    const { session_id, image, room_id, threshold = FACE_VERIFICATION_THRESHOLD, scanner_id } = req.body;
+                    const {
+                        session_id,
+                        image,
+                        room_id,
+                        threshold = FACE_VERIFICATION_THRESHOLD
+                    } = req.body;
+                    // NO scanner_id
 
                     const validation = faceService.validateImage(image);
                     if (!validation.valid) {
@@ -13325,13 +13329,18 @@ app.post('/api/bedcheck/scan-with-face',
                         .eq('campus', req.campus)
                         .eq('face_enrolled', true)
                         .eq('room_id', room_id);
-                    
-                    if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+
+                    if (
+                        req.user.role !== 'Admin' &&
+                        req.user.role !== 'Developer' &&
+                        req.user.role !== 'Administrator' &&
+                        req.user.hostel_id
+                    ) {
                         query = query.eq('hostel_id', req.user.hostel_id);
                     }
-                    
+
                     const { data: students, error: studentsError } = await query;
-                    
+
                     if (studentsError) {
                         console.error('Fetch students error:', studentsError);
                         return res.status(500).json({
@@ -13377,10 +13386,10 @@ app.post('/api/bedcheck/scan-with-face',
 
                     let matchedStudent = null;
                     let scanResult = null;
-                    
+
                     if (verification.success && verification.student_id) {
                         matchedStudent = students.find(s => s.id === verification.student_id);
-                        
+
                         if (matchedStudent) {
                             const studentFace = faceData.find(f => f.student_id === matchedStudent.id);
                             await supabase
@@ -13393,33 +13402,67 @@ app.post('/api/bedcheck/scan-with-face',
                                 })
                                 .eq('student_id', matchedStudent.id);
 
+                            const campus = matchedStudent.campus || req.campus;
+                            const now = new Date().toISOString();
+                            const globalSessionId = session_id ? parseInt(session_id) : null;
+
+                            let hostelSessionId = null;
+                            if (globalSessionId && matchedStudent.hostel_id) {
+                                const { data: hs } = await supabase
+                                    .from('bedcheck_sessions')
+                                    .select('id')
+                                    .eq('global_session_id', globalSessionId)
+                                    .eq('hostel_id', matchedStudent.hostel_id)
+                                    .maybeSingle();
+                                hostelSessionId = hs?.id || null;
+                            }
+
+                            // Same shape as /bedcheck/scans — no scanner_id
                             const newScan = {
-                                session_id: session_id || null,
+                                session_id: globalSessionId,
                                 student_id: matchedStudent.id,
                                 room: matchedStudent.room_code || null,
-                                bed_number: null,
                                 status: 'Verified',
-                                scanner_id: scanner_id || 'Face-001',
-                                campus: req.campus,
-                                created_at: new Date().toISOString()
+                                campus: campus,
+                                campus_code: campus === 'Heritage' ? 'HER' : 'LEG',
+                                hostel_session_id: hostelSessionId,
+                                verified_by: req.user?.id || null,
+                                verified_at: now,
+                                created_at: now,
+                                metadata: {
+                                    method: 'face-recognition',
+                                    confidence: Math.round((verification.confidence || 0) * 100),
+                                    ra_id: req.user?.id || null,
+                                    threshold: threshold
+                                }
                             };
-                            
+
                             const { data: scanData, error: scanError } = await supabase
                                 .from('bedcheck_scans')
                                 .insert(newScan)
                                 .select()
                                 .single();
-                            
-                            if (!scanError) {
+
+                            if (scanError) {
+                                console.error('scan-with-face insert error:', scanError);
+                            } else {
                                 scanResult = scanData;
-                                
+
                                 await supabase
                                     .from('students')
-                                    .update({ 
+                                    .update({
                                         status: 'Present',
-                                        updated_at: new Date().toISOString()
+                                        updated_at: now
                                     })
                                     .eq('id', matchedStudent.id);
+
+                                if (globalSessionId) {
+                                    try {
+                                        await updateSessionProgressUniversityWide(globalSessionId);
+                                    } catch (e) {
+                                        console.warn('Progress update failed (non-fatal):', e.message);
+                                    }
+                                }
                             }
                         }
                     }
@@ -13430,7 +13473,7 @@ app.post('/api/bedcheck/scan-with-face',
                         actor_role: req.user.role,
                         action: matchedStudent ? 'Face Scan Verified' : 'Face Scan Failed',
                         module: 'bedcheck',
-                        details: matchedStudent 
+                        details: matchedStudent
                             ? `${matchedStudent.name} (${matchedStudent.matric}) verified via face scan`
                             : `Face verification failed in room ${room_id}`,
                         context: `Session: ${session_id || 'N/A'}`,
@@ -13444,7 +13487,7 @@ app.post('/api/bedcheck/scan-with-face',
                         campus: req.campus,
                         ip_address: req.clientIp,
                         user_agent: req.userAgent
-                    });
+                    }).catch(() => {});
 
                     return res.json({
                         success: true,
@@ -13476,11 +13519,32 @@ app.post('/api/bedcheck/scan-with-face',
             }
 
             console.error('Face scan error:', err);
-            res.status(500).json({
-                success: false,
-                message: 'An error occurred. Please try again.',
-                code: 'SERVER_ERROR'
-            });
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    message: 'An error occurred. Please try again.',
+                    code: 'SERVER_ERROR'
+                });
+            }
+        }
+    }
+);
+
+app.post('/api/sessions/:id/sync-progress',
+    campusIsolation,
+    requireRole('Admin', 'Administrator', 'Developer'),
+    async (req, res) => {
+        try {
+            const id = parseInt(req.params.id);
+            await updateSessionProgressUniversityWide(id);
+            const { data } = await supabase
+                .from('sessions')
+                .select('*')
+                .eq('id', id)
+                .single();
+            res.json({ success: true, data });
+        } catch (e) {
+            res.status(500).json({ success: false, message: e.message });
         }
     }
 );
