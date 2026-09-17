@@ -391,6 +391,7 @@
 
         // ========== CONFIG ==========
         const API_BASE = 'https://bedcheck-biu.onrender.com/api';
+        const AUTO_REFRESH_INTERVAL_MS = 30000;  // 30 seconds
 
         // ========== STATE ==========
         let currentUser = null;
@@ -401,6 +402,7 @@
         let searchQuery = '';
         let statusFilter = 'all';
         let currentCampus = 'Legacy';
+        let autoRefreshTimer = null;
 
         // ========== TOAST ==========
         function showToast(msg, type = 'success') {
@@ -431,7 +433,6 @@
                     ...(opts.headers || {})
                 };
 
-                // Only set Content-Type when there is a body.
                 if (opts.body !== undefined && opts.body !== null) {
                     headers['Content-Type'] = 'application/json';
                 }
@@ -558,7 +559,6 @@
             return `<span class="gender-badge ${cls}">${gender || 'Male'}</span>`;
         }
 
-        // Normalize a session so numeric fields are always safe.
         function normalizeSession(s) {
             if (!s) return s;
             const toInt = (v) => {
@@ -579,10 +579,6 @@
             };
         }
 
-        // Compute session-scoped stats.
-        // Pending = total − present − (absent ?? 0)
-        // Never infer absent from (total − present) because
-        // unscanned students are PENDING, not absent.
         function getSessionStats(session) {
             if (!session) {
                 return { total: 0, present: 0, absent: 0, pending: 0, completion: 0 };
@@ -873,9 +869,7 @@
             const isArchived = status?.toLowerCase() === 'archived';
             title.textContent = session.name || 'Session Details';
 
-            // Use session-scoped stats — NOT students[].status
             const stats = getSessionStats(session);
-
             const campusBadge = getCampusBadge(session.campus || currentCampus);
 
             body.innerHTML = `
@@ -963,7 +957,6 @@
         function renderPage() {
             const container = document.getElementById('screenContent');
 
-            // Get session by priority: active > ready > scheduled > completed
             const activeSession = sessions.find(s => s.status?.toLowerCase() === 'active');
             const scheduledSession = sessions.find(s => s.status?.toLowerCase() === 'scheduled');
             const readySession = sessions.find(s => s.status?.toLowerCase() === 'ready');
@@ -975,7 +968,6 @@
             const hasScheduled = !!scheduledSession && !hasActive && !hasReady;
             const hasCompleted = !!completedSession && !hasActive && !hasReady && !hasScheduled;
 
-            // Determine what to show in the panel
             let panelTitle = 'No Active Session';
             let panelStatus = 'draft';
             let panelStatusDisplay = 'INACTIVE';
@@ -1016,13 +1008,11 @@
                 showArchiveButton = true;
             }
 
-            // Session-scoped stats
             const stats = getSessionStats(currentSession);
             const present   = stats.present;
             const absent    = stats.absent;
             const remaining = stats.pending;
 
-            // Filter sessions for history
             let filteredSessions = sessions;
             if (statusFilter !== 'all') {
                 filteredSessions = filteredSessions.filter(s => s.status?.toLowerCase() === statusFilter);
@@ -1042,21 +1032,17 @@
             const completedCount = sessions.filter(s => s.status?.toLowerCase() === 'completed').length;
             const archivedCount = sessions.filter(s => s.status?.toLowerCase() === 'archived').length;
 
-            // Get user info
             const user = getUser();
             const userGender = user?.gender || 'Male';
             const userCampus = currentCampus || 'Legacy';
 
-            // Status dot color
             const statusDotColor =
                 panelStatus === 'active' ? '#3f755d' :
                 panelStatus === 'ready' ? '#d4af37' :
                 panelStatus === 'scheduled' ? '#1e3a5f' :
                 panelStatus === 'completed' ? '#3f755d' : '#b9c7db';
 
-            // Build HTML
             let html = `
-                <!-- Page Heading -->
                 <div class="page-heading">
                     <div>
                         <p class="eyebrow"><i class="fas fa-clipboard-check"></i> RASD · Nightly Operations</p>
@@ -1078,7 +1064,6 @@
                     </div>
                 </div>
 
-                <!-- Session Panel -->
                 <div class="session-panel ${panelClass}">
                     <div class="panel-header">
                         <div class="session-name">${panelTitle}</div>
@@ -1143,11 +1128,9 @@
                     `}
                 </div>
 
-                <!-- Session History -->
                 <div class="card mt-4">
                     <div class="card-title">Session History</div>
 
-                    <!-- Filter Bar -->
                     <div class="filter-bar">
                         <div class="search-box">
                             <i class="fas fa-search"></i>
@@ -1169,7 +1152,6 @@
                         </button>
                     </div>
 
-                    <!-- Table -->
                     <div class="table-wrap">
                         <table>
                             <thead>
@@ -1245,7 +1227,6 @@
                     </div>
                 </div>
 
-                <!-- Footer -->
                 <div class="mt-4 pt-3 border-t text-center">
                     <p class="text-xs text-muted">BedCheck System · © Benson Idahosa University 2026 · All rights reserved</p>
                 </div>
@@ -1294,6 +1275,36 @@
         }
         window.refreshData = refreshData;
 
+        // ========== AUTO REFRESH ==========
+        // Fetches sessions silently (no toast, no spinner) so the panel
+        // stays current with RA scans. Only reloads sessions — hostels
+        // and students rarely change mid-session.
+        async function silentRefreshSessions() {
+            try {
+                const d = await apiCall('/sessions');
+                sessions = (d.data || []).map(normalizeSession);
+                sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
+                renderPage();
+            } catch (e) {
+                console.warn('[Auto-refresh] Failed:', e.message);
+            }
+        }
+
+        function startAutoRefresh() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = setInterval(() => {
+                if (document.hidden) return;
+                silentRefreshSessions();
+            }, AUTO_REFRESH_INTERVAL_MS);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+        }
+
         // ========== DATE ==========
         function setDate() {
             const now = new Date();
@@ -1307,7 +1318,6 @@
 
         // ========== INIT ==========
         async function init() {
-            // Check authentication
             const token = sessionStorage.getItem('bedcheck_token');
             const userData = sessionStorage.getItem('bedcheck_user');
 
@@ -1330,6 +1340,7 @@
                 document.getElementById('drawerOverlay').classList.remove('show');
             });
             document.getElementById('logoutBtn').addEventListener('click', () => {
+                stopAutoRefresh();
                 sessionStorage.removeItem('bedcheck_token');
                 sessionStorage.removeItem('bedcheck_user');
                 sessionStorage.removeItem('bedcheck_role');
@@ -1348,6 +1359,16 @@
                 await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
 
                 renderPage();
+
+                // Start polling so the panel picks up RA scans automatically
+                startAutoRefresh();
+
+                // Refresh immediately when the tab regains focus
+                document.addEventListener('visibilitychange', async () => {
+                    if (document.hidden) return;
+                    await silentRefreshSessions();
+                });
+
             } catch (e) {
                 if (!e.message.includes('Authentication required') && !e.message.includes('No authentication token')) {
                     showToast('Error: ' + e.message, 'error');
