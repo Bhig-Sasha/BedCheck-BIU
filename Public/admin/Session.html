@@ -133,7 +133,7 @@
 
         /* ===== ACTIVE SESSION STATS GRID ===== */
         .stats-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(4, 1fr); }
-        @media (max-width: 768px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 900px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 480px) { .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem; } }
         .stat-tile { padding: 1rem; border: 1px solid #ded6c9; border-radius: 0.75rem; background: #fffcf6; text-align: left; }
         .stat-tile .stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 0.5rem; font-size: 0.9rem; margin-bottom: 0.5rem; }
@@ -255,7 +255,7 @@
 
         .hostel-progress-row {
             display: grid;
-            grid-template-columns: 2fr 1fr 1fr 2fr 1fr;
+            grid-template-columns: 2fr 1.3fr 1fr 2fr 1fr;
             gap: 0.75rem;
             align-items: center;
             padding: 0.6rem 0.75rem;
@@ -651,6 +651,7 @@
                 ...s,
                 total_students:    toInt(s.total_students),
                 present_students:  toInt(s.present_students),
+                absent_students:   s.absent_students != null ? toInt(s.absent_students) : null,
                 total_hostels:     toInt(s.total_hostels),
                 hostels_completed: toInt(s.hostels_completed),
                 completion:        toInt(s.completion),
@@ -661,6 +662,7 @@
 
         // =============================================
         // AUTHENTICATED API HELPER
+        // Only send Content-Type when a body is present.
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -812,7 +814,7 @@
         }
 
         // =============================================
-        // SESSION DETAILS (modal — still used by the eye icon)
+        // SESSION DETAILS MODAL (used by the eye icon)
         // =============================================
         async function viewSessionDetails(sessionId) {
             selectedSessionId = sessionId;
@@ -843,12 +845,17 @@
                 const campusDisplay = isUniversityWide ? '🌍 All Campuses' : (session.campus || 'Legacy');
                 const campuses = session.campuses || [];
 
-                const totalStudents   = session.total_students   || 0;
-                const presentStudents = session.present_students || 0;
-                const completion      = session.completion       || 0;
-                const totalHostels    = session.total_hostels    || 0;
-                const hostelsCompleted = session.hostels_completed || 0;
-                const scansCount      = session.scans_count      || 0;
+                const totalStudents   = Number(session.total_students)   || 0;
+                const presentStudents = Number(session.present_students) || 0;
+                const absentStudents = session.absent_students != null
+                    ? Number(session.absent_students)
+                    : 0;
+                const pendingStudents = Math.max(0, totalStudents - presentStudents - absentStudents);
+
+                const completion      = Number(session.completion)       || 0;
+                const totalHostels    = Number(session.total_hostels)    || 0;
+                const hostelsCompleted = Number(session.hostels_completed) || 0;
+                const scansCount      = Number(session.scans_count)      || 0;
 
                 const progressMissing =
                     (totalStudents === 0 && totalHostels === 0) &&
@@ -892,12 +899,16 @@
                             <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${presentStudents}</p>
                         </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
-                            <p class="text-xs text-muted">Completion</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${completion}%</p>
+                            <p class="text-xs text-muted">Pending</p>
+                            <p class="font-bold" style="font-size:1.2rem;color:#536274;">${pendingStudents}</p>
                         </div>
                     </div>
 
                     <div class="grid-3 mb-3">
+                        <div class="card" style="padding:0.5rem 0.75rem;">
+                            <p class="text-xs text-muted">Completion</p>
+                            <p class="font-bold" style="font-size:1.2rem;">${completion}%</p>
+                        </div>
                         <div class="card" style="padding:0.5rem 0.75rem;">
                             <p class="text-xs text-muted">Total Hostels</p>
                             <p class="font-bold" style="font-size:1.2rem;">${totalHostels}</p>
@@ -906,17 +917,13 @@
                             <p class="text-xs text-muted">Completed Hostels</p>
                             <p class="font-bold" style="font-size:1.2rem;color:#2d6545;">${hostelsCompleted}</p>
                         </div>
-                        <div class="card" style="padding:0.5rem 0.75rem;">
-                            <p class="text-xs text-muted">Scans</p>
-                            <p class="font-bold" style="font-size:1.2rem;">${scansCount}</p>
-                        </div>
                     </div>
 
                     <div class="flex-between mb-2" style="gap:0.5rem;flex-wrap:wrap;">
                         <button class="btn-outline" onclick="syncSessionProgress(${session.id})" id="syncProgressBtn">
                             <i class="fas fa-sync"></i> Sync Progress
                         </button>
-                        <span class="text-xs text-muted">Pulls the latest scan totals for this session</span>
+                        <span class="text-xs text-muted">Scans recorded: <strong>${scansCount}</strong></span>
                     </div>
 
                     ${campuses.length > 0 ? `
@@ -990,7 +997,6 @@
 
         // =============================================
         // SCROLL TO ACTIVE SESSION STATISTICS
-        // (used by "View Details" on the Active Session card)
         // =============================================
         window.scrollToActiveStats = function() {
             const section = document.getElementById('activeSessionStatsSection');
@@ -1000,9 +1006,7 @@
             }
             section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-            // Visual highlight
             section.classList.remove('highlight-section');
-            // Force reflow so the animation restarts
             void section.offsetWidth;
             section.classList.add('highlight-section');
         };
@@ -1026,7 +1030,7 @@
                 showToast('✅ Progress synced', 'success');
 
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
 
                 if (selectedSessionId === sessionId) {
                     await viewSessionDetails(sessionId);
@@ -1039,7 +1043,7 @@
                     });
                     showToast('✅ Progress synced', 'success');
                     await loadSessions();
-                    renderScreen();
+                    await renderScreen();
                     if (selectedSessionId === sessionId) {
                         await viewSessionDetails(sessionId);
                     }
@@ -1118,7 +1122,7 @@
                 showToast(`✅ Session "${name}" created successfully!`, 'success');
                 closeCreateSession();
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
 
                 if (status === 'active' && result.data) {
                     await apiCall(`/sessions/${result.data.id}`, {
@@ -1129,7 +1133,7 @@
                         })
                     });
                     await loadSessions();
-                    renderScreen();
+                    await renderScreen();
                 }
             } catch (error) {
                 if (error.message.includes('SESSION_EXISTS')) {
@@ -1153,7 +1157,7 @@
                 });
                 showToast('✅ Session started!', 'success');
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
 
                 try {
                     await apiCall(`/sessions/${sessionId}/sync-progress`, {
@@ -1161,7 +1165,7 @@
                         body: JSON.stringify({})
                     });
                     await loadSessions();
-                    renderScreen();
+                    await renderScreen();
                 } catch (e) {
                     console.warn('[Sessions] Auto-sync after start not available:', e.message);
                 }
@@ -1181,7 +1185,7 @@
                 });
                 showToast('✅ Session completed.', 'info');
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
             } catch (error) {
                 showToast('Error ending session: ' + error.message, 'error');
             }
@@ -1195,7 +1199,7 @@
                 });
                 showToast('📦 Session archived.', 'info');
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
             } catch (error) {
                 showToast('Error archiving session: ' + error.message, 'error');
             }
@@ -1214,7 +1218,7 @@
                 showToast(`Session "${session.name || 'BedCheck'}" deleted successfully`, 'success');
                 closeDeleteModal();
                 await loadSessions();
-                renderScreen();
+                await renderScreen();
             } catch (error) {
                 showToast('Error deleting session: ' + error.message, 'error');
             }
@@ -1290,14 +1294,23 @@
                 `;
             }
 
-            const totalStudents   = activeSession.total_students   || 0;
-            const presentStudents = activeSession.present_students || 0;
-            const absentStudents  = Math.max(0, totalStudents - presentStudents);
-            const completion      = activeSession.completion       || 0;
-            const totalHostels    = activeSession.total_hostels    || 0;
-            const hostelsCompleted = activeSession.hostels_completed || 0;
+            const totalStudents   = Number(activeSession.total_students)   || 0;
+            const presentStudents = Number(activeSession.present_students) || 0;
+
+            // Real absent — only trust an explicit field from the API.
+            // Never derive "absent" from (total − present) because unscanned
+            // students are PENDING, not absent.
+            const absentStudents = activeSession.absent_students != null
+                ? Number(activeSession.absent_students)
+                : 0;
+
+            const pendingStudents = Math.max(0, totalStudents - presentStudents - absentStudents);
+
+            const completion      = Number(activeSession.completion)       || 0;
+            const totalHostels    = Number(activeSession.total_hostels)    || 0;
+            const hostelsCompleted = Number(activeSession.hostels_completed) || 0;
             const hostelsInProgress = Math.max(0, totalHostels - hostelsCompleted);
-            const scansCount      = activeSession.scans_count      || 0;
+            const scansCount      = Number(activeSession.scans_count)      || 0;
 
             // Hostel breakdown from the details fetch (if present)
             const hostels = (sessionDetails && Array.isArray(sessionDetails.hostels))
@@ -1316,27 +1329,40 @@
                 hostelRowsHtml = hostels.map(h => {
                     const hTotal = h.total_students || 0;
                     const hPresent = h.present_students || 0;
+                    const hAbsent = h.absent_students != null ? Number(h.absent_students) : 0;
+                    const hPending = Math.max(0, hTotal - hPresent - hAbsent);
                     const hCompletion = h.completion || (hTotal > 0 ? Math.round((hPresent / hTotal) * 100) : 0);
-                    const statusLabel = h.status === 'completed' ? 'Completed'
-                        : h.status === 'in_progress' || h.status === 'started' ? 'In Progress'
-                        : h.status === 'pending' ? 'Not Started'
-                        : (h.status || 'Pending');
-                    const statusClass = h.status === 'completed' ? 'badge-completed'
-                        : h.status === 'in_progress' || h.status === 'started' ? 'badge-active'
-                        : 'badge-draft';
-                    const fillClass = h.status === 'completed' ? 'completed'
+
+                    // Prefer explicit status from server; fall back to derived
+                    let statusLabel;
+                    let statusClass;
+                    if (h.status === 'completed') {
+                        statusLabel = 'Completed'; statusClass = 'badge-completed';
+                    } else if (h.status === 'in_progress' || h.status === 'started') {
+                        statusLabel = 'In Progress'; statusClass = 'badge-active';
+                    } else if (h.status === 'pending') {
+                        statusLabel = 'Not Started'; statusClass = 'badge-draft';
+                    } else if (hTotal > 0 && hPresent >= hTotal) {
+                        statusLabel = 'Completed'; statusClass = 'badge-completed';
+                    } else if (hPresent > 0) {
+                        statusLabel = 'In Progress'; statusClass = 'badge-active';
+                    } else {
+                        statusLabel = 'Not Started'; statusClass = 'badge-draft';
+                    }
+
+                    const fillClass = statusLabel === 'Completed' ? 'completed'
                         : (hTotal === 0 ? 'pending' : '');
 
                     return `
                         <div class="hostel-progress-row">
                             <div style="font-weight:600;">${h.hostel?.name || 'Unknown'}</div>
-                            <div class="hide-mobile text-muted">${hTotal} students</div>
+                            <div class="hide-mobile text-muted">${hTotal} · <span style="color:#8a6413;">${hPending} pending</span></div>
                             <div><span class="font-bold" style="color:#2d6545;">${hPresent}</span> <span class="text-muted">present</span></div>
                             <div>
                                 <div class="progress-bar">
                                     <div class="fill ${fillClass}" style="width:${hCompletion}%;"></div>
                                 </div>
-                                <div class="text-xs text-muted mt-1">${hCompletion}%</div>
+                                <div class="text-xs text-muted mt-1">${hCompletion}% · ${hPending} pending</div>
                             </div>
                             <div class="hide-mobile">
                                 <span class="badge ${statusClass}">${statusLabel}</span>
@@ -1364,11 +1390,13 @@
                         </button>
                     </div>
 
+                    <!-- Row 1: attendance counts -->
                     <div class="stats-grid">
                         <div class="stat-tile navy">
                             <div class="stat-icon"><i class="fas fa-users"></i></div>
                             <div class="stat-num">${totalStudents}</div>
                             <div class="stat-label">Total Students</div>
+                            ${pendingStudents > 0 ? `<div class="text-xs" style="color:#8a6413;margin-top:0.15rem;">${pendingStudents} pending</div>` : ''}
                         </div>
                         <div class="stat-tile green">
                             <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
@@ -1380,13 +1408,14 @@
                             <div class="stat-num" style="color:#a84134;">${absentStudents}</div>
                             <div class="stat-label">Absent</div>
                         </div>
-                        <div class="stat-tile gold">
-                            <div class="stat-icon"><i class="fas fa-percentage"></i></div>
-                            <div class="stat-num" style="color:#8b6513;">${completion}%</div>
-                            <div class="stat-label">Completion</div>
+                        <div class="stat-tile gray">
+                            <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                            <div class="stat-num" style="color:#536274;">${pendingStudents}</div>
+                            <div class="stat-label">Pending</div>
                         </div>
                     </div>
 
+                    <!-- Row 2: structure counts -->
                     <div class="stats-grid mt-3">
                         <div class="stat-tile navy">
                             <div class="stat-icon"><i class="fas fa-building"></i></div>
@@ -1410,6 +1439,22 @@
                         </div>
                     </div>
 
+                    <!-- Completion summary -->
+                    <div class="border-t mt-4" style="padding-top:1rem;">
+                        <div class="flex-between" style="gap:0.75rem;">
+                            <div>
+                                <div class="text-xs text-muted">Completion</div>
+                                <div class="font-bold" style="font-size:1.4rem;">${completion}%</div>
+                            </div>
+                            <div style="flex:1;max-width:280px;">
+                                <div class="progress-bar" style="height:0.5rem;">
+                                    <div class="fill" style="width:${completion}%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hostel progress -->
                     <div class="border-t mt-4" style="padding-top:1rem;">
                         <div class="flex-between mb-2">
                             <div class="card-title" style="margin-bottom:0;">
