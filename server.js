@@ -5933,7 +5933,9 @@ app.patch('/api/students/:id',
 app.put('/api/students/:id/status', 
     campusIsolation,
     validate([
-        body('status').isIn(['Present', 'Absent', 'Verified']).withMessage('Invalid status')
+        body('status')
+            .isIn(['Present', 'Absent', 'Late', 'Excused', 'Pending'])
+            .withMessage('Invalid status')
     ]),
     async (req, res) => {
         const id = parseInt(req.params.id);
@@ -5963,9 +5965,12 @@ app.put('/api/students/:id/status',
                 });
             }
 
+            const allowedStatuses = ['Present', 'Absent', 'Late', 'Excused', 'Pending'];
+            const safeStatus = allowedStatuses.includes(status) ? status : 'Present';
+
             const { data, error } = await supabase
                 .from('students')
-                .update({ status: status, updated_at: new Date().toISOString() })
+                .update({ status: safeStatus, updated_at: new Date().toISOString() })
                 .eq('id', id)
                 .eq('campus', req.campus)
                 .select()
@@ -5979,10 +5984,12 @@ app.put('/api/students/:id/status',
                 actor_role: req.user.role,
                 action: 'Student Status Updated',
                 module: 'students',
-                details: `Updated ${data?.name} (${data?.matric}) status to ${status}`,
+                details: `Updated ${data?.name} (${data?.matric}) status to ${safeStatus}`,
                 result: 'success',
                 category: 'student',
-                tone: status === 'Present' ? 'green' : status === 'Absent' ? 'red' : 'gold',
+                tone: safeStatus === 'Present' ? 'green'
+                    : safeStatus === 'Absent' ? 'red'
+                    : 'gold',
                 hostel_id: data?.hostel_id,
                 room_id: data?.room_id,
                 student_id: data?.id,
@@ -10082,7 +10089,7 @@ app.get('/api/ra/bedcheck/status',
 
             const totalStudents = hostelStudents?.length || 0;
             const presentStudents = hostelStudents?.filter(s =>
-                s.status === 'Present' || s.status === 'Verified'
+                s.status === 'Present'
             ).length || 0;
             const absentStudents = hostelStudents?.filter(s =>
                 s.status === 'Absent'
@@ -13994,7 +14001,7 @@ app.get('/api/hra/hostel',
             
             let presentCount = 0, absentCount = 0, faceEnrolledCount = 0;
             if (!statusError && studentStatuses) {
-                presentCount = studentStatuses.filter(s => s.status === 'Present' || s.status === 'Verified').length;
+                presentCount = studentStatuses.filter(s => s.status === 'Present').length;
                 absentCount = studentStatuses.filter(s => s.status === 'Absent').length;
                 faceEnrolledCount = studentStatuses.filter(s => s.face_enrolled === true).length;
             }
