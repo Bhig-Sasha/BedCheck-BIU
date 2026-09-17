@@ -13260,43 +13260,64 @@ app.post('/api/bedcheck/scans',
                 console.error('Insert bedcheck_scans error:', error);
                 throw error;
             }
-
-            // 2) Official attendance
+            
+            // 2) Official attendance ledger
             if (student_id) {
                 const attendanceRow = {
                     global_session_id: globalSessionId,
-                    bedcheck_session_id: hostelSessionId,
+                    bedcheck_session_id: hostelSessionId || null,
                     student_id: parseInt(student_id),
                     hostel_id: student?.hostel_id || null,
                     room_id: student?.room_id || null,
-                    status: attendanceStatus,
+                    bed_space_id: student?.bed_space_id || null,
+                    status: attendanceStatus, // Present
                     signed_at: now,
                     verified_by: req.user?.id || null,
                     verification_method: 'face-recognition',
                     confidence_score: metadata?.confidence != null
                         ? Number(metadata.confidence)
                         : null,
-                    campus: campus,
+                    campus: campus || null,
                     created_at: now
                 };
 
-                const { error: attError } = await supabase
+                console.log('[Attendance] writing:', JSON.stringify(attendanceRow));
+
+                const { data: attData, error: attError } = await supabase
                     .from('bedcheck_attendance')
                     .upsert(attendanceRow, {
-                        onConflict: 'global_session_id,student_id',
-                        ignoreDuplicates: false
-                    });
+                        onConflict: 'global_session_id,student_id'
+                    })
+                    .select()
+                    .single();
 
                 if (attError) {
-                    console.warn('Attendance upsert failed, inserting:', attError.message);
-                    const { error: insertAttError } = await supabase
-                        .from('bedcheck_attendance')
-                        .insert(attendanceRow);
-                    if (insertAttError) {
-                        console.error('Attendance insert error:', insertAttError);
-                    }
+                    console.error(
+                        '[Attendance] FAILED:',
+                        attError.code,
+                        attError.message,
+                        attError.details,
+                        attError.hint
+                    );
+
+                    // Surface the error so you can see it in Network tab
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Scan may have saved but attendance failed: ' + attError.message,
+                        code: 'ATTENDANCE_WRITE_FAILED',
+                        attendance_error: {
+                            code: attError.code,
+                            message: attError.message,
+                            details: attError.details,
+                            hint: attError.hint
+                        },
+                        scan: typeof data !== 'undefined' ? data : null
+                    });
                 }
 
+                console.log('[Attendance] OK id=', attData?.id);
+
+                // 3) Permanent student flag
                 await supabase
                     .from('students')
                     .update({
@@ -13306,6 +13327,7 @@ app.post('/api/bedcheck/scans',
                     .eq('id', parseInt(student_id));
             }
 
+            // 4) Recalculate session numbers
             try {
                 await updateSessionProgressUniversityWide(globalSessionId);
             } catch (e) {
