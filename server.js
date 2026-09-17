@@ -628,13 +628,14 @@ console.log('Rate queues ready (auth + registration + general)');
 // =====================================================
 // SESSION MANAGEMENT FUNCTIONS
 // =====================================================
-// =====================================================
-// HELPER: Get or Create Today's Session (per hostel)
-// =====================================================
-async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
+async function getOrCreateTodaySession(hostelId, campus) {
+    if (!hostelId || !campus) {
+        console.warn('getOrCreateTodaySession: hostelId and campus are required');
+        return null;
+    }
+
     const today = new Date().toISOString().split('T')[0];
 
-    // Fast path: fetch existing session
     const { data: existing, error: fetchError } = await supabase
         .from('sessions')
         .select('*')
@@ -648,61 +649,11 @@ async function getOrCreateTodaySession(hostelId, campus = 'Legacy') {
         return null;
     }
 
-    if (existing) {
-        return existing;
-    }
-
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dayName = dayNames[new Date().getDay()] || 'Night';
-    const now = new Date().toISOString();
-
-    const { data: created, error: upsertError } = await supabase
-        .from('sessions')
-        .upsert(
-            {
-                hostel_id: hostelId,
-                date: today,
-                name: `${dayName} Night BedCheck`,
-                status: 'draft',
-                start_time: '22:00:00',
-                end_time: '23:30:00',
-                campus: campus,
-                campus_code: campus === 'Legacy' ? 'LEG' : 'HER',
-                created_at: now,
-                updated_at: now
-            },
-            {
-                onConflict: 'hostel_id,date,campus',
-                ignoreDuplicates: true
-            }
-        )
-        .select()
-        .maybeSingle();
-
-    if (upsertError) {
-        console.error('Error creating session:', upsertError);
-        return null;
-    }
-
-    if (!created) {
-        const { data: raced } = await supabase
-            .from('sessions')
-            .select('*')
-            .eq('hostel_id', hostelId)
-            .eq('date', today)
-            .eq('campus', campus)
-            .maybeSingle();
-
-        return raced || null;
-    }
-
-    console.log(`📋 Created session ${created.id} for hostel ${hostelId} on ${today}`);
-    return created;
+    return existing || null;
 }
 
-
 // =====================================================
-// HELPER: Create Bedcheck Sessions (university-wide)
+// HELPER: Create Bedcheck Sessions
 // =====================================================
 async function createUniversityWideBedcheckSessions(sessionId) {
     try {
@@ -814,9 +765,8 @@ async function createUniversityWideBedcheckSessions(sessionId) {
     }
 }
 
-
 // =====================================================
-// HELPER: Mark Unverified as Absent (uses bedcheck_scans)
+// HELPER: Mark Unverified as Absent
 // =====================================================
 async function markUnverifiedAsAbsentUniversityWide(sessionId) {
     try {
@@ -826,7 +776,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             return;
         }
 
-        // 1. Fetch ALL enrolled students (accept Present / Verified / active)
+        // 1. All enrolled students
         const { data: allStudents, error: studentsError } = await supabase
             .from('students')
             .select('id, name, matric, hostel_id, room_code, campus')
@@ -837,7 +787,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             return;
         }
 
-        // ✅ 2. Read from bedcheck_scans (the source of truth)
+        // 2. Who already has a Verified/Present scan for this session
         const { data: verified, error: verifiedError } = await supabase
             .from('bedcheck_scans')
             .select('student_id')
@@ -860,7 +810,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 
         console.log(`📝 Marking ${unverified.length} students as absent for session ${sid}`);
 
-        // 3. Skip students who already have a scan row for this session
+        // 3. Skip students who already have any scan row for this session
         const unverifiedIds = unverified.map(s => s.id);
         const { data: existingRows, error: existingError } = await supabase
             .from('bedcheck_scans')
@@ -876,22 +826,23 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
         const toInsert = unverified.filter(s => !alreadyHasRow.has(String(s.id)));
         const now = new Date().toISOString();
 
-        // 4. Bulk insert Absent rows into bedcheck_scans
+        // 4. Insert Absent rows — only columns that exist
         if (toInsert.length > 0) {
-            const absentInserts = toInsert.map(student => ({
-                session_id: sid,
-                student_id: student.id,
-                hostel_id: student.hostel_id || null,
-                room: student.room_code || 'Unknown',
-                status: 'Absent',
-                scanner_id: 'System-Auto',
-                campus: student.campus || 'Legacy',
-                campus_code: student.campus === 'Heritage' ? 'HER' : 'LEG',
-                verified_by: null,
-                verified_at: now,
-                created_at: now,
-                metadata: { method: 'auto-absent' }
-            }));
+            const absentInserts = toInsert.map(student => {
+                const campus = student.campus || null;
+                return {
+                    session_id: sid,
+                    student_id: student.id,
+                    room: student.room_code || null,
+                    status: 'Absent',
+                    campus: campus,
+                    campus_code: campus === 'Heritage' ? 'HER' : campus === 'Legacy' ? 'LEG' : null,
+                    verified_by: null,
+                    verified_at: now,
+                    created_at: now,
+                    metadata: { method: 'manual-absent-on-complete' }
+                };
+            });
 
             const CHUNK_SIZE = 500;
             for (let i = 0; i < absentInserts.length; i += CHUNK_SIZE) {
@@ -907,7 +858,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             console.log(`✅ Marked ${absentInserts.length} students as absent`);
         }
 
-        // 5. Bulk update student permanent statuses
+        // 5. Update permanent student status
         const { error: updateError } = await supabase
             .from('students')
             .update({ status: 'Absent', updated_at: now })
@@ -917,7 +868,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
             console.error('Error bulk-updating student status:', updateError);
         }
 
-        // 6. Recalculate parent session counters
+        // 6. Recalculate session counters
         await updateSessionProgressUniversityWide(sid);
 
     } catch (error) {
@@ -925,9 +876,8 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
     }
 }
 
-
 // =====================================================
-// HELPER: Update Session Progress (definitive version)
+// HELPER: Update Session Progress
 // =====================================================
 async function updateSessionProgressUniversityWide(sessionId) {
     try {
@@ -8435,7 +8385,7 @@ app.post('/api/sessions',
 );
 
 // ==========================================
-// 9. UPDATE SESSION (Admin activates the general session)
+// 9. UPDATE SESSION
 // ==========================================
 app.put('/api/sessions/:id',
     campusIsolation,
@@ -8454,7 +8404,7 @@ app.put('/api/sessions/:id',
                 grace_period
             } = req.body;
             
-            // ✅ Get the session (it's university-wide, so no campus filter)
+            // University-wide session — no campus filter
             const { data: existing, error: existingError } = await supabase
                 .from('sessions')
                 .select('*')
@@ -8483,16 +8433,16 @@ app.put('/api/sessions/:id',
                 updateData.status = status; 
                 changes.push('status'); 
                 
+                // Manual start only — create hostel rows when admin activates
                 if (status === 'active' && existing.status !== 'active') {
                     updateData.started_at = new Date().toISOString();
-                    // ✅ Create bedcheck sessions for ALL hostels when activating
                     await createUniversityWideBedcheckSessions(id);
                 }
                 
+                // Manual complete only — NO auto-absent
                 if (status === 'completed' && existing.status !== 'completed') {
                     updateData.completed_at = new Date().toISOString();
-                    // ✅ Mark unverified as absent for ALL campuses
-                    await markUnverifiedAsAbsentUniversityWide(id);
+                    // markUnverifiedAsAbsentUniversityWide removed
                 }
             }
             
