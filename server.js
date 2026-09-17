@@ -886,41 +886,76 @@ async function updateSessionProgressUniversityWide(sessionId) {
 
         console.log(`[Progress] Recalculating session ${sid}...`);
 
-        const { data: scans, error: scansError } = await supabase
-            .from('bedcheck_scans')
-            .select('student_id, status, campus')
-            .eq('session_id', sid);
+        // 1) Prefer official attendance ledger
+        const { data: attendance, error: attError } = await supabase
+            .from('bedcheck_attendance')
+            .select('student_id, status, hostel_id')
+            .eq('global_session_id', sid);
 
-        if (scansError) {
-            console.error('[Progress] scans error:', scansError);
-            return;
+        if (attError) {
+            console.error('[Progress] attendance error:', attError);
         }
 
-        const presentIds = new Set(
-            (scans || [])
-                .filter(s => s.status === 'Verified' || s.status === 'Present')
-                .map(s => s.student_id)
+        let presentIds = new Set(
+            (attendance || [])
+                .filter(a =>
+                    ['Present', 'Verified', 'present', 'verified'].includes(a.status)
+                )
+                .map(a => a.student_id)
                 .filter(Boolean)
         );
-        const presentStudents = presentIds.size;
-        const scansCount = (scans || []).length;
 
-        // Total students university-wide
+        // 2) Fallback to scans if attendance still empty (migration period)
+        let scansCount = 0;
+        if (presentIds.size === 0) {
+            const { data: scans, error: scansError } = await supabase
+                .from('bedcheck_scans')
+                .select('student_id, status')
+                .eq('session_id', sid);
+
+            if (scansError) {
+                console.error('[Progress] scans error:', scansError);
+            } else {
+                scansCount = (scans || []).length;
+                presentIds = new Set(
+                    (scans || [])
+                        .filter(s => s.status === 'Verified' || s.status === 'Present')
+                        .map(s => s.student_id)
+                        .filter(Boolean)
+                );
+            }
+        } else {
+            const { count } = await supabase
+                .from('bedcheck_scans')
+                .select('id', { count: 'exact', head: true })
+                .eq('session_id', sid);
+            scansCount = count || 0;
+        }
+
+        const presentStudents = presentIds.size;
+
+        // Absent from attendance (if any)
+        const absentStudents = (attendance || []).filter(a =>
+            ['Absent', 'absent'].includes(a.status)
+        ).length;
+
+        // 3) Total students university-wide (enrolled pool)
         const { count: totalStudents } = await supabase
             .from('students')
             .select('id', { count: 'exact', head: true })
-            .in('status', ['Present', 'Verified', 'active', 'Active']);
+            .in('status', ['Present', 'Verified', 'active', 'Active', 'Absent']);
 
         const total = totalStudents || 0;
         const completion = total > 0 ? Math.round((presentStudents / total) * 100) : 0;
 
-        // Hostel-level rows for this global session
+        // 4) Hostel-level bedcheck_sessions
         const { data: bedcheckSessions } = await supabase
             .from('bedcheck_sessions')
             .select('id, hostel_id, campus, status')
             .eq('global_session_id', sid);
 
         const totalHostels = bedcheckSessions?.length || 0;
+        let hostelsCompleted = 0;
 
         for (const hs of (bedcheckSessions || [])) {
             const { data: hostelStudents } = await supabase
@@ -935,6 +970,8 @@ async function updateSessionProgressUniversityWide(sessionId) {
                 ? Math.round((hostelPresent / hostelTotal) * 100)
                 : 0;
 
+            if (hostelCompletion >= 100 && hostelTotal > 0) hostelsCompleted++;
+
             await supabase
                 .from('bedcheck_sessions')
                 .update({
@@ -946,7 +983,7 @@ async function updateSessionProgressUniversityWide(sessionId) {
                 .eq('id', hs.id);
         }
 
-        // Parent sessions row
+        // 5) Parent sessions row
         await supabase
             .from('sessions')
             .update({
@@ -954,13 +991,14 @@ async function updateSessionProgressUniversityWide(sessionId) {
                 present_students: presentStudents,
                 completion: completion,
                 total_hostels: totalHostels,
+                hostels_completed: hostelsCompleted,
                 updated_at: new Date().toISOString()
             })
             .eq('id', sid);
 
         console.log(
             `📊 Session ${sid}: ${presentStudents}/${total} present (${completion}%), ` +
-            `${scansCount} scans, ${totalHostels} hostels`
+            `${absentStudents} absent, ${scansCount} scans, ${totalHostels} hostels`
         );
 
     } catch (error) {
@@ -13088,7 +13126,7 @@ app.post('/api/bedcheck/scans',
     validate(validators.bedcheckScan),
     async (req, res) => {
         try {
-            const { session_id, student_id, room, status, metadata } = req.body;
+            const { session_id, student_id, room, bed_number, status, metadata } = req.body;
 
             if (!session_id) {
                 return res.status(400).json({
@@ -13118,7 +13156,7 @@ app.post('/api/bedcheck/scans',
 
                 let studentQuery = supabase
                     .from('students')
-                    .select('id, name, matric, hostel_id, room_id, campus')
+                    .select('id, name, matric, hostel_id, room_id, room_code, bed_code, bed_space_id, campus')
                     .eq('id', parseInt(student_id));
 
                 if (!isUniversityWide) {
@@ -13151,25 +13189,57 @@ app.post('/api/bedcheck/scans',
 
             const campus = student?.campus || req.campus;
             const now = new Date().toISOString();
+            const globalSessionId = parseInt(session_id);
+            const attendanceStatus =
+                (status === 'Verified' || status === 'Present') ? 'Present' : (status || 'Present');
+
+            let resolvedBed = bed_number || student?.bed_code || null;
+
+            if (!resolvedBed && student?.bed_space_id) {
+                try {
+                    const { data: bed } = await supabase
+                        .from('bed_spaces')
+                        .select('bed_code, full_bed_code')
+                        .eq('id', student.bed_space_id)
+                        .maybeSingle();
+
+                    resolvedBed = bed?.full_bed_code || bed?.bed_code || null;
+                } catch (_) {
+                }
+            } else if (!resolvedBed && student?.room_id && student?.id) {
+                try {
+                    const { data: bed } = await supabase
+                        .from('bed_spaces')
+                        .select('bed_code, full_bed_code')
+                        .eq('room_id', student.room_id)
+                        .eq('student_id', student.id)
+                        .maybeSingle();
+
+                    resolvedBed = bed?.full_bed_code || bed?.bed_code || null;
+                } catch (_) {
+                }
+            }
 
             let hostelSessionId = null;
             if (student?.hostel_id) {
                 const { data: hs } = await supabase
                     .from('bedcheck_sessions')
                     .select('id')
-                    .eq('global_session_id', parseInt(session_id))
+                    .eq('global_session_id', globalSessionId)
                     .eq('hostel_id', student.hostel_id)
                     .maybeSingle();
                 hostelSessionId = hs?.id || null;
             }
 
+            // 1) Scan event
             const newScan = {
-                session_id: parseInt(session_id),
+                session_id: globalSessionId,
                 student_id: student_id ? parseInt(student_id) : null,
-                room: room || null,
+                room: room || student?.room_code || null,
+                bed_number: resolvedBed,
                 status: status || 'Verified',
                 campus: campus,
-                campus_code: campus === 'Heritage' ? 'HER' : 'LEG',
+                campus_code: campus === 'Heritage' ? 'HER' : campus === 'Legacy' ? 'LEG' : null,
                 hostel_session_id: hostelSessionId,
                 verified_by: req.user?.id || null,
                 verified_at: now,
@@ -13191,18 +13261,53 @@ app.post('/api/bedcheck/scans',
                 throw error;
             }
 
+            // 2) Official attendance
             if (student_id) {
+                const attendanceRow = {
+                    global_session_id: globalSessionId,
+                    bedcheck_session_id: hostelSessionId,
+                    student_id: parseInt(student_id),
+                    hostel_id: student?.hostel_id || null,
+                    room_id: student?.room_id || null,
+                    status: attendanceStatus,
+                    signed_at: now,
+                    verified_by: req.user?.id || null,
+                    verification_method: 'face-recognition',
+                    confidence_score: metadata?.confidence != null
+                        ? Number(metadata.confidence)
+                        : null,
+                    campus: campus,
+                    created_at: now
+                };
+
+                const { error: attError } = await supabase
+                    .from('bedcheck_attendance')
+                    .upsert(attendanceRow, {
+                        onConflict: 'global_session_id,student_id',
+                        ignoreDuplicates: false
+                    });
+
+                if (attError) {
+                    console.warn('Attendance upsert failed, inserting:', attError.message);
+                    const { error: insertAttError } = await supabase
+                        .from('bedcheck_attendance')
+                        .insert(attendanceRow);
+                    if (insertAttError) {
+                        console.error('Attendance insert error:', insertAttError);
+                    }
+                }
+
                 await supabase
                     .from('students')
                     .update({
-                        status: (status === 'Verified' || status === 'Present') ? 'Present' : status,
+                        status: attendanceStatus === 'Present' ? 'Present' : attendanceStatus,
                         updated_at: now
                     })
                     .eq('id', parseInt(student_id));
             }
 
             try {
-                await updateSessionProgressUniversityWide(parseInt(session_id));
+                await updateSessionProgressUniversityWide(globalSessionId);
             } catch (e) {
                 console.warn('Progress update failed (non-fatal):', e.message);
             }
@@ -13213,13 +13318,13 @@ app.post('/api/bedcheck/scans',
                 actor_role: req.user.role,
                 action: 'Face Verification',
                 module: 'verification',
-                details: `${student?.name || 'Unknown'} verified in ${room || 'Unknown Room'}`,
+                details: `${student?.name || 'Unknown'} verified in ${room || student?.room_code || 'Unknown Room'}`,
                 result: 'success',
                 category: 'verification',
                 tone: 'green',
                 hostel_id: student?.hostel_id,
                 student_id: student?.id,
-                session_id: parseInt(session_id),
+                session_id: globalSessionId,
                 campus: campus,
                 ip_address: req.clientIp,
                 user_agent: req.userAgent
