@@ -882,135 +882,89 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 async function updateSessionProgressUniversityWide(sessionId) {
     try {
         const sid = parseInt(sessionId);
-        if (!sid) {
-            console.error('[Progress] invalid sessionId');
-            return;
-        }
+        if (!sid) return;
 
         console.log(`[Progress] Recalculating session ${sid}...`);
 
-        // ---- 1. Scans for this session ----
-        const { data: scans, error: scansErr } = await supabase
+        const { data: scans, error: scansError } = await supabase
             .from('bedcheck_scans')
-            .select('student_id, status, hostel_id')
+            .select('student_id, status, campus')
             .eq('session_id', sid);
 
-        if (scansErr) {
-            console.error('[Progress] scans error:', scansErr);
+        if (scansError) {
+            console.error('[Progress] scans error:', scansError);
             return;
         }
 
-        // Unique verified students
-        const verifiedIds = new Set(
+        const presentIds = new Set(
             (scans || [])
                 .filter(s => s.status === 'Verified' || s.status === 'Present')
-                .map(s => String(s.student_id))
+                .map(s => s.student_id)
+                .filter(Boolean)
         );
-        const absentIds = new Set(
-            (scans || [])
-                .filter(s => s.status === 'Absent')
-                .map(s => String(s.student_id))
-        );
-        const presentStudents = verifiedIds.size;
-        const absentStudents = absentIds.size;
+        const presentStudents = presentIds.size;
+        const scansCount = (scans || []).length;
 
-        // ---- 2. Total enrolled students ----
-        // Accept all three statuses: Present / Verified / active
-        const { count: totalStudentsCount, error: totalErr } = await supabase
+        // Total students university-wide
+        const { count: totalStudents } = await supabase
             .from('students')
             .select('id', { count: 'exact', head: true })
-            .in('status', ['Present', 'Verified', 'active']);
+            .in('status', ['Present', 'Verified', 'active', 'Active']);
 
-        if (totalErr) {
-            console.warn('[Progress] total students error:', totalErr);
-        }
+        const total = totalStudents || 0;
+        const completion = total > 0 ? Math.round((presentStudents / total) * 100) : 0;
 
-        const totalStudents = totalStudentsCount || 0;
-        const completion = totalStudents > 0
-            ? Math.round((presentStudents / totalStudents) * 100)
-            : 0;
-
-        // ---- 3. Hostel-level rows ----
-        const { data: bedcheckSessions, error: hsErr } = await supabase
+        // Hostel-level rows for this global session
+        const { data: bedcheckSessions } = await supabase
             .from('bedcheck_sessions')
-            .select('id, hostel_id, status')
+            .select('id, hostel_id, campus, status')
             .eq('global_session_id', sid);
 
-        if (hsErr) {
-            console.warn('[Progress] bedcheck_sessions error:', hsErr);
-        }
-
         const totalHostels = bedcheckSessions?.length || 0;
-        let hostelsCompleted = 0;
 
-        // ---- 4. Per-hostel updates ----
         for (const hs of (bedcheckSessions || [])) {
-            const { data: hostelStudents, error: hStudErr } = await supabase
+            const { data: hostelStudents } = await supabase
                 .from('students')
                 .select('id')
-                .eq('hostel_id', hs.hostel_id)
-                .in('status', ['Present', 'Verified', 'active']);
+                .eq('hostel_id', hs.hostel_id);
 
-            if (hStudErr) {
-                console.warn(`[Progress] hostel ${hs.hostel_id} students error:`, hStudErr);
-                continue;
-            }
-
-            const hostelStudentIds = new Set((hostelStudents || []).map(s => String(s.id)));
+            const hostelStudentIds = new Set((hostelStudents || []).map(s => s.id));
+            const hostelPresent = [...presentIds].filter(id => hostelStudentIds.has(id)).length;
             const hostelTotal = hostelStudentIds.size;
-            const hostelPresent = [...verifiedIds].filter(id => hostelStudentIds.has(id)).length;
             const hostelCompletion = hostelTotal > 0
                 ? Math.round((hostelPresent / hostelTotal) * 100)
                 : 0;
 
-            const isCompleted = hostelTotal > 0 && hostelPresent >= hostelTotal;
-            if (isCompleted) hostelsCompleted++;
-
-            const newStatus = isCompleted
-                ? 'completed'
-                : (hs.status === 'completed' ? 'started' : hs.status);
-
-            const { error: updErr } = await supabase
+            await supabase
                 .from('bedcheck_sessions')
                 .update({
                     total_students: hostelTotal,
                     present_students: hostelPresent,
                     completion: hostelCompletion,
-                    status: newStatus,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', hs.id);
-
-            if (updErr) {
-                console.warn(`[Progress] hostel ${hs.id} update error:`, updErr);
-            }
         }
 
-        // ---- 5. Parent sessions row ----
-        const { error: parentErr } = await supabase
+        // Parent sessions row
+        await supabase
             .from('sessions')
             .update({
-                total_students: totalStudents,
+                total_students: total,
                 present_students: presentStudents,
                 completion: completion,
                 total_hostels: totalHostels,
-                hostels_completed: hostelsCompleted,
                 updated_at: new Date().toISOString()
             })
             .eq('id', sid);
 
-        if (parentErr) {
-            console.error('[Progress] parent update error:', parentErr);
-        }
-
         console.log(
-            `📊 [Progress] Session ${sid}: ${presentStudents}/${totalStudents} present ` +
-            `(${completion}%) · ${hostelsCompleted}/${totalHostels} hostels · ` +
-            `${absentStudents} absent`
+            `📊 Session ${sid}: ${presentStudents}/${total} present (${completion}%), ` +
+            `${scansCount} scans, ${totalHostels} hostels`
         );
 
     } catch (error) {
-        console.error('[Progress] Unexpected error:', error);
+        console.error('Error in updateSessionProgressUniversityWide:', error);
     }
 }
 
