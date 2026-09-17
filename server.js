@@ -12903,24 +12903,39 @@ app.delete('/api/bed-spaces/:id',
 app.get('/api/bedcheck/sessions',
     campusIsolation,
     async (req, res) => {
-        const { hostel_id, date } = req.query;
+        const { hostel_id, date, session_id } = req.query;
         try {
-            let query = supabase.from('bedcheck_sessions').select('*').eq('campus', req.campus);
-            
-            if (hostel_id) query = query.eq('hostel_id', parseInt(hostel_id));
-            if (date) query = query.eq('date', date);
-            
-            if (req.user.role !== 'Admin' && req.user.role !== 'Developer' && req.user.role !== 'Administrator' && req.user.hostel_id) {
+            let query = supabase
+                .from('bedcheck_sessions')
+                .select('*')
+                .eq('campus', req.campus);
+
+            if (hostel_id) {
+                query = query.eq('hostel_id', parseInt(hostel_id));
+            }
+            if (date) {
+                query = query.eq('date', date);
+            }
+            if (session_id) {
+                query = query.eq('global_session_id', parseInt(session_id));
+            }
+
+            if (
+                req.user.role !== 'Admin' &&
+                req.user.role !== 'Developer' &&
+                req.user.role !== 'Administrator' &&
+                req.user.hostel_id
+            ) {
                 query = query.eq('hostel_id', req.user.hostel_id);
             }
-            
+
             const { data, error } = await query.order('created_at', { ascending: false });
             if (error) throw error;
             res.json({ success: true, data: data, campus: req.campus });
         } catch (error) {
             console.error('Error fetching bedcheck sessions:', error);
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 message: 'An error occurred. Please try again.',
                 code: 'SERVER_ERROR'
             });

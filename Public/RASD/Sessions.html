@@ -398,6 +398,7 @@
         let hostels = [];
         let students = [];
         let sessions = [];
+        let bedcheckSessionsForCurrent = [];
         let isLoading = false;
         let searchQuery = '';
         let statusFilter = 'all';
@@ -596,6 +597,39 @@
             return { total, present, absent, pending, completion };
         }
 
+        // ★ NEW: Compute panel stats scoped to the hostels this RASD can see.
+        // Falls back to the session-level totals if per-hostel rows are
+        // not available (keeps the page usable even if the endpoint fails).
+        function getScopedPanelStats(session, bedcheckRows) {
+            if (!session) {
+                return { total: 0, present: 0, absent: 0, pending: 0 };
+            }
+
+            // No per-hostel data → fall back to session totals
+            if (!Array.isArray(bedcheckRows) || bedcheckRows.length === 0) {
+                const s = getSessionStats(session);
+                return {
+                    total: s.total,
+                    present: s.present,
+                    absent: s.absent,
+                    pending: s.pending
+                };
+            }
+
+            // Only hostels visible to this RASD (already filtered by
+            // campus + gender inside loadHostels())
+            const visibleHostelIds = new Set(hostels.map(h => h.id));
+
+            const scoped = bedcheckRows.filter(b => visibleHostelIds.has(b.hostel_id));
+
+            const total = scoped.reduce((sum, b) => sum + (Number(b.total_students) || 0), 0);
+            const present = scoped.reduce((sum, b) => sum + (Number(b.present_students) || 0), 0);
+            const absent = scoped.reduce((sum, b) => sum + (Number(b.absent_students) || 0), 0);
+            const pending = Math.max(0, total - present - absent);
+
+            return { total, present, absent, pending };
+        }
+
         // ========== USER ==========
         function getUser() {
             try {
@@ -688,6 +722,29 @@
             return sessions;
         }
 
+        // ★ NEW: fetch per-hostel rows for one session
+        async function loadBedcheckSessions(sessionId) {
+            if (!sessionId) return [];
+            try {
+                const d = await apiCall(`/bedcheck/sessions?session_id=${sessionId}`);
+                return d.data || [];
+            } catch (e) {
+                console.warn('Failed to load bedcheck sessions:', e);
+                return [];
+            }
+        }
+
+        // ★ NEW: refresh sessions + bedcheck rows in one go
+        async function loadActiveSessionData() {
+            await loadSessions();
+            const active = sessions.find(s => s.status?.toLowerCase() === 'active');
+            if (active) {
+                bedcheckSessionsForCurrent = await loadBedcheckSessions(active.id);
+            } else {
+                bedcheckSessionsForCurrent = [];
+            }
+        }
+
         // ========== SESSION CRUD ==========
         async function createNewSession() {
             try {
@@ -759,6 +816,7 @@
                         sessions[idx] = normalizeSession(d.data);
                     }
                     showToast('✅ Session started! RAs can now verify students.', 'success');
+                    await loadActiveSessionData();
                     renderPage();
                     return d.data;
                 }
@@ -787,6 +845,7 @@
                         sessions[idx] = normalizeSession(d.data);
                     }
                     showToast('✅ Session completed! No further verifications allowed.', 'success');
+                    await loadActiveSessionData();
                     renderPage();
                     return d.data;
                 }
@@ -813,6 +872,7 @@
                         sessions[idx] = normalizeSession(d.data);
                     }
                     showToast(`Session ${statusLower}`, 'success');
+                    await loadActiveSessionData();
                     renderPage();
                     return d.data;
                 }
@@ -846,6 +906,7 @@
                 if (d.success) {
                     sessions = sessions.filter(s => s.id !== sessionId);
                     showToast('Session deleted successfully', 'success');
+                    await loadActiveSessionData();
                     renderPage();
                 }
             } catch (e) {
@@ -869,7 +930,13 @@
             const isArchived = status?.toLowerCase() === 'archived';
             title.textContent = session.name || 'Session Details';
 
-            const stats = getSessionStats(session);
+            // ★ Modal uses scoped stats when viewing the active session
+            const isCurrentActive = isActive;
+            const stats = isCurrentActive
+                ? Object.assign({ completion: Number(session.completion) || 0 },
+                                getScopedPanelStats(session, bedcheckSessionsForCurrent))
+                : getSessionStats(session);
+
             const campusBadge = getCampusBadge(session.campus || currentCampus);
 
             body.innerHTML = `
@@ -1008,11 +1075,13 @@
                 showArchiveButton = true;
             }
 
-            const stats = getSessionStats(currentSession);
-            const present   = stats.present;
-            const absent    = stats.absent;
-            const remaining = stats.pending;
+            // ★ Use scoped stats — counts only the hostels this RASD can see
+            const panelStats = getScopedPanelStats(currentSession, bedcheckSessionsForCurrent);
+            const present   = panelStats.present;
+            const absent    = panelStats.absent;
+            const remaining = panelStats.pending;
 
+            // Filter sessions for history
             let filteredSessions = sessions;
             if (statusFilter !== 'all') {
                 filteredSessions = filteredSessions.filter(s => s.status?.toLowerCase() === statusFilter);
@@ -1077,7 +1146,7 @@
                         <div class="panel-details">
                             <div><span class="detail-label">Date</span><div class="detail-value">${formatDate(currentSession.date)}</div></div>
                             <div><span class="detail-label">Time</span><div class="detail-value">${formatTime(currentSession.start_time) || '22:00'} — ${formatTime(currentSession.end_time) || '23:30'}</div></div>
-                            <div><span class="detail-label">Hostels</span><div class="detail-value">${currentSession.hostels_completed || 0} / ${currentSession.total_hostels || hostels.length} completed</div></div>
+                            <div><span class="detail-label">Hostels</span><div class="detail-value">${currentSession.hostels_completed || 0} / ${hostels.length} completed</div></div>
                             <div><span class="detail-label">Grace Period</span><div class="detail-value">${currentSession.grace_period || 15} min</div></div>
                             <div><span class="detail-label">Campus</span><div class="detail-value">${getCampusBadge(currentSession.campus || currentCampus)}</div></div>
                         </div>
@@ -1263,6 +1332,13 @@
                 const user = getUser();
                 if (user) updateUserUI(user);
 
+                const active = sessions.find(s => s.status?.toLowerCase() === 'active');
+                if (active) {
+                    bedcheckSessionsForCurrent = await loadBedcheckSessions(active.id);
+                } else {
+                    bedcheckSessionsForCurrent = [];
+                }
+
                 renderPage();
                 showToast('Data refreshed', 'success');
             } catch (e) {
@@ -1276,14 +1352,20 @@
         window.refreshData = refreshData;
 
         // ========== AUTO REFRESH ==========
-        // Fetches sessions silently (no toast, no spinner) so the panel
-        // stays current with RA scans. Only reloads sessions — hostels
-        // and students rarely change mid-session.
         async function silentRefreshSessions() {
             try {
                 const d = await apiCall('/sessions');
                 sessions = (d.data || []).map(normalizeSession);
                 sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                // ★ Also refresh the per-hostel rows for the active session
+                const active = sessions.find(s => s.status?.toLowerCase() === 'active');
+                if (active) {
+                    bedcheckSessionsForCurrent = await loadBedcheckSessions(active.id);
+                } else {
+                    bedcheckSessionsForCurrent = [];
+                }
+
                 renderPage();
             } catch (e) {
                 console.warn('[Auto-refresh] Failed:', e.message);
@@ -1326,7 +1408,6 @@
                 return;
             }
 
-            // Mobile menu handlers
             document.getElementById('menuToggle').addEventListener('click', () => {
                 document.getElementById('mobileDrawer').classList.add('open');
                 document.getElementById('drawerOverlay').classList.add('show');
@@ -1356,14 +1437,23 @@
                     updateUserUI(user);
                 }
 
-                await Promise.all([loadHostels(), loadStudents(), loadSessions()]);
+                // Load hostels first (needed to scope the panel stats)
+                await loadHostels();
+                await loadStudents();
+                await loadSessions();
+
+                // ★ Load the per-hostel rows for the active session
+                const active = sessions.find(s => s.status?.toLowerCase() === 'active');
+                if (active) {
+                    bedcheckSessionsForCurrent = await loadBedcheckSessions(active.id);
+                } else {
+                    bedcheckSessionsForCurrent = [];
+                }
 
                 renderPage();
 
-                // Start polling so the panel picks up RA scans automatically
                 startAutoRefresh();
 
-                // Refresh immediately when the tab regains focus
                 document.addEventListener('visibilitychange', async () => {
                     if (document.hidden) return;
                     await silentRefreshSessions();
