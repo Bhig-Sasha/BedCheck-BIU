@@ -605,8 +605,8 @@
             return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         }
 
-        // ⭐ Normalize an incoming session object so the UI
-        //    always gets consistent numeric fields.
+        // Normalize an incoming session object so the UI
+        // always gets consistent numeric fields.
         function normalizeSession(s) {
             if (!s) return s;
             const toInt = (v) => {
@@ -628,10 +628,7 @@
 
         // =============================================
         // AUTHENTICATED API HELPER
-        // ★ FIX: only send Content-Type when a body is present.
-        //   This lets us call POST/PUT/DELETE endpoints with no body
-        //   (e.g. /sessions/:id/sync-progress) without Express's
-        //   express.json() rejecting the empty body as "Invalid JSON payload".
+        // Only send Content-Type when a body is present.
         // =============================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
@@ -651,7 +648,7 @@
                     ...(options.headers || {})
                 };
 
-                // ★ Only declare JSON content-type when we actually send a body.
+                // Only declare JSON content-type when we actually send a body.
                 if (options.body !== undefined && options.body !== null) {
                     headers['Content-Type'] = 'application/json';
                 }
@@ -687,7 +684,7 @@
                 throw new Error(errorMessage);
             }
 
-            // Handle 204 No Content gracefully (DELETE, empty POST responses)
+            // Handle 204 No Content gracefully
             if (response.status === 204) {
                 return { success: true, data: null };
             }
@@ -962,10 +959,11 @@
             }
         }
 
-        // ⭐ Manual sync button — calls the server-side progress
-        //    recalculation endpoint, then refreshes the modal & list.
-        //    apiCall now omits Content-Type for bodyless POSTs, so this
-        //    no longer trips express.json() with "Invalid JSON payload".
+        // =============================================
+        // SYNC PROGRESS — always sends an empty JSON body
+        // so Express's express.json() doesn't reject it as
+        // "Invalid JSON payload".
+        // =============================================
         window.syncSessionProgress = async function(sessionId) {
             const btn = document.getElementById('syncProgressBtn');
             if (btn) {
@@ -975,7 +973,8 @@
 
             try {
                 await apiCall(`/sessions/${sessionId}/sync-progress`, {
-                    method: 'POST'
+                    method: 'POST',
+                    body: JSON.stringify({})
                 });
                 showToast('✅ Progress synced', 'success');
 
@@ -989,7 +988,8 @@
                 // Fallback endpoint
                 try {
                     await apiCall(`/sessions/${sessionId}/recalculate`, {
-                        method: 'POST'
+                        method: 'POST',
+                        body: JSON.stringify({})
                     });
                     showToast('✅ Progress synced', 'success');
                     await loadSessions();
@@ -999,8 +999,7 @@
                     }
                 } catch (fallbackError) {
                     showToast(
-                        `❌ Sync failed: ${fallbackError.message || error.message}. ` +
-                        `The server may not expose a sync endpoint yet.`,
+                        `❌ Sync failed: ${fallbackError.message || error.message}`,
                         'error'
                     );
                 }
@@ -1110,9 +1109,12 @@
                 await loadSessions();
                 renderScreen();
 
-                // ⭐ best-effort auto-sync after starting
+                // Best-effort auto-sync after starting
                 try {
-                    await apiCall(`/sessions/${sessionId}/sync-progress`, { method: 'POST' });
+                    await apiCall(`/sessions/${sessionId}/sync-progress`, {
+                        method: 'POST',
+                        body: JSON.stringify({})
+                    });
                     await loadSessions();
                     renderScreen();
                 } catch (e) {
@@ -1335,7 +1337,7 @@
                     <div class="flex-between">
                         <div>
                             <div class="font-bold" style="color:#536274;font-size:1.1rem;">⏳ No Active Session</div>
-                            <p class="text-sm text-muted">Schedule a session to start the BedCheck process.</p>
+                            <p class="text-sm text-muted">Create and start a session to begin BedCheck.</p>
                         </div>
                         <div>
                             <span class="badge badge-draft" style="font-size:0.8rem;padding:0.3rem 1rem;">INACTIVE</span>
