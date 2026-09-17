@@ -431,9 +431,7 @@
                     ...(opts.headers || {})
                 };
 
-                // ★ Only set Content-Type when there is a body.
-                //   This lets us POST /sync-progress with an empty JSON body
-                //   without Express rejecting it as "Invalid JSON payload".
+                // Only set Content-Type when there is a body.
                 if (opts.body !== undefined && opts.body !== null) {
                     headers['Content-Type'] = 'application/json';
                 }
@@ -466,7 +464,6 @@
                     throw new Error(msg);
                 }
 
-                // Handle 204 No Content
                 if (res.status === 204) {
                     return { success: true, data: null };
                 }
@@ -561,7 +558,7 @@
             return `<span class="gender-badge ${cls}">${gender || 'Male'}</span>`;
         }
 
-        // ★ Normalize a session so numeric fields are always safe.
+        // Normalize a session so numeric fields are always safe.
         function normalizeSession(s) {
             if (!s) return s;
             const toInt = (v) => {
@@ -582,8 +579,10 @@
             };
         }
 
-        // ★ Compute session-scoped stats from a session object.
-        //   Never falls back to permanent student status flags.
+        // Compute session-scoped stats.
+        // Pending = total − present − (absent ?? 0)
+        // Never infer absent from (total − present) because
+        // unscanned students are PENDING, not absent.
         function getSessionStats(session) {
             if (!session) {
                 return { total: 0, present: 0, absent: 0, pending: 0, completion: 0 };
@@ -591,9 +590,6 @@
 
             const total = Number(session.total_students) || 0;
             const present = Number(session.present_students) || 0;
-
-            // Absent only counts explicit Absent rows. Do NOT derive from (total - present)
-            // because unscanned students are PENDING, not absent.
             const absent = session.absent_students != null
                 ? Number(session.absent_students)
                 : 0;
@@ -695,22 +691,6 @@
             }
             return sessions;
         }
-
-        // ========== SYNC SESSION PROGRESS ==========
-        window.syncSessionProgress = async function(sessionId) {
-            try {
-                showToast('Syncing...', 'info');
-                await apiCall(`/sessions/${sessionId}/sync-progress`, {
-                    method: 'POST',
-                    body: JSON.stringify({})
-                });
-                await loadSessions();
-                renderPage();
-                showToast('✅ Progress synced', 'success');
-            } catch (e) {
-                showToast('Sync failed: ' + e.message, 'error');
-            }
-        };
 
         // ========== SESSION CRUD ==========
         async function createNewSession() {
@@ -893,7 +873,7 @@
             const isArchived = status?.toLowerCase() === 'archived';
             title.textContent = session.name || 'Session Details';
 
-            // ★ Use session-scoped stats — NOT students[].status
+            // Use session-scoped stats — NOT students[].status
             const stats = getSessionStats(session);
 
             const campusBadge = getCampusBadge(session.campus || currentCampus);
@@ -947,11 +927,6 @@
                             <i class="fas fa-undo"></i> Reopen
                         </button>
                     ` : ''}
-                    ${(isActive || isCompleted) ? `
-                        <button class="btn-outline" onclick="window.syncSessionProgress(${session.id});" style="flex:1;justify-content:center;">
-                            <i class="fas fa-sync"></i> Sync Progress
-                        </button>
-                    ` : ''}
                     <button class="btn-primary danger-outline" onclick="window.deleteSession(${session.id}); closeSessionModal();" style="flex:1;justify-content:center;">
                         <i class="fas fa-trash"></i> Delete
                     </button>
@@ -988,13 +963,12 @@
         function renderPage() {
             const container = document.getElementById('screenContent');
 
-            // Get session by priority: active > scheduled/ready > completed > none
+            // Get session by priority: active > ready > scheduled > completed
             const activeSession = sessions.find(s => s.status?.toLowerCase() === 'active');
             const scheduledSession = sessions.find(s => s.status?.toLowerCase() === 'scheduled');
             const readySession = sessions.find(s => s.status?.toLowerCase() === 'ready');
             const completedSession = sessions.find(s => s.status?.toLowerCase() === 'completed');
 
-            // Priority: active > ready > scheduled > completed
             let currentSession = activeSession || readySession || scheduledSession || completedSession || null;
             const hasActive = !!activeSession;
             const hasReady = !!readySession && !hasActive;
@@ -1010,7 +984,6 @@
             let showCompleteButton = false;
             let showArchiveButton = false;
             let showViewButton = false;
-            let showOpenButton = true;
 
             if (hasActive) {
                 panelTitle = activeSession.name || 'BedCheck Session';
@@ -1020,7 +993,6 @@
                 showViewButton = true;
                 showCompleteButton = true;
                 showArchiveButton = true;
-                showOpenButton = false;
             } else if (hasReady) {
                 panelTitle = readySession.name || 'BedCheck Session';
                 panelStatus = 'ready';
@@ -1028,7 +1000,6 @@
                 panelClass = 'ready';
                 showStartButton = true;
                 showViewButton = true;
-                showOpenButton = false;
             } else if (hasScheduled) {
                 panelTitle = scheduledSession.name || 'BedCheck Session';
                 panelStatus = 'scheduled';
@@ -1036,7 +1007,6 @@
                 panelClass = 'scheduled';
                 showStartButton = true;
                 showViewButton = true;
-                showOpenButton = false;
             } else if (hasCompleted) {
                 panelTitle = completedSession.name || 'BedCheck Session';
                 panelStatus = 'completed';
@@ -1044,21 +1014,13 @@
                 panelClass = 'completed';
                 showViewButton = true;
                 showArchiveButton = true;
-                showOpenButton = false;
-            } else {
-                panelTitle = 'No Active Session';
-                panelStatus = 'draft';
-                panelStatusDisplay = 'INACTIVE';
-                panelClass = 'draft';
-                showOpenButton = true;
             }
 
-            // ★ Session-scoped stats — no more counting permanent student.status
+            // Session-scoped stats
             const stats = getSessionStats(currentSession);
-            const totalStudents = stats.total;
-            const present       = stats.present;
-            const absent        = stats.absent;
-            const remaining     = stats.pending;
+            const present   = stats.present;
+            const absent    = stats.absent;
+            const remaining = stats.pending;
 
             // Filter sessions for history
             let filteredSessions = sessions;
@@ -1085,7 +1047,7 @@
             const userGender = user?.gender || 'Male';
             const userCampus = currentCampus || 'Legacy';
 
-            // Determine status dot color
+            // Status dot color
             const statusDotColor =
                 panelStatus === 'active' ? '#3f755d' :
                 panelStatus === 'ready' ? '#d4af37' :
@@ -1162,17 +1124,12 @@
                                     <i class="fas fa-eye"></i> View Session
                                 </button>
                             ` : ''}
-                            ${(panelStatus === 'active' || panelStatus === 'completed') ? `
-                                <button class="btn-outline" onclick="window.syncSessionProgress(${currentSession.id})" style="flex:1;justify-content:center;background:rgba(255,255,255,0.1);color:white;border-color:rgba(255,255,255,0.3);">
-                                    <i class="fas fa-sync"></i> Sync Progress
-                                </button>
-                            ` : ''}
                             ${showArchiveButton ? `
                                 <button class="btn-primary danger" onclick="window.handleSessionAction(${currentSession.id}, 'archived')" style="flex:1;justify-content:center;">
                                     <i class="fas fa-archive"></i> Archive
                                 </button>
                             ` : ''}
-                            ${!showOpenButton && !showStartButton && !showCompleteButton && !showArchiveButton ? `
+                            ${!showStartButton && !showCompleteButton && !showViewButton && !showArchiveButton ? `
                                 <div style="color:#b9c7db;font-size:0.8rem;padding:0.3rem 0;">No actions available</div>
                             ` : ''}
                         </div>
