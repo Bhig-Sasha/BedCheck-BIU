@@ -692,13 +692,11 @@ async function createUniversityWideBedcheckSessions(sessionId) {
                 .map(ra => [ra.hostel_id, ra.id])
         );
 
-        // ✅ Count ALL enrolled students (not just status='active')
-        //    We accept Present / Verified / active
         const { data: students, error: studentsError } = await supabase
             .from('students')
             .select('hostel_id, campus')
-            .in('status', ['Present', 'Verified', 'active']);
-
+            .or('is_archived.is.null,is_archived.eq.false');
+            
         if (studentsError) {
             console.error('Error fetching students for counts:', studentsError);
         }
@@ -780,7 +778,7 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
         const { data: allStudents, error: studentsError } = await supabase
             .from('students')
             .select('id, name, matric, hostel_id, room_code, campus')
-            .in('status', ['Present', 'Verified', 'active']);
+            .or('is_archived.is.null,is_archived.eq.false');
 
         if (studentsError || !allStudents) {
             console.error('Error fetching students:', studentsError);
@@ -882,127 +880,143 @@ async function markUnverifiedAsAbsentUniversityWide(sessionId) {
 async function updateSessionProgressUniversityWide(sessionId) {
     try {
         const sid = parseInt(sessionId);
-        if (!sid) return;
+        if (!sid) {
+            console.error('[Progress] invalid sessionId');
+            return;
+        }
 
         console.log(`[Progress] Recalculating session ${sid}...`);
 
-        // 1) Prefer official attendance ledger
-        const { data: attendance, error: attError } = await supabase
+        // ---- 1. Attendance rows for this session ----
+        const { data: attendanceRows, error: attErr } = await supabase
             .from('bedcheck_attendance')
-            .select('student_id, status, hostel_id')
+            .select('student_id, status, hostel_id, campus')
             .eq('global_session_id', sid);
 
-        if (attError) {
-            console.error('[Progress] attendance error:', attError);
+        if (attErr) {
+            console.error('[Progress] attendance fetch error:', attErr);
+            return;
         }
 
-        let presentIds = new Set(
-            (attendance || [])
-                .filter(a =>
-                    ['Present', 'Verified', 'present', 'verified'].includes(a.status)
-                )
-                .map(a => a.student_id)
-                .filter(Boolean)
+        const presentIds = new Set(
+            (attendanceRows || [])
+                .filter(a => a.status === 'Present' || a.status === 'Verified')
+                .map(a => String(a.student_id))
+        );
+        const absentIds = new Set(
+            (attendanceRows || [])
+                .filter(a => a.status === 'Absent')
+                .map(a => String(a.student_id))
         );
 
-        // 2) Fallback to scans if attendance still empty (migration period)
-        let scansCount = 0;
-        if (presentIds.size === 0) {
-            const { data: scans, error: scansError } = await supabase
-                .from('bedcheck_scans')
-                .select('student_id, status')
-                .eq('session_id', sid);
-
-            if (scansError) {
-                console.error('[Progress] scans error:', scansError);
-            } else {
-                scansCount = (scans || []).length;
-                presentIds = new Set(
-                    (scans || [])
-                        .filter(s => s.status === 'Verified' || s.status === 'Present')
-                        .map(s => s.student_id)
-                        .filter(Boolean)
-                );
-            }
-        } else {
-            const { count } = await supabase
-                .from('bedcheck_scans')
-                .select('id', { count: 'exact', head: true })
-                .eq('session_id', sid);
-            scansCount = count || 0;
-        }
-
         const presentStudents = presentIds.size;
+        const absentStudents  = absentIds.size;
 
-        // Absent from attendance (if any)
-        const absentStudents = (attendance || []).filter(a =>
-            ['Absent', 'absent'].includes(a.status)
-        ).length;
-
-        // 3) Total students university-wide (enrolled pool)
-        const { count: totalStudents } = await supabase
+        // ---- 2. Total enrolled students (strict) ----
+        const { count: totalStudentsCount, error: totalErr } = await supabase
             .from('students')
             .select('id', { count: 'exact', head: true })
-            .in('status', ['Present', 'Verified', 'active', 'Active', 'Absent']);
+            .or('is_archived.is.null,is_archived.eq.false');
 
-        const total = totalStudents || 0;
-        const completion = total > 0 ? Math.round((presentStudents / total) * 100) : 0;
+        if (totalErr) {
+            console.warn('[Progress] total students error:', totalErr);
+        }
 
-        // 4) Hostel-level bedcheck_sessions
-        const { data: bedcheckSessions } = await supabase
+        const totalStudents = totalStudentsCount || 0;
+        const completion = totalStudents > 0
+            ? Math.round((presentStudents / totalStudents) * 100)
+            : 0;
+
+        // ---- 3. Hostel rows ----
+        const { data: bedcheckSessions, error: hsErr } = await supabase
             .from('bedcheck_sessions')
-            .select('id, hostel_id, campus, status')
+            .select('id, hostel_id, status')
             .eq('global_session_id', sid);
+
+        if (hsErr) {
+            console.warn('[Progress] bedcheck_sessions error:', hsErr);
+        }
 
         const totalHostels = bedcheckSessions?.length || 0;
         let hostelsCompleted = 0;
 
+        // ---- 4. Per-hostel updates ----
         for (const hs of (bedcheckSessions || [])) {
-            const { data: hostelStudents } = await supabase
+            const { data: hostelStudents, error: hStudErr } = await supabase
                 .from('students')
                 .select('id')
-                .eq('hostel_id', hs.hostel_id);
+                .eq('hostel_id', hs.hostel_id)
+                .or('is_archived.is.null,is_archived.eq.false');
 
-            const hostelStudentIds = new Set((hostelStudents || []).map(s => s.id));
-            const hostelPresent = [...presentIds].filter(id => hostelStudentIds.has(id)).length;
+            if (hStudErr) {
+                console.warn(`[Progress] hostel ${hs.hostel_id} students error:`, hStudErr);
+                continue;
+            }
+
+            const hostelStudentIds = new Set((hostelStudents || []).map(s => String(s.id)));
             const hostelTotal = hostelStudentIds.size;
+
+            const hostelPresent = (attendanceRows || [])
+                .filter(a =>
+                    a.hostel_id === hs.hostel_id &&
+                    (a.status === 'Present' || a.status === 'Verified')
+                )
+                .reduce((set, a) => set.add(String(a.student_id)), new Set())
+                .size;
+
             const hostelCompletion = hostelTotal > 0
                 ? Math.round((hostelPresent / hostelTotal) * 100)
                 : 0;
 
-            if (hostelCompletion >= 100 && hostelTotal > 0) hostelsCompleted++;
+            const isCompleted = hostelTotal > 0 && hostelPresent >= hostelTotal;
+            if (isCompleted) hostelsCompleted++;
 
-            await supabase
+            const newStatus = isCompleted
+                ? 'completed'
+                : (hs.status === 'completed' ? 'started' : hs.status);
+
+            const { error: updErr } = await supabase
                 .from('bedcheck_sessions')
                 .update({
-                    total_students: hostelTotal,
+                    total_students:   hostelTotal,
                     present_students: hostelPresent,
-                    completion: hostelCompletion,
-                    updated_at: new Date().toISOString()
+                    completion:       hostelCompletion,
+                    status:           newStatus,
+                    updated_at:       new Date().toISOString()
                 })
                 .eq('id', hs.id);
+
+            if (updErr) {
+                console.warn(`[Progress] hostel ${hs.id} update error:`, updErr);
+            }
         }
 
-        // 5) Parent sessions row
-        await supabase
+        // ---- 5. Parent session row ----
+        const { error: parentErr } = await supabase
             .from('sessions')
             .update({
-                total_students: total,
-                present_students: presentStudents,
-                completion: completion,
-                total_hostels: totalHostels,
+                total_students:    totalStudents,
+                present_students:  presentStudents,
+                absent_students:   absentStudents,
+                completion:        completion,
+                total_hostels:     totalHostels,
                 hostels_completed: hostelsCompleted,
-                updated_at: new Date().toISOString()
+                updated_at:        new Date().toISOString()
             })
             .eq('id', sid);
 
+        if (parentErr) {
+            console.error('[Progress] parent update error:', parentErr);
+        }
+
         console.log(
-            `📊 Session ${sid}: ${presentStudents}/${total} present (${completion}%), ` +
-            `${absentStudents} absent, ${scansCount} scans, ${totalHostels} hostels`
+            `📊 [Progress] Session ${sid}: ${presentStudents}/${totalStudents} present ` +
+            `(${completion}%) · ${hostelsCompleted}/${totalHostels} hostels · ` +
+            `${absentStudents} absent`
         );
 
     } catch (error) {
-        console.error('Error in updateSessionProgressUniversityWide:', error);
+        console.error('[Progress] Unexpected error:', error);
     }
 }
 
@@ -13260,7 +13274,7 @@ app.post('/api/bedcheck/scans',
                 console.error('Insert bedcheck_scans error:', error);
                 throw error;
             }
-            
+
             // 2) Official attendance ledger
             if (student_id) {
                 const attendanceRow = {
