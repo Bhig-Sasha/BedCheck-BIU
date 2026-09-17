@@ -3840,7 +3840,7 @@ app.post('/api/face/detect',
 );
 
 // =====================================================
-// FACE RECOGNITION ENDPOINTS - FIXED
+// FACE RECOGNITION ENDPOINTS
 // =====================================================
 
 /**
@@ -4328,7 +4328,7 @@ app.post('/api/face/verify',
                 await supabase
                     .from('students')
                     .update({
-                        status: 'Verified',
+                        status: 'Present',
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', student.id);
@@ -4620,14 +4620,6 @@ app.post('/api/face/verify-room',
                         updated_at: now
                     })
                     .eq('student_id', matchedStudent.id);
-
-                await supabase
-                    .from('students')
-                    .update({
-                        status: 'Verified',
-                        updated_at: now
-                    })
-                    .eq('id', matchedStudent.id);
             }
 
             // 8. AUDIT LOG
@@ -5340,7 +5332,7 @@ app.post('/api/students/:id/face/verify',
                 await supabase
                     .from('students')
                     .update({
-                        status: 'Verified',
+                        status: 'Present',
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', student.id);
@@ -7251,16 +7243,7 @@ app.post('/api/attendance/verify',
                     code: 'SCAN_ERROR'
                 });
             }
-            
-            // Update student status
-            await supabase
-                .from('students')
-                .update({ 
-                    status: 'Verified',
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', student.id);
-            
+                        
             // Update face verification count
             await supabase
                 .from('student_face')
