@@ -285,6 +285,87 @@
         .dialog-box .dialog-header .close-x:hover { color: #17233c; transform: rotate(90deg); }
         .dialog-box .section-divider { padding: 0.5rem 0 0.3rem; border-bottom: 1px solid #eee8de; font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: #68768a; }
 
+        /* ============================================ */
+        /* CONFIG PANEL — hostel info sections           */
+        /* ============================================ */
+        .config-panel { display: flex; flex-direction: column; gap: 1rem; }
+        .config-section {
+            border: 1px solid #eee8de;
+            border-radius: 0.6rem;
+            background: #fefdf9;
+            padding: 0.85rem 1rem;
+        }
+        .config-section-title {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #a77915;
+            margin-bottom: 0.6rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .config-section-title i { font-size: 0.7rem; }
+
+        .config-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.25rem 1rem;
+        }
+        @media (max-width: 480px) { .config-row { grid-template-columns: 1fr; } }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 0.5rem;
+            padding: 0.35rem 0;
+            border-bottom: 1px dashed #f0ebe2;
+        }
+        .config-item:last-child { border-bottom: none; }
+        .config-item .k { color: #68768a; font-size: 0.75rem; }
+        .config-item .v { font-weight: 700; font-size: 0.8rem; color: #17233c; text-align: right; }
+        .config-item .v.muted { font-weight: 500; color: #6b778b; font-style: italic; }
+
+        .config-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        @media (min-width: 480px) { .config-stat-grid { grid-template-columns: repeat(4, 1fr); } }
+
+        .config-stat {
+            background: #fffcf6;
+            border: 1px solid #eee8de;
+            border-radius: 0.5rem;
+            padding: 0.6rem 0.5rem;
+            text-align: center;
+        }
+        .config-stat .v { font-family: 'Merriweather',serif; font-weight: 700; font-size: 1.15rem; }
+        .config-stat .l { font-size: 0.55rem; color: #6b778b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.15rem; }
+        .config-stat.avail .v { color: #2d6545; }
+        .config-stat.occ .v { color: #9b3c31; }
+
+        .type-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: #e7edf5;
+            color: #315b8a;
+        }
+        .type-badge.flat { background: #fff1c9; color: #8b6513; }
+        .type-badge.floor { background: #e7edf5; color: #315b8a; }
+        .type-badge.boys { background: #e7edf5; color: #315b8a; }
+        .type-badge.girls { background: #fce7f3; color: #9d174d; }
+        .type-badge.active { background: #e1f0e5; color: #2d6545; }
+        .type-badge.inactive { background: #f8e1dc; color: #9b3c31; }
+
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #e8e4de; }
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; transition: background 0.3s ease; }
@@ -308,14 +389,13 @@
 </head>
 <body>
 
-    <!-- ===== TOAST NOTIFICATION ===== -->
     <div id="toast" class="toast"></div>
 
-    <!-- ===== ROOM DRAWER (Right) ===== -->
+    <!-- ===== ROOM DRAWER ===== -->
     <div class="drawer-right" id="roomDrawer">
         <div class="drawer-header">
             <div>
-                <p class="eyebrow"><i class="fas fa-door-open"></i> Room Details</p>
+                <p class="eyebrow" style="font-size:0.55rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a77915;"><i class="fas fa-door-open"></i> Room Details</p>
                 <h2 id="roomDrawerTitle">Room</h2>
                 <p class="text-sm text-muted" id="roomDrawerSubtitle">Loading...</p>
             </div>
@@ -339,9 +419,7 @@
             <div class="grid-2 mt-3">
                 <div class="field">
                     <label>Floor/Flat <span class="text-gold">*</span></label>
-                    <select id="roomFloorFlat">
-                        <option value="">Select Floor/Flat</option>
-                    </select>
+                    <select id="roomFloorFlat"><option value="">Select Floor/Flat</option></select>
                 </div>
                 <div class="field">
                     <label>Room Code <span class="text-gold">*</span></label>
@@ -494,14 +572,11 @@
     (function() {
         'use strict';
 
-        // =============================================
-        // CONFIGURATION
-        // =============================================
         const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
 
-        // =============================================
+        // ============================================================
         // TOAST
-        // =============================================
+        // ============================================================
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -510,14 +585,15 @@
             setTimeout(() => toast.classList.remove('show'), 4000);
         }
 
-        // =============================================
+        // ============================================================
         // STATE
-        // =============================================
+        // ============================================================
         let currentUser = null;
-        let currentRole = null;         // no default
+        let currentRole = null;
         let currentScope = null;
         let hostels = [];
-        let studentsCache = {};         // student_id → student
+        let staffCache = {};
+        let studentsCache = {};
         let allFloorsFlats = [];
         let allRooms = [];
         let allBedSpaces = [];
@@ -527,9 +603,9 @@
         let selectedRoom = null;
         let selectedBed = null;
 
-        // =============================================
+        // ============================================================
         // ROLE CAPABILITIES
-        // =============================================
+        // ============================================================
         const ROLE_CAPS = {
             'Administrator': { manageRooms: true,  manageBeds: true,  assign: true, scope: 'all' },
             'RASD':          { manageRooms: true,  manageBeds: true,  assign: true, scope: 'all' },
@@ -541,31 +617,26 @@
         const canManageBeds  = () => caps().manageBeds;
         const canAssign      = () => caps().assign;
 
-        // =============================================
-        // AUTH — FAIL CLOSED
-        // =============================================
+        // ============================================================
+        // AUTH
+        // ============================================================
         async function verifySession() {
             const token = sessionStorage.getItem('bedcheck_token');
             const userData = sessionStorage.getItem('bedcheck_user');
             const role = sessionStorage.getItem('bedcheck_role');
-
             if (!token || !userData) { redirectToLogin(); return false; }
             if (!role) {
-                showToast('Session invalid — missing role.', 'error');
+                showToast('Session invalid — please log in again.', 'error');
                 clearSession();
                 setTimeout(redirectToLogin, 1200);
                 return false;
             }
-
             try {
                 const res = await fetch(`${API_BASE_URL}/auth/verify`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.status === 401) { clearSession(); redirectToLogin(); return false; }
-                if (!res.ok) {
-                    showToast('Unable to verify session. Please try again.', 'error');
-                    return false;
-                }
+                if (!res.ok) { showToast('Unable to verify session. Try again.', 'error'); return false; }
                 return true;
             } catch (err) {
                 showToast('Network error verifying session.', 'error');
@@ -603,16 +674,15 @@
             document.getElementById('roleScope').textContent = currentScope;
             document.getElementById('mobileRoleFooter').textContent = `${currentRole} · ${currentScope}`;
 
-            // Hide admin-only nav
             if (currentRole !== 'Administrator') {
                 document.querySelectorAll('.nav-item[data-role="admin"]').forEach(el => el.classList.add('hidden'));
             }
             return true;
         }
 
-        // =============================================
+        // ============================================================
         // API
-        // =============================================
+        // ============================================================
         async function apiCall(endpoint, options = {}) {
             const token = sessionStorage.getItem('bedcheck_token');
             if (!token) { clearSession(); redirectToLogin(); throw new Error('No auth'); }
@@ -622,9 +692,7 @@
                 .replace('/floors_flats', '/floors-flats')
                 .replace(/([^:]\/)\/+/g, '$1');
 
-            const url = `${API_BASE_URL}${fixed}`;
-
-            const res = await fetch(url, {
+            const res = await fetch(`${API_BASE_URL}${fixed}`, {
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
@@ -641,19 +709,17 @@
             return data;
         }
 
-        // =============================================
+        // ============================================================
         // HELPERS
-        // =============================================
+        // ============================================================
         function getInitials(name) {
             if (!name) return 'U';
             return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
         }
-
         function getHostelType(hostel) {
             if (!hostel) return 'floor';
             return hostel.type || 'floor';
         }
-
         function bedCodeNumber(code) {
             if (!code) return 0;
             const n = parseInt(String(code).replace(/\D/g, ''), 10);
@@ -662,67 +728,65 @@
         function sortBeds(beds) {
             return [...beds].sort((a, b) => bedCodeNumber(a.bed_code) - bedCodeNumber(b.bed_code));
         }
-
-        // Single naming system: B1, B2, B3, ...
         function bedLabels(capacity) {
             return Array.from({ length: capacity }, (_, i) => `B${i + 1}`);
         }
-
         function roomStatusBadge(status) {
-            const map = {
-                'available': 'badge-available',
-                'full': 'badge-full',
-                'partial': 'badge-partial',
-                'maintenance': 'badge-maintenance'
-            };
-            const labels = {
-                'available': 'Available',
-                'full': 'Full',
-                'partial': 'Partially occupied',
-                'maintenance': 'Maintenance'
-            };
+            const map = { available: 'badge-available', full: 'badge-full', partial: 'badge-partial', maintenance: 'badge-maintenance' };
+            const labels = { available: 'Available', full: 'Full', partial: 'Partially occupied', maintenance: 'Maintenance' };
             return `<span class="badge ${map[status] || 'badge-draft'}">${labels[status] || status}</span>`;
         }
-
         function bedStatusBadge(status) {
-            const map = {
-                'available': 'available',
-                'occupied': 'occupied',
-                'maintenance': 'maintenance',
-                'reserved': 'reserved'
-            };
-            const labels = {
-                'available': 'Available',
-                'occupied': 'Occupied',
-                'maintenance': 'Maintenance',
-                'reserved': 'Reserved'
-            };
+            const map = { available: 'available', occupied: 'occupied', maintenance: 'maintenance', reserved: 'reserved' };
+            const labels = { available: 'Available', occupied: 'Occupied', maintenance: 'Maintenance', reserved: 'Reserved' };
             return `<span class="bed-status ${map[status] || 'available'}">${labels[status] || status}</span>`;
         }
-
         function escapeHtml(s) {
             if (s == null) return '';
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
-
         function debounce(fn, ms) {
             let t;
             return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
         }
 
-        // =============================================
-        // DATA LOADERS (LAZY)
-        // =============================================
+        // Resolve HRA name
+        function resolveHraName(hostel) {
+            if (hostel.hra_name) return hostel.hra_name;
+            if (hostel.hra && typeof hostel.hra === 'object') return hostel.hra.name;
+            if (hostel.hra_id && staffCache[hostel.hra_id]) return staffCache[hostel.hra_id].name;
+            return null;
+        }
+
+        // Compute rooms-per-unit breakdown (min/max/varies)
+        function computeRoomsPerUnit() {
+            if (!allFloorsFlats || !allRooms || !allRooms.length) return { min: 0, max: 0, varies: false, perFloor: {} };
+            const perFloor = {};
+            allFloorsFlats.forEach(f => {
+                const count = allRooms.filter(r => String(r.floor_flat_id) === String(f.id)).length;
+                perFloor[f.id] = count;
+            });
+            const counts = Object.values(perFloor).filter(c => c > 0);
+            if (!counts.length) return { min: 0, max: 0, varies: false, perFloor };
+            const min = Math.min(...counts);
+            const max = Math.max(...counts);
+            return { min, max, varies: min !== max, perFloor };
+        }
+
+        // ============================================================
+        // DATA LOADERS
+        // ============================================================
         async function loadHostels() {
             const data = await apiCall('/hostels');
             hostels = data.data || [];
-            // Scope filter
             if (caps().scope === 'assigned') {
                 const assigned = currentUser.hostel_id || currentUser.assigned_hostel;
                 if (assigned) hostels = hostels.filter(h => String(h.id) === String(assigned));
             }
+            try {
+                const s = await apiCall('/staff');
+                (s.data || []).forEach(x => { staffCache[x.id] = x; });
+            } catch (e) {}
             return hostels;
         }
 
@@ -730,12 +794,10 @@
             const data = await apiCall(`/floors-flats?hostel_id=${hostelId}`);
             return data.data || [];
         }
-
         async function loadRoomsForHostel(hostelId) {
             const data = await apiCall(`/rooms?hostel_id=${hostelId}`);
             return data.data || [];
         }
-
         async function loadBedSpacesForHostel(hostelId) {
             const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
             let beds = data.data || [];
@@ -751,27 +813,23 @@
             }
             return beds;
         }
-
         async function loadBedSpacesForRoom(roomId) {
             const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
             return data.data || [];
         }
-
         async function searchStudents(q) {
             const data = await apiCall(`/students?search=${encodeURIComponent(q)}&limit=20`);
             return data.data || [];
         }
 
-        // =============================================
-        // RENDER MAIN PAGE
-        // =============================================
+        // ============================================================
+        // MAIN RENDER
+        // ============================================================
         function renderScreen() {
             const container = document.getElementById('screenContent');
-
             const total = hostels.length;
             const boys = hostels.filter(h => h.gender === 'male').length;
             const girls = hostels.filter(h => h.gender === 'female').length;
-
             let totalBeds = 0;
             hostels.forEach(h => {
                 const bedsPerRoom = h.beds_per_room || 4;
@@ -828,12 +886,10 @@
         function loadHostelsGrid() {
             const grid = document.getElementById('hostelsGrid');
             if (!grid) return;
-
             if (hostels.length === 0) {
                 grid.innerHTML = '<p class="text-center text-muted">No hostels found</p>';
                 return;
             }
-
             grid.innerHTML = hostels.map(h => {
                 const type = getHostelType(h);
                 const bedsPerRoom = h.beds_per_room || 4;
@@ -864,14 +920,13 @@
             }).join('');
         }
 
-        // =============================================
+        // ============================================================
         // SHOW HOSTEL DETAIL
-        // =============================================
+        // ============================================================
         async function showHostelDetail(hostelId) {
             const hostel = hostels.find(h => h.id === hostelId);
             if (!hostel) { showToast('Hostel not found', 'error'); return; }
 
-            // Scope check
             if (caps().scope === 'assigned') {
                 const assigned = currentUser.hostel_id || currentUser.assigned_hostel;
                 if (assigned && String(hostelId) !== String(assigned)) {
@@ -896,22 +951,14 @@
             `;
 
             try {
-                const floorsData = await loadFloorsForHostel(hostelId);
-                allFloorsFlats = floorsData;
-
-                const roomsData = await loadRoomsForHostel(hostelId);
-                allRooms = roomsData;
-
-                const bedsData = await loadBedSpacesForHostel(hostelId);
-                allBedSpaces = bedsData;
+                allFloorsFlats = await loadFloorsForHostel(hostelId);
+                allRooms = await loadRoomsForHostel(hostelId);
+                allBedSpaces = await loadBedSpacesForHostel(hostelId);
 
                 const floorLabelMap = {};
-                floorsData.forEach(f => { floorLabelMap[f.id] = f.name; });
-
-                allRooms = roomsData.map(room => {
-                    if (room.floor_flat_id && floorLabelMap[room.floor_flat_id]) {
-                        room.floor_label = floorLabelMap[room.floor_flat_id];
-                    }
+                allFloorsFlats.forEach(f => { floorLabelMap[f.id] = f.name; });
+                allRooms = allRooms.map(room => {
+                    if (room.floor_flat_id && floorLabelMap[room.floor_flat_id]) room.floor_label = floorLabelMap[room.floor_flat_id];
                     if (!room.floor_label && room.floor) room.floor_label = room.floor;
                     if (!room.floor_label && room.floor_name) room.floor_label = room.floor_name;
                     if (!room.floor_label && room.full_code) {
@@ -920,11 +967,6 @@
                     }
                     return room;
                 });
-
-                const totalRooms = allRooms.length;
-                const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || 4), 0);
-                hostel.total_rooms = totalRooms;
-                hostel.total_beds = totalBeds;
 
                 renderHostelDetail(hostel);
             } catch (error) {
@@ -939,9 +981,9 @@
             }
         }
 
-        // =============================================
-        // RENDER HOSTEL DETAIL
-        // =============================================
+        // ============================================================
+        // RENDER HOSTEL DETAIL — info sections + flats below
+        // ============================================================
         function renderHostelDetail(hostel) {
             const detailContainer = document.getElementById('hostelDetail');
             if (!detailContainer) return;
@@ -954,99 +996,116 @@
             const totalRooms = allRooms.length || 0;
             const totalBeds = allRooms.reduce((sum, r) => sum + (r.capacity || bedsPerRoom), 0);
             const occupiedBeds = allBedSpaces.filter(b => b.status === 'occupied').length || 0;
-            const availableBeds = totalBeds - occupiedBeds;
+            const availableBeds = Math.max(0, totalBeds - occupiedBeds);
+            const hraName = resolveHraName(hostel) || '—';
 
-            const floorsCount = isFlat ? (hostel.total_flats || 9) : (hostel.floors || hostel.total_floors || 3);
+            const rpu = computeRoomsPerUnit();
+            let roomsPerUnitText = '—';
+            if (rpu.min > 0) {
+                if (rpu.varies) roomsPerUnitText = `${rpu.min}–${rpu.max} rooms`;
+                else roomsPerUnitText = `${rpu.min} room${rpu.min !== 1 ? 's' : ''}`;
+            }
+
+            const statusDisplay = hostel.status ? hostel.status.charAt(0).toUpperCase() + hostel.status.slice(1) : 'Active';
+            const statusClass = (hostel.status || 'active').toLowerCase() === 'active' ? 'active' : 'inactive';
 
             detailContainer.innerHTML = `
+                <!-- HEADER -->
                 <div class="flex-between">
                     <div>
                         <h2 class="font-serif text-lg font-bold">${escapeHtml(hostel.name)} · Configuration</h2>
-                        <p class="text-sm text-muted">HRA: ${hostel.hra_name || (hostel.hra_id ? `#${hostel.hra_id}` : 'Not assigned')}</p>
-                        <p class="text-xs text-muted mt-1">Type: <span id="hostelTypeLabel" class="font-bold">${isFlat ? 'Flat-based' : 'Floor-based'}</span></p>
-                        <p class="text-xs text-gold mt-1">${isGirls ? '🏠 Girls Hostel' : '🏠 Boys Hostel'}</p>
-                        ${allFloorsFlats.length === 0 ? '<p class="text-xs text-red-500 mt-1"><i class="fas fa-exclamation-triangle"></i> No floors/flats found in database. Click "Add Room" to create.</p>' : ''}
+                        <p class="text-sm text-muted mt-1">
+                            <span class="hostel-type-badge">${isFlat ? 'Flat-based' : 'Floor-based'}</span>
+                            <span class="hostel-type-badge ${isGirls ? 'girls' : 'boys'}" style="margin-left:0.3rem;">${isGirls ? 'Girls' : 'Boys'} Hostel</span>
+                        </p>
                     </div>
                     <div class="flex gap-2">
                         <button class="btn-outline" onclick="closeHostelConfig()"><i class="fas fa-times"></i> Close</button>
-                        ${canManageRooms() ? `
-                            <button class="btn-primary" onclick="saveHostelConfig()" id="saveHostelBtn"><i class="fas fa-save"></i> Save</button>
-                        ` : ''}
                     </div>
                 </div>
 
-                <div class="grid-3 mt-3">
-                    <div class="field">
-                        <label>Hostel Name</label>
-                        <input id="hostelName" value="${escapeHtml(hostel.name)}" />
+                <!-- INFO SECTIONS -->
+                <div class="config-panel mt-4">
+
+                    <div class="config-section">
+                        <div class="config-section-title"><i class="fas fa-info-circle"></i> Hostel Information</div>
+                        <div class="config-row">
+                            <div class="config-item">
+                                <span class="k">Hostel Name</span>
+                                <span class="v">${escapeHtml(hostel.name)}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">Gender</span>
+                                <span class="v">${isGirls ? 'Female' : (hostel.gender === 'male' ? 'Male' : '—')}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">Hostel Type</span>
+                                <span class="v">${isFlat ? 'Flat-based' : 'Floor-based'}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">HRA</span>
+                                <span class="v">${escapeHtml(hraName)}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">Status</span>
+                                <span class="v"><span class="type-badge ${statusClass}">${escapeHtml(statusDisplay)}</span></span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="field">
-                        <label>Gender</label>
-                        <select id="hostelGender">
-                            <option value="male" ${hostel.gender === 'male' ? 'selected' : ''}>Male</option>
-                            <option value="female" ${hostel.gender === 'female' ? 'selected' : ''}>Female</option>
-                            <option value="mixed" ${hostel.gender === 'mixed' ? 'selected' : ''}>Mixed</option>
-                        </select>
+
+                    <div class="config-section">
+                        <div class="config-section-title"><i class="fas fa-layer-group"></i> Hostel Structure</div>
+                        <div class="config-row">
+                            <div class="config-item">
+                                <span class="k">Number of ${isFlat ? 'Flats' : 'Floors'}</span>
+                                <span class="v">${allFloorsFlats.length}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">Rooms per ${isFlat ? 'Flat' : 'Floor'}</span>
+                                <span class="v ${rpu.varies ? 'muted' : ''}">${escapeHtml(roomsPerUnitText)}</span>
+                            </div>
+                        </div>
+                        <div class="config-stat-grid">
+                            <div class="config-stat">
+                                <div class="v">${totalRooms}</div>
+                                <div class="l">Total Rooms</div>
+                            </div>
+                            <div class="config-stat">
+                                <div class="v">${totalBeds}</div>
+                                <div class="l">Total Capacity</div>
+                            </div>
+                            <div class="config-stat avail">
+                                <div class="v">${availableBeds}</div>
+                                <div class="l">Available Beds</div>
+                            </div>
+                            <div class="config-stat occ">
+                                <div class="v">${occupiedBeds}</div>
+                                <div class="l">Occupied Beds</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="field">
-                        <label>Progress %</label>
-                        <input type="number" id="hostelProgress" value="${hostel.progress || 0}" min="0" max="100" />
+
+                    <div class="config-section">
+                        <div class="config-section-title"><i class="fas fa-map-marker-alt"></i> Campus Information</div>
+                        <div class="config-row">
+                            <div class="config-item">
+                                <span class="k">Campus</span>
+                                <span class="v">${escapeHtml(hostel.campus || '—')}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="k">Hostel Category</span>
+                                <span class="v">${isGirls ? 'Girls Hostel' : 'Boys Hostel'}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid-3 mt-3" style="${isFlat ? 'display:none;' : ''}">
-                    <div class="field">
-                        <label>Number of Floors</label>
-                        <input type="number" id="hostelFloors" value="${hostel.floors || hostel.total_floors || 3}" />
-                    </div>
-                    <div class="field">
-                        <label>Rooms per Floor</label>
-                        <input type="number" id="hostelRoomsPerFloor" value="${hostel.rooms_per_floor || (isGirls ? 24 : 18)}" />
-                    </div>
-                </div>
-
-                <div class="grid-3 mt-3" style="${!isFlat ? 'display:none;' : ''}">
-                    <div class="field">
-                        <label>Number of Flats</label>
-                        <input type="number" id="hostelTotalFlats" value="${hostel.total_flats || 9}" />
-                    </div>
-                    <div class="field">
-                        <label>Rooms per Flat</label>
-                        <input type="number" id="hostelRoomsPerFlat" value="${hostel.rooms_per_flat || 4}" />
-                    </div>
-                </div>
-
-                <div class="field mt-3">
-                    <label>Status</label>
-                    <select id="hostelStatus">
-                        <option value="In progress" ${hostel.state === 'In progress' ? 'selected' : ''}>In Progress</option>
-                        <option value="Completed" ${hostel.state === 'Completed' ? 'selected' : ''}>Completed</option>
-                        <option value="In review" ${hostel.state === 'In review' ? 'selected' : ''}>In Review</option>
-                        <option value="Pending" ${hostel.state === 'Pending' ? 'selected' : ''}>Pending</option>
-                        <option value="Waiting" ${hostel.state === 'Waiting' ? 'selected' : ''}>Waiting</option>
-                    </select>
-                </div>
-
-                <div class="grid-3 mt-3">
-                    <div class="bg-[#fbf7ef] p-2 rounded-lg text-center">
-                        <div class="font-bold text-xl">${totalRooms}</div>
-                        <div class="text-xs text-muted">Total Rooms</div>
-                    </div>
-                    <div class="bg-[#fbf7ef] p-2 rounded-lg text-center">
-                        <div class="font-bold text-xl">${totalBeds}</div>
-                        <div class="text-xs text-muted">Total Capacity</div>
-                    </div>
-                    <div class="bg-[#fbf7ef] p-2 rounded-lg text-center">
-                        <div class="font-bold text-xl">${availableBeds}</div>
-                        <div class="text-xs text-muted">Available Beds</div>
-                    </div>
-                </div>
-
+                <!-- FLOORS / FLATS SECTION -->
                 <div class="mt-4 pt-3 border-t">
                     <div class="flex-between">
                         <div>
                             <h3 class="font-serif text-base font-bold">${isFlat ? 'Select a Flat' : 'Select a Floor'}</h3>
-                            <p class="text-xs text-muted">${floorsCount} ${isFlat ? 'flats' : 'floors'} · ${allFloorsFlats.length} in database</p>
+                            <p class="text-xs text-muted">${allFloorsFlats.length} ${isFlat ? 'flats' : 'floors'} · ${allFloorsFlats.length} in database</p>
                         </div>
                         ${canManageRooms() ? `
                             <button class="btn-primary btn-sm" onclick="openAddRoomModal()"><i class="fas fa-plus"></i> Add Room</button>
@@ -1056,6 +1115,7 @@
                     <div class="grid-3 mt-3" id="floorSelector"></div>
                 </div>
 
+                <!-- ROOM TABLE -->
                 <div id="roomTableContainer" style="display:none;" class="mt-3">
                     <div class="flex-between mb-2">
                         <div>
@@ -1087,9 +1147,9 @@
             renderFloorSelector();
         }
 
-        // =============================================
+        // ============================================================
         // FLOOR SELECTOR
-        // =============================================
+        // ============================================================
         function renderFloorSelector() {
             const container = document.getElementById('floorSelector');
             if (!container || !selectedHostelForRoom) return;
@@ -1166,27 +1226,23 @@
             `).join('');
         }
 
-        // =============================================
-        // SELECT FLOOR
-        // =============================================
+        // ============================================================
+        // SELECT FLOOR / ROOM TABLE
+        // ============================================================
         function selectFloor(floorValue) {
             selectedFloor = floorValue;
-
             document.querySelectorAll('.floor-card').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.floor-card').forEach(el => {
                 if (el.textContent.includes(floorValue)) el.classList.add('active');
             });
-
             const container = document.getElementById('roomTableContainer');
             if (container) container.style.display = 'block';
-
             const title = document.getElementById('floorTitle');
             const isFlat = getHostelType(selectedHostelForRoom) === 'flat';
             if (title) {
                 let cleanLabel = floorValue.replace(/^Flat\s*/i, '').replace(/^F/i, '');
                 title.textContent = isFlat ? `Flat ${cleanLabel}` : `Floor ${floorValue}`;
             }
-
             renderRoomTable(floorValue);
         }
 
@@ -1197,9 +1253,6 @@
             document.querySelectorAll('.floor-card').forEach(el => el.classList.remove('active'));
         }
 
-        // =============================================
-        // ROOM TABLE
-        // =============================================
         function renderRoomTable(floorValue) {
             const tbody = document.getElementById('roomTableBody');
             if (!tbody) return;
@@ -1214,11 +1267,9 @@
             }
 
             const bedsPerRoom = selectedHostelForRoom?.beds_per_room || 4;
-
             const roomsWithData = floorRooms.map(r => {
                 const roomBeds = allBedSpaces.filter(b => String(b.room_id) === String(r.id));
                 const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
-                // Trust room.capacity, fall back to actual bed count, then hostel default
                 let capacity = r.capacity;
                 if (capacity == null || capacity === 0) {
                     capacity = roomBeds.length > 0 ? roomBeds.length : bedsPerRoom;
@@ -1256,9 +1307,9 @@
             `).join('');
         }
 
-        // =============================================
+        // ============================================================
         // ROOM DRAWER
-        // =============================================
+        // ============================================================
         async function openRoomDrawer(roomId) {
             let room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) room = allRooms.find(r => r.room_code === roomId || r.full_code === roomId);
@@ -1273,7 +1324,6 @@
             body.innerHTML = `<div class="loading-spinner"><i class="fas fa-spinner"></i></div>`;
             drawer.classList.add('open');
 
-            // Fresh fetch for this room
             let roomBeds = [];
             try {
                 roomBeds = await loadBedSpacesForRoom(room.id);
@@ -1289,8 +1339,6 @@
             const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
             const availableCount = Math.max(0, declaredCapacity - occupiedCount);
             const hasMismatch = roomBeds.length > 0 && roomBeds.length !== declaredCapacity;
-
-            // Sort beds numerically
             roomBeds = sortBeds(roomBeds);
 
             const bedWithStudents = roomBeds.map(bed => {
@@ -1325,7 +1373,7 @@
                     <p class="font-bold text-sm">Bed spaces</p>
                     ${bedWithStudents.length === 0 ? `
                         <div class="text-center text-muted p-3">
-                            <i class="fas fa-bed"></i> No bed spaces found for this room.
+                            <i class="fas fa-bed"></i> No bed spaces found.
                         </div>
                     ` : bedWithStudents.map(bed => `
                         <div class="bed-item">
@@ -1376,15 +1424,13 @@
             selectedRoom = null;
         }
 
-        // =============================================
+        // ============================================================
         // REPAIR BEDS
-        // =============================================
+        // ============================================================
         async function repairRoomBeds() {
             if (!selectedRoom) return;
             const capacity = selectedRoom.capacity || 0;
-            const existing = allBedSpaces
-                .filter(b => String(b.room_id) === String(selectedRoom.id))
-                .map(b => b.bed_code);
+            const existing = allBedSpaces.filter(b => String(b.room_id) === String(selectedRoom.id)).map(b => b.bed_code);
             const expected = bedLabels(capacity);
             const missing = expected.filter(c => !existing.includes(c));
             if (!missing.length) { showToast('All beds exist', 'warning'); return; }
@@ -1415,15 +1461,14 @@
             }
         }
 
-        // =============================================
+        // ============================================================
         // ADD ROOM
-        // =============================================
+        // ============================================================
         function openAddRoomModal() {
             if (!canManageRooms()) { showToast('Permission denied', 'error'); return; }
             const modal = document.getElementById('addRoomModal');
             const floorSelect = document.getElementById('roomFloorFlat');
             floorSelect.innerHTML = '<option value="">Select Floor/Flat</option>';
-
             const hostel = selectedHostelForRoom;
             if (hostel) {
                 const isFlat = getHostelType(hostel) === 'flat';
@@ -1437,13 +1482,11 @@
                 }
             }
             if (selectedFloor) floorSelect.value = selectedFloor;
-
             document.getElementById('roomCode').value = '';
             const isGirls = hostel?.gender === 'female';
             document.getElementById('roomCapacity').value = isGirls ? '6' : '4';
             document.getElementById('roomStatus').value = 'available';
             document.getElementById('autoCreateBeds').checked = true;
-
             modal.classList.add('show');
         }
 
@@ -1453,19 +1496,16 @@
 
         async function saveRoom() {
             if (!canManageRooms()) { showToast('Permission denied', 'error'); return; }
-
             const floorFlat = document.getElementById('roomFloorFlat').value;
             const roomCode = document.getElementById('roomCode').value.trim();
             const capacity = parseInt(document.getElementById('roomCapacity').value);
             const autoCreateBeds = document.getElementById('autoCreateBeds').checked;
-
             if (!floorFlat) { showToast('Please select a floor/flat', 'error'); return; }
             if (!roomCode) { showToast('Please enter a room code', 'error'); return; }
 
             try {
                 const floorData = allFloorsFlats.find(f => f.name === floorFlat);
                 let floorFlatId = floorData?.id;
-
                 if (!floorData) {
                     const newFloor = await apiCall('/floors-flats', {
                         method: 'POST',
@@ -1489,7 +1529,6 @@
                         status: 'available'
                     })
                 });
-
                 const newRoom = response.data;
                 newRoom.floor_label = floorFlat;
                 newRoom.capacity = capacity;
@@ -1509,13 +1548,10 @@
                         });
                     }
                 }
-
                 showToast(`Room ${roomCode} created!`);
                 closeAddRoomModal();
-
                 allRooms = await loadRoomsForHostel(editingHostelId);
                 allBedSpaces = await loadBedSpacesForHostel(editingHostelId);
-
                 renderFloorSelector();
                 if (selectedFloor) renderRoomTable(selectedFloor);
             } catch (error) {
@@ -1523,16 +1559,14 @@
             }
         }
 
-        // =============================================
+        // ============================================================
         // ASSIGN STUDENT
-        // =============================================
+        // ============================================================
         async function openAssignStudentModal(roomId, bedLabel) {
             if (!canAssign()) { showToast('Permission denied', 'error'); return; }
-
             selectedRoom = allRooms.find(r => String(r.id) === String(roomId));
             selectedBed = bedLabel;
             if (!selectedRoom) { showToast('Room not found', 'error'); return; }
-
             document.getElementById('assignBedInfo').textContent = `Bed ${bedLabel} · Room ${selectedRoom.room_code || ''}`;
             document.getElementById('studentSearch').value = '';
             document.getElementById('studentSelect').innerHTML = '<option value="">Type above to search...</option>';
@@ -1570,12 +1604,10 @@
             if (!canAssign()) { showToast('Permission denied', 'error'); return; }
             const studentId = document.getElementById('studentSelect').value;
             if (!studentId) { showToast('Please select a student', 'error'); return; }
-
             if (!selectedRoom || !selectedBed) { showToast('No room/bed selected', 'error'); return; }
 
             try {
                 let bed = allBedSpaces.find(b => String(b.room_id) === String(selectedRoom.id) && b.bed_code === selectedBed);
-
                 if (!bed) {
                     const bedResponse = await apiCall('/bed-spaces', {
                         method: 'POST',
@@ -1590,24 +1622,16 @@
                     bed = bedResponse.data;
                     allBedSpaces.push(bed);
                 } else {
-                    if (bed.status !== 'available') {
-                        showToast('This bed is not available', 'warning');
-                        return;
-                    }
+                    if (bed.status !== 'available') { showToast('This bed is not available', 'warning'); return; }
                     await apiCall(`/bed-spaces/${bed.id}`, {
                         method: 'PUT',
-                        body: JSON.stringify({
-                            status: 'occupied',
-                            student_id: parseInt(studentId, 10)
-                        })
+                        body: JSON.stringify({ status: 'occupied', student_id: parseInt(studentId, 10) })
                     });
                     bed.status = 'occupied';
                     bed.student_id = parseInt(studentId, 10);
                 }
-
                 showToast(`Student assigned to Bed ${selectedBed}`, 'success');
                 closeAssignStudentModal();
-
                 allBedSpaces = await loadBedSpacesForHostel(editingHostelId);
                 renderFloorSelector();
                 if (selectedFloor) renderRoomTable(selectedFloor);
@@ -1618,21 +1642,17 @@
             }
         }
 
-        // =============================================
-        // REMOVE STUDENT
-        // =============================================
+        // ============================================================
+        // REMOVE / MAINTENANCE
+        // ============================================================
         async function removeStudentFromBed(roomId, bedLabel) {
             if (!canAssign()) { showToast('Permission denied', 'error'); return; }
-
             const room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) return;
-
             const bed = allBedSpaces.find(b => String(b.room_id) === String(roomId) && b.bed_code === bedLabel);
             if (!bed) { showToast('Bed not found', 'error'); return; }
             if (bed.status !== 'occupied') { showToast('Bed not occupied', 'warning'); return; }
-
             if (!confirm(`Remove student from Bed ${bedLabel}?`)) return;
-
             try {
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
@@ -1649,23 +1669,16 @@
             }
         }
 
-        // =============================================
-        // MAINTENANCE
-        // =============================================
         async function markBedMaintenance(roomId, bedLabel) {
             if (!canManageBeds()) { showToast('Permission denied', 'error'); return; }
-
             const room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) return;
-
             const bed = allBedSpaces.find(b => String(b.room_id) === String(roomId) && b.bed_code === bedLabel);
             if (!bed) { showToast('Bed not found', 'error'); return; }
-
             let newStatus;
             if (bed.status === 'maintenance') newStatus = 'available';
             else if (bed.status === 'available') newStatus = 'maintenance';
             else { showToast('Cannot change status of occupied bed', 'warning'); return; }
-
             try {
                 await apiCall(`/bed-spaces/${bed.id}`, {
                     method: 'PUT',
@@ -1681,9 +1694,9 @@
             }
         }
 
-        // =============================================
-        // CLOSE HOSTEL CONFIG
-        // =============================================
+        // ============================================================
+        // CLOSE
+        // ============================================================
         function closeHostelConfig() {
             const detailContainer = document.getElementById('hostelDetail');
             if (detailContainer) detailContainer.style.display = 'none';
@@ -1691,67 +1704,12 @@
             selectedFloor = null;
         }
 
-        // =============================================
-        // SAVE HOSTEL CONFIG
-        // =============================================
-        async function saveHostelConfig() {
-            if (!editingHostelId) { showToast('No hostel selected', 'error'); return; }
-            if (!canManageRooms()) { showToast('Permission denied', 'error'); return; }
-
-            const saveBtn = document.getElementById('saveHostelBtn');
-            if (saveBtn) {
-                saveBtn.disabled = true;
-                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-            }
-
-            try {
-                const name = document.getElementById('hostelName').value;
-                const gender = document.getElementById('hostelGender').value.toLowerCase();
-                const progress = parseInt(document.getElementById('hostelProgress').value) || 0;
-                const status = document.getElementById('hostelStatus').value;
-
-                const payload = {
-                    name, gender,
-                    progress: Math.min(100, Math.max(0, progress)),
-                    state: status
-                };
-
-                const floors = parseInt(document.getElementById('hostelFloors')?.value);
-                const roomsPerFloor = parseInt(document.getElementById('hostelRoomsPerFloor')?.value);
-                const totalFlats = parseInt(document.getElementById('hostelTotalFlats')?.value);
-                const roomsPerFlat = parseInt(document.getElementById('hostelRoomsPerFlat')?.value);
-
-                if (floors) payload.floors = floors;
-                if (roomsPerFloor) payload.rooms_per_floor = roomsPerFloor;
-                if (totalFlats) payload.total_flats = totalFlats;
-                if (roomsPerFlat) payload.rooms_per_flat = roomsPerFlat;
-
-                await apiCall(`/hostels/${editingHostelId}`, {
-                    method: 'PUT',
-                    body: JSON.stringify(payload)
-                });
-
-                showToast('Hostel configuration saved!');
-                closeHostelConfig();
-                await loadHostels();
-                renderScreen();
-            } catch (error) {
-                showToast('Error saving: ' + error.message, 'error');
-            } finally {
-                if (saveBtn) {
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="fas fa-save"></i> Save';
-                }
-            }
-        }
-
-        // =============================================
+        // ============================================================
         // SKELETON
-        // =============================================
+        // ============================================================
         function showHostelSkeleton() {
             const container = document.getElementById('screenContent');
             if (!container) return;
-
             container.innerHTML = `
                 <div class="page-heading">
                     <div>
@@ -1760,7 +1718,6 @@
                         <div class="skeleton" style="height:0.75rem;width:20rem;margin-top:0.5rem;"></div>
                     </div>
                 </div>
-
                 <div class="metric-grid">
                     ${Array(4).fill(0).map(() => `
                         <div class="metric-card">
@@ -1769,7 +1726,6 @@
                         </div>
                     `).join('')}
                 </div>
-
                 <div class="grid-3 mt-4">
                     ${Array(6).fill(0).map(() => `
                         <div class="card">
@@ -1783,15 +1739,14 @@
             `;
         }
 
-        // =============================================
-        // DATE & MOBILE DRAWER
-        // =============================================
+        // ============================================================
+        // DATE & MOBILE
+        // ============================================================
         function setDate() {
             const now = new Date();
-            const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', opts);
+            document.getElementById('currentDate').textContent =
+                now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         }
-
         function openMobileDrawer() {
             document.getElementById('mobileDrawer').classList.add('open');
             document.getElementById('drawerOverlay').classList.add('show');
@@ -1806,32 +1761,21 @@
             redirectToLogin();
         }
 
-        // =============================================
-        // EXPOSE GLOBAL HANDLERS
-        // =============================================
+        // ============================================================
+        // EXPOSE
+        // ============================================================
         Object.assign(window, {
-            showToast,
-            showHostelDetail,
-            closeHostelConfig,
-            saveHostelConfig,
-            selectFloor,
-            clearFloorSelection,
-            openRoomDrawer,
-            closeRoomDrawer,
-            openAddRoomModal,
-            closeAddRoomModal,
-            saveRoom,
-            openAssignStudentModal,
-            closeAssignStudentModal,
-            assignStudentToBed,
-            removeStudentFromBed,
-            markBedMaintenance,
-            repairRoomBeds
+            showToast, showHostelDetail, closeHostelConfig,
+            selectFloor, clearFloorSelection,
+            openRoomDrawer, closeRoomDrawer,
+            openAddRoomModal, closeAddRoomModal, saveRoom,
+            openAssignStudentModal, closeAssignStudentModal, assignStudentToBed,
+            removeStudentFromBed, markBedMaintenance, repairRoomBeds
         });
 
-        // =============================================
+        // ============================================================
         // INIT
-        // =============================================
+        // ============================================================
         async function init() {
             const ok = await verifySession();
             if (!ok) return;
