@@ -324,9 +324,6 @@
         ::-webkit-scrollbar-thumb { background: #d6ad4b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #c49a2a; }
 
-        /* ============================================================
-           SKELETON LOADER
-           ============================================================ */
         .skeleton {
             background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
             background-size: 200% 100%;
@@ -511,15 +508,18 @@
                 <div class="form-group">
                     <label>Capacity <span style="color:#d6ad4b;">*</span></label>
                     <select id="roomCapacity">
-                        <option value="4">4</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
                         <option value="6">6</option>
+                        <option value="7">7</option>
                         <option value="8">8</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="autoCreateBeds" checked />
-                        Auto-create beds based on capacity
+                        Auto-create beds (B1, B2, B3, ...)
                     </label>
                 </div>
             </div>
@@ -535,8 +535,8 @@
             'use strict';
 
             const API_BASE_URL = 'https://bedcheck-biu.onrender.com/api';
-            const PAGE_SIZE = 500;   // server-friendly batch size
-            const MAX_PAGES = 200;   // hard safety cap (200 × 500 = 100,000 rows)
+            const PAGE_SIZE = 500;
+            const MAX_PAGES = 200;
 
             function showToast(message, type = 'success') {
                 const toast = document.getElementById('toast');
@@ -553,10 +553,47 @@
             let rooms = [];
             let beds = [];
             let students = [];
+            let studentsById = {};
             let selectedHostelId = null;
             let selectedFloorName = null;
             let selectedCampus = 'all';
             let hasRenderedOnce = false;
+
+            // =============================================
+            // HELPERS
+            // =============================================
+            function getInitials(name) {
+                if (!name) return 'SO';
+                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function bedCodeNumber(code) {
+                if (!code) return 0;
+                const n = parseInt(String(code).replace(/\D/g, ''), 10);
+                return isNaN(n) ? 0 : n;
+            }
+
+            function bedLabels(capacity) {
+                return Array.from({ length: capacity }, (_, i) => `B${i + 1}`);
+            }
+
+            function getStudentMatric(student) {
+                if (!student) return null;
+                return student.matric
+                    || student.matric_no
+                    || student.matricNumber
+                    || student.matric_number
+                    || student.matricNo
+                    || student.reg_no
+                    || student.registration_number
+                    || null;
+            }
+
+            function yieldToPaint() {
+                return new Promise(resolve => {
+                    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
+                });
+            }
 
             // =============================================
             // API
@@ -600,15 +637,8 @@
                 }
             }
 
-            function getInitials(name) {
-                if (!name) return 'SO';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
-
             // =============================================
-            // GENERIC PAGINATED LOADER
-            // Fetches every page from an endpoint using
-            // `limit` + `offset`, respecting `total` when available.
+            // PAGINATED LOADER
             // =============================================
             async function loadAllPaginated(endpointBase) {
                 const all = [];
@@ -649,7 +679,7 @@
             }
 
             // =============================================
-            // LOADERS (now unlimited)
+            // LOADERS
             // =============================================
             async function loadHostels() {
                 try {
@@ -683,12 +713,14 @@
             async function loadStudents() {
                 try {
                     students = await loadAllPaginated('/students');
+                    studentsById = {};
+                    students.forEach(s => { studentsById[s.id] = s; });
                     return students;
-                } catch { students = []; return students; }
+                } catch { students = []; studentsById = {}; return students; }
             }
 
             // =============================================
-            // SKELETON — instant first paint
+            // SKELETON
             // =============================================
             function showHostelsSkeleton() {
                 const container = document.getElementById('screenContent');
@@ -746,7 +778,7 @@
             }
 
             // =============================================
-            // RENDER FUNCTIONS
+            // RENDER
             // =============================================
             function renderHostelCards(hostelList) {
                 return hostelList.map(h => {
@@ -928,8 +960,9 @@
                     return floor && floor.hostel_id === selectedHostelId;
                 });
 
-                const hostelStudents = students.filter(s => s.hostel_id === selectedHostelId || s.hostel_id === String(selectedHostelId));
-                const studentCount = hostelStudents.length;
+                // Occupied beds in this hostel
+                const occupiedBeds = hostelBeds.filter(b => b.status === 'occupied');
+                const studentCount = occupiedBeds.length;
 
                 let totalCapacity = hostelBeds.length;
                 if (totalCapacity === 0) {
@@ -1025,8 +1058,9 @@
                                         <tbody>
                                             ${(roomsByFloor[selectedFloor] || []).map(r => {
                                                 const cap = Number(r.capacity) || 4;
-                                                const roomStudents = hostelStudents.filter(s => Number(s.room_id) === Number(r.id));
-                                                const occ = roomStudents.length;
+                                                const roomBeds = beds.filter(b => Number(b.room_id) === Number(r.id));
+                                                const occupiedInRoom = roomBeds.filter(b => b.status === 'occupied');
+                                                const occ = occupiedInRoom.length;
                                                 const avail = Math.max(0, cap - occ);
                                                 let status = 'available';
                                                 if (avail === 0 && occ > 0) status = 'full';
@@ -1043,15 +1077,26 @@
                                                     'partial': 'Partial',
                                                     'maintenance': 'Maintenance'
                                                 };
-                                                const studentNames = roomStudents.map(s => s.name || s.matric || 'Student').slice(0, 3).join(', ');
-                                                const more = roomStudents.length > 3 ? ` +${roomStudents.length - 3} more` : '';
+
+                                                // Build student names from cached studentsById
+                                                const studentNames = occupiedInRoom
+                                                    .map(b => {
+                                                        const s = studentsById[b.student_id];
+                                                        if (!s) return null;
+                                                        const matric = getStudentMatric(s);
+                                                        return `${s.name || 'Student'}${matric ? ` (${matric})` : ''}`;
+                                                    })
+                                                    .filter(Boolean);
+                                                const shown = studentNames.slice(0, 3).join(', ');
+                                                const more = studentNames.length > 3 ? ` +${studentNames.length - 3} more` : '';
+
                                                 return `
                                                     <tr>
                                                         <td>
                                                             <span style="font-weight:700;">${r.room_code || r.name || '—'}</span>
-                                                            ${roomStudents.length > 0 ? `
+                                                            ${studentNames.length > 0 ? `
                                                                 <div style="font-size:0.55rem;color:#68768a;margin-top:0.1rem;">
-                                                                    ${studentNames}${more}
+                                                                    ${shown}${more}
                                                                 </div>
                                                             ` : ''}
                                                         </td>
@@ -1297,7 +1342,8 @@
                         method: 'POST',
                         body: JSON.stringify({
                             floor_flat_id: floor.id,
-                            room_code: roomCode
+                            room_code: roomCode,
+                            capacity: capacity
                         })
                     });
 
@@ -1305,14 +1351,14 @@
                     rooms.push(newRoom);
 
                     if (autoCreateBeds) {
-                        const bedLabels = capacity >= 6 ? ['A', 'B', 'C', 'D', 'E', 'F'] : ['A', 'B', 'C', 'D'];
-                        for (let i = 0; i < Math.min(capacity, bedLabels.length); i++) {
+                        const labels = bedLabels(capacity);
+                        for (const label of labels) {
                             await apiCall('/bed-spaces', {
                                 method: 'POST',
                                 body: JSON.stringify({
                                     room_id: newRoom.id,
-                                    bed_code: bedLabels[i],
-                                    full_bed_code: `${roomCode}-${bedLabels[i]}`,
+                                    bed_code: label,
+                                    full_bed_code: `${newRoom.full_code || roomCode}-${label}`,
                                     status: 'available'
                                 })
                             });
@@ -1322,7 +1368,6 @@
                     showToast(`Room ${roomCode} created successfully!`, 'success');
                     closeModal('addRoomModal');
 
-                    // Reload just the affected data (not the whole universe)
                     await loadRooms();
                     await loadBeds();
                     renderScreen();
@@ -1338,28 +1383,24 @@
                 try {
                     document.getElementById('noticeText').textContent = 'Loading hostels, floors & rooms...';
 
-                    // 1. Critical path — hostels, floors, rooms
+                    // 1. Critical path — hostels, floors, rooms, beds (beds needed for occupancy %)
                     await Promise.all([
                         loadHostels(),
                         loadFloors(),
-                        loadRooms()
+                        loadRooms(),
+                        loadBeds()
                     ]);
 
                     // 2. First real render
                     renderScreen();
                     hasRenderedOnce = true;
                     document.getElementById('noticeText').textContent =
-                        `${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms`;
+                        `${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms · ${beds.length} beds`;
 
-                    // 3. Background — beds + students (for occupancy + student counts)
-                    Promise.allSettled([
-                        loadBeds(),
-                        loadStudents()
-                    ]).then(() => {
+                    // 3. Background — students (for student name display in room table)
+                    loadStudents().then(() => {
                         if (hasRenderedOnce) renderScreen();
-                        document.getElementById('noticeText').textContent =
-                            `${hostels.length} hostels · ${floors.length} floors · ${rooms.length} rooms · ${beds.length} beds`;
-                    });
+                    }).catch(() => { /* silent */ });
 
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
@@ -1417,7 +1458,7 @@
             window.handleLogout = handleLogout;
 
             // =============================================
-            // INIT — progressive with skeleton
+            // INIT
             // =============================================
             async function init() {
                 if (!checkAuth()) return;
@@ -1449,9 +1490,13 @@
                     }
                 });
 
-                // 1. Instant skeleton — first paint < 100 ms
+                // 1. Instant skeleton
                 showHostelsSkeleton();
 
+                // 2. Let browser paint
+                await yieldToPaint();
+
+                // 3. Load real data
                 await loadAllData();
             }
 
