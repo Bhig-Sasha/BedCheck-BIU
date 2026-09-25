@@ -651,6 +651,13 @@
             return ['A', 'B', 'C', 'D'];
         }
 
+        // ✅ FIX: Numeric sort helper for bed codes like B1, B2, B10
+        function bedCodeNumber(code) {
+            if (!code) return 0;
+            const n = parseInt(String(code).replace(/\D/g, ''), 10);
+            return isNaN(n) ? 0 : n;
+        }
+
         function roomStatusBadge(status) {
             const map = {
                 'available': 'badge-available',
@@ -729,10 +736,26 @@
             }
         }
 
+        // ✅ FIX: Robust bed loading — paginates if API returns paginated results
         async function loadBedSpacesForHostel(hostelId) {
             try {
                 const data = await apiCall(`/bed-spaces?hostel_id=${hostelId}`);
-                return data.data || [];
+                let beds = data.data || [];
+                
+                // ✅ FIX: If API paginates, follow pagination
+                const meta = data.pagination || data.meta || {};
+                const totalPages = meta.totalPages || meta.total_pages || 1;
+                
+                if (totalPages > 1) {
+                    const currentPage = meta.currentPage || meta.current_page || 1;
+                    const limit = meta.limit || meta.per_page || beds.length;
+                    for (let p = currentPage + 1; p <= totalPages; p++) {
+                        const next = await apiCall(`/bed-spaces?hostel_id=${hostelId}&page=${p}&limit=${limit}`);
+                        beds = beds.concat(next.data || []);
+                    }
+                }
+                
+                return beds;
             } catch (error) {
                 return [];
             }
@@ -1244,8 +1267,9 @@
             const roomsWithData = floorRooms.map(r => {
                 const roomBeds = allBedSpaces.filter(b => String(b.room_id) === String(r.id));
                 const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
+                // ✅ FIX: Trust room.capacity over bed count
                 const capacity = r.capacity || bedsPerRoom;
-                const availableCount = capacity - occupiedCount;
+                const availableCount = Math.max(0, capacity - occupiedCount);
                 let status = 'available';
                 if (availableCount === 0) status = 'full';
                 else if (occupiedCount > 0) status = 'partial';
@@ -1281,7 +1305,7 @@
         }
 
         // =============================================
-        // ROOM DRAWER
+        // ROOM DRAWER — ✅ FULLY FIXED
         // =============================================
         async function openRoomDrawer(roomId) {
             let room = allRooms.find(r => String(r.id) === String(roomId));
@@ -1304,21 +1328,51 @@
             body.innerHTML = `<div class="loading-spinner"><i class="fas fa-spinner"></i></div>`;
             drawer.classList.add('open');
             
-            let roomBeds = allBedSpaces.filter(b => String(b.room_id) === String(room.id));
-            if (roomBeds.length === 0) {
-                try {
-                    roomBeds = await loadBedSpacesForRoom(room.id);
-                    allBedSpaces = [...allBedSpaces, ...roomBeds];
-                } catch (e) {
-                    roomBeds = [];
-                }
+            // ✅ FIX 1: Always fetch fresh beds for this room (don't trust the hostel-level cache)
+            let roomBeds = [];
+            try {
+                roomBeds = await loadBedSpacesForRoom(room.id);
+                // Merge into cache without duplicates
+                const existingIds = new Set(allBedSpaces.map(b => String(b.id)));
+                roomBeds.forEach(b => {
+                    if (!existingIds.has(String(b.id))) {
+                        allBedSpaces.push(b);
+                    }
+                });
+            } catch (e) {
+                // Fall back to cached list
+                roomBeds = allBedSpaces.filter(b => String(b.room_id) === String(room.id));
             }
             
-            const totalBeds = roomBeds.length || room.capacity || 4;
+            // ✅ FIX 2: Trust room.capacity as source of truth
+            const declaredCapacity = room.capacity || 4;
             const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
-            const availableCount = totalBeds - occupiedCount;
+            const availableCount = Math.max(0, declaredCapacity - occupiedCount);
             
-            const bedWithStudents = roomBeds.map(bed => {
+            // ✅ FIX 3: If bed rows are missing, synthesize placeholder rows so user sees 8
+            let displayBeds = roomBeds;
+            if (roomBeds.length < declaredCapacity) {
+                const existingCodes = new Set(roomBeds.map(b => b.bed_code));
+                const expectedCodes = Array.from({ length: declaredCapacity }, (_, i) => `B${i + 1}`);
+                const missing = expectedCodes.filter(c => !existingCodes.has(c));
+                displayBeds = [
+                    ...roomBeds,
+                    ...missing.map(code => ({
+                        id: null,
+                        room_id: room.id,
+                        bed_code: code,
+                        full_bed_code: `${room.full_code || room.room_code}-${code}`,
+                        status: 'available',
+                        student_id: null,
+                        _placeholder: true
+                    }))
+                ];
+            }
+            
+            // ✅ FIX 4: Numeric sort (B1, B2, ..., B10) not lexicographic (B1, B10, B2)
+            displayBeds.sort((a, b) => bedCodeNumber(a.bed_code) - bedCodeNumber(b.bed_code));
+            
+            const bedWithStudents = displayBeds.map(bed => {
                 if (bed.student_id) {
                     const student = students.find(s => String(s.id) === String(bed.student_id));
                     return { ...bed, student_name: student?.name || 'Unknown', student_matric: student?.matric || '—' };
@@ -1327,11 +1381,11 @@
             });
             
             title.textContent = room.room_code || room.name || 'Room';
-            subtitle.textContent = `${availableCount} bed${availableCount !== 1 ? 's' : ''} available · ${totalBeds} capacity`;
+            subtitle.textContent = `${availableCount} bed${availableCount !== 1 ? 's' : ''} available · ${declaredCapacity} capacity`;
             
             body.innerHTML = `
                 <div class="info-box">
-                    <i class="fas fa-info-circle"></i> Capacity: ${totalBeds} students · ${occupiedCount} occupied · ${availableCount} available
+                    <i class="fas fa-info-circle"></i> Capacity: ${declaredCapacity} students · ${occupiedCount} occupied · ${availableCount} available
                 </div>
                 
                 <div class="mt-3">
@@ -1353,7 +1407,12 @@
                             </div>
                             ${bedStatusBadge(bed.status)}
                             <div class="bed-actions">
-                                ${bed.status === 'available' ? `
+                                ${bed._placeholder ? `
+                                    <button onclick="repairBed('${room.id}', '${bed.bed_code}')" title="Create this bed in database">
+                                        <i class="fas fa-wrench" style="color:#a84134;"></i>
+                                    </button>
+                                ` : ''}
+                                ${bed.status === 'available' && !bed._placeholder ? `
                                     <button onclick="openAssignStudentModal('${room.id}', '${bed.bed_code}')" title="Assign student">
                                         <i class="fas fa-user-plus"></i>
                                     </button>
@@ -1363,9 +1422,11 @@
                                         <i class="fas fa-user-minus"></i>
                                     </button>
                                 ` : ''}
-                                <button onclick="markBedMaintenance('${room.id}', '${bed.bed_code}')" title="Mark maintenance">
-                                    <i class="fas fa-tools"></i>
-                                </button>
+                                ${!bed._placeholder ? `
+                                    <button onclick="markBedMaintenance('${room.id}', '${bed.bed_code}')" title="Mark maintenance">
+                                        <i class="fas fa-tools"></i>
+                                    </button>
+                                ` : ''}
                             </div>
                         </div>
                     `).join('')}
@@ -1381,6 +1442,46 @@
         function closeRoomDrawer() {
             document.getElementById('roomDrawer').classList.remove('open');
             selectedRoom = null;
+        }
+
+        // =============================================
+        // ✅ FIX: REPAIR MISSING BED (creates it in DB)
+        // =============================================
+        async function repairBed(roomId, bedCode) {
+            const room = allRooms.find(r => String(r.id) === String(roomId));
+            if (!room) {
+                showToast('Room not found', 'error');
+                return;
+            }
+            
+            try {
+                const response = await apiCall('/bed-spaces', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        room_id: room.id,
+                        bed_code: bedCode,
+                        full_bed_code: `${room.full_code || room.room_code}-${bedCode}`,
+                        status: 'available'
+                    })
+                });
+                
+                showToast(`Bed ${bedCode} created successfully`, 'success');
+                
+                // Refresh this room's beds
+                const refreshedBeds = await loadBedSpacesForRoom(room.id);
+                const existingIds = new Set(allBedSpaces.map(b => String(b.id)));
+                refreshedBeds.forEach(b => {
+                    if (!existingIds.has(String(b.id))) {
+                        allBedSpaces.push(b);
+                    }
+                });
+                
+                // Reopen drawer
+                closeRoomDrawer();
+                setTimeout(() => openRoomDrawer(room.id), 200);
+            } catch (error) {
+                showToast('Error creating bed: ' + error.message, 'error');
+            }
         }
 
         // =============================================
@@ -1466,7 +1567,8 @@
                     method: 'POST',
                     body: JSON.stringify({
                         floor_flat_id: floorFlatId,
-                        room_code: roomCode
+                        room_code: roomCode,
+                        capacity: capacity  // ✅ FIX: send capacity explicitly
                     })
                 });
                 
@@ -1478,8 +1580,9 @@
                 allRooms.push(newRoom);
                 
                 if (autoCreateBeds) {
-                    const bedLabels = getBedLabels(capacity);
-                    for (const label of bedLabels.slice(0, capacity)) {
+                    // ✅ FIX: Use B1..Bn instead of A..F, matching existing data
+                    for (let i = 1; i <= capacity; i++) {
+                        const label = `B${i}`;
                         await apiCall('/bed-spaces', {
                             method: 'POST',
                             body: JSON.stringify({
@@ -1513,7 +1616,6 @@
         // ASSIGN STUDENT MODAL
         // =============================================
         async function openAssignStudentModal(roomId, bedLabel) {
-            // Ensure students are loaded before opening
             if (!studentsLoaded) {
                 showToast('Loading students...', 'warning');
                 await loadStudents();
@@ -1576,7 +1678,8 @@
                             room_id: selectedRoom.id,
                             bed_code: selectedBed,
                             full_bed_code: `${selectedRoom.room_code}-${selectedBed}`,
-                            status: 'occupied'
+                            status: 'occupied',
+                            student_id: student.id
                         })
                     });
                     bed = bedResponse.data;
@@ -1904,6 +2007,7 @@
         window.removeStudentFromBed = removeStudentFromBed;
         window.markBedMaintenance = markBedMaintenance;
         window.refreshHostelData = refreshHostelData;
+        window.repairBed = repairBed;  // ✅ FIX: Expose repairBed
 
         // =============================================
         // INIT (fast first paint, then progressive fill)
@@ -1915,7 +2019,6 @@
             if (!checkAuth()) return;
             setDate();
 
-            // Wire events early
             document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
             document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
             document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
@@ -1929,20 +2032,14 @@
                 }
             });
 
-            // 1. Instant skeleton
             showHostelSkeleton();
             document.getElementById('noticeText').textContent = 'Loading hostels...';
 
             try {
-                // 2. Load hostels first (most important)
                 await loadHostels();
-
-                // 3. First real render
                 isLoading = false;
                 renderScreen();
                 document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostels.`;
-
-                // 4. Load students in background (only needed when assigning beds)
                 loadStudents().catch(() => {});
 
             } catch (error) {
