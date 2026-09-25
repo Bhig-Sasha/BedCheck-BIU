@@ -705,7 +705,6 @@
             return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
         }
         function yieldToPaint() {
-            // Two RAFs + a setTimeout(0) guarantee a paint happens
             return new Promise(resolve => {
                 requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
             });
@@ -730,6 +729,68 @@
             const min = Math.min(...counts);
             const max = Math.max(...counts);
             return { min, max, varies: min !== max, perFloor };
+        }
+
+        // ============================================================
+        // ✅ FIX: Student hydration helpers
+        // ============================================================
+        // Extract the matric number from a student object regardless of field name
+        function getStudentMatric(student) {
+            if (!student) return null;
+            return student.matric
+                || student.matric_no
+                || student.matricNumber
+                || student.matric_number
+                || student.matricNo
+                || student.reg_no
+                || student.registration_number
+                || null;
+        }
+
+        // Fetch a single student by ID and cache it.
+        // Falls back to search if /students/:id returns 404.
+        async function fetchStudent(studentId) {
+            if (!studentId) return null;
+            if (studentsCache[studentId]) return studentsCache[studentId];
+            try {
+                const res = await apiCall(`/students/${studentId}`);
+                const student = res.data;
+                if (student) {
+                    studentsCache[studentId] = student;
+                    return student;
+                }
+            } catch (e) {
+                // Try search endpoint
+                try {
+                    const res = await apiCall(`/students?search=${encodeURIComponent(studentId)}&limit=5`);
+                    const list = res.data || [];
+                    const student = list.find(s => String(s.id) === String(studentId));
+                    if (student) {
+                        studentsCache[studentId] = student;
+                        return student;
+                    }
+                } catch (e2) { /* ignore */ }
+            }
+            return null;
+        }
+
+        // Given a list of beds, fetch all uncached students in parallel
+        async function hydrateStudentsForBeds(beds) {
+            const missingIds = [...new Set(
+                beds
+                    .filter(b => b.student_id && !studentsCache[b.student_id])
+                    .map(b => b.student_id)
+            )];
+            if (!missingIds.length) return;
+            await Promise.all(missingIds.map(id => fetchStudent(id)));
+        }
+
+        // Preload all students once (if API supports it) — makes drawer instant
+        async function preloadAllStudents() {
+            try {
+                const data = await apiCall('/students?limit=5000');
+                (data.data || []).forEach(s => { studentsCache[s.id] = s; });
+            } catch (e) { /* silent */ }
         }
 
         // ============================================================
@@ -772,7 +833,6 @@
             }
             return beds;
         }
-        // ✅ FIX: pagination support for room beds
         async function loadBedSpacesForRoom(roomId) {
             const data = await apiCall(`/bed-spaces?room_id=${roomId}`);
             let beds = data.data || [];
@@ -925,6 +985,9 @@
                 allFloorsFlats = await loadFloorsForHostel(hostelId);
                 allRooms = await loadRoomsForHostel(hostelId);
                 allBedSpaces = await loadBedSpacesForHostel(hostelId);
+
+                // ✅ FIX: hydrating students for all beds in this hostel
+                await hydrateStudentsForBeds(allBedSpaces);
 
                 const floorLabelMap = {};
                 allFloorsFlats.forEach(f => { floorLabelMap[f.id] = f.name; });
@@ -1219,7 +1282,7 @@
         }
 
         // ============================================================
-        // ROOM DRAWER — shows ALL beds (real + placeholder for missing)
+        // ROOM DRAWER
         // ============================================================
         async function openRoomDrawer(roomId) {
             let room = allRooms.find(r => String(r.id) === String(roomId));
@@ -1250,7 +1313,7 @@
             const occupiedCount = roomBeds.filter(b => b.status === 'occupied').length;
             const availableCount = Math.max(0, declaredCapacity - occupiedCount);
 
-            // ✅ FIX: Build display list — real beds + placeholder for missing ones
+            // Build display list — real beds + placeholder for missing ones
             let displayBeds = [...roomBeds];
             if (roomBeds.length < declaredCapacity) {
                 const existingCodes = new Set(roomBeds.map(b => b.bed_code));
@@ -1270,10 +1333,17 @@
             displayBeds = sortBeds(displayBeds);
             const hasMismatch = roomBeds.length > 0 && roomBeds.length !== declaredCapacity;
 
+            // ✅ FIX: fetch student info for all occupied beds that aren't cached
+            await hydrateStudentsForBeds(displayBeds);
+
             const bedWithStudents = displayBeds.map(bed => {
                 if (bed.student_id) {
                     const student = studentsCache[bed.student_id];
-                    return { ...bed, student_name: student?.name || null, student_matric: student?.matric || null };
+                    return {
+                        ...bed,
+                        student_name: student?.name || null,
+                        student_matric: getStudentMatric(student)
+                    };
                 }
                 return { ...bed, student_name: null, student_matric: null };
             });
@@ -1314,7 +1384,8 @@
                                     <div class="name">${escapeHtml(bed.student_name)}</div>
                                     <div class="matric">${escapeHtml(bed.student_matric || '—')}</div>
                                 ` : bed.status === 'occupied' ? `
-                                    <div class="name">Student #${bed.student_id}</div>
+                                    <div class="name" style="color:#9b3c31;">Unknown student</div>
+                                    <div class="matric">ID #${escapeHtml(String(bed.student_id))}</div>
                                 ` : `
                                     <div class="text-muted text-sm">Available</div>
                                 `}
@@ -1361,7 +1432,9 @@
             selectedRoom = null;
         }
 
-        // ✅ FIX: repair single bed
+        // ============================================================
+        // REPAIR
+        // ============================================================
         async function repairBed(roomId, bedCode) {
             const room = allRooms.find(r => String(r.id) === String(roomId));
             if (!room) { showToast('Room not found', 'error'); return; }
@@ -1549,7 +1622,7 @@
                         sel.innerHTML = '<option value="">No students found</option>';
                         return;
                     }
-                    sel.innerHTML = list.map(s => `<option value="${s.id}">${escapeHtml(s.name)} · ${escapeHtml(s.matric || '')}</option>`).join('');
+                    sel.innerHTML = list.map(s => `<option value="${s.id}">${escapeHtml(s.name)} · ${escapeHtml(getStudentMatric(s) || '')}</option>`).join('');
                     list.forEach(s => { studentsCache[s.id] = s; });
                     document.getElementById('studentSearchInfo').textContent = `${list.length} result(s)`;
                 } catch (e) {
@@ -1755,13 +1828,16 @@
                 }
             });
 
-            // ✅ FIX: Show skeleton, THEN yield to browser paint before fetching
             showHostelSkeleton();
             document.getElementById('noticeText').textContent = 'Loading hostels...';
             await yieldToPaint();
 
             try {
                 await loadHostels();
+
+                // ✅ FIX: preload all students once so drawer shows names instantly
+                preloadAllStudents().catch(() => {});
+
                 renderScreen();
                 document.getElementById('noticeText').textContent = `Loaded ${hostels.length} hostel(s).`;
             } catch (err) {
