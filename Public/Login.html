@@ -534,19 +534,8 @@
         // CONFIG
         // ============================================================
         const API_BASE_URL = 'https://bedcheck-biu.onrender.com';
-        const TIMEOUT_MS = 30000;            // 30s (Render cold start)
+        const TIMEOUT_MS = 30000;
         const SESSION_CHECK_TIMEOUT_MS = 8000;
-
-        // Only these paths are allowed as post-login redirect targets.
-        // Prevents server-side open redirect abuse from the API response.
-        const ALLOWED_REDIRECT_PATHS = [
-            '/index.html',
-            '/admin.html',
-            '/hra.html',
-            '/rasd.html',
-            '/ra.html',
-            '/dashboard.html'
-        ];
 
         const STORAGE_KEYS = {
             TOKEN: 'bedcheck_token',
@@ -576,9 +565,6 @@
         // ============================================================
         // SESSION MANAGEMENT
         // ============================================================
-        // Tokens live in sessionStorage (dies with tab). If the user
-        // ticks "Remember me", we ALSO mirror the token into
-        // localStorage so it survives a tab close. This is opt-in.
         function getToken() {
             return sessionStorage.getItem(STORAGE_KEYS.TOKEN)
                 || localStorage.getItem(STORAGE_KEYS.TOKEN);
@@ -609,13 +595,11 @@
             const safeRedirect = sanitizeRedirect(redirectUrl);
             const payload = JSON.stringify(user);
 
-            // Always write to sessionStorage
             sessionStorage.setItem(STORAGE_KEYS.TOKEN, token);
             sessionStorage.setItem(STORAGE_KEYS.USER, payload);
             sessionStorage.setItem(STORAGE_KEYS.ROLE, role);
             sessionStorage.setItem(STORAGE_KEYS.REDIRECT, safeRedirect);
 
-            // Optionally persist to localStorage
             if (remember) {
                 localStorage.setItem(STORAGE_KEYS.TOKEN, token);
                 localStorage.setItem(STORAGE_KEYS.USER, payload);
@@ -644,21 +628,21 @@
         // ============================================================
         // REDIRECT SANITIZATION (open-redirect defense)
         // ============================================================
+        // The SERVER owns the role→dashboard map (DASHBOARD_ROUTES).
+        // The client's only job is to reject anything that isn't a
+        // same-origin path, so a compromised/buggy response can't
+        // send the user to evil.com or execute javascript:.
         function sanitizeRedirect(raw) {
             if (typeof raw !== 'string' || !raw) return './index.html';
 
-            // Only allow same-origin relative paths.
             try {
                 const url = new URL(raw, window.location.origin);
+
+                // Must be same origin
                 if (url.origin !== window.location.origin) return './index.html';
 
-                const path = url.pathname;
-                // Whitelist check: exact match on a known page, or a known
-                // prefix (in case the app uses subfolders).
-                const allowed = ALLOWED_REDIRECT_PATHS.some(p =>
-                    path === p || path.startsWith(p + '/') || path === p.replace('.html', '')
-                );
-                if (!allowed) return './index.html';
+                // Must be http(s) — blocks javascript:, data:, blob:, etc.
+                if (!/^https?:$/.test(url.protocol)) return './index.html';
 
                 return url.pathname + url.search + url.hash;
             } catch (_) {
@@ -667,7 +651,7 @@
         }
 
         // ============================================================
-        // SAFE JSON PARSE (never throw on bad bodies)
+        // SAFE JSON PARSE
         // ============================================================
         async function readJsonSafe(response) {
             try {
@@ -689,10 +673,7 @@
                 const res = await fetch(`${API_BASE_URL}${path}`, {
                     ...options,
                     signal: controller.signal,
-                    // Reject cross-origin redirects automatically
                     redirect: 'error',
-                    // Only send credentials if the API actually uses cookies.
-                    // We use Bearer tokens, so omit cookies entirely.
                     credentials: 'omit',
                     mode: 'cors'
                 });
@@ -703,7 +684,7 @@
         }
 
         // ============================================================
-        // TOAST (safe — textContent only, never innerHTML)
+        // TOAST
         // ============================================================
         function showToast(message, type = 'success') {
             const colors = { success: '#2d6545', error: '#a84134', info: '#1e3a5f' };
@@ -723,7 +704,7 @@
                 ].join(';');
                 document.body.appendChild(toast);
             }
-            toast.textContent = message; // textContent → XSS-safe
+            toast.textContent = message;
             toast.style.background = colors[type] || colors.info;
             toast.style.transform = 'translateY(0)';
             toast.style.opacity = '1';
@@ -797,7 +778,6 @@
             lastFocusBeforeModal = document.activeElement;
             resetModal.classList.add('show');
             renderResetStep();
-            // Focus first input once rendered
             setTimeout(() => {
                 const el = document.getElementById('resetUsername');
                 if (el) el.focus();
@@ -806,7 +786,6 @@
 
         function closeResetModal() {
             resetModal.classList.remove('show');
-            // Wipe sensitive data from memory
             resetData.code = ['', '', '', '', '', ''];
             resetData.resetToken = '';
             resetData.newPassword = '';
@@ -980,7 +959,6 @@
 
             body.innerHTML = content;
 
-            // Wire up listeners for freshly-rendered elements
             const cancelBtn = document.getElementById('modalCancelBtn');
             const backBtn = document.getElementById('modalBackBtn');
             const actionBtn = document.getElementById('modalActionBtn');
@@ -991,7 +969,6 @@
             if (actionBtn) actionBtn.addEventListener('click', handleModalAction);
             if (resendBtn) resendBtn.addEventListener('click', resendCode);
 
-            // Step 1: update resetData as user types
             if (resetStep === 1) {
                 const u = document.getElementById('resetUsername');
                 const e = document.getElementById('resetEmail');
@@ -999,7 +976,6 @@
                 if (e) e.addEventListener('input', ev => { resetData.email = ev.target.value; });
             }
 
-            // Step 2: OTP handlers + focus
             if (resetStep === 2) {
                 [0,1,2,3,4,5].forEach(i => {
                     const el = document.getElementById(`otp_${i}`);
@@ -1014,7 +990,6 @@
                 }, 50);
             }
 
-            // Step 3: strength meter, match indicator, password toggles
             if (resetStep === 3) {
                 const np = document.getElementById('newPassword');
                 const cp = document.getElementById('confirmPassword');
@@ -1055,15 +1030,10 @@
                 body: JSON.stringify({ username: username || undefined, email: email || undefined })
             });
             const data = await readJsonSafe(res);
-            // Deliberately do NOT distinguish between "user not found"
-            // and "code sent" — the server should return a generic
-            // message. We only throw on network/5xx errors.
             if (res.status >= 500) {
                 throw new Error('The reset service is temporarily unavailable. Please try again.');
             }
             if (!res.ok) {
-                // For 4xx we still show the server's message, but the
-                // server MUST NOT reveal whether the account exists.
                 throw new Error(data.message || 'If that account exists, a reset code has been sent.');
             }
             return data;
@@ -1120,7 +1090,6 @@
                 setModalBusy(true, 'Sending…');
                 try {
                     const data = await requestResetCode(username, email);
-                    // Generic message regardless of server response
                     showToast(data.message || 'If that account exists, a reset code has been sent.', 'success');
                     resetStep = 2;
                     renderResetStep();
@@ -1148,12 +1117,10 @@
                         throw new Error('Server did not return a reset token.');
                     }
                     showToast(data.message || 'Code verified.', 'success');
-                    // Clear OTP from memory now that we have the token
                     resetData.code = ['', '', '', '', '', ''];
                     resetStep = 3;
                     renderResetStep();
                 } catch (err) {
-                    // Clear on failure so the user has to re-enter
                     resetData.code = ['', '', '', '', '', ''];
                     renderResetStep();
                     showToast(err.message || 'Invalid or expired code', 'error');
@@ -1167,8 +1134,6 @@
                 const newPass = (document.getElementById('newPassword')?.value || '').trim();
                 const confirmPass = (document.getElementById('confirmPassword')?.value || '').trim();
 
-                // Client-side validation is UX only — the server MUST
-                // re-check all of this independently.
                 const policy = validatePasswordPolicy(newPass);
                 if (!policy.ok) {
                     showToast(policy.reason, 'error');
@@ -1191,7 +1156,6 @@
                         resetData.username, resetData.email,
                         resetData.resetToken, newPass
                     );
-                    // Wipe sensitive values
                     resetData.resetToken = '';
                     resetData.newPassword = '';
                     resetData.confirmPassword = '';
@@ -1216,9 +1180,7 @@
                 const next = document.getElementById(`otp_${index + 1}`);
                 if (next) next.focus();
             }
-            // Auto-submit when all 6 are filled
             if (resetData.code.every(d => d !== '')) {
-                // Small delay so the last digit is visible before submitting
                 setTimeout(() => { if (resetStep === 2) handleModalAction(); }, 150);
             }
         }
@@ -1325,8 +1287,7 @@
         }
 
         // ============================================================
-        // ESCAPE HELPERS (used only when rendering user-controlled
-        // values back into the modal as HTML attributes)
+        // ESCAPE HELPERS
         // ============================================================
         function escapeAttr(s) {
             return String(s == null ? '' : s)
@@ -1344,7 +1305,7 @@
             e.preventDefault();
 
             const username = usernameInput.value.trim();
-            const password = passwordInput.value; // do NOT trim passwords
+            const password = passwordInput.value;
 
             if (!username || !password) {
                 loginError.textContent = 'Please enter both username and password.';
@@ -1352,7 +1313,6 @@
                 return;
             }
 
-            // Basic guards (server must enforce too)
             if (username.length > 64 || password.length > 256) {
                 loginError.textContent = 'Invalid credentials.';
                 loginError.classList.add('show');
@@ -1378,7 +1338,6 @@
                     throw new Error('Too many attempts. Please wait a moment and try again.');
                 }
                 if (!response.ok) {
-                    // Never echo server internals — use a generic message
                     throw new Error(data.message && typeof data.message === 'string'
                         ? data.message
                         : 'Invalid username or password.');
@@ -1400,7 +1359,6 @@
                 const remember = !!(rememberMe && rememberMe.checked);
                 saveSession(token, user, role, redirectUrl, remember);
 
-                // Immediately clear the password field from the DOM
                 passwordInput.value = '';
 
                 showLoading(role);
@@ -1417,8 +1375,6 @@
                 } else if (error.message && /Failed to fetch|NetworkError/i.test(error.message)) {
                     loginError.textContent = 'Cannot connect to server. Please check your network connection.';
                 } else {
-                    // Show only server-provided user-facing messages, never
-                    // internal errors or stack traces.
                     const msg = String(error.message || '');
                     loginError.textContent = msg.length > 0 && msg.length < 200 && !/[<>]/.test(msg)
                         ? msg
@@ -1485,12 +1441,10 @@
         if (forgotLink) forgotLink.addEventListener('click', openResetModal);
         if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeResetModal);
 
-        // Click on the dim backdrop closes the modal
         resetModal.addEventListener('click', (e) => {
             if (e.target === resetModal) closeResetModal();
         });
 
-        // ESC closes the modal; TAB is trapped inside it
         document.addEventListener('keydown', (e) => {
             if (!resetModal.classList.contains('show')) return;
             if (e.key === 'Escape') {
