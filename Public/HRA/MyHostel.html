@@ -564,15 +564,6 @@
         .student-info-panel .info-label { color: #68768a; font-weight: 500; }
         .student-info-panel .info-value { font-weight: 600; }
 
-        .activity-item {
-            display: flex;
-            gap: 1rem;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #f0ebe2;
-            font-size: 0.9rem;
-        }
-        .activity-item:last-child { border-bottom: none; }
-
         .room-count-badge {
             background: #e8edf2;
             color: #536274;
@@ -751,13 +742,6 @@
                             <div class="skeleton" style="height:0.9rem;width:100%;margin-top:0.5rem;"></div>
                         </div>
                     </div>
-
-                    <div class="card mt-6">
-                        <div class="skeleton" style="height:1.2rem;width:12rem;"></div>
-                        <div class="skeleton" style="height:0.9rem;width:100%;margin-top:0.8rem;"></div>
-                        <div class="skeleton" style="height:0.9rem;width:85%;margin-top:0.5rem;"></div>
-                        <div class="skeleton" style="height:0.9rem;width:70%;margin-top:0.5rem;"></div>
-                    </div>
                 </div>
             </div>
         </main>
@@ -776,7 +760,6 @@
             let floors = [];
             let rooms = [];
             let sessions = [];
-            let recentActivities = [];
             let selectedRoom = null;
             let selectedStudent = null;
             let hostelStructure = null;
@@ -786,7 +769,6 @@
             let expandedFloor = null;
             let hasRenderedOnce = false;
 
-            const screenContent = document.getElementById('screenContent');
             const noticeText = document.getElementById('noticeText');
             const roleLabel = document.getElementById('roleLabel');
             const roleScope = document.getElementById('roleScope');
@@ -1044,7 +1026,7 @@
                             renderMyHostel();
                         }
                     } catch (error) {}
-                }, 90000); // 90 seconds — was 30s (too aggressive)
+                }, 90000); // 90 seconds
             }
 
             function updateUserDisplay() {
@@ -1139,23 +1121,6 @@
                         selectedRoom = firstFloor.rooms[0];
                     }
                 }
-            }
-
-            function getInitials(name) {
-                if (!name) return 'U';
-                return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-            }
-
-            function attBadge(status) {
-                const map = {
-                    'Present': 'badge-present',
-                    'Absent': 'badge-absent',
-                    'Late': 'badge-late',
-                    'Manual': 'badge-draft',
-                    'Excused': 'badge-excused',
-                    'Verified': 'badge-present'
-                };
-                return `<span class="badge ${map[status] || 'badge-draft'}">${status || 'Unknown'}</span>`;
             }
 
             function metric(title, value, detail, tone, icon) {
@@ -1286,29 +1251,6 @@
                         showToast('Rooms data temporarily unavailable', 'error');
                     }
 
-                    // Build recent activities
-                    recentActivities = sessions.slice(0, 10).map(s => {
-                        const time = new Date(s.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                        let text = `BedCheck session ${s.status || 'completed'}`;
-                        if (s.completed_at) text = `BedCheck session completed`;
-                        else if (s.status === 'Active' || s.status === 'started') text = `BedCheck session started`;
-                        return { time, text, date: s.created_at };
-                    });
-
-                    staff.filter(s => s.role === 'RA' || s.role === 'Resident Advisor').forEach(ra => {
-                        if (ra.submission_status && ra.submission_status !== 'Not Started') {
-                            const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            recentActivities.push({
-                                time,
-                                text: `${ra.name} ${ra.submission_status === 'Submitted' ? 'submitted' : 'updated'} BedCheck report`,
-                                date: new Date().toISOString()
-                            });
-                        }
-                    });
-
-                    recentActivities.sort((a, b) => new Date(b.date) - new Date(a.date));
-                    recentActivities = recentActivities.slice(0, 10);
-
                     // ---------- 7. Build room structure + final render ----------
                     buildRoomStructure();
 
@@ -1337,8 +1279,6 @@
 
             function renderMyHostel() {
                 const totalStudents = students.length;
-                const present = students.filter(s => s.status === 'Present' || s.status === 'Verified').length;
-                const absent = students.filter(s => s.status === 'Absent').length;
                 
                 let capacity = 0;
                 let totalRooms = 0;
@@ -1533,18 +1473,6 @@
                                     <p class="mt-2">Select a bed to view student details</p>
                                 </div>
                             `}
-                        </div>
-                    </div>
-
-                    <div class="card mt-6">
-                        <div class="card-title">📋 Recent Hostel Activities</div>
-                        <div class="mt-3">
-                            ${recentActivities.length > 0 ? recentActivities.map(act => `
-                                <div class="activity-item">
-                                    <span class="text-xs text-muted" style="width:4rem;flex-shrink:0;">${act.time}</span>
-                                    <span>${act.text}</span>
-                                </div>
-                            `).join('') : '<p class="text-muted text-sm">No recent activities</p>'}
                         </div>
                     </div>
 
