@@ -340,6 +340,85 @@
             color: #6b778b;
         }
 
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(16, 35, 63, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: #fffcf6;
+            border-radius: 1rem;
+            max-width: 440px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.4);
+            position: relative;
+            padding: 0;
+            animation: modalSlideIn 0.25s ease;
+        }
+        @keyframes modalSlideIn {
+            from { transform: translateY(16px) scale(0.97); opacity: 0; }
+            to   { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        .modal-box .modal-close {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: transparent;
+            border: none;
+            font-size: 1.1rem;
+            color: #68768a;
+            cursor: pointer;
+            padding: 0.25rem;
+            transition: transform 0.2s;
+        }
+        .modal-box .modal-close:hover { color: #17233c; transform: rotate(90deg); }
+        .modal-box .modal-header {
+            padding: 1.25rem 1.5rem 0.75rem;
+            border-bottom: 1px solid #eee8de;
+        }
+        .modal-box .modal-header h2 {
+            font-family: 'Merriweather', serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #17233c;
+        }
+        .modal-box .modal-header p {
+            font-size: 0.75rem;
+            color: #68768a;
+            margin-top: 0.15rem;
+        }
+        .modal-box .modal-body { padding: 1.25rem 1.5rem; }
+        .modal-box .modal-actions {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #eee8de;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .modal-box .modal-actions .btn-danger,
+        .modal-box .modal-actions .btn-outline {
+            flex: 1;
+            justify-content: center;
+            min-width: 120px;
+        }
+        @media (max-width: 480px) {
+            .modal-box .modal-actions .btn-danger,
+            .modal-box .modal-actions .btn-outline {
+                min-width: 100%;
+            }
+        }
+
         /* ===== SKELETON LOADERS ===== */
         .skeleton {
             background: linear-gradient(90deg, #f0ebe2 25%, #e6e0d5 50%, #f0ebe2 75%);
@@ -391,6 +470,30 @@
 <body>
 
     <div id="toast" class="toast"></div>
+
+    <!-- ===== COMPLETE BEDCHECK MODAL ===== -->
+    <div class="modal-overlay" id="completeModal">
+        <div class="modal-box">
+            <button class="modal-close" id="completeModalClose">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="modal-header">
+                <h2><i class="fas fa-check-double text-gold"></i> Complete BedCheck</h2>
+                <p>Please confirm before continuing</p>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.9rem;line-height:1.5;color:#2c3e5a;">
+                    Complete tonight's BedCheck? This action <strong>cannot be undone</strong> and will lock in the attendance record for your area.
+                </p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-outline" id="completeModalCancel">Cancel</button>
+                <button class="btn-danger" id="completeModalConfirm">
+                    <i class="fas fa-check-double"></i> Yes, Complete
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div class="app-wrapper">
         <aside class="sidebar" id="sidebar">
@@ -546,8 +649,8 @@
         let globalSessionData = null;
         let lastLoggedSessionId = null;
         let isLoadingComplete = false;
-        let raSessionId = null;          // ⭐ the REAL ra_bedcheck_sessions.id
-        let globalSessionId = null;      // ⭐ the global sessions.id (fallback only)
+        let raSessionId = null;          // the REAL ra_bedcheck_sessions.id
+        let globalSessionId = null;      // the global sessions.id
 
         // =============================================
         // SESSION STORAGE PERSISTENCE
@@ -579,49 +682,61 @@
         // =============================================
         // EXTRACT ID FROM ANY RESPONSE SHAPE
         // =============================================
-        // Pulls the RA session id from a /ra/bedcheck/start response.
-        // IMPORTANT: we do NOT read from active_session.id (that's the
-        // global session id) — that was the source of SESSION_NOT_FOUND.
+        // Deep search for the RA session id in /start response.
+        // Tries many possible field names and falls back to walking the object.
         function extractRAIdFromStart(result) {
             if (!result) return null;
             const d = result.data || result;
 
-            const candidates = [
+            // Priority keys — whichever your backend uses
+            const directCandidates = [
                 d.ra_session_id,
                 d.raSessionId,
                 d.ra_bedcheck_session_id,
-                d.ra_session && d.ra_session.id,
                 d.ra_bedcheck_session && d.ra_bedcheck_session.id,
+                d.ra_session && d.ra_session.id,
                 d.session && d.session.ra_session_id,
-                // Some backends return the newly created RA session row directly
                 d.session && d.session.ra_bedcheck_session_id,
-                // Last resort — a plain id only if it came with an RA marker
-                (d.session && d.session.ra_id != null) ? d.session.id : null
+                d.session && d.session.ra_id != null ? d.session.id : null,
+                // Some backends just return the new row's id
+                d.id != null && (d.ra_id != null || d.session_id != null) ? d.id : null
             ];
-
-            for (const c of candidates) {
+            for (const c of directCandidates) {
                 if (c != null && c !== '' && c !== 'completed') return c;
             }
-            return null;
+
+            // Fallback — walk everything and grab the first id under a key containing "ra"
+            let found = null;
+            function walk(obj) {
+                if (found || !obj || typeof obj !== 'object') return;
+                for (const k of Object.keys(obj)) {
+                    if (found) return;
+                    const v = obj[k];
+                    if (v && typeof v === 'object') {
+                        // Look inside nested objects first
+                        if (v.id != null && /ra/i.test(k)) { found = v.id; return; }
+                        walk(v);
+                    }
+                }
+            }
+            walk(d);
+            return found;
         }
 
-        // For /ra/bedcheck/status, we can safely read `ra_session_id`
-        // if the backend exposes it — but we NEVER read `active_session.id`
-        // because that's the global session.
+        // /status response is a fallback source
         function extractRAIdFromStatus(data) {
             if (!data) return null;
             const candidates = [
                 data.ra_session_id,
                 data.raSessionId,
                 data.ra_bedcheck_session_id,
-                data.ra_session && data.ra_session.id,
                 data.ra_bedcheck_session && data.ra_bedcheck_session.id,
-                // If the backend attaches ra_id to a session, that's the RA session
+                data.ra_session && data.ra_session.id,
+                // Some backends tag active_session with ra_id
                 data.active_session && data.active_session.ra_id != null ? data.active_session.id : null,
                 data.active_session && data.active_session.ra_session_id,
                 data.active_session && data.active_session.ra_bedcheck_session_id
             ];
-
             for (const c of candidates) {
                 if (c != null && c !== '' && c !== 'completed') return c;
             }
@@ -695,66 +810,6 @@
             if (!date) return 'Just now';
             const d = new Date(date);
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-        }
-
-        function formatDate(dateStr) {
-            if (!dateStr) return '—';
-            try {
-                if (typeof dateStr === 'string' && dateStr.includes(' ')) {
-                    const parts = dateStr.split(' ');
-                    if (parts.length === 2) {
-                        const datePart = parts[0];
-                        const dateObj = new Date(datePart);
-                        if (!isNaN(dateObj.getTime())) {
-                            return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                        }
-                    }
-                }
-                if (typeof dateStr === 'string' && dateStr.includes('-') && !dateStr.includes(':')) {
-                    const dateObj = new Date(dateStr);
-                    if (!isNaN(dateObj.getTime())) {
-                        return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                    }
-                }
-                const dateObj = new Date(dateStr);
-                if (!isNaN(dateObj.getTime())) {
-                    return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                }
-                return dateStr;
-            } catch (e) {
-                return dateStr || '—';
-            }
-        }
-
-        function formatTimeStr(timeStr) {
-            if (!timeStr) return '—';
-            try {
-                if (typeof timeStr === 'string' && timeStr.includes(':')) {
-                    let timePart = timeStr;
-                    if (timeStr.includes(' ')) timePart = timeStr.split(' ')[1];
-                    if (timeStr.includes('T')) timePart = timeStr.split('T')[1];
-                    timePart = timePart.replace(/\.\d+/, '');
-                    timePart = timePart.replace(/[+-]\d{2}:\d{2}$/, '');
-                    timePart = timePart.replace(/Z$/, '');
-                    const parts = timePart.split(':');
-                    if (parts.length >= 2) {
-                        const hour = parseInt(parts[0]);
-                        const minute = parseInt(parts[1]);
-                        if (!isNaN(hour) && !isNaN(minute)) {
-                            const ampm = hour >= 12 ? 'PM' : 'AM';
-                            const hour12 = hour % 12 || 12;
-                            return `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
-                        }
-                    }
-                }
-                const dateObj = new Date(timeStr);
-                if (!isNaN(dateObj.getTime())) {
-                    return dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-                }
-                return timeStr;
-            } catch (e) {
-                return timeStr || '—';
-            }
         }
 
         function formatSessionDate(dateStr) {
@@ -997,7 +1052,7 @@
                     globalSessionActive = true;
                     currentSession = data.data;
                     lastLoggedSessionId = data.data.id;
-                    globalSessionId = data.data.id;   // ⭐ capture global id separately
+                    globalSessionId = data.data.id;
                     return data.data;
                 } else {
                     globalSessionData = null;
@@ -1024,7 +1079,6 @@
         // =============================================
         async function loadSessionStatus() {
             try {
-                // ⭐ Restore persisted RA session id first
                 restoreRASessionId();
 
                 const global = await loadGlobalSession();
@@ -1051,7 +1105,7 @@
                     effectiveStatus = data.effective_status || 'ready';
                     globalSessionActive = data.global_session_active || false;
 
-                    // ⭐ Try to recover RA session id from status (only if it exposes an explicit RA id)
+                    // Recover RA session id from status if we don't have one
                     if (!raSessionId) {
                         const fromStatus = extractRAIdFromStatus(data);
                         if (fromStatus) persistRASessionId(fromStatus);
@@ -1075,7 +1129,6 @@
                         isSessionActive = false;
                     }
 
-                    // Keep the global session object for display only
                     if (data.active_session) {
                         currentSession = data.active_session;
                     } else if (global) {
@@ -1305,8 +1358,6 @@
             }
 
             try {
-                // The /start endpoint needs the GLOBAL session id.
-                // The RA session row (returned in the response) is what /complete needs.
                 const sessionId =
                     globalSessionId ||
                     globalSessionData?.id ||
@@ -1328,16 +1379,11 @@
                 console.log('[BedCheck] start response:', JSON.stringify(result, null, 2));
 
                 if (result && result.success) {
-                    // ⭐ Save the RA session id from the START RESPONSE — this is the
-                    // only trustworthy source. Do NOT fall back to active_session.id.
-                    const startedId = extractRAIdFromStart(result);
+                    // Try to extract id from start response
+                    let startedId = extractRAIdFromStart(result);
                     if (startedId) {
                         persistRASessionId(startedId);
-                        console.log('[BedCheck] RA session id saved:', startedId);
-                    } else {
-                        console.warn('[BedCheck] Start response did not contain an RA session id. ' +
-                                     'The complete call may fail with SESSION_NOT_FOUND. ' +
-                                     'Full response:', result);
+                        console.log('[BedCheck] RA session id from /start:', startedId);
                     }
 
                     isSessionActive = true;
@@ -1347,6 +1393,12 @@
 
                     if (result.data?.session) {
                         currentSession = { ...currentSession, ...result.data.session };
+                    }
+
+                    // If /start didn't give us the id, re-fetch status which may expose it
+                    if (!startedId) {
+                        console.warn('[BedCheck] /start response did not contain an RA session id. Re-checking status…');
+                        await loadSessionStatus();
                     }
 
                     addTimeline('BedCheck started', `RA session: ${raSessionId || '?'}`);
@@ -1367,38 +1419,48 @@
         // =============================================
         // COMPLETE BEDCHECK
         // =============================================
-        async function completeBedCheck() {
-            if (!isRASessionActive) {
-                showToast('No active session to complete.', 'error');
-                return;
-            }
+        function openCompleteModal() {
+            const modal = document.getElementById('completeModal');
+            if (modal) modal.classList.add('show');
+        }
 
-            if (!confirm('Complete tonight\'s BedCheck? This cannot be undone.')) {
-                return;
-            }
+        function closeCompleteModal() {
+            const modal = document.getElementById('completeModal');
+            if (modal) modal.classList.remove('show');
+        }
 
+        // Actual completion logic (after user confirms)
+        async function doCompleteBedCheck() {
             try {
                 restoreRASessionId();
 
-                // If we don't have a confirmed RA session id, try to recover from status
+                // Try to recover from status if we lost the id
                 if (!raSessionId) {
                     await loadSessionStatus();
                 }
 
-                // ⭐ Only send an id we know is the RA session — never active_session.id
                 const sessionId = raSessionId;
 
                 if (!sessionId) {
+                    console.warn('[BedCheck] No RA session id captured. Dump:', {
+                        currentSession,
+                        globalSessionId,
+                        globalSessionData,
+                        persisted: sessionStorage.getItem('bedcheck_ra_session_id')
+                    });
                     showToast(
                         'Cannot complete: the RA session id was not captured when you started. ' +
-                        'Please refresh and try again — if this persists, the backend did not return ' +
-                        'the RA session id in the /start response.',
+                        'Please refresh and try again — if this persists, check the console for the /start and /status responses.',
                         'error'
                     );
                     return;
                 }
 
-                const payload = { session_id: sessionId, ra_session_id: sessionId, hostel_id: assignedHostelId };
+                const payload = {
+                    session_id: sessionId,
+                    ra_session_id: sessionId,
+                    hostel_id: assignedHostelId
+                };
                 console.log('[BedCheck] complete payload:', payload);
 
                 await apiCall('/ra/bedcheck/complete', {
@@ -1423,6 +1485,15 @@
             } catch (error) {
                 showToast('Failed to complete: ' + error.message, 'error');
             }
+        }
+
+        // Entry point — called by the Complete button
+        async function completeBedCheck() {
+            if (!isRASessionActive) {
+                showToast('No active session to complete.', 'error');
+                return;
+            }
+            openCompleteModal();
         }
 
         // =============================================
@@ -1635,7 +1706,6 @@
                     </div>
                 </div>
 
-                <!-- Night Session Banner -->
                 <div class="session-banner">
                     <div class="session-icon">🌙</div>
                     <div class="session-info">
@@ -1653,7 +1723,6 @@
                     </div>
                 </div>
 
-                <!-- Metric Cards -->
                 <div class="metric-grid">
                     <div class="metric-card">
                         <div class="metric-icon navy"><i class="fas fa-users"></i></div>
@@ -1681,7 +1750,6 @@
                     </div>
                 </div>
 
-                <!-- Hostel Details -->
                 <div class="card">
                     <div class="card-title"><span class="icon"><i class="fas fa-building"></i></span> Hostel Details</div>
                     <div>
@@ -1719,7 +1787,6 @@
                     </div>
                 </div>
 
-                <!-- Students Table -->
                 <div class="card mt-4">
                     <div class="flex-between">
                         <div class="card-title"><span class="icon"><i class="fas fa-users"></i></span> Assigned Students</div>
@@ -1757,7 +1824,6 @@
                     </div>
                 </div>
 
-                <!-- Footer -->
                 <div class="night-session-footer">
                     BedCheck System · Benson Idahosa University
                 </div>
@@ -1812,7 +1878,6 @@
                     status = 'Absent';
                 }
                 const verifiedTime = scan?.time ? formatTime(scan.time) : '';
-                const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
 
                 return `
                     <tr>
@@ -1965,6 +2030,9 @@
         window.resetFilters = resetFilters;
         window.changePage = changePage;
         window.manualRefresh = manualRefresh;
+        window.openCompleteModal = openCompleteModal;
+        window.closeCompleteModal = closeCompleteModal;
+        window.doCompleteBedCheck = doCompleteBedCheck;
 
         // =============================================
         // INIT — PROGRESSIVE LOADING
@@ -1979,7 +2047,20 @@
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-            // Restore persisted RA session id from previous page loads
+            // Complete modal wiring
+            document.getElementById('completeModalClose')?.addEventListener('click', closeCompleteModal);
+            document.getElementById('completeModalCancel')?.addEventListener('click', closeCompleteModal);
+            document.getElementById('completeModalConfirm')?.addEventListener('click', async () => {
+                closeCompleteModal();
+                await doCompleteBedCheck();
+            });
+            document.getElementById('completeModal')?.addEventListener('click', function(e) {
+                if (e.target === this) closeCompleteModal();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeCompleteModal();
+            });
+
             restoreRASessionId();
 
             renderSkeleton();
