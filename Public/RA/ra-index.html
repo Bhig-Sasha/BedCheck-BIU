@@ -546,7 +546,7 @@
         let globalSessionData = null;
         let lastLoggedSessionId = null;
         let isLoadingComplete = false;
-        // ⭐ REMOVED: let sessionCheckerInterval = null;
+        let raSessionId = null;          // ⭐ RA session id (ra_bedcheck_sessions.id)
 
         // =============================================
         // API HELPER
@@ -576,7 +576,6 @@
                     credentials: 'include'
                 });
             } catch (networkError) {
-                // ⭐ NEW: Distinguish network errors (cold start, offline)
                 const err = new Error('NETWORK_ERROR');
                 err.isNetworkError = true;
                 err.cause = networkError;
@@ -772,6 +771,34 @@
         }
 
         // =============================================
+        // RESOLVE "RA SESSION ID" FROM ANYTHING AVAILABLE
+        // =============================================
+        // The backend expects the ra_bedcheck_sessions.id (the RA's own
+        // session row), NOT the global sessions.id. This helper looks
+        // for it in every known shape the API might return.
+        function resolveRASessionId(source) {
+            if (!source) return null;
+            const s = source.data || source;
+
+            const candidates = [
+                s.ra_session_id,
+                s.raSessionId,
+                s.session_id,
+                s.active_session && s.active_session.id,
+                s.active_session && s.active_session.ra_session_id,
+                s.active_session && s.active_session.session_id,
+                s.session && s.session.id,
+                s.ra_bedcheck_session && s.ra_bedcheck_session.id,
+                s.id
+            ];
+
+            for (const c of candidates) {
+                if (c != null && c !== '' && c !== 'completed') return c;
+            }
+            return null;
+        }
+
+        // =============================================
         // DATA LOADING
         // =============================================
         async function loadStudents() {
@@ -927,7 +954,6 @@
                     return null;
                 }
             } catch (error) {
-                // ⭐ NEW: Preserve last-known state on network errors
                 if (error.isNetworkError) {
                     return globalSessionData;
                 }
@@ -952,6 +978,7 @@
                     globalSessionActive = false;
                     hasCompletedToday = false;
                     effectiveStatus = 'closed';
+                    raSessionId = null;
                     return null;
                 }
 
@@ -965,6 +992,9 @@
                     hasCompletedToday = data.has_completed_today || false;
                     effectiveStatus = data.effective_status || 'ready';
                     globalSessionActive = data.global_session_active || false;
+
+                    // ⭐ Capture the RA-specific session id
+                    raSessionId = resolveRASessionId(data) || raSessionId;
 
                     if (effectiveStatus === 'started') {
                         sessionStatus = 'active';
@@ -1030,6 +1060,7 @@
                     hasCompletedToday = false;
                     effectiveStatus = 'ready';
                     currentSession = global;
+                    raSessionId = raSessionId || null;
                     return { effective_status: 'ready' };
                 }
 
@@ -1038,7 +1069,6 @@
                 return null;
 
             } catch (error) {
-                // ⭐ NEW: Don't reset state on network errors
                 if (!error.isNetworkError) {
                     sessionStatus = 'closed';
                     isSessionActive = false;
@@ -1214,16 +1244,36 @@
             }
 
             try {
-                const sessionId = currentSession?.id || currentSession?.session_id;
+                // ⭐ The backend needs the RA session id, not the global session id.
+                // Try raSessionId first, then re-fetch status if we don't have it.
+                if (!raSessionId) {
+                    await loadSessionStatus();
+                }
+
+                const sessionId =
+                    raSessionId ||
+                    resolveRASessionId(currentSession) ||
+                    currentSession?.session_id ||
+                    currentSession?.ra_session_id ||
+                    currentSession?.id;
 
                 if (!sessionId) {
-                    showToast('Could not find session ID.', 'error');
+                    showToast('Could not find RA session ID. Please refresh and try again.', 'error');
                     return;
                 }
 
+                // ⭐ Send every possible key so whichever the backend reads works.
+                const payload = {
+                    session_id: sessionId,
+                    ra_session_id: sessionId,
+                    hostel_id: assignedHostelId
+                };
+
+                console.log('[BedCheck] start payload:', payload);
+
                 const result = await apiCall('/ra/bedcheck/start', {
                     method: 'POST',
-                    body: JSON.stringify({ session_id: sessionId })
+                    body: JSON.stringify(payload)
                 });
 
                 if (result && result.success) {
@@ -1231,9 +1281,18 @@
                     isRASessionActive = true;
                     sessionStatus = 'active';
                     effectiveStatus = 'started';
-                    currentSession = result.data?.session || { id: sessionId };
 
-                    addTimeline('BedCheck started', `Session ID: ${sessionId}`);
+                    // ⭐ Capture whatever id the server returned as the RA session id
+                    const returnedId = resolveRASessionId(result);
+                    if (returnedId) raSessionId = returnedId;
+
+                    if (result.data?.session) {
+                        currentSession = result.data.session;
+                    } else if (currentSession) {
+                        currentSession = { ...currentSession, id: sessionId };
+                    }
+
+                    addTimeline('BedCheck started', `Session ID: ${raSessionId || sessionId}`);
 
                     await loadSessionStatus();
 
@@ -1262,16 +1321,35 @@
             }
 
             try {
-                const sessionId = currentSession?.id || currentSession?.session_id;
+                // ⭐ If we somehow lost the RA session id, re-fetch status first
+                if (!raSessionId) {
+                    await loadSessionStatus();
+                }
 
-                if (!sessionId || sessionId === 'completed') {
-                    showToast('No session found.', 'error');
+                const sessionId =
+                    raSessionId ||
+                    resolveRASessionId(currentSession) ||
+                    currentSession?.session_id ||
+                    currentSession?.ra_session_id ||
+                    currentSession?.id;
+
+                if (!sessionId) {
+                    showToast('No session found to complete. Please refresh.', 'error');
                     return;
                 }
 
+                // ⭐ Send both keys — backend may look for either.
+                const payload = {
+                    session_id: sessionId,
+                    ra_session_id: sessionId,
+                    hostel_id: assignedHostelId
+                };
+
+                console.log('[BedCheck] complete payload:', payload);
+
                 await apiCall('/ra/bedcheck/complete', {
                     method: 'POST',
-                    body: JSON.stringify({ session_id: sessionId })
+                    body: JSON.stringify(payload)
                 });
 
                 isSessionActive = false;
@@ -1279,6 +1357,7 @@
                 sessionStatus = 'completed';
                 effectiveStatus = 'completed';
                 hasCompletedToday = true;
+                raSessionId = null;      // ⭐ reset
 
                 addTimeline('BedCheck completed', `Session ID: ${sessionId}`);
 
@@ -1293,7 +1372,7 @@
         }
 
         // =============================================
-        // ⭐ NEW: MANUAL REFRESH
+        // MANUAL REFRESH
         // =============================================
         async function manualRefresh() {
             showToast('Refreshing…', 'info');
@@ -1484,7 +1563,6 @@
                         </p>
                     </div>
                     <div class="action-group">
-                        <!-- ⭐ NEW: Manual Refresh button (always visible) -->
                         <button class="btn-outline" id="refreshDashboardBtn">
                             <i class="fas fa-sync"></i> Refresh
                         </button>
@@ -1635,7 +1713,7 @@
 
             document.getElementById('startBedCheckBtn')?.addEventListener('click', startBedCheck);
             document.getElementById('completeBedCheckBtn')?.addEventListener('click', completeBedCheck);
-            document.getElementById('refreshDashboardBtn')?.addEventListener('click', manualRefresh);   // ⭐ NEW
+            document.getElementById('refreshDashboardBtn')?.addEventListener('click', manualRefresh);
         }
 
         // =============================================
@@ -1831,7 +1909,7 @@
         window.filterStudents = filterStudents;
         window.resetFilters = resetFilters;
         window.changePage = changePage;
-        window.manualRefresh = manualRefresh;   // ⭐ NEW
+        window.manualRefresh = manualRefresh;
 
         // =============================================
         // INIT — PROGRESSIVE LOADING
@@ -1874,7 +1952,6 @@
                 ]);
 
                 renderDashboard();
-                // ⭐ REMOVED: startSessionChecker();
                 addTimeline('Dashboard loaded', `${filteredStudents.length} students`);
 
             } catch (error) {
