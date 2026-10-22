@@ -583,15 +583,110 @@
             }
 
             // =============================================
+            // TODAY'S ATTENDANCE (derived from scans + sessions)
+            // =============================================
+            // Builds a map: { studentId -> 'Present' | 'Absent' | 'Unknown' }
+            // for TODAY's BedCheck session. Falls back to the student's static
+            // status ONLY if there are no bedcheck records at all.
+            function buildTodayAttendance() {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+
+                // Determine which sessions are "today"
+                const todaysSessions = sessions.filter(s => {
+                    const created = new Date(s.created_at || s.start_time || s.date);
+                    if (isNaN(created.getTime())) return false;
+                    return created >= today && created < tomorrow;
+                });
+
+                // Sessions might not have created_at in some payloads — fall back to all sessions
+                const sessionsForToday = todaysSessions.length > 0 ? todaysSessions : [];
+
+                // Build a set of session ids that belong to today
+                const sessionIds = new Set(sessionsForToday.map(s => String(s.id)));
+
+                const map = {};
+
+                // 1. From scans — only those belonging to today's sessions
+                scans.forEach(scan => {
+                    const scanDate = new Date(scan.scanned_at || scan.created_at || scan.timestamp || scan.date);
+                    const scanIsToday = !isNaN(scanDate.getTime()) && scanDate >= today && scanDate < tomorrow;
+                    const sessionIsToday = sessionIds.size === 0
+                        ? scanIsToday
+                        : sessionIds.has(String(scan.session_id));
+
+                    if (!sessionIsToday && !scanIsToday) return;
+
+                    const sid = String(scan.student_id || scan.studentId || scan.student?.id);
+                    if (!sid) return;
+
+                    const status = (scan.status || scan.result || '').toString().toLowerCase();
+                    let normalized = null;
+                    if (status.includes('present') || status.includes('verified') || status.includes('scan')) normalized = 'Present';
+                    else if (status.includes('absent') || status.includes('miss') || status.includes('no')) normalized = 'Absent';
+
+                    if (!normalized) return;
+
+                    // Absent should not override Present (student might have both scan + absent record)
+                    if (map[sid] === 'Present') return;
+                    map[sid] = normalized;
+                });
+
+                // 2. For students with no record, fall back to student.status
+                //    BUT only when there are NO scans for today at all AND no sessions today.
+                //    If BedCheck is active today, missing = Absent (per requirement).
+                const hasAnyRecordToday = Object.keys(map).length > 0;
+                const hasSessionsToday = sessionsForToday.length > 0;
+
+                students.forEach(s => {
+                    const sid = String(s.id);
+                    if (map[sid]) return;
+
+                    if (!hasSessionsToday && !hasAnyRecordToday) {
+                        // No BedCheck session today → show the static status (or Unknown)
+                        const raw = (s.status || '').toString().toLowerCase();
+                        if (raw.includes('present')) map[sid] = 'Present';
+                        else if (raw.includes('absent')) map[sid] = 'Absent';
+                        else map[sid] = 'Unknown';
+                    } else {
+                        // BedCheck has run / is active today → no record = Absent
+                        map[sid] = 'Absent';
+                    }
+                });
+
+                return map;
+            }
+
+            // Computes present/absent counts for a given student list using today's map
+            function computeAttendance(studentList, todayMap) {
+                let present = 0;
+                let absent = 0;
+                studentList.forEach(s => {
+                    const status = todayMap[String(s.id)] || 'Unknown';
+                    if (status === 'Present') present++;
+                    else if (status === 'Absent') absent++;
+                });
+                return { present, absent, total: studentList.length };
+            }
+
+            // Resolved status helper for a student row
+            function resolveStatus(student, todayMap) {
+                const sid = String(student.id);
+                const derived = todayMap[sid];
+                if (derived === 'Present') return 'Present';
+                if (derived === 'Absent') return 'Absent';
+                return student.status || 'Unknown';
+            }
+
+            // =============================================
             // DATA LOADING (progressive)
             // =============================================
-
-            // Critical: students + hostels (needed for overview metrics + hostel list)
             async function loadStudents() {
                 try {
                     const data = await apiCall('/students');
                     students = data.data || [];
-                    // Map hostel names to students
                     students = students.map(s => {
                         const hostel = hostels.find(h => h.id === s.hostel_id);
                         return { ...s, hostel_name: hostel?.name || s.hostel || 'Unassigned' };
@@ -614,7 +709,6 @@
                 }
             }
 
-            // Secondary: sessions + scans
             async function loadSessions() {
                 if (sessionsLoaded) return sessions;
                 try {
@@ -641,7 +735,6 @@
                 }
             }
 
-            // Keep for compatibility with refresh flows
             async function loadAllData() {
                 sessionsLoaded = false;
                 scansLoaded = false;
@@ -655,31 +748,41 @@
             // =============================================
             function exportExcelReport() {
                 try {
-                    const present = students.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
-                    const absent = students.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
-                    const total = students.length;
-                    const rate = attRate(present, total);
+                    const todayMap = buildTodayAttendance();
+                    const today = new Date();
+                    const todayStr = today.toISOString().split('T')[0];
+                    let scopeStudents = students;
+
+                    if (viewState.scope === 'hostel' && viewState.hostelId) {
+                        scopeStudents = students.filter(s => s.hostel_id == viewState.hostelId);
+                    } else if (viewState.scope === 'student' && viewState.studentId) {
+                        scopeStudents = students.filter(s => s.id == viewState.studentId);
+                    }
+
+                    const att = computeAttendance(scopeStudents, todayMap);
+                    const rate = attRate(att.present, att.total);
 
                     const date = new Date();
                     const dateStr = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
-                    const fileName = `BedCheck_Report_${date.toISOString().slice(0,10)}.xlsx`;
+                    const fileName = `BedCheck_Report_${todayStr}.xlsx`;
 
                     const summaryData = [
                         ['', ''],
                         ['ATTENDANCE REPORT', ''],
                         ['', ''],
                         ['Generated On:', dateStr],
+                        ['Report Date:', todayStr],
                         ['Report Status:', 'Final'],
                         ['', ''],
-                        ['TOTAL STUDENTS', total],
-                        ['PRESENT', present],
-                        ['ABSENT', absent],
+                        ['TOTAL STUDENTS', att.total],
+                        ['PRESENT', att.present],
+                        ['ABSENT', att.absent],
                         ['ATTENDANCE RATE', rate + '%']
                     ];
 
                     const studentHeaders = ['S/N', 'Full Name', 'Matric Number', 'Status', 'Hostel', 'Room', 'Gender', 'Level', 'Faculty'];
-                    const studentRows = students.map((s, i) => [
-                        i + 1, s.name || '', s.matric || '', s.status || 'Unknown',
+                    const studentRows = scopeStudents.map((s, i) => [
+                        i + 1, s.name || '', s.matric || '', resolveStatus(s, todayMap),
                         s.hostel_name || '', s.room || s.room_code || '',
                         s.gender || '', s.level || '', s.faculty || ''
                     ]);
@@ -690,8 +793,9 @@
                         const h = s.hostel_name || 'Unassigned';
                         if (!hostelMap[h]) hostelMap[h] = { total: 0, present: 0, absent: 0 };
                         hostelMap[h].total++;
-                        if (s.status === 'Present' || s.status === 'present') hostelMap[h].present++;
-                        if (s.status === 'Absent' || s.status === 'absent') hostelMap[h].absent++;
+                        const st = todayMap[String(s.id)] || 'Unknown';
+                        if (st === 'Present') hostelMap[h].present++;
+                        if (st === 'Absent') hostelMap[h].absent++;
                     });
                     const hostelHeaders = ['S/N', 'Hostel', 'Total', 'Present', 'Absent', 'Rate'];
                     const hostelRows = Object.keys(hostelMap).map((h, i) => {
@@ -707,7 +811,7 @@
                     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hostelData), 'Hostels');
 
                     XLSX.writeFile(wb, fileName);
-                    showToast(`📊 Report exported successfully! (${total} students)`, 'success');
+                    showToast(`📊 Report exported successfully! (${att.total} students)`, 'success');
                 } catch (error) {
                     showToast('Error exporting report: ' + error.message, 'error');
                 }
@@ -767,25 +871,30 @@
             // RENDER ALL HOSTELS
             // =============================================
             function renderAllHostels(container) {
-                const total = students.length;
-                const present = students.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
-                const absent = students.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const todayMap = buildTodayAttendance();
+                const att = computeAttendance(students, todayMap);
+                const total = att.total;
+                const present = att.present;
+                const absent = att.absent;
                 const rate = attRate(present, total);
 
                 const hostelStats = hostels.map(h => {
                     const hStudents = students.filter(s => s.hostel_id === h.id);
-                    const hPresent = hStudents.filter(s => s.status === 'Present' || s.status === 'present').length;
-                    const hTotal = hStudents.length;
-                    return { ...h, total: hTotal, present: hPresent, absent: hTotal - hPresent,
-                    rate: attRate(hPresent, hTotal) };
+                    const hAtt = computeAttendance(hStudents, todayMap);
+                    return { ...h, total: hAtt.total, present: hAtt.present, absent: hAtt.absent,
+                        rate: attRate(hAtt.present, hAtt.total) };
                 }).sort((a, b) => b.rate - a.rate);
+
+                // Date display for the report
+                const today = new Date();
+                const dateLabel = today.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
                 container.innerHTML = `
                     <div class="page-heading fade-in">
                         <div>
                             <p class="eyebrow"><i class="fas fa-chart-bar"></i> Reports</p>
                             <h1>Reports</h1>
-                            <p class="desc">Attendance, occupancy and student performance reports</p>
+                            <p class="desc">BedCheck attendance for <strong>${dateLabel}</strong></p>
                         </div>
                         <div class="action-group">
                             <button class="btn-export" onclick="exportExcelReport()">
@@ -855,7 +964,7 @@
                             <div class="metric-icon gray"><i class="fas fa-building"></i></div>
                             <div class="metric-value">${hostels.length}</div>
                             <div class="metric-title">Hostels</div>
-                            <div class="metric-detail">${hostelStats.filter(h => h.rate >= 90).length} at ≥90%</div>
+                            <div class="metric-detail">${hostelStats.filter(h => h.rate >= 90 && h.total > 0).length} at ≥90%</div>
                         </div>
                     </div>
 
@@ -892,7 +1001,7 @@
                             </table>
                         </div>
                         <div class="mt-2 pt-2 border-t flex-between">
-                            <span class="text-xs text-muted">${hostelStats.length} hostels · ${hostelStats.filter(h => h.rate >= 90).length} at ≥90% attendance</span>
+                            <span class="text-xs text-muted">${hostelStats.length} hostels · ${hostelStats.filter(h => h.rate >= 90 && h.total > 0).length} at ≥90% attendance</span>
                             <span class="text-xs text-muted">Click a hostel to view details</span>
                         </div>
                     </div>
@@ -913,10 +1022,12 @@
                     return;
                 }
 
+                const todayMap = buildTodayAttendance();
                 const hStudents = students.filter(s => s.hostel_id === hostel.id);
-                const total = hStudents.length;
-                const present = hStudents.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
-                const absent = hStudents.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const att = computeAttendance(hStudents, todayMap);
+                const total = att.total;
+                const present = att.present;
+                const absent = att.absent;
                 const rate = attRate(present, total);
                 const occupied = hStudents.filter(s => s.room_id || s.room || s.room_code).length;
                 const capacity =
@@ -933,8 +1044,9 @@
                     const floor = s.floor || s.floor_name || 'Unassigned';
                     if (!floors[floor]) floors[floor] = { total: 0, present: 0, absent: 0 };
                     floors[floor].total++;
-                    if (s.status === 'Present' || s.status === 'present') floors[floor].present++;
-                    if (s.status === 'Absent' || s.status === 'absent') floors[floor].absent++;
+                    const st = todayMap[String(s.id)] || 'Unknown';
+                    if (st === 'Present') floors[floor].present++;
+                    if (st === 'Absent') floors[floor].absent++;
                 });
                 const floorStats = Object.keys(floors).map(f => ({
                     name: f,
@@ -954,7 +1066,7 @@
                     <div class="page-heading fade-in">
                         <div>
                             <h1>${hostel.name}</h1>
-                            <p class="desc">Hostel attendance and occupancy report</p>
+                            <p class="desc">Hostel attendance and occupancy report · ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
                         </div>
                         <div class="action-group">
                             <button class="btn-export" onclick="exportExcelReport()">
@@ -1066,7 +1178,7 @@
                                             <td><div style="display:flex;align-items:center;gap:0.4rem;"><span class="avatar">${getInitials(s.name)}</span><span style="font-weight:600;">${s.name || 'Unknown'}</span></div></td>
                                             <td>${s.matric || '—'}</td>
                                             <td>${s.room || s.room_code || '—'}</td>
-                                            <td>${statusBadge(s.status)}</td>
+                                            <td>${statusBadge(resolveStatus(s, todayMap))}</td>
                                             <td><button class="btn-sm btn-sm-primary" onclick="goToStudent('${s.id}', '${s.name}')"><i class="fas fa-eye"></i> View</button></td>
                                         </tr>
                                     `).join('')}
@@ -1093,10 +1205,10 @@
                 }
 
                 const hostel = hostels.find(h => h.id === student.hostel_id);
-                const studentScans = scans.filter(s => s.student_id === student.id);
+                const studentScans = scans.filter(s => String(s.student_id) === String(student.id));
                 const totalSessions = studentScans.length || 0;
-                const presentCount = studentScans.filter(s => s.status === 'Present' || s.status === 'present').length || 0;
-                const absentCount = studentScans.filter(s => s.status === 'Absent' || s.status === 'absent').length || 0;
+                const presentCount = studentScans.filter(s => (s.status || '').toLowerCase().includes('present')).length || 0;
+                const absentCount = studentScans.filter(s => (s.status || '').toLowerCase().includes('absent')).length || 0;
                 const rate = attRate(presentCount, totalSessions);
 
                 container.innerHTML = `
@@ -1177,10 +1289,10 @@
                                         <tr><td colspan="4" class="text-center text-muted" style="padding:1rem;">No attendance records found</td></tr>
                                     ` : studentScans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(s => `
                                         <tr>
-                                            <td>${formatDate(s.created_at)}</td>
+                                            <td>${formatDate(s.created_at || s.scanned_at)}</td>
                                             <td>${s.session_name || 'Night Check'}</td>
                                             <td>${statusBadge(s.status)}</td>
-                                            <td>${formatTime(s.created_at)}</td>
+                                            <td>${formatTime(s.created_at || s.scanned_at)}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -1348,37 +1460,36 @@
                 if (!checkAuth()) return;
                 setDate();
 
-                // Wire events early
                 document.getElementById('menuToggle')?.addEventListener('click', openMobileDrawer);
                 document.getElementById('closeDrawer')?.addEventListener('click', closeMobileDrawer);
                 document.getElementById('drawerOverlay')?.addEventListener('click', closeMobileDrawer);
                 document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
 
-                // 1. Instant skeleton
                 showReportsSkeleton();
                 document.getElementById('noticeText').textContent = 'Loading reports...';
 
                 try {
-                    // 2. Load hostels first, then students (students need hostel names for mapping)
+                    // Load hostels + students first so scope/hostel names work
                     await loadHostels();
                     await loadStudents();
 
-                    // 3. First real render — overview + hostel list
+                    // Render immediately (status from students if scans not yet loaded)
                     renderScreen();
-                    document.getElementById('noticeText').textContent =
-                        `${students.length} students · ${hostels.length} hostels`;
+                    document.getElementById('noticeText').textContent = 'Loading BedCheck records...';
 
-                    // 4. Load secondary data in background — sessions + scans
-                    Promise.allSettled([loadSessions(), loadScans()]).then(() => {
-                        // Soft re-render so any deep view (student history) picks up scans
-                        if (viewState.scope === 'student' || viewState.scope === 'hostel') {
-                            renderScreen();
-                        }
-                    });
+                    // Now load sessions + scans (needed for today's real attendance)
+                    await Promise.allSettled([loadSessions(), loadScans()]);
+
+                    // Re-render with derived attendance
+                    renderScreen();
+                    const todayMap = buildTodayAttendance();
+                    const att = computeAttendance(students, todayMap);
+                    document.getElementById('noticeText').textContent =
+                        `${att.total} students · ${att.present} present · ${att.absent} absent`;
 
                 } catch (error) {
                     document.getElementById('noticeText').textContent = 'Error loading data. Please refresh.';
-                    if (!error.message?.includes('Authentication required') && 
+                    if (!error.message?.includes('Authentication required') &&
                         !error.message?.includes('No authentication token')) {
                         showToast('Error loading data: ' + error.message, 'error');
                     }
