@@ -649,7 +649,7 @@
         let globalSessionData = null;
         let lastLoggedSessionId = null;
         let isLoadingComplete = false;
-        let raSessionId = null;          // the REAL ra_bedcheck_sessions.id
+        let raSessionId = null;          // the RA's own session id (hostel_session_id)
         let globalSessionId = null;      // the global sessions.id
 
         // =============================================
@@ -682,13 +682,25 @@
         // =============================================
         // EXTRACT ID FROM ANY RESPONSE SHAPE
         // =============================================
-        // Deep search for the RA session id in /start response.
-        // Tries many possible field names and falls back to walking the object.
+        // The RA session id is `hostel_session_id` in the /status payload:
+        //   currentSession = {
+        //     id: 24,                 ← global session id
+        //     session_id: 24,         ← global session id
+        //     global_session_id: 24,  ← global session id
+        //     hostel_session_id: 477  ← THIS is the RA session id
+        //   }
         function extractRAIdFromStart(result) {
             if (!result) return null;
             const d = result.data || result;
 
-            // Priority keys — whichever your backend uses
+            // Highest priority: hostel_session_id
+            if (d.hostel_session_id != null) return d.hostel_session_id;
+            if (d.session && d.session.hostel_session_id != null) return d.session.hostel_session_id;
+            if (d.ra_bedcheck_session && d.ra_bedcheck_session.hostel_session_id != null) {
+                return d.ra_bedcheck_session.hostel_session_id;
+            }
+
+            // Next: explicit RA keys
             const directCandidates = [
                 d.ra_session_id,
                 d.raSessionId,
@@ -696,51 +708,60 @@
                 d.ra_bedcheck_session && d.ra_bedcheck_session.id,
                 d.ra_session && d.ra_session.id,
                 d.session && d.session.ra_session_id,
-                d.session && d.session.ra_bedcheck_session_id,
-                d.session && d.session.ra_id != null ? d.session.id : null,
-                // Some backends just return the new row's id
-                d.id != null && (d.ra_id != null || d.session_id != null) ? d.id : null
+                d.session && d.session.ra_bedcheck_session_id
             ];
             for (const c of directCandidates) {
                 if (c != null && c !== '' && c !== 'completed') return c;
             }
 
-            // Fallback — walk everything and grab the first id under a key containing "ra"
+            // Deep-walk fallback: find any hostel_session_id anywhere
             let found = null;
-            function walk(obj) {
+            (function walk(obj) {
                 if (found || !obj || typeof obj !== 'object') return;
+                if (obj.hostel_session_id != null) { found = obj.hostel_session_id; return; }
                 for (const k of Object.keys(obj)) {
                     if (found) return;
-                    const v = obj[k];
-                    if (v && typeof v === 'object') {
-                        // Look inside nested objects first
-                        if (v.id != null && /ra/i.test(k)) { found = v.id; return; }
-                        walk(v);
-                    }
+                    if (obj[k] && typeof obj[k] === 'object') walk(obj[k]);
                 }
-            }
-            walk(d);
+            })(d);
             return found;
         }
 
-        // /status response is a fallback source
         function extractRAIdFromStatus(data) {
             if (!data) return null;
+
+            // Priority 1: active_session.hostel_session_id
+            if (data.active_session && data.active_session.hostel_session_id != null) {
+                return data.active_session.hostel_session_id;
+            }
+
+            // Priority 2: explicit keys on the root of data
             const candidates = [
+                data.hostel_session_id,
                 data.ra_session_id,
                 data.raSessionId,
                 data.ra_bedcheck_session_id,
                 data.ra_bedcheck_session && data.ra_bedcheck_session.id,
                 data.ra_session && data.ra_session.id,
-                // Some backends tag active_session with ra_id
-                data.active_session && data.active_session.ra_id != null ? data.active_session.id : null,
                 data.active_session && data.active_session.ra_session_id,
-                data.active_session && data.active_session.ra_bedcheck_session_id
+                data.active_session && data.active_session.ra_bedcheck_session_id,
+                data.active_session && data.active_session.ra_id != null ? data.active_session.id : null
             ];
             for (const c of candidates) {
                 if (c != null && c !== '' && c !== 'completed') return c;
             }
-            return null;
+
+            // Deep-walk fallback
+            let found = null;
+            (function walk(obj) {
+                if (found || !obj || typeof obj !== 'object') return;
+                if (obj.hostel_session_id != null) { found = obj.hostel_session_id; return; }
+                for (const k of Object.keys(obj)) {
+                    if (found) return;
+                    if (obj[k] && typeof obj[k] === 'object') walk(obj[k]);
+                }
+            })(data);
+            return found;
         }
 
         // =============================================
@@ -1105,11 +1126,9 @@
                     effectiveStatus = data.effective_status || 'ready';
                     globalSessionActive = data.global_session_active || false;
 
-                    // Recover RA session id from status if we don't have one
-                    if (!raSessionId) {
-                        const fromStatus = extractRAIdFromStatus(data);
-                        if (fromStatus) persistRASessionId(fromStatus);
-                    }
+                    // ⭐ Recover the RA session id (hostel_session_id) from status
+                    const fromStatus = extractRAIdFromStatus(data);
+                    if (fromStatus) persistRASessionId(fromStatus);
 
                     if (effectiveStatus === 'started') {
                         sessionStatus = 'active';
@@ -1379,8 +1398,7 @@
                 console.log('[BedCheck] start response:', JSON.stringify(result, null, 2));
 
                 if (result && result.success) {
-                    // Try to extract id from start response
-                    let startedId = extractRAIdFromStart(result);
+                    const startedId = extractRAIdFromStart(result);
                     if (startedId) {
                         persistRASessionId(startedId);
                         console.log('[BedCheck] RA session id from /start:', startedId);
@@ -1395,15 +1413,19 @@
                         currentSession = { ...currentSession, ...result.data.session };
                     }
 
-                    // If /start didn't give us the id, re-fetch status which may expose it
-                    if (!startedId) {
-                        console.warn('[BedCheck] /start response did not contain an RA session id. Re-checking status…');
-                        await loadSessionStatus();
+                    // Reload status — this also runs extractRAIdFromStatus which
+                    // guarantees we capture hostel_session_id even if /start didn't
+                    // return it directly.
+                    await loadSessionStatus();
+
+                    if (!raSessionId) {
+                        console.warn('[BedCheck] Could not capture RA session id from /start or /status. ' +
+                                     'The /complete call may fail. Please check the responses above.');
+                    } else {
+                        console.log('[BedCheck] RA session id locked in:', raSessionId);
                     }
 
                     addTimeline('BedCheck started', `RA session: ${raSessionId || '?'}`);
-
-                    await loadSessionStatus();
 
                     showToast('✅ BedCheck started!', 'success');
                     renderDashboard();
@@ -1429,17 +1451,22 @@
             if (modal) modal.classList.remove('show');
         }
 
-        // Actual completion logic (after user confirms)
         async function doCompleteBedCheck() {
             try {
                 restoreRASessionId();
 
-                // Try to recover from status if we lost the id
+                // If we don't have it, re-fetch status which will recover
+                // hostel_session_id from active_session
                 if (!raSessionId) {
                     await loadSessionStatus();
                 }
 
-                const sessionId = raSessionId;
+                // Final fallback — read straight off currentSession
+                let sessionId = raSessionId;
+                if (!sessionId && currentSession && currentSession.hostel_session_id != null) {
+                    sessionId = currentSession.hostel_session_id;
+                    persistRASessionId(sessionId);
+                }
 
                 if (!sessionId) {
                     console.warn('[BedCheck] No RA session id captured. Dump:', {
@@ -1449,7 +1476,7 @@
                         persisted: sessionStorage.getItem('bedcheck_ra_session_id')
                     });
                     showToast(
-                        'Cannot complete: the RA session id was not captured when you started. ' +
+                        'Cannot complete: the RA session id was not captured. ' +
                         'Please refresh and try again — if this persists, check the console for the /start and /status responses.',
                         'error'
                     );
@@ -1487,7 +1514,6 @@
             }
         }
 
-        // Entry point — called by the Complete button
         async function completeBedCheck() {
             if (!isRASessionActive) {
                 showToast('No active session to complete.', 'error');
@@ -2047,7 +2073,6 @@
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-            // Complete modal wiring
             document.getElementById('completeModalClose')?.addEventListener('click', closeCompleteModal);
             document.getElementById('completeModalCancel')?.addEventListener('click', closeCompleteModal);
             document.getElementById('completeModalConfirm')?.addEventListener('click', async () => {
