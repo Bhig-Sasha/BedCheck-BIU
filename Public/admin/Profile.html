@@ -633,7 +633,6 @@
                 const name = document.getElementById('editName')?.value;
                 const email = document.getElementById('editEmail')?.value;
                 const phone = document.getElementById('editPhone')?.value;
-                const department = document.getElementById('editDepartment')?.value;
 
                 if (!name || !email) {
                     showToast('Name and email are required', 'error');
@@ -647,13 +646,13 @@
                         return;
                     }
 
+                    // Department is not editable — do not send it
                     await apiCall(`/staff/${staffId}`, {
                         method: 'PUT',
                         body: JSON.stringify({
                             name: name,
                             email: email,
-                            phone: phone || '',
-                            department: department || ''
+                            phone: phone || ''
                         })
                     });
 
@@ -661,7 +660,6 @@
                         userProfile.name = name;
                         userProfile.email = email;
                         userProfile.phone = phone || userProfile.phone;
-                        userProfile.department = department || userProfile.department;
                         userProfile.initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
                     }
 
@@ -681,13 +679,6 @@
                 }
             }
 
-            function downloadActivityLog() {
-                showToast('Downloading activity log...', 'info');
-                setTimeout(() => {
-                    showToast('Activity log downloaded successfully!', 'success');
-                }, 1500);
-            }
-
             function signOut() {
                 if (confirm('Are you sure you want to sign out?')) {
                     handleLogout(new Event('click'));
@@ -704,7 +695,6 @@
                 const name = profile.name || 'User';
                 const initials = profile.initials || name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
                 const role = profile.role || 'Staff';
-                const staffId = profile.staff_id || profile.id || 'N/A';
                 const email = profile.email || 'Not set';
                 const phone = profile.phone || 'Not set';
                 const department = profile.department || 'Not set';
@@ -721,7 +711,6 @@
                         </div>
                         <div class="action-group">
                             ${!isEditing ? `
-                                <button class="btn-outline" onclick="downloadActivityLog()"><i class="fas fa-download"></i> Activity Log</button>
                                 <button class="btn-primary" onclick="toggleEdit()"><i class="fas fa-edit"></i> Edit Profile</button>
                             ` : `
                                 <button class="btn-outline" onclick="toggleEdit()"><i class="fas fa-times"></i> Cancel</button>
@@ -749,9 +738,6 @@
                                         <span class="status-dot green"></span> Active
                                     </span>
                                     <span style="font-size:0.6rem;color:#68768a;">
-                                        <i class="fas fa-id-badge"></i> ${staffId}
-                                    </span>
-                                    <span style="font-size:0.6rem;color:#68768a;">
                                         <i class="fas fa-calendar-plus"></i> Joined ${joined}
                                     </span>
                                 </div>
@@ -777,46 +763,41 @@
                             </div>
                         </div>
 
-                        <!-- Personal & Security Information -->
-                        <div class="grid-2 mt-4" style="border-top:1px solid #eee8de;padding-top:0.75rem;">
-                            <div>
-                                <h4 class="font-bold text-xs" style="color:#68768a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">
-                                    <i class="fas fa-user" style="color:#a77915;"></i> Personal Information
-                                </h4>
-                                ${isEditing ? `
-                                    <div class="field mt-2">
-                                        <label>Email Address</label>
-                                        <input id="editEmail" value="${email}" />
+                        <!-- Personal Information -->
+                        <div class="mt-4" style="border-top:1px solid #eee8de;padding-top:0.75rem;">
+                            <h4 class="font-bold text-xs" style="color:#68768a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">
+                                <i class="fas fa-user" style="color:#a77915;"></i> Personal Information
+                            </h4>
+                            <div class="grid-2 mt-2">
+                                <div>
+                                    ${isEditing ? `
+                                        <div class="field">
+                                            <label>Email Address</label>
+                                            <input id="editEmail" value="${email}" />
+                                        </div>
+                                        <div class="field mt-2">
+                                            <label>Phone Number</label>
+                                            <input id="editPhone" value="${phone}" />
+                                        </div>
+                                        <div class="field mt-2">
+                                            <label>Department</label>
+                                            <input value="${department}" disabled />
+                                        </div>
+                                    ` : `
+                                        <div class="info-row"><span class="label">Email</span><span class="value">${email}</span></div>
+                                        <div class="info-row"><span class="label">Phone</span><span class="value">${phone}</span></div>
+                                        <div class="info-row"><span class="label">Department</span><span class="value">${department}</span></div>
+                                    `}
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-xs" style="color:#68768a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">
+                                        <i class="fas fa-shield-alt" style="color:#a77915;"></i> Account Security
+                                    </h4>
+                                    <div style="display:flex;gap:0.3rem;margin-top:0.3rem;flex-wrap:wrap;">
+                                        <button class="btn-primary" onclick="openPasswordModal()" style="font-size:0.65rem;padding:0.3rem 0.6rem;">
+                                            <i class="fas fa-key"></i> Change Password
+                                        </button>
                                     </div>
-                                    <div class="field mt-2">
-                                        <label>Phone Number</label>
-                                        <input id="editPhone" value="${phone}" />
-                                    </div>
-                                    <div class="field mt-2">
-                                        <label>Department</label>
-                                        <input id="editDepartment" value="${department}" />
-                                    </div>
-                                ` : `
-                                    <div class="info-row"><span class="label">Email</span><span class="value">${email}</span></div>
-                                    <div class="info-row"><span class="label">Phone</span><span class="value">${phone}</span></div>
-                                    <div class="info-row"><span class="label">Department</span><span class="value">${department}</span></div>
-                                    <div class="info-row"><span class="label">Staff ID</span><span class="value">${staffId}</span></div>
-                                `}
-                            </div>
-                            <div>
-                                <h4 class="font-bold text-xs" style="color:#68768a;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">
-                                    <i class="fas fa-shield-alt" style="color:#a77915;"></i> Account Security
-                                </h4>
-                                <div class="info-row"><span class="label">Password</span><span class="value" style="font-weight:400;">Last changed recently</span></div>
-                                <div class="info-row"><span class="label">Two-factor auth</span><span class="value" style="color:#2d6545;">✅ Enabled</span></div>
-                                <div class="info-row"><span class="label">Recovery email</span><span class="value" style="color:#2d6545;">✅ Verified</span></div>
-                                <div style="display:flex;gap:0.3rem;margin-top:0.3rem;flex-wrap:wrap;">
-                                    <button class="btn-primary" onclick="openPasswordModal()" style="font-size:0.65rem;padding:0.3rem 0.6rem;">
-                                        <i class="fas fa-key"></i> Change Password
-                                    </button>
-                                    <button class="btn-outline" onclick="showToast('2FA settings opened', 'info')" style="font-size:0.65rem;padding:0.3rem 0.6rem;">
-                                        <i class="fas fa-shield-alt"></i> 2FA
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -849,7 +830,6 @@
                         </div>
                         <div class="action-group">
                             <div class="skeleton" style="height:2.1rem;width:7rem;border-radius:0.5rem;"></div>
-                            <div class="skeleton" style="height:2.1rem;width:7rem;border-radius:0.5rem;"></div>
                         </div>
                     </div>
 
@@ -874,15 +854,13 @@
                         <div class="grid-2 mt-4" style="border-top:1px solid #eee8de;padding-top:0.75rem;">
                             <div>
                                 <div class="skeleton" style="height:0.9rem;width:8rem;margin-bottom:0.6rem;"></div>
-                                ${Array(4).fill(0).map(() => `
+                                ${Array(3).fill(0).map(() => `
                                     <div class="skeleton" style="height:0.9rem;width:100%;margin-bottom:0.4rem;"></div>
                                 `).join('')}
                             </div>
                             <div>
                                 <div class="skeleton" style="height:0.9rem;width:8rem;margin-bottom:0.6rem;"></div>
-                                ${Array(3).fill(0).map(() => `
-                                    <div class="skeleton" style="height:0.9rem;width:100%;margin-bottom:0.4rem;"></div>
-                                `).join('')}
+                                <div class="skeleton" style="height:2rem;width:10rem;"></div>
                             </div>
                         </div>
                     </div>
@@ -895,7 +873,6 @@
             window.showToast = showToast;
             window.toggleEdit = toggleEdit;
             window.saveProfile = saveProfile;
-            window.downloadActivityLog = downloadActivityLog;
             window.signOut = signOut;
             window.openPasswordModal = openPasswordModal;
             window.closePasswordModal = closePasswordModal;
