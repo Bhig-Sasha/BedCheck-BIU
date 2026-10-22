@@ -159,7 +159,7 @@
         @media (max-width: 480px) { .content-container { padding: 0.75rem; } }
 
         /* ============================================================
-           BUTTONS
+           BUTTONS — shared with BedCheck page
            ============================================================ */
         .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 0.5rem; background: var(--navy); color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; text-decoration: none; justify-content: center; }
         .btn-primary:hover { background: var(--navy-soft); }
@@ -185,7 +185,7 @@
         .btn-ghost i { margin-right: 0.25rem; }
 
         /* ============================================================
-           BADGES
+           BADGES — shared with BedCheck page
            ============================================================ */
         .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
         .badge-present { background: var(--green-bg); color: var(--green-text); }
@@ -280,10 +280,6 @@
         .search-section .search-wrap i { color: var(--muted); font-size: 0.8rem; }
         .search-section .search-wrap input { background: transparent; border: none; padding: 0.6rem 0.65rem; color: #17233c; font-size: 0.85rem; width: 100%; outline: none; font-family: inherit; }
         .search-section .search-wrap input::placeholder { color: var(--muted); }
-        .search-section .btn-search { padding: 0.6rem 1.4rem; background: var(--navy); color: white; border: none; border-radius: 0.5rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
-        .search-section .btn-search:hover { background: var(--navy-soft); }
-        .search-section .btn-reset { padding: 0.6rem 1rem; background: transparent; border: 1px solid var(--line); border-radius: 0.5rem; color: var(--muted); cursor: pointer; transition: all 0.2s; font-size: 0.8rem; font-family: inherit; }
-        .search-section .btn-reset:hover { background: var(--cream-bg); }
 
         .field { display: flex; flex-direction: column; gap: 0.2rem; }
         .field label { font-weight: 700; font-size: 0.75rem; color: #2c3e5a; }
@@ -906,6 +902,7 @@
 
         <div class="content-container">
             <div id="screenContent">
+                <!-- Skeleton while loading -->
                 <div class="page-heading">
                     <div>
                         <p class="eyebrow"><i class="fas fa-users"></i> Student Management</p>
@@ -1107,7 +1104,6 @@
             assignedRooms: [],
             hostels: [],
             staffMembers: [],
-            // Modal state
             modalStream: null,
             modalCaptured: false,
             modalCountingDown: false,
@@ -1168,10 +1164,6 @@
         // ============================================================
         function getToken() {
             return sessionStorage.getItem('bedcheck_token') || state.token;
-        }
-        function setToken(token) {
-            state.token = token;
-            sessionStorage.setItem('bedcheck_token', token);
         }
         function getHeaders() {
             const token = getToken();
@@ -1300,6 +1292,11 @@
 
             roleScope.textContent = `${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
             mobileRole.textContent = `RA · ${hostelDisplay} · ${areaDisplay} · ${roomCount} rooms`;
+
+            const brandSub = document.querySelector('.sidebar .brand-sub');
+            if (brandSub) brandSub.textContent = hostelDisplay;
+            const mobileBrandSub = document.querySelector('.mobile-drawer .brand-sub');
+            if (mobileBrandSub) mobileBrandSub.textContent = hostelDisplay;
         }
 
         function getInitials(name) {
@@ -1335,9 +1332,11 @@
             const totalEl = document.getElementById('totalStudents');
             const enrolledEl = document.getElementById('enrolledStudents');
             const pendingEl = document.getElementById('pendingStudents');
+            const rateEl = document.getElementById('enrolledRate');
             if (totalEl) totalEl.textContent = state.filtered.length;
             if (enrolledEl) enrolledEl.textContent = enrolled;
             if (pendingEl) pendingEl.textContent = pending;
+            if (rateEl) rateEl.textContent = `${state.filtered.length > 0 ? Math.round((enrolled / state.filtered.length) * 100) : 0}% complete`;
 
             const tbody = document.getElementById('studentTableBody');
             if (!tbody) return;
@@ -1368,8 +1367,8 @@
                     <td>${s.room_code || s.room || '—'}</td>
                     <td>${s.bed_code || s.bed || '—'}</td>
                     <td>
-                        <span class="status-badge ${s.face_enrolled ? 'enrolled' : 'pending'}">
-                            ${s.face_enrolled ? '🟢 Enrolled' : '🟠 Pending'}
+                        <span class="badge ${s.face_enrolled ? 'badge-enrolled' : 'badge-not-enrolled'}">
+                            ${s.face_enrolled ? 'Enrolled' : 'Pending'}
                         </span>
                     </td>
                     <td style="text-align:right;">
@@ -1484,6 +1483,7 @@
             const totalStudents = state.filtered.length;
             const enrolled = state.filtered.filter(s => s.face_enrolled === true).length;
             const pending = totalStudents - enrolled;
+            const rate = totalStudents > 0 ? Math.round((enrolled / totalStudents) * 100) : 0;
 
             container.innerHTML = `
                 <div class="page-heading">
@@ -1510,7 +1510,7 @@
                         <div class="metric-icon green"><i class="fas fa-check-circle"></i></div>
                         <div class="metric-value" id="enrolledStudents" style="color:#2d6545;">${enrolled}</div>
                         <div class="metric-title">Face Enrolled</div>
-                        <div class="metric-detail">${totalStudents > 0 ? Math.round((enrolled/totalStudents)*100) : 0}% complete</div>
+                        <div class="metric-detail" id="enrolledRate">${rate}% complete</div>
                     </div>
                     <div class="metric-card" style="border-left:3px solid #d4af37;">
                         <div class="metric-icon gold"><i class="fas fa-hourglass-half"></i></div>
@@ -1531,8 +1531,8 @@
                         <i class="fas fa-search"></i>
                         <input type="text" id="searchInput" placeholder="Search by name, matric, room..." />
                     </div>
-                    <button class="btn-search" onclick="performSearch()"><i class="fas fa-search"></i> Search</button>
-                    <button class="btn-reset" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
+                    <button class="btn-primary" onclick="performSearch()"><i class="fas fa-search"></i> Search</button>
+                    <button class="btn-outline" onclick="resetFilters()"><i class="fas fa-undo"></i> Reset</button>
                     <div class="field" style="min-width:140px;margin-left:auto;">
                         <select id="statusFilter" onchange="filterStudents()">
                             <option value="all">All Students</option>
