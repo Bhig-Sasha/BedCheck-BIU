@@ -546,7 +546,87 @@
         let globalSessionData = null;
         let lastLoggedSessionId = null;
         let isLoadingComplete = false;
-        let raSessionId = null;          // ⭐ RA session id (ra_bedcheck_sessions.id)
+        let raSessionId = null;          // ⭐ the REAL ra_bedcheck_sessions.id
+        let globalSessionId = null;      // ⭐ the global sessions.id (fallback only)
+
+        // =============================================
+        // SESSION STORAGE PERSISTENCE
+        // =============================================
+        function persistRASessionId(id) {
+            raSessionId = id;
+            if (id != null) {
+                sessionStorage.setItem('bedcheck_ra_session_id', String(id));
+            } else {
+                sessionStorage.removeItem('bedcheck_ra_session_id');
+            }
+        }
+
+        function restoreRASessionId() {
+            if (raSessionId != null) return raSessionId;
+            const stored = sessionStorage.getItem('bedcheck_ra_session_id');
+            if (stored) {
+                raSessionId = stored;
+            }
+            return raSessionId;
+        }
+
+        function clearRASessionId() {
+            raSessionId = null;
+            globalSessionId = null;
+            sessionStorage.removeItem('bedcheck_ra_session_id');
+        }
+
+        // =============================================
+        // EXTRACT ID FROM ANY RESPONSE SHAPE
+        // =============================================
+        // Pulls the RA session id from a /ra/bedcheck/start response.
+        // IMPORTANT: we do NOT read from active_session.id (that's the
+        // global session id) — that was the source of SESSION_NOT_FOUND.
+        function extractRAIdFromStart(result) {
+            if (!result) return null;
+            const d = result.data || result;
+
+            const candidates = [
+                d.ra_session_id,
+                d.raSessionId,
+                d.ra_bedcheck_session_id,
+                d.ra_session && d.ra_session.id,
+                d.ra_bedcheck_session && d.ra_bedcheck_session.id,
+                d.session && d.session.ra_session_id,
+                // Some backends return the newly created RA session row directly
+                d.session && d.session.ra_bedcheck_session_id,
+                // Last resort — a plain id only if it came with an RA marker
+                (d.session && d.session.ra_id != null) ? d.session.id : null
+            ];
+
+            for (const c of candidates) {
+                if (c != null && c !== '' && c !== 'completed') return c;
+            }
+            return null;
+        }
+
+        // For /ra/bedcheck/status, we can safely read `ra_session_id`
+        // if the backend exposes it — but we NEVER read `active_session.id`
+        // because that's the global session.
+        function extractRAIdFromStatus(data) {
+            if (!data) return null;
+            const candidates = [
+                data.ra_session_id,
+                data.raSessionId,
+                data.ra_bedcheck_session_id,
+                data.ra_session && data.ra_session.id,
+                data.ra_bedcheck_session && data.ra_bedcheck_session.id,
+                // If the backend attaches ra_id to a session, that's the RA session
+                data.active_session && data.active_session.ra_id != null ? data.active_session.id : null,
+                data.active_session && data.active_session.ra_session_id,
+                data.active_session && data.active_session.ra_bedcheck_session_id
+            ];
+
+            for (const c of candidates) {
+                if (c != null && c !== '' && c !== 'completed') return c;
+            }
+            return null;
+        }
 
         // =============================================
         // API HELPER
@@ -771,34 +851,6 @@
         }
 
         // =============================================
-        // RESOLVE "RA SESSION ID" FROM ANYTHING AVAILABLE
-        // =============================================
-        // The backend expects the ra_bedcheck_sessions.id (the RA's own
-        // session row), NOT the global sessions.id. This helper looks
-        // for it in every known shape the API might return.
-        function resolveRASessionId(source) {
-            if (!source) return null;
-            const s = source.data || source;
-
-            const candidates = [
-                s.ra_session_id,
-                s.raSessionId,
-                s.session_id,
-                s.active_session && s.active_session.id,
-                s.active_session && s.active_session.ra_session_id,
-                s.active_session && s.active_session.session_id,
-                s.session && s.session.id,
-                s.ra_bedcheck_session && s.ra_bedcheck_session.id,
-                s.id
-            ];
-
-            for (const c of candidates) {
-                if (c != null && c !== '' && c !== 'completed') return c;
-            }
-            return null;
-        }
-
-        // =============================================
         // DATA LOADING
         // =============================================
         async function loadStudents() {
@@ -945,12 +997,14 @@
                     globalSessionActive = true;
                     currentSession = data.data;
                     lastLoggedSessionId = data.data.id;
+                    globalSessionId = data.data.id;   // ⭐ capture global id separately
                     return data.data;
                 } else {
                     globalSessionData = null;
                     globalSessionActive = false;
                     currentSession = null;
                     lastLoggedSessionId = null;
+                    globalSessionId = null;
                     return null;
                 }
             } catch (error) {
@@ -960,6 +1014,7 @@
                 globalSessionData = null;
                 globalSessionActive = false;
                 currentSession = null;
+                globalSessionId = null;
                 return null;
             }
         }
@@ -969,6 +1024,9 @@
         // =============================================
         async function loadSessionStatus() {
             try {
+                // ⭐ Restore persisted RA session id first
+                restoreRASessionId();
+
                 const global = await loadGlobalSession();
 
                 if (!global) {
@@ -978,7 +1036,7 @@
                     globalSessionActive = false;
                     hasCompletedToday = false;
                     effectiveStatus = 'closed';
-                    raSessionId = null;
+                    clearRASessionId();
                     return null;
                 }
 
@@ -993,8 +1051,11 @@
                     effectiveStatus = data.effective_status || 'ready';
                     globalSessionActive = data.global_session_active || false;
 
-                    // ⭐ Capture the RA-specific session id
-                    raSessionId = resolveRASessionId(data) || raSessionId;
+                    // ⭐ Try to recover RA session id from status (only if it exposes an explicit RA id)
+                    if (!raSessionId) {
+                        const fromStatus = extractRAIdFromStatus(data);
+                        if (fromStatus) persistRASessionId(fromStatus);
+                    }
 
                     if (effectiveStatus === 'started') {
                         sessionStatus = 'active';
@@ -1014,6 +1075,7 @@
                         isSessionActive = false;
                     }
 
+                    // Keep the global session object for display only
                     if (data.active_session) {
                         currentSession = data.active_session;
                     } else if (global) {
@@ -1060,7 +1122,6 @@
                     hasCompletedToday = false;
                     effectiveStatus = 'ready';
                     currentSession = global;
-                    raSessionId = raSessionId || null;
                     return { effective_status: 'ready' };
                 }
 
@@ -1244,31 +1305,19 @@
             }
 
             try {
-                // ⭐ The backend needs the RA session id, not the global session id.
-                // Try raSessionId first, then re-fetch status if we don't have it.
-                if (!raSessionId) {
-                    await loadSessionStatus();
-                }
-
+                // The /start endpoint needs the GLOBAL session id.
+                // The RA session row (returned in the response) is what /complete needs.
                 const sessionId =
-                    raSessionId ||
-                    resolveRASessionId(currentSession) ||
-                    currentSession?.session_id ||
-                    currentSession?.ra_session_id ||
+                    globalSessionId ||
+                    globalSessionData?.id ||
                     currentSession?.id;
 
                 if (!sessionId) {
-                    showToast('Could not find RA session ID. Please refresh and try again.', 'error');
+                    showToast('Could not find session ID. Please refresh.', 'error');
                     return;
                 }
 
-                // ⭐ Send every possible key so whichever the backend reads works.
-                const payload = {
-                    session_id: sessionId,
-                    ra_session_id: sessionId,
-                    hostel_id: assignedHostelId
-                };
-
+                const payload = { session_id: sessionId, hostel_id: assignedHostelId };
                 console.log('[BedCheck] start payload:', payload);
 
                 const result = await apiCall('/ra/bedcheck/start', {
@@ -1276,23 +1325,31 @@
                     body: JSON.stringify(payload)
                 });
 
+                console.log('[BedCheck] start response:', JSON.stringify(result, null, 2));
+
                 if (result && result.success) {
+                    // ⭐ Save the RA session id from the START RESPONSE — this is the
+                    // only trustworthy source. Do NOT fall back to active_session.id.
+                    const startedId = extractRAIdFromStart(result);
+                    if (startedId) {
+                        persistRASessionId(startedId);
+                        console.log('[BedCheck] RA session id saved:', startedId);
+                    } else {
+                        console.warn('[BedCheck] Start response did not contain an RA session id. ' +
+                                     'The complete call may fail with SESSION_NOT_FOUND. ' +
+                                     'Full response:', result);
+                    }
+
                     isSessionActive = true;
                     isRASessionActive = true;
                     sessionStatus = 'active';
                     effectiveStatus = 'started';
 
-                    // ⭐ Capture whatever id the server returned as the RA session id
-                    const returnedId = resolveRASessionId(result);
-                    if (returnedId) raSessionId = returnedId;
-
                     if (result.data?.session) {
-                        currentSession = result.data.session;
-                    } else if (currentSession) {
-                        currentSession = { ...currentSession, id: sessionId };
+                        currentSession = { ...currentSession, ...result.data.session };
                     }
 
-                    addTimeline('BedCheck started', `Session ID: ${raSessionId || sessionId}`);
+                    addTimeline('BedCheck started', `RA session: ${raSessionId || '?'}`);
 
                     await loadSessionStatus();
 
@@ -1321,30 +1378,27 @@
             }
 
             try {
-                // ⭐ If we somehow lost the RA session id, re-fetch status first
+                restoreRASessionId();
+
+                // If we don't have a confirmed RA session id, try to recover from status
                 if (!raSessionId) {
                     await loadSessionStatus();
                 }
 
-                const sessionId =
-                    raSessionId ||
-                    resolveRASessionId(currentSession) ||
-                    currentSession?.session_id ||
-                    currentSession?.ra_session_id ||
-                    currentSession?.id;
+                // ⭐ Only send an id we know is the RA session — never active_session.id
+                const sessionId = raSessionId;
 
                 if (!sessionId) {
-                    showToast('No session found to complete. Please refresh.', 'error');
+                    showToast(
+                        'Cannot complete: the RA session id was not captured when you started. ' +
+                        'Please refresh and try again — if this persists, the backend did not return ' +
+                        'the RA session id in the /start response.',
+                        'error'
+                    );
                     return;
                 }
 
-                // ⭐ Send both keys — backend may look for either.
-                const payload = {
-                    session_id: sessionId,
-                    ra_session_id: sessionId,
-                    hostel_id: assignedHostelId
-                };
-
+                const payload = { session_id: sessionId, ra_session_id: sessionId, hostel_id: assignedHostelId };
                 console.log('[BedCheck] complete payload:', payload);
 
                 await apiCall('/ra/bedcheck/complete', {
@@ -1357,9 +1411,9 @@
                 sessionStatus = 'completed';
                 effectiveStatus = 'completed';
                 hasCompletedToday = true;
-                raSessionId = null;      // ⭐ reset
+                clearRASessionId();
 
-                addTimeline('BedCheck completed', `Session ID: ${sessionId}`);
+                addTimeline('BedCheck completed', `RA session: ${sessionId}`);
 
                 await loadSessionStatus();
 
@@ -1873,6 +1927,7 @@
             sessionStorage.removeItem('bedcheck_token');
             sessionStorage.removeItem('bedcheck_user');
             sessionStorage.removeItem('bedcheck_role');
+            sessionStorage.removeItem('bedcheck_ra_session_id');
             window.location.replace('../Login.html');
         }
 
@@ -1923,6 +1978,9 @@
             document.getElementById('closeDrawer').addEventListener('click', closeMobileDrawer);
             document.getElementById('drawerOverlay').addEventListener('click', closeMobileDrawer);
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+            // Restore persisted RA session id from previous page loads
+            restoreRASessionId();
 
             renderSkeleton();
             updateHeader();
