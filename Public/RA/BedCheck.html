@@ -1397,7 +1397,6 @@
         // RESOLVE ACTIVE SESSION ID (robust)
         // =============================================
         async function resolveSessionId() {
-            // 1. Try currentSession
             let sessionId = currentSession?.id
                          || currentSession?.session_id
                          || currentSession?.active_session?.id
@@ -1406,7 +1405,6 @@
 
             if (sessionId) return sessionId;
 
-            // 2. Query the RA status endpoint
             try {
                 const statusData = await apiCall('/ra/bedcheck/status');
                 const d = statusData?.data || statusData;
@@ -1422,7 +1420,6 @@
                          || null;
 
                 if (sessionId) {
-                    // Hydrate currentSession so subsequent calls work
                     if (!currentSession) {
                         currentSession = { id: sessionId };
                     } else if (!currentSession.id) {
@@ -1433,7 +1430,6 @@
                 console.warn('[BedCheck] Could not resolve session_id from /ra/bedcheck/status:', e);
             }
 
-            // 3. Last resort: global active session endpoint
             if (!sessionId) {
                 try {
                     const gs = await apiCall('/sessions/active');
@@ -1482,9 +1478,6 @@
                 const confidence = result.confidence || 0;
                 const confidencePercent = Math.round(confidence * 100);
 
-                // ==================================================
-                // SUCCESS BRANCH
-                // ==================================================
                 if (result.verified || result.success) {
                     const student = selectedStudent;
 
@@ -1616,18 +1609,12 @@
                     return;
                 }
 
-                // ==================================================
-                // FAILURE BRANCH
-                // ==================================================
-
-                // --- Low-confidence retry path ---
                 if (confidence >= 0.30 && confidence < 0.45 && currentVerificationAttempts < 3) {
                     showToast(
                         `🔄 ${confidencePercent}% confidence. Look directly at the camera with good lighting.`,
                         'info'
                     );
 
-                    // Reflect the low-confidence state in UI
                     if (faceBox) {
                         faceBox.className = 'face-box scanning';
                         const label = faceBox.querySelector('.label');
@@ -1719,9 +1706,6 @@
                 }
 
             } catch (error) {
-                // ==================================================
-                // UNEXPECTED ERROR
-                // ==================================================
                 console.error('[BedCheck] performVerificationWithAPI error:', error);
 
                 showToast('Error during verification: ' + error.message, 'error');
@@ -1972,7 +1956,6 @@
                     }
                 }
 
-                // Resolve the active session ID using a single robust path
                 activeSessionId = currentSession?.id
                                || currentSession?.session_id
                                || statusData?.data?.active_session?.session_id
@@ -1987,7 +1970,6 @@
                     currentSession = { id: activeSessionId };
                 }
 
-                // If no active session, clear scan statuses entirely.
                 if (!sessionIsActive && !hasCompletedToday && effectiveStatus !== 'completed') {
                     bedScanStatus = {};
                     completedRooms = [];
@@ -2245,7 +2227,6 @@
             const hasValidSessionData = sessionInfoParts.length > 0;
             const hasSession = globalSessionActive || effectiveStatus !== 'closed';
 
-            // Pre-check face status for the current room (memoized)
             if (currentRoom && roomStudents.length > 0) {
                 for (const student of roomStudents) {
                     if (!faceStatusFetched[student.id]) {
@@ -2254,7 +2235,6 @@
                 }
             }
 
-            // Build room list HTML
             let roomListHtml = '';
             if (allRooms.length > 0) {
                 const floorGroups = {};
@@ -2307,10 +2287,6 @@
                 roomListHtml = '<div class="text-muted text-sm p-2">No rooms found</div>';
             }
 
-            // =============================================
-            // STUDENT CARDS
-            // Status is derived ONLY from bedScanStatus — never from student.status.
-            // =============================================
             let studentCardsHtml = '';
             if (currentRoom && roomStudents.length > 0) {
                 studentCardsHtml = roomStudents.map(s => {
@@ -2324,7 +2300,6 @@
                     const isSessionEnded = effectiveStatus === 'completed' || hasCompletedToday;
                     const isSessionLive = isSessionActive && (effectiveStatus === 'started' || effectiveStatus === 'ready');
 
-                    // Only trust the scan record for this session.
                     if (scan) {
                         if (scan.verified === true || scan.status === 'Verified' || scan.status === 'Present') {
                             isVerified = true;
@@ -2339,7 +2314,6 @@
                             statusClass = 'pending';
                         }
                     }
-                    // No scan → remains Pending, regardless of student.status.
 
                     const bedLabel = getStudentBed(s.id) || '—';
                     const confidence = scan?.confidence ? ` · ${scan.confidence}%` : '';
@@ -2499,18 +2473,41 @@
         }
 
         // =============================================
-        // ROOM SELECTION
+        // ROOM SELECTION — with auto-absent persistence
         // =============================================
-        window.selectRoom = function(room) {
+        window.selectRoom = async function(room) {
             if (!isSessionActive && !globalSessionActive) {
                 showToast('No active session. Please wait for session to start.', 'error');
                 return;
             }
 
+            if (room === currentRoom) return;
+
+            // ==========================================
+            // AUTO-ABSENT: leaving a room without verifying
+            // everyone → mark the unverified students as Absent
+            // AND persist that to the backend.
+            // ==========================================
             if (currentRoom && currentRoom !== room) {
                 const prevRoomStudents = getStudentsForRoom(currentRoom);
-                prevRoomStudents.forEach(s => {
-                    if (!bedScanStatus[s.id]?.verified && isSessionActive && effectiveStatus === 'started') {
+                const unverified = prevRoomStudents.filter(s => !bedScanStatus[s.id]?.verified);
+
+                const canAutoAbsent = unverified.length > 0
+                                   && isSessionActive
+                                   && effectiveStatus === 'started';
+
+                if (canAutoAbsent) {
+                    // Resolve session id
+                    let sessionId = currentSession?.id
+                                 || currentSession?.session_id
+                                 || null;
+
+                    if (!sessionId) {
+                        sessionId = await resolveSessionId();
+                    }
+
+                    // 1) Local: mark as Absent immediately (UI is instant)
+                    unverified.forEach(s => {
                         bedScanStatus[s.id] = {
                             verified: false,
                             status: 'Absent',
@@ -2518,12 +2515,56 @@
                             method: 'auto-absent',
                             room: currentRoom
                         };
+                    });
+
+                    // 2) Remote: persist each Absent to backend
+                    if (sessionId) {
+                        const saves = unverified.map(s => {
+                            const payload = {
+                                session_id: sessionId,
+                                student_id: s.id,
+                                room: currentRoom,
+                                status: 'Absent',
+                                scanner_id: 'Auto-Absent',
+                                metadata: {
+                                    method: 'auto-absent',
+                                    reason: 'RA left room without verifying',
+                                    ra_id: currentUser?.id || null
+                                }
+                            };
+                            return apiCall('/bedcheck/scans', {
+                                method: 'POST',
+                                body: JSON.stringify(payload)
+                            }).catch(err => {
+                                console.warn(`[BedCheck] Failed to save auto-absent for ${s.name}:`, err);
+                            });
+                        });
+
+                        await Promise.all(saves);
+
+                        showToast(
+                            `📌 ${unverified.length} student(s) marked Absent in Room ${currentRoom}`,
+                            'info'
+                        );
+                    } else {
+                        console.warn('[BedCheck] No session_id — auto-absent saved locally only.');
+                        showToast(
+                            `⚠️ ${unverified.length} student(s) marked Absent locally (no session id to persist).`,
+                            'error'
+                        );
                     }
-                });
+                }
             }
 
+            // Switch to the new room
             currentRoom = room;
             currentRoomStudents = getStudentsForRoom(room);
+
+            // Pre-check face status for new room (memoized)
+            await Promise.all(
+                currentRoomStudents.map(s => checkStudentFaceStatus(s.id))
+            );
+
             showToast(`📋 Room ${room} selected. Click "Verify" for each student.`, 'info');
             renderBedCheck();
         };
